@@ -1,0 +1,20 @@
+{
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  "git.enableAutoFetch": true,
+  "git.autofetch": true,
+  "workbench.localHistory.enabled": true,
+  "workbench.localHistory.maxFileSize": 256,
+  "workbench.localHistory.maxFileEntries": 50,
+  "files.hotExit": "onExitAndWindowClose",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "git.confirmSync": false,
+  "git.enableSmartCommit": true,
+  "git.suggestSmartCommit": true,
+  "scm.inputFontFamily": "Consolas, 'Courier New', monospace",
+  "timeline.showView": true,
+  "timeline.pageSize": 20
+}

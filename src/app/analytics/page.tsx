@@ -27,6 +27,7 @@ export default function Analytics() {
               <div className="coming-soon">
                 <h2>Coming Soon</h2>
                 <p>Advanced analytics features are currently in development.</p>
+                <p>For now, visit the <a href="/data-driven" style={{color: '#00ff88'}}>Data-Driven</a> page for seasonal analysis.</p>
               </div>
             </div>
           </div>
