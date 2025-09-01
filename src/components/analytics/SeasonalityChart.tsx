@@ -82,6 +82,7 @@ const SeasonalityChart: React.FC = () => {
   });
 
   useEffect(() => {
+    console.log('SeasonalityChart useEffect triggered with selectedSymbol:', selectedSymbol);
     if (selectedSymbol) {
       loadSeasonalAnalysis(selectedSymbol);
     }
@@ -123,6 +124,7 @@ const SeasonalityChart: React.FC = () => {
       );
       
       setSeasonalData(processedData);
+      console.log('Seasonal data loaded successfully:', processedData.symbol, 'dailyData count:', processedData.dailyData.length);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load seasonal data';
