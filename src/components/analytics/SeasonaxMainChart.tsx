@@ -258,11 +258,11 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
       const paddedRange = paddedMax - paddedMin;
 
       // Draw background
-      ctx.fillStyle = '#1a2332';
+      ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, containerWidth, containerHeight);
 
       // Draw grid lines
-      ctx.strokeStyle = '#2a3441';
+      ctx.strokeStyle = '#333333';
       ctx.lineWidth = 1;
 
       // Horizontal grid lines
@@ -286,7 +286,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
 
       // Draw zero line
       const zeroY = containerHeight - padding.bottom - ((0 - paddedMin) / paddedRange) * chartHeight;
-      ctx.strokeStyle = '#4a5568';
+      ctx.strokeStyle = '#666666';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(padding.left, zeroY);
@@ -294,7 +294,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
       ctx.stroke();
 
       // Draw main seasonal line with processed data
-      ctx.strokeStyle = '#38d9a9'; // Teal color like Seasonax
+      ctx.strokeStyle = '#ffffff'; // White color for Bloomberg Terminal theme
       ctx.lineWidth = 3;
       ctx.beginPath();
 
@@ -318,7 +318,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
         
         const currentDateX = padding.left + (dayOfYear / 365) * chartWidth;
         
-        ctx.strokeStyle = '#3b82f6'; // Blue color for current date
+        ctx.strokeStyle = '#FF6600'; // Bloomberg Terminal orange color for current date
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]); // Dashed line
         ctx.beginPath();
@@ -328,15 +328,15 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
         ctx.setLineDash([]); // Reset line dash
         
         // Add current date label - bigger and more visible
-        ctx.fillStyle = '#3b82f6';
-        ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+        ctx.fillStyle = '#FF6600';
+        ctx.font = 'bold 20px "Roboto Mono", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('Today', currentDateX, padding.top - 15);
+        ctx.fillText('TODAY', currentDateX, padding.top - 15);
       }
 
       // Draw Y-axis labels - crispy white with % symbol and 30% smaller
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+      ctx.font = 'bold 17px "Roboto Mono", monospace';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
 
@@ -348,10 +348,10 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
 
       // Draw X-axis labels (months) - crispy white and 30% smaller
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+      ctx.font = 'bold 17px "Roboto Mono", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
       
       monthStarts.forEach((dayOfYear, index) => {
         if (index < monthNames.length) {
@@ -362,16 +362,16 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
 
       // Chart title - crispy white and bigger
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+      ctx.font = 'bold 28px "Roboto Mono", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('Annual Seasonality', containerWidth / 2, 25);
+      ctx.fillText('ANNUAL SEASONALITY', containerWidth / 2, 25);
       
     } catch (error) {
       console.error('Error drawing main seasonal chart:', error);
       // Try to clear canvas on error to prevent corrupted display
       try {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#1a2332';
+        ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, containerWidth, containerHeight);
       } catch (clearError) {
         console.error('Error clearing canvas:', clearError);

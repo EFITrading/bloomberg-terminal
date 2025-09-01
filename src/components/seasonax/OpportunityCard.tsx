@@ -35,11 +35,18 @@ const SeasonalChart: React.FC<SeasonalChartProps> = ({ data, height = 40 }) => {
 
 interface OpportunityCardProps {
   pattern: SeasonalPattern;
+  rank?: number;
 }
 
-const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern }) => {
+const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
   return (
     <div className="opportunity-card">
+      {rank && (
+        <div className="card-rank">
+          #{rank}
+        </div>
+      )}
+      
       <div className="card-chart">
         <SeasonalChart data={pattern.chartData} />
       </div>
@@ -58,15 +65,15 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern }) => {
       
       <div className="card-metrics">
         <div className="metric">
-          <div className="metric-value positive">
-            +{pattern.annualizedReturn.toFixed(1)}%
+          <div className={`metric-value ${pattern.annualizedReturn >= 0 ? 'positive' : 'negative'}`}>
+            {pattern.annualizedReturn >= 0 ? '+' : ''}{pattern.annualizedReturn.toFixed(1)}%
           </div>
           <div className="metric-label">Annualized return</div>
         </div>
         
         <div className="metric">
-          <div className="metric-value positive">
-            +{pattern.winRate.toFixed(1)}%
+          <div className={`metric-value ${pattern.winRate >= 50 ? 'positive' : 'negative'}`}>
+            {pattern.winRate.toFixed(1)}%
           </div>
           <div className="metric-label">Winning trades</div>
         </div>

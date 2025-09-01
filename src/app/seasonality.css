@@ -1,7 +1,7 @@
-/* Data-Driven Page Integration */
+/* Data-Driven Page Integration - Bloomberg Terminal Theme */
 .data-driven-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+  background: #000000;
   color: #ffffff;
   font-family: 'Roboto Mono', monospace;
 }
@@ -11,38 +11,44 @@
   align-items: center;
   gap: 20px;
   padding: 20px;
-  border-bottom: 1px solid #333;
-  background: rgba(0, 0, 0, 0.5);
+  border-bottom: 2px solid #FF6600;
+  background: #111111;
 }
 
 .back-button {
-  padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid #444;
-  color: #00ff88;
-  border-radius: 6px;
+  padding: 12px 24px;
+  background: #000000;
+  border: 2px solid #FF6600;
+  color: #FF6600;
+  border-radius: 4px;
   cursor: pointer;
-  font-weight: bold;
+  font-weight: 700;
   transition: all 0.2s;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .back-button:hover {
-  background: rgba(0, 255, 136, 0.1);
-  border-color: #00ff88;
+  background: #FF6600;
+  color: #000000;
 }
 
 .navigation-header h1 {
   margin: 0;
-  color: #00ff88;
-  font-size: 24px;
+  color: #FF6600;
+  font-size: 28px;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 2px;
 }
 
-/* Seasonax Chart Styles - Exact Seasonax Theme */
+/* Seasonax Chart Styles - Bloomberg Terminal Theme */
 .seasonax-container {
   min-height: 100vh;
-  background: #1a2332;
+  background: #000000;
   color: #ffffff;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: 'Roboto Mono', monospace;
   display: flex;
   flex-direction: column;
 }
@@ -52,15 +58,15 @@
   justify-content: space-between;
   align-items: center;
   padding: 15px 20px;
-  background: #1a2332;
-  border-bottom: 1px solid #2a3441;
+  background: #111111;
+  border-bottom: 2px solid #FF6600;
   flex-shrink: 0;
 }
 
 .seasonax-content {
   flex: 1;
   display: flex;
-  background: #1a2332;
+  background: #000000;
   min-height: 0;
 }
 
@@ -69,21 +75,22 @@
   display: flex;
   flex-direction: column;
   padding: 20px;
-  min-height: 500px; /* Minimum height to prevent collapse */
-  max-height: calc(100vh - 120px); /* More stable height calculation */
-  overflow: hidden; /* Prevent scrolling issues */
+  min-height: 500px;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+  background: #000000;
 }
 
 .seasonax-sidebar {
   width: 320px;
-  background: #1a2332;
-  border-left: 1px solid #2a3441;
+  background: #111111;
+  border-left: 2px solid #FF6600;
   padding: 20px;
   overflow-y: auto;
   flex-shrink: 0;
 }
 
-/* Symbol Search - Seasonax Style */
+/* Symbol Search - Bloomberg Terminal Style */
 .seasonax-symbol-search {
   position: relative;
   display: flex;
@@ -105,27 +112,34 @@
 }
 
 .symbol-ticker {
-  font-size: 18px;
-  font-weight: bold;
-  color: #ffffff;
+  font-size: 20px;
+  font-weight: 700;
+  color: #FF6600;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .symbol-exchange,
 .symbol-currency {
   font-size: 12px;
-  color: #a0aec0;
-  background: #2a3441;
-  padding: 2px 6px;
-  border-radius: 3px;
+  color: #ffffff;
+  background: #333333;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #FF6600;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
 }
 
 .symbol-company {
   font-size: 14px;
-  color: #a0aec0;
+  color: #ffffff;
   max-width: 250px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .search-input-container {
@@ -134,17 +148,19 @@
 
 .seasonax-search-input {
   width: 200px;
-  padding: 8px 35px 8px 12px;
-  background: #2a3441;
-  border: 1px solid #4a5568;
-  border-radius: 6px;
+  padding: 10px 35px 10px 12px;
+  background: #000000;
+  border: 2px solid #333333;
+  border-radius: 4px;
   color: #ffffff;
   font-size: 14px;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .seasonax-search-input:focus {
   outline: none;
-  border-color: #38d9a9;
+  border-color: #FF6600;
+  box-shadow: 0 0 10px rgba(255, 102, 0, 0.3);
 }
 
 .search-icon {
@@ -152,7 +168,7 @@
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  color: #a0aec0;
+  color: #FF6600;
   font-size: 14px;
 }
 
@@ -161,18 +177,18 @@
   top: 100%;
   left: 0;
   right: 0;
-  background: #2a3441;
-  border: 1px solid #4a5568;
-  border-radius: 6px;
+  background: #111111;
+  border: 2px solid #FF6600;
+  border-radius: 4px;
   margin-top: 4px;
   max-height: 300px;
   overflow-y: auto;
   z-index: 1000;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 16px rgba(255, 102, 0, 0.3);
 }
 
 .search-section {
-  border-bottom: 1px solid #4a5568;
+  border-bottom: 1px solid #333333;
 }
 
 .search-section:last-child {
@@ -182,9 +198,12 @@
 .search-section-title {
   padding: 8px 12px;
   font-size: 12px;
-  font-weight: 600;
-  color: #a0aec0;
-  background: #1a2332;
+  font-weight: 700;
+  color: #FF6600;
+  background: #000000;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .search-result-item {
@@ -194,32 +213,34 @@
   padding: 10px 12px;
   cursor: pointer;
   transition: background-color 0.2s;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .search-result-item:hover {
-  background: #38d9a9;
-  color: #1a2332;
+  background: #FF6600;
+  color: #000000;
 }
 
 .result-symbol {
-  font-weight: 600;
-  color: #38d9a9;
+  font-weight: 700;
+  color: #FF6600;
+  text-transform: uppercase;
 }
 
 .search-result-item:hover .result-symbol {
-  color: #1a2332;
+  color: #000000;
 }
 
 .result-name {
-  color: #e2e8f0;
+  color: #ffffff;
   font-size: 13px;
 }
 
 .search-result-item:hover .result-name {
-  color: #1a2332;
+  color: #000000;
 }
 
-/* Controls - Seasonax Style */
+/* Controls - Bloomberg Terminal Style */
 .seasonax-controls {
   display: flex;
   align-items: center;
@@ -235,18 +256,22 @@
 
 .nav-btn,
 .control-btn {
-  padding: 8px 12px;
-  background: #2a3441;
-  border: 1px solid #4a5568;
-  color: #a0aec0;
+  padding: 10px 15px;
+  background: #000000;
+  border: 2px solid #333333;
+  color: #ffffff;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   transition: all 0.2s;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .control-btn svg {
@@ -257,31 +282,35 @@
 
 .nav-btn:hover,
 .control-btn:hover {
-  background: #38d9a9;
-  color: #1a2332;
-  border-color: #38d9a9;
+  background: #FF6600;
+  color: #000000;
+  border-color: #FF6600;
 }
 
 .control-btn.active {
-  background: #38d9a9;
-  color: #1a2332;
-  border-color: #38d9a9;
-  box-shadow: 0 0 0 2px rgba(56, 217, 169, 0.2);
+  background: #FF6600;
+  color: #000000;
+  border-color: #FF6600;
+  box-shadow: 0 0 10px rgba(255, 102, 0, 0.3);
 }
 
 .date-select {
-  padding: 8px 12px;
-  background: #2a3441;
-  border: 1px solid #4a5568;
+  padding: 10px 15px;
+  background: #000000;
+  border: 2px solid #333333;
   color: #ffffff;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 12px;
   cursor: pointer;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .date-select:focus {
   outline: none;
-  border-color: #38d9a9;
+  border-color: #FF6600;
+  box-shadow: 0 0 10px rgba(255, 102, 0, 0.3);
 }
 
 .more-dropdown {
@@ -292,12 +321,12 @@
   position: absolute;
   top: 100%;
   right: 0;
-  background: #2a3441;
-  border: 1px solid #4a5568;
-  border-radius: 6px;
+  background: #111111;
+  border: 2px solid #FF6600;
+  border-radius: 4px;
   margin-top: 4px;
   min-width: 180px;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 16px rgba(255, 102, 0, 0.3);
   z-index: 1000;
   overflow: hidden;
 }
@@ -305,28 +334,31 @@
 .menu-item {
   display: block;
   width: 100%;
-  padding: 10px 15px;
+  padding: 12px 15px;
   background: none;
   border: none;
-  color: #e2e8f0;
+  color: #ffffff;
   text-align: left;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   transition: background-color 0.2s;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .menu-item:hover {
-  background: #38d9a9;
-  color: #1a2332;
+  background: #FF6600;
+  color: #000000;
 }
 
 .menu-divider {
   height: 1px;
-  background: #4a5568;
+  background: #333333;
   margin: 5px 0;
 }
 
-/* Main Chart Area */
+/* Main Chart Area - Bloomberg Terminal Style */
 .seasonax-main-chart {
   flex: 1;
   display: flex;
@@ -338,9 +370,9 @@
 
 .main-chart-container {
   flex: 1;
-  background: #1a2332;
-  border: 1px solid #2a3441;
-  border-radius: 8px;
+  background: #111111;
+  border: 2px solid #333333;
+  border-radius: 4px;
   padding: 20px;
   min-height: 400px;
   height: calc(100% - 250px);
@@ -354,15 +386,16 @@
   height: 100%;
   max-width: 100%;
   max-height: 100%;
-  min-width: 300px; /* Prevent collapse */
-  min-height: 200px; /* Prevent collapse */
+  min-width: 300px;
+  min-height: 200px;
   border-radius: 4px;
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
   image-rendering: pixelated;
   display: block;
-  background: #1a2332; /* Fallback background */
-  position: relative; /* Ensure proper positioning */
+  background: #000000;
+  position: relative;
+  border: 1px solid #FF6600;
 }
 
 .sub-charts {
@@ -374,13 +407,17 @@
 
 .sub-chart {
   flex: 1;
-  background: #1a2332;
-  border: 1px solid #2a3441;
-  border-radius: 8px;
+  background: #111111;
+  border: 2px solid #333333;
+  border-radius: 4px;
   padding: 15px;
   overflow: hidden;
   position: relative;
   min-width: 0;
+}
+
+.sub-chart:hover {
+  border-color: #FF6600;
 }
 
 /* Main Chart Container - Stable sizing */
@@ -393,7 +430,7 @@
   width: 100%;
   position: relative;
   overflow: hidden;
-  background: #1a2332;
+  background: #000000;
 }
 
 .main-chart-container {
@@ -415,9 +452,11 @@
   image-rendering: crisp-edges;
   image-rendering: pixelated;
   display: block;
+  background: #000000;
+  border: 1px solid #333333;
 }
 
-/* Statistics Panel - Exact Seasonax Layout */
+/* Statistics Panel - Bloomberg Terminal Style */
 .seasonax-statistics {
   display: flex;
   flex-direction: column;
@@ -431,8 +470,9 @@
   justify-content: center;
   gap: 20px;
   padding: 20px;
-  background: #2a3441;
-  border-radius: 8px;
+  background: #111111;
+  border: 2px solid #333333;
+  border-radius: 4px;
 }
 
 .pattern-circle {
@@ -442,9 +482,9 @@
   justify-content: center;
   width: 80px;
   height: 80px;
-  border: 4px solid #38d9a9;
+  border: 4px solid #FF6600;
   border-radius: 50%;
-  background: conic-gradient(#38d9a9 0deg 324deg, #4a5568 324deg 360deg);
+  background: conic-gradient(#FF6600 0deg 324deg, #333333 324deg 360deg);
   position: relative;
 }
 
@@ -453,24 +493,28 @@
   position: absolute;
   width: 60px;
   height: 60px;
-  background: #1a2332;
+  background: #000000;
   border-radius: 50%;
   z-index: 1;
 }
 
 .pattern-percentage {
   font-size: 16px;
-  font-weight: bold;
-  color: #38d9a9;
+  font-weight: 700;
+  color: #FF6600;
   z-index: 2;
   position: relative;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .pattern-label {
-  font-size: 12px;
-  color: #a0aec0;
+  font-size: 10px;
+  color: #ffffff;
   z-index: 2;
   position: relative;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .pattern-rest {
@@ -481,13 +525,16 @@
 
 .rest-percentage {
   font-size: 14px;
-  font-weight: bold;
-  color: #a0aec0;
+  font-weight: 700;
+  color: #ffffff;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .rest-label {
-  font-size: 12px;
-  color: #a0aec0;
+  font-size: 10px;
+  color: #888888;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
 }
 
 .main-stats {
@@ -505,38 +552,49 @@
   flex: 1;
   text-align: center;
   padding: 15px;
-  background: #2a3441;
-  border-radius: 6px;
+  background: #111111;
+  border: 1px solid #333333;
+  border-radius: 4px;
 }
 
 .stat-large .stat-value {
   font-size: 24px;
-  font-weight: bold;
+  font-weight: 700;
   margin-bottom: 5px;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .stat-large.positive .stat-value {
-  color: #38d9a9;
+  color: #00FF00;
+}
+
+.stat-large.negative .stat-value {
+  color: #FF0000;
 }
 
 .stat-large .stat-label {
-  font-size: 12px;
-  color: #a0aec0;
-  text-transform: capitalize;
+  font-size: 10px;
+  color: #ffffff;
+  text-transform: uppercase;
+  font-family: 'Roboto Mono', monospace;
+  letter-spacing: 1px;
 }
 
 .stat-section {
-  background: #2a3441;
-  border-radius: 6px;
+  background: #111111;
+  border: 1px solid #333333;
+  border-radius: 4px;
   padding: 15px;
 }
 
 .section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #FF6600;
   margin-bottom: 15px;
   text-transform: uppercase;
+  font-family: 'Roboto Mono', monospace;
+  letter-spacing: 1px;
 }
 
 .stat-row {
@@ -557,22 +615,25 @@
 }
 
 .stat-item .stat-label {
-  font-size: 12px;
-  color: #a0aec0;
+  font-size: 10px;
+  color: #ffffff;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
 }
 
 .stat-item .stat-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .stat-item .stat-value.positive {
-  color: #38d9a9;
+  color: #00FF00;
 }
 
 .stat-item .stat-value.negative {
-  color: #f56565;
+  color: #FF0000;
 }
 
 .gains-losses {
@@ -583,8 +644,9 @@
 .gains-section,
 .losses-section {
   flex: 1;
-  background: #2a3441;
-  border-radius: 6px;
+  background: #111111;
+  border: 1px solid #333333;
+  border-radius: 4px;
   padding: 15px;
 }
 
@@ -597,61 +659,76 @@
 
 .gain-loss-number {
   font-size: 24px;
-  font-weight: bold;
-  color: #e2e8f0;
+  font-weight: 700;
+  color: #ffffff;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .gain-loss-label {
-  font-size: 12px;
-  color: #a0aec0;
+  font-size: 10px;
+  color: #ffffff;
+  text-transform: uppercase;
+  font-family: 'Roboto Mono', monospace;
+  letter-spacing: 1px;
 }
 
 .gain-loss-percentage {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .gain-loss-percentage.positive {
-  color: #38d9a9;
+  color: #00FF00;
 }
 
 .gain-loss-percentage.negative {
-  color: #f56565;
+  color: #FF0000;
 }
 
 .gain-loss-sublabel {
-  font-size: 11px;
-  color: #a0aec0;
+  font-size: 9px;
+  color: #888888;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
 }
 
 .data-period {
-  background: #2a3441;
-  border-radius: 6px;
+  background: #111111;
+  border: 1px solid #333333;
+  border-radius: 4px;
   padding: 15px;
 }
 
 .period-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #FF6600;
   margin-bottom: 10px;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .period-range {
   font-size: 16px;
-  font-weight: bold;
-  color: #38d9a9;
+  font-weight: 700;
+  color: #ffffff;
   margin-bottom: 5px;
+  font-family: 'Roboto Mono', monospace;
 }
 
 .period-years {
-  font-size: 12px;
-  color: #a0aec0;
+  font-size: 10px;
+  color: #888888;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
 }
 
 .events-section {
-  background: #2a3441;
-  border-radius: 6px;
+  background: #111111;
+  border: 1px solid #333333;
+  border-radius: 4px;
   padding: 15px;
 }
 
@@ -667,18 +744,27 @@
 
 .events-btn {
   padding: 6px 12px;
-  background: #1a2332;
-  border: 1px solid #4a5568;
-  color: #a0aec0;
+  background: #000000;
+  border: 1px solid #333333;
+  color: #ffffff;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 10px;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
+}
+
+.events-btn:hover {
+  border-color: #FF6600;
+  box-shadow: 0 0 10px rgba(255, 102, 0, 0.3);
 }
 
 .events-btn.active {
-  background: #38d9a9;
-  color: #1a2332;
-  border-color: #38d9a9;
+  background: #FF6600;
+  color: #000000;
+  border-color: #FF6600;
 }
 
 /* Error and Loading States */
@@ -687,38 +773,47 @@
   align-items: center;
   justify-content: center;
   height: 400px;
-  background: #1a2332;
+  background: #000000;
   margin: 20px;
-  border-radius: 8px;
+  border: 1px solid #333333;
+  border-radius: 4px;
 }
 
 .error-content {
   text-align: center;
   padding: 40px;
-  background: rgba(245, 101, 101, 0.1);
-  border: 1px solid #f56565;
-  border-radius: 8px;
+  background: #220000;
+  border: 1px solid #FF0000;
+  border-radius: 4px;
   max-width: 400px;
 }
 
 .error-content h3 {
-  color: #f56565;
+  color: #FF0000;
   margin-bottom: 15px;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .retry-button {
   margin-top: 20px;
   padding: 10px 20px;
-  background: #f56565;
-  color: white;
+  background: #FF0000;
+  color: #ffffff;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-weight: bold;
+  font-weight: 700;
+  font-family: 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
 }
 
 .retry-button:hover {
-  background: #e53e3e;
+  background: #cc0000;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.3);
 }
 
 .seasonax-loading {
@@ -728,16 +823,17 @@
   justify-content: center;
   height: 400px;
   gap: 20px;
-  background: #1a2332;
+  background: #000000;
   margin: 20px;
-  border-radius: 8px;
+  border: 1px solid #333333;
+  border-radius: 4px;
 }
 
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #2a3441;
-  border-top: 4px solid #38d9a9;
+  border: 4px solid #333333;
+  border-top: 4px solid #FF6600;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -756,7 +852,7 @@
   .seasonax-sidebar {
     width: 100%;
     border-left: none;
-    border-top: 1px solid #2a3441;
+    border-top: 1px solid #333333;
   }
   
   .sub-charts {
@@ -794,4 +890,82 @@
   .gains-losses {
     flex-direction: column;
   }
+}
+
+/* Additional Bloomberg Terminal Effects */
+.terminal-glow {
+  text-shadow: 0 0 5px #FF6600;
+}
+
+.terminal-border {
+  border: 1px solid #FF6600;
+  box-shadow: 0 0 10px rgba(255, 102, 0, 0.3);
+}
+
+.terminal-text {
+  font-family: 'Roboto Mono', monospace;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Chart Grid Lines */
+.chart-grid {
+  stroke: #333333;
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.chart-axis {
+  stroke: #666666;
+  stroke-width: 1;
+}
+
+.chart-text {
+  fill: #ffffff;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+/* Data Tables */
+.data-table {
+  width: 100%;
+  background: #000000;
+  border: 1px solid #333333;
+  border-collapse: collapse;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.data-table th,
+.data-table td {
+  padding: 8px 12px;
+  border: 1px solid #333333;
+  text-align: left;
+}
+
+.data-table th {
+  background: #111111;
+  color: #FF6600;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 10px;
+}
+
+.data-table td {
+  color: #ffffff;
+  font-size: 11px;
+}
+
+.data-table tr:hover {
+  background: #111111;
+}
+
+.positive-value {
+  color: #00FF00 !important;
+}
+
+.negative-value {
+  color: #FF0000 !important;
 }
