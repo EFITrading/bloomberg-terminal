@@ -5,9 +5,10 @@ import React, { useState } from 'react';
 interface HeroSectionProps {
   onScreenerStart?: (market: string) => void;
   onStartScreener?: () => void;
+  onSectorsClick?: () => void;
 }
 
-const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScreener }) => {
+const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScreener, onSectorsClick }) => {
   const [selectedMarket, setSelectedMarket] = useState('S&P 500');
 
   const markets = [
@@ -28,7 +29,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
   return (
     <div className="seasonax-hero">
       <div className="hero-background">
-        <div className="hero-waves"></div>
+        <div className="hero-geometric-pattern"></div>
       </div>
       
       <div className="hero-content">
@@ -36,6 +37,12 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
         <p className="hero-subtitle">
           Find the best trading opportunity on a daily basis with one click!
         </p>
+        
+        <div className="hero-additional-content">
+          <p className="hero-description">
+            Discover seasonal patterns and market opportunities with advanced analytics
+          </p>
+        </div>
         
         <div className="hero-controls">
           <div className="market-selector">
@@ -50,6 +57,15 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="hero-center-content">
+            <button 
+              className="sectors-industries-btn"
+              onClick={onSectorsClick}
+            >
+              Sectors/Industries
+            </button>
           </div>
           
           <button 

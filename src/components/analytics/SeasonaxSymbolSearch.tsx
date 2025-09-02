@@ -110,7 +110,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                 onClick={() => handleSymbolClick(searchTerm)}
               >
                 <div className="result-symbol">{searchTerm}</div>
-                <div className="result-name">Search for "{searchTerm}"</div>
+                <div className="result-name">Search for &quot;{searchTerm}&quot;</div>
               </div>
             </div>
           )}

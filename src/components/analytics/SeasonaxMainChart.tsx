@@ -22,7 +22,18 @@ interface SeasonalAnalysis {
   currency: string;
   period: string;
   dailyData: DailySeasonalData[];
-  statistics: any;
+  statistics: {
+    totalReturn: number;
+    annualizedReturn: number;
+    volatility: number;
+    sharpeRatio: number;
+    maxDrawdown: number;
+    winRate: number;
+    avgWin: number;
+    avgLoss: number;
+    bestTrade: number;
+    worstTrade: number;
+  };
   patternReturns: { [year: number]: number };
 }
 
@@ -36,10 +47,12 @@ interface ChartSettings {
   smoothing: boolean;
   detrend: boolean;
   showCurrentDate: boolean;
+  comparisonSymbols: string[];
 }
 
 interface SeasonaxMainChartProps {
   data: SeasonalAnalysis;
+  comparisonData?: SeasonalAnalysis[];
   settings: ChartSettings;
 }
 
@@ -95,20 +108,65 @@ const detrendData = (data: DailySeasonalData[]): DailySeasonalData[] => {
   return detrended;
 };
 
-const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings }) => {
+// Helper function to draw a seasonal line
+const drawSeasonalLine = (
+  ctx: CanvasRenderingContext2D,
+  dataPoints: DailySeasonalData[],
+  containerWidth: number,
+  containerHeight: number,
+  padding: { top: number; right: number; bottom: number; left: number },
+  chartWidth: number,
+  chartHeight: number,
+  paddedMin: number,
+  paddedRange: number,
+  color: string,
+  lineWidth: number,
+  symbol: string
+) => {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+
+  dataPoints.forEach((dayData, index) => {
+    const x = padding.left + (dayData.dayOfYear / 365) * chartWidth;
+    const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+    
+    if (index === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  });
+  ctx.stroke();
+  
+  // Add symbol label at the end of the line
+  if (dataPoints.length > 0) {
+    const lastPoint = dataPoints[dataPoints.length - 1];
+    const x = padding.left + (lastPoint.dayOfYear / 365) * chartWidth;
+    const y = containerHeight - padding.bottom - ((lastPoint.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+    
+    ctx.fillStyle = color;
+    ctx.font = 'bold 12px "Roboto Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(symbol, x + 5, y - 5);
+  }
+};
+
+const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     console.log('SeasonaxMainChart useEffect triggered', { 
       hasData: !!data, 
-      hasCanvas: !!canvasRef.current
+      hasCanvas: !!canvasRef.current,
+      comparisonCount: comparisonData.length
     });
     if (data && canvasRef.current) {
       console.log('Drawing charts with data:', data.symbol, 'dailyData length:', data.dailyData.length);
       drawCharts();
     }
-  }, [data, settings]);
+  }, [data, comparisonData, settings]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -246,10 +304,29 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
         processedData = detrendData(processedData);
       }
 
-      // Get data bounds from processed data
-      const cumulativeReturns = processedData.map(d => d.cumulativeReturn);
-      const minReturn = Math.min(...cumulativeReturns);
-      const maxReturn = Math.max(...cumulativeReturns);
+      // Get data bounds from processed data and comparison data
+      let allCumulativeReturns = processedData.map(d => d.cumulativeReturn);
+      
+      // Include comparison data in bounds calculation
+      comparisonData.forEach(compData => {
+        if (compData && compData.dailyData) {
+          let compProcessedData = compData.dailyData;
+          
+          // Apply same processing as main data
+          if (settings.smoothing) {
+            compProcessedData = smoothData(compProcessedData);
+          }
+          if (settings.detrend) {
+            compProcessedData = detrendData(compProcessedData);
+          }
+          
+          const compReturns = compProcessedData.map(d => d.cumulativeReturn);
+          allCumulativeReturns = allCumulativeReturns.concat(compReturns);
+        }
+      });
+      
+      const minReturn = Math.min(...allCumulativeReturns);
+      const maxReturn = Math.max(...allCumulativeReturns);
       const returnRange = maxReturn - minReturn;
       
       // Add padding to range
@@ -294,21 +371,26 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
       ctx.stroke();
 
       // Draw main seasonal line with processed data
-      ctx.strokeStyle = '#ffffff'; // White color for Bloomberg Terminal theme
-      ctx.lineWidth = 3;
-      ctx.beginPath();
+      drawSeasonalLine(ctx, processedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, '#ffffff', 3, data.symbol);
 
-      processedData.forEach((dayData, index) => {
-        const x = padding.left + (dayData.dayOfYear / 365) * chartWidth;
-        const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
-        
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
+      // Draw comparison lines
+      const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000'];
+      comparisonData.forEach((compData, index) => {
+        if (compData && compData.dailyData) {
+          let compProcessedData = compData.dailyData;
+          
+          // Apply same processing as main data
+          if (settings.smoothing) {
+            compProcessedData = smoothData(compProcessedData);
+          }
+          if (settings.detrend) {
+            compProcessedData = detrendData(compProcessedData);
+          }
+          
+          const color = comparisonColors[index % comparisonColors.length];
+          drawSeasonalLine(ctx, compProcessedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, color, 2, compData.symbol);
         }
       });
-      ctx.stroke();
 
       // Draw current date line if enabled
       if (settings.showCurrentDate) {
@@ -360,11 +442,6 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
         }
       });
 
-      // Chart title - crispy white and bigger
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 28px "Roboto Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('ANNUAL SEASONALITY', containerWidth / 2, 25);
       
     } catch (error) {
       console.error('Error drawing main seasonal chart:', error);
@@ -404,6 +481,29 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, settings })
             height: '100%'
           }}
         />
+        
+        {/* Chart Legend */}
+        {(comparisonData.length > 0) && (
+          <div className="chart-legend">
+            <div className="legend-title">Symbols</div>
+            <div className="legend-items">
+              <div className="legend-item main">
+                <div className="legend-color" style={{ backgroundColor: '#ffffff' }}></div>
+                <div className="legend-label">{data.symbol}</div>
+              </div>
+              {comparisonData.map((compData, index) => {
+                const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000'];
+                const color = comparisonColors[index % comparisonColors.length];
+                return (
+                  <div key={compData.symbol} className="legend-item comparison">
+                    <div className="legend-color" style={{ backgroundColor: color }}></div>
+                    <div className="legend-label">{compData.symbol}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

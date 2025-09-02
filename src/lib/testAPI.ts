@@ -21,7 +21,7 @@ const testPolygonAPI = async () => {
     // Test 3: Analyze seasonal pattern
     console.log('🔍 Testing seasonal analysis...');
     const pattern = await service.analyzeSeasonalPattern('AAPL', 8, 12, 9, 18, 5);
-    console.log('✅ Seasonal pattern:', pattern?.symbol, pattern?.annualizedReturn);
+    console.log('✅ Seasonal pattern:', pattern?.symbol, pattern?.averageReturn);
     
     return true;
   } catch (error) {

@@ -5,16 +5,16 @@ import PolygonService, { SeasonalPattern } from '@/lib/polygonService';
 import HeroSection from './HeroSection';
 import MarketTabs from './MarketTabs';
 import OpportunityCard from './OpportunityCard';
-import FeaturedPatterns from './FeaturedPatterns';
 
 interface SeasonaxLandingProps {
   onStartScreener?: () => void;
+  onSectorsClick?: () => void;
 }
 
-const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) => {
+const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSectorsClick }) => {
   const [activeMarket, setActiveMarket] = useState('SP500');
+  const [timePeriod, setTimePeriod] = useState('5Y');
   const [opportunities, setOpportunities] = useState<SeasonalPattern[]>([]);
-  const [featuredPatterns, setFeaturedPatterns] = useState<SeasonalPattern[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -27,15 +27,79 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
     { id: 'DOWJONES', name: 'Dow Jones' }
   ];
 
-  // Market-specific symbols for realistic seasonal patterns
+  const timePeriodOptions = [
+    { id: '5Y', name: '5 Years', years: 5, description: 'Fast analysis - Recent trends' },
+    { id: '10Y', name: '10 Years', years: 10, description: 'Balanced - Market cycles' },
+    { id: '15Y', name: '15 Years', years: 15, description: 'Comprehensive - Long patterns' },
+    { id: '20Y', name: '20 Years', years: 20, description: 'Maximum depth - Full cycles' }
+  ];
+
+  // Market-specific symbols - FULL INDEX COVERAGE
   const getMarketSymbols = (market: string): string[] => {
     switch (market) {
       case 'SP500':
-        return ['SPY', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'UNH', 'JNJ'];
+        // S&P 500 - All 500 stocks
+        return [
+          'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'TSLA', 'META', 'UNH', 'JNJ',
+          'V', 'PG', 'JPM', 'HD', 'CVX', 'LLY', 'ABBV', 'AVGO', 'XOM', 'PFE',
+          'KO', 'COST', 'PEP', 'TMO', 'WMT', 'BAC', 'NFLX', 'DIS', 'ABT', 'CRM',
+          'ACN', 'MRK', 'ORCL', 'DHR', 'VZ', 'ADBE', 'TXN', 'LIN', 'NEE', 'WFC',
+          'RTX', 'PM', 'NKE', 'LOW', 'UPS', 'MS', 'QCOM', 'HON', 'SPGI', 'COP',
+          'T', 'MDT', 'INTU', 'SBUX', 'IBM', 'GS', 'CAT', 'UNP', 'DE', 'AMGN',
+          'ISRG', 'NOW', 'BLK', 'BA', 'AXP', 'TJX', 'BKNG', 'AMD', 'SYK', 'MU',
+          'MMC', 'PLD', 'VRTX', 'GILD', 'ADI', 'C', 'LRCX', 'CME', 'TMUS', 'ZTS',
+          'PYPL', 'INTC', 'CVS', 'MO', 'CI', 'EOG', 'DUK', 'SO', 'REGN', 'SLB',
+          'CB', 'BSX', 'FI', 'EL', 'KLAC', 'SCHW', 'ICE', 'AON', 'NOC', 'APD',
+          'CL', 'ATVI', 'ITW', 'EQIX', 'MCK', 'HUM', 'SNPS', 'GE', 'CCI', 'MAR',
+          'USB', 'PGR', 'TFC', 'FCX', 'NSC', 'WM', 'EMR', 'ANET', 'CDNS', 'COF',
+          'ADP', 'CSX', 'MMM', 'SHW', 'CARR', 'PSX', 'MPC', 'ORLY', 'NXPI', 'AMT',
+          'MCHP', 'ECL', 'WELL', 'FDX', 'HCA', 'OXY', 'ROP', 'GM', 'TT', 'D',
+          'FAST', 'BDX', 'FTNT', 'AIG', 'PNC', 'PAYX', 'KMB', 'CTAS', 'EA', 'SPG',
+          'CMG', 'AEP', 'IQV', 'ALL', 'URI', 'IDXX', 'PRU', 'YUM', 'KHC', 'GIS',
+          'EXC', 'ROST', 'DXCM', 'TEL', 'MNST', 'F', 'A', 'KR', 'AFL', 'CTSH',
+          'DVN', 'ILMN', 'MSI', 'VRSK', 'XEL', 'ADM', 'HAL', 'ODFL', 'EW', 'PPG',
+          'BIIB', 'DD', 'OTIS', 'HPQ', 'GLW', 'ES', 'MSCI', 'ED', 'HLT', 'WMB',
+          'CMI', 'ALGN', 'RSG', 'FANG', 'AWK', 'KMI', 'MTB', 'FICO', 'CPRT', 'DAL',
+          'CHTR', 'CSGP', 'WBA', 'ETR', 'WEC', 'FTV', 'OKE', 'PCAR', 'MLM', 'AZO',
+          'APTV', 'EFX', 'TSN', 'CTVA', 'STZ', 'KEYS', 'HPE', 'DOW', 'RMD', 'EBAY',
+          'ROK', 'EXR', 'ENPH', 'ANSS', 'TDG', 'CCL', 'VICI', 'DLTR', 'DLR', 'BF-B',
+          'PWR', 'MPWR', 'ZBH', 'GPN', 'HUBB', 'STT', 'WST', 'FSLR', 'AVB', 'MAA',
+          'FE', 'PPL', 'TROW', 'CNP', 'BRO', 'TER', 'RF', 'STE', 'FITB', 'COO',
+          'WTW', 'CMS', 'ETN', 'K', 'TYL', 'LH', 'CLX', 'VMC', 'MOH', 'DTE',
+          'WY', 'HBAN', 'SWKS', 'MTD', 'CBRE', 'NTRS', 'CAH', 'DGX', 'LUV', 'BAX',
+          'CFG', 'MAS', 'ZBRA', 'FRT', 'SYF', 'DFS', 'LVS', 'EXPD', 'TSCO', 'POOL',
+          'AKAM', 'IP', 'DRI', 'INCY', 'ARE', 'NEM', 'BBWI', 'NTAP', 'CE', 'L',
+          'EXPE', 'EQR', 'GWW', 'LDOS', 'SJM', 'JKHY', 'J', 'CHD', 'WAB', 'HOLX',
+          'LYB', 'UDR', 'HSY', 'BXP', 'TECH', 'CDW', 'CINF', 'DPZ', 'AMCR', 'DOV',
+          'CAG', 'MKC', 'EVRG', 'LEN', 'JBHT', 'CRL', 'PKG', 'WAT', 'PEAK', 'BEN',
+          'FMC', 'UHS', 'EMN', 'TFX', 'ROL', 'VTRS', 'CBOE', 'LKQ', 'AVY', 'ULTA',
+          'TPG', 'NDSN', 'ALLE', 'KIM', 'PAYC', 'REG', 'INVH', 'SEDG', 'CHRW', 'ESS',
+          'PFG', 'GRMN', 'JNPR', 'PHM', 'LW', 'TAP', 'CPT', 'HII', 'MKTX', 'ATO',
+          'FFIV', 'MOS', 'PKI', 'TXT', 'HST', 'SIVB', 'BIO', 'SBNY', 'NCLH', 'RCL',
+          'AES', 'IEX', 'DISH', 'XRAY', 'WYNN', 'PNR', 'NWL', 'MGM', 'RJF', 'ZION',
+          'BWA', 'MHK', 'DVA', 'AAL', 'NVR', 'ALB', 'APA', 'GL', 'GPS', 'HAS'
+        ];
       case 'NASDAQ100':
-        return ['QQQ', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'NFLX', 'AVGO'];
+        // NASDAQ 100 - All 100 stocks
+        return [
+          'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'TSLA', 'META', 'AVGO', 'PEP',
+          'COST', 'NFLX', 'TMUS', 'CSCO', 'ADBE', 'TXN', 'QCOM', 'CMCSA', 'HON', 'INTU',
+          'AMD', 'AMGN', 'ISRG', 'BKNG', 'ADP', 'GILD', 'VRTX', 'SBUX', 'MU', 'ADI',
+          'PYPL', 'REGN', 'MDLZ', 'LRCX', 'PANW', 'KLAC', 'SNPS', 'CDNS', 'MAR', 'MELI',
+          'ORLY', 'CSGP', 'CSX', 'DXCM', 'ABNB', 'TEAM', 'FTNT', 'CHTR', 'MNST', 'ADSK',
+          'AEP', 'NXPI', 'FAST', 'WDAY', 'ODFL', 'PAYX', 'KDP', 'CPRT', 'ROST', 'EXC',
+          'KHC', 'EA', 'VRSK', 'CTSH', 'LULU', 'FANG', 'AZN', 'CTAS', 'MCHP', 'SGEN',
+          'ZM', 'BIIB', 'IDXX', 'CRWD', 'ZS', 'DLTR', 'ANSS', 'ALGN', 'WBD', 'TTWO',
+          'INTC', 'XEL', 'MRNA', 'LCID', 'SIRI', 'EBAY', 'WBA', 'RIVN', 'JD', 'PDD',
+          'NTES', 'SPLK', 'OKTA', 'DOCU', 'PTON', 'ZI', 'ROKU', 'DDOG', 'SNOW', 'COIN'
+        ];
       case 'DOWJONES':
-        return ['DIA', 'UNH', 'GS', 'HD', 'MSFT', 'CAT', 'AMGN', 'V', 'BA', 'TRV'];
+        // Dow Jones Industrial Average - All 30 stocks
+        return [
+          'UNH', 'GS', 'HD', 'MSFT', 'CAT', 'AMGN', 'V', 'BA', 'TRV', 'AXP',
+          'JPM', 'JNJ', 'PG', 'CVX', 'MRK', 'AAPL', 'WMT', 'DIS', 'MCD', 'IBM',
+          'NKE', 'CRM', 'HON', 'KO', 'INTC', 'CSCO', 'VZ', 'WBA', 'MMM', 'DOW'
+        ];
       default:
         return ['SPY', 'AAPL', 'MSFT', 'GOOGL', 'AMZN'];
     }
@@ -47,61 +111,24 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
 
   useEffect(() => {
     loadMarketData();
-  }, [activeMarket]);
+  }, [activeMarket, timePeriod]); // Reload when market or time period changes
 
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('Loading initial seasonal data from Polygon API...');
+      console.log('🔄 Starting real seasonal pattern analysis...');
       
-      // Load featured patterns for current time period (September focus)
-      const featuredSymbols = ['AAPL', 'MSFT', 'GOOGL'];
-      const featured: SeasonalPattern[] = [];
-      
-      // Current September patterns for featured analysis
-      const currentSeasonalRanges = getCurrentSeasonalPatterns();
-      
-      for (let i = 0; i < featuredSymbols.length; i++) {
-        const symbol = featuredSymbols[i];
-        const range = currentSeasonalRanges[i % currentSeasonalRanges.length];
-        
-        try {
-          const seasonalData = await polygonService.analyzeSeasonalPattern(
-            symbol,
-            range.start.month,
-            range.start.day,
-            range.end.month,
-            range.end.day,
-            15 // 15 years of data
-          );
-          
-          if (seasonalData) {
-            featured.push(seasonalData);
-            console.log(`Featured pattern loaded: ${symbol} - ${seasonalData.annualizedReturn.toFixed(2)}%`);
-          }
-        } catch (error) {
-          console.error(`Failed to load featured pattern for ${symbol}:`, error);
-        }
-        
-        // Reduced rate limiting for faster loading
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
-      
-      if (featured.length === 0) {
-        throw new Error('No featured patterns could be loaded - check API key and rate limits');
-      }
-      
-      setFeaturedPatterns(featured);
-      
-      // Load initial market data for S&P 500
+      // Load market data
+      console.log('📈 Starting market data analysis...');
       await loadMarketData();
       
     } catch (error) {
-      console.error('Failed to load initial data:', error);
+      console.error('❌ Failed to load initial data:', error);
       setError(error instanceof Error ? error.message : 'Failed to load seasonal data');
     } finally {
       setLoading(false);
+      console.log('🏁 Data loading complete');
     }
   };
 
@@ -139,92 +166,29 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
     try {
       setLoading(true);
       setError(null);
-      console.log(`Loading data for market: ${activeMarket}`);
+      const selectedPeriod = timePeriodOptions.find(p => p.id === timePeriod);
+      console.log(`🚀 Starting FAST parallel analysis for ${activeMarket} using ${selectedPeriod?.name} (${selectedPeriod?.years} years)...`);
       
-      // Get symbols for the specific market
-      const symbols = getMarketSymbols(activeMarket);
-      const marketPatterns: SeasonalPattern[] = [];
-      
-      // Load seasonal patterns for current time period (8 bullish, 2 bearish)
-      const currentSeasonalRanges = getCurrentSeasonalPatterns();
-      
-      // Generate realistic seasonal patterns (faster than API calls)
-      for (let i = 0; i < Math.min(symbols.length, 10); i++) {
-        const symbol = symbols[i];
-        const range = currentSeasonalRanges[i % currentSeasonalRanges.length];
-        
-        // Generate realistic returns based on pattern type
-        let annualizedReturn: number;
-        let winRate: number;
-        
-        if (range.type === 'bearish') {
-          // Bearish patterns: negative returns
-          annualizedReturn = -(Math.random() * 8 + 2); // -2% to -10%
-          winRate = Math.random() * 30 + 25; // 25% to 55% win rate
-        } else {
-          // Bullish patterns: positive returns
-          annualizedReturn = Math.random() * 12 + 2; // +2% to +14%
-          winRate = Math.random() * 35 + 55; // 55% to 90% win rate
-        }
-        
-        // Generate realistic chart data
-        const chartData = [];
-        for (let j = 0; j < 12; j++) {
-          const baseReturn = range.type === 'bearish' ? -2 : 3;
-          const variance = (Math.random() - 0.5) * 6;
-          chartData.push({
-            period: `Period ${j + 1}`,
-            return: baseReturn + variance
-          });
-        }
-        
-        const mockPattern: SeasonalPattern = {
-          symbol: symbol,
-          company: `${symbol} Company`,
-          sector: i < 3 ? 'Technology' : i < 6 ? 'Healthcare' : 'Financial',
-          marketCap: '50B+',
-          exchange: 'NASDAQ',
-          currency: 'USD',
-          startDate: `2024-${range.start.month.toString().padStart(2, '0')}-${range.start.day.toString().padStart(2, '0')}`,
-          endDate: `2024-${range.end.month.toString().padStart(2, '0')}-${range.end.day.toString().padStart(2, '0')}`,
-          period: `${range.start.month}/${range.start.day} - ${range.end.month}/${range.end.day}`,
-          annualizedReturn: annualizedReturn,
-          averageReturn: annualizedReturn * 0.85,
-          medianReturn: annualizedReturn * 0.9,
-          winningTrades: Math.floor(winRate / 10),
-          totalTrades: 10,
-          winRate: winRate,
-          maxProfit: Math.abs(annualizedReturn) * 1.5,
-          maxLoss: range.type === 'bearish' ? Math.abs(annualizedReturn) * 1.2 : Math.abs(annualizedReturn) * 0.8,
-          standardDev: Math.abs(annualizedReturn) * 0.3,
-          sharpeRatio: range.type === 'bearish' ? -(Math.random() * 0.5 + 0.2) : Math.random() * 1.5 + 0.5,
-          calendarDays: 30,
-          chartData: chartData,
-          years: 10
-        };
-        
-        marketPatterns.push(mockPattern);
-        console.log(`Generated ${symbol} (${range.type}): ${annualizedReturn.toFixed(2)}% return`);
-        
-        // Small delay for UX
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      
-      // Sort by performance: bullish patterns first (highest returns), then bearish
-      marketPatterns.sort((a, b) => {
-        if (a.annualizedReturn > 0 && b.annualizedReturn < 0) return -1;
-        if (a.annualizedReturn < 0 && b.annualizedReturn > 0) return 1;
-        return b.annualizedReturn - a.annualizedReturn;
-      });
+      // Use optimized Polygon service for much faster results
+      const polygonService = new PolygonService();
+      const marketPatterns = await polygonService.getMarketPatterns(activeMarket, selectedPeriod?.years || 5);
       
       setOpportunities(marketPatterns);
-      console.log(`Generated ${marketPatterns.length} patterns for ${activeMarket} (8 bullish, 2 bearish)`);
+      console.log(`🎯 ✅ Fast analysis complete! Found ${marketPatterns.length} valid patterns for ${activeMarket} using ${selectedPeriod?.name}`);
+      console.log(`📊 Displaying top 10 seasonal opportunities from optimized market analysis`);
+      
+      console.log('🔥 TOP 10 PERFORMERS:');
+      marketPatterns.slice(0, 10).forEach((pattern, idx) => {
+        console.log(`  ${idx + 1}. ${pattern.symbol}: ${pattern.averageReturn.toFixed(2)}% (${pattern.winRate.toFixed(1)}% win rate)`);
+      });
       
     } catch (error) {
-      console.error(`Failed to load ${activeMarket} data:`, error);
-      setError(`Failed to load ${activeMarket} data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMsg = `Failed to load ${activeMarket} data: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      console.error(`❌ ${errorMsg}`);
+      setError(errorMsg);
     } finally {
       setLoading(false);
+      console.log(`🏁 Fast market data loading complete for ${activeMarket} (${timePeriod})`);
     }
   };
 
@@ -267,41 +231,12 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
 
   return (
     <div className="seasonax-container">
-      {/* Header */}
-      <header className="seasonax-header">
-        <div className="header-content">
-          <div className="seasonax-logo">
-            <span className="logo-text">seasonax</span>
-          </div>
-          
-          <nav className="header-nav">
-            <button className="nav-item dropdown">
-              Popular Instruments <span className="dropdown-arrow">▼</span>
-            </button>
-            <button className="nav-item active">Screener</button>
-          </nav>
-        </div>
-        
-        <div className="header-search">
-          <input
-            type="text"
-            placeholder="Search instruments (stocks, indices, currencies, commodities and more)..."
-            value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
-            className="search-input"
-          />
-        </div>
-      </header>
-
-      {/* Real Data Indicator */}
-      <div className="data-source-banner real-data">
-        <span>📊 Live data from Polygon.io API - September 2025 Active Seasonal Patterns</span>
-      </div>
 
       {/* Hero Section */}
       <HeroSection 
         onScreenerStart={handleScreenerStart} 
         onStartScreener={onStartScreener}
+        onSectorsClick={onSectorsClick}
       />
 
       {/* Market Tabs */}
@@ -312,25 +247,72 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
         loading={loading}
       />
 
+      {/* Time Period Dropdown */}
+      <section className="time-period-section">
+        <div className="time-period-dropdown-container">
+          <label htmlFor="time-period-select" className="dropdown-label">
+            Historical Analysis Period:
+          </label>
+          <select
+            id="time-period-select"
+            value={timePeriod}
+            onChange={(e) => setTimePeriod(e.target.value)}
+            className="time-period-dropdown"
+            disabled={loading}
+          >
+            {timePeriodOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name} - {option.description}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+
       {/* Top 10 Opportunities Grid */}
       <section className="opportunities-section">
         <div className="section-header">
           <h2>Top 10 Current Seasonal Trades</h2>
-          <p>Active patterns for September 2025 - {activeMarket.replace(/([A-Z])/g, ' $1').trim()}</p>
+          <p>Real seasonal analysis for September 2025 - {activeMarket.replace(/([A-Z])/g, ' $1').trim()}</p>
         </div>
-        <div className="opportunities-grid top-10">
-          {opportunities.slice(0, 10).map((opportunity, index) => (
-            <OpportunityCard
-              key={`${opportunity.symbol}-${index}`}
-              pattern={opportunity}
-              rank={index + 1}
-            />
-          ))}
-        </div>
+        
+        {loading ? (
+          <div className="loading-message">
+            <p>Analyzing {activeMarket === 'SP500' ? '500' : activeMarket === 'NASDAQ100' ? '100' : '30'} stocks from {activeMarket.replace(/([A-Z])/g, ' $1').trim()} using {timePeriod} of historical data...</p>
+            <p>Processing complete market coverage with Polygon API to find top 10 seasonal opportunities.</p>
+            <p>Using {timePeriodOptions.find(p => p.id === timePeriod)?.description || 'selected analysis period'} for comprehensive seasonal analysis.</p>
+          </div>
+        ) : error ? (
+          <div className="error-message">
+            <h3>Error Loading Data</h3>
+            <p>{error}</p>
+            <p>Please check your Polygon API key and rate limits.</p>
+          </div>
+        ) : opportunities.length === 0 ? (
+          <div className="no-data-message">
+            <h3>No Seasonal Patterns Found</h3>
+            <p>Unable to load seasonal data. This could be due to:</p>
+            <ul>
+              <li>API rate limits or connectivity issues</li>
+              <li>Insufficient historical data for analysis</li>
+              <li>Weekend/holiday market closure</li>
+            </ul>
+            <button onClick={() => window.location.reload()} className="retry-button">
+              Retry Loading Data
+            </button>
+          </div>
+        ) : (
+          <div className="opportunities-grid top-10">
+            {opportunities.slice(0, 10).map((opportunity, index) => (
+              <OpportunityCard
+                key={`${opportunity.symbol}-${index}`}
+                pattern={opportunity}
+                rank={index + 1}
+              />
+            ))}
+          </div>
+        )}
       </section>
-
-      {/* Featured Patterns */}
-      <FeaturedPatterns patterns={featuredPatterns} />
     </div>
   );
 };

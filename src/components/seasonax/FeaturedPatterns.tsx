@@ -41,7 +41,7 @@ const FeaturedPatterns: React.FC<FeaturedPatternsProps> = ({ patterns }) => {
               <div className="featured-metrics">
                 <div className="featured-metric">
                   <span className="metric-value positive">
-                    +{pattern.annualizedReturn.toFixed(1)}%
+                    +{pattern.averageReturn.toFixed(1)}%
                   </span>
                   <span className="metric-label">Return</span>
                 </div>

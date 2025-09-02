@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 
 interface ChartSettings {
   startDate: string;
@@ -12,49 +12,42 @@ interface ChartSettings {
   smoothing: boolean;
   detrend: boolean;
   showCurrentDate: boolean;
+  comparisonSymbols: string[];
 }
 
 interface SeasonaxControlsProps {
   settings: ChartSettings;
   onSettingsChange: (settings: Partial<ChartSettings>) => void;
   onRefresh?: () => void;
-  onDateRangeChange?: (direction: 'prev' | 'next') => void;
+  onCompareStock?: (symbol: string) => void;
 }
 
 const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({ 
   settings, 
   onSettingsChange,
   onRefresh,
-  onDateRangeChange
+  onCompareStock
 }) => {
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [chartType, setChartType] = useState<'line' | 'bar' | 'candle'>('line');
-  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const [showCompareDialog, setShowCompareDialog] = useState(false);
+  const [compareSymbol, setCompareSymbol] = useState('');
 
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
-        setShowMoreMenu(false);
-      }
-    };
-
-    if (showMoreMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showMoreMenu]);
-
-  // Navigation functions
-  const handlePrevious = () => {
-    onDateRangeChange?.('prev');
+  // Compare functions
+  const handleCompare = () => {
+    setShowCompareDialog(true);
   };
 
-  const handleNext = () => {
-    onDateRangeChange?.('next');
+  const handleAddCompareStock = () => {
+    if (compareSymbol.trim() && onCompareStock) {
+      onCompareStock(compareSymbol.trim().toUpperCase());
+      setCompareSymbol('');
+      setShowCompareDialog(false);
+    }
+  };
+
+  const handleRemoveCompareStock = (symbolToRemove: string) => {
+    const updatedSymbols = settings.comparisonSymbols.filter(symbol => symbol !== symbolToRemove);
+    onSettingsChange({ comparisonSymbols: updatedSymbols });
   };
 
   // Chart type toggles
@@ -73,11 +66,6 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
     onSettingsChange({ showPatternReturns: !settings.showPatternReturns });
   };
 
-  // More menu actions
-  const handleMoreMenu = () => {
-    setShowMoreMenu(!showMoreMenu);
-  };
-
   const handleRefresh = () => {
     onRefresh?.();
     console.log('Refreshing data...');
@@ -91,22 +79,58 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
 
   return (
     <div className="seasonax-controls">
-      {/* Navigation arrows */}
-      <div className="nav-controls">
+      {/* Compare controls */}
+      <div className="compare-controls">
         <button 
-          className="nav-btn" 
-          onClick={handlePrevious}
-          title="Previous date range"
+          className="compare-btn" 
+          onClick={handleCompare}
+          title="Compare with another stock"
         >
-          ←
+          + Compare
         </button>
-        <button 
-          className="nav-btn" 
-          onClick={handleNext}
-          title="Next date range"
-        >
-          →
-        </button>
+        {settings.comparisonSymbols.length > 0 && (
+          <div className="comparison-tags">
+            {settings.comparisonSymbols.map((symbol, index) => (
+              <div key={index} className="comparison-tag">
+                <span>{symbol}</span>
+                <button 
+                  onClick={() => handleRemoveCompareStock(symbol)}
+                  className="remove-tag"
+                  title={`Remove ${symbol}`}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {showCompareDialog && (
+          <div className="compare-dialog">
+            <div className="dialog-content">
+              <input
+                type="text"
+                value={compareSymbol}
+                onChange={(e) => setCompareSymbol(e.target.value.toUpperCase())}
+                placeholder="Enter stock symbol (e.g., AAPL)"
+                className="compare-input"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAddCompareStock();
+                  } else if (e.key === 'Escape') {
+                    setShowCompareDialog(false);
+                    setCompareSymbol('');
+                  }
+                }}
+                autoFocus
+              />
+              <div className="dialog-buttons">
+                <button onClick={handleAddCompareStock} className="add-btn">Add</button>
+                <button onClick={() => setShowCompareDialog(false)} className="cancel-btn">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Chart controls */}
@@ -160,51 +184,8 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
         </select>
       </div>
 
-      {/* More controls */}
+      {/* Refresh button */}
       <div className="more-controls">
-        <div className="more-dropdown" ref={moreMenuRef}>
-          <button 
-            className={`control-btn ${showMoreMenu ? 'active' : ''}`}
-            onClick={handleMoreMenu}
-            title="More options"
-          >
-            More ▼
-          </button>
-          
-          {showMoreMenu && (
-            <div className="more-menu">
-              <button 
-                className="menu-item"
-                onClick={toggleCumulative}
-              >
-                {settings.showCumulative ? '✓' : '○'} Cumulative Profit
-              </button>
-              <button 
-                className="menu-item"
-                onClick={togglePatternReturns}
-              >
-                {settings.showPatternReturns ? '✓' : '○'} Pattern Returns
-              </button>
-              <div className="menu-divider"></div>
-              <button 
-                className="menu-item"
-                onClick={handleExport}
-              >
-                📥 Export Data
-              </button>
-              <button 
-                className="menu-item"
-                onClick={() => {
-                  navigator.clipboard.writeText(window.location.href);
-                  console.log('Link copied to clipboard');
-                }}
-              >
-                🔗 Copy Link
-              </button>
-            </div>
-          )}
-        </div>
-        
         <button 
           className="control-btn"
           onClick={handleRefresh}

@@ -21,6 +21,12 @@ interface SeasonalStatistics {
   sharpeRatio: number;
   maxDrawdown: number;
   yearsOfData: number;
+  // New statistics
+  bestQuarter: { quarter: string; return: number };
+  worstQuarter: { quarter: string; return: number };
+  best30DayPeriod: { period: string; return: number; startDate: string; endDate: string };
+  worst30DayPeriod: { period: string; return: number; startDate: string; endDate: string };
+  monthlyVsSPY: { month: string; outperformance: number }[];
 }
 
 interface StatisticsPanelProps {
@@ -299,6 +305,148 @@ const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
               </div>
               <div className="validation-status">
                 {Math.abs(statistics.sharpeRatio) > 0.5 ? '✅ Reliable Pattern' : '⚠️ Weak Signal'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Best/Worst Quarters */}
+        <div className="stats-section">
+          <h3>Quarterly Performance Analysis</h3>
+          <div className="quarterly-analysis">
+            <div className="quarter-metric">
+              <div className="metric-card">
+                <div className="metric-label">Best Performing Quarter</div>
+                <div className="metric-value" style={{ color: getPerformanceColor(statistics.bestQuarter?.return || 0) }}>
+                  {statistics.bestQuarter?.quarter || 'Q1'}
+                </div>
+                <div className="metric-detail">
+                  {formatPercentage(statistics.bestQuarter?.return || 0)} avg return
+                </div>
+              </div>
+            </div>
+            
+            <div className="quarter-metric">
+              <div className="metric-card">
+                <div className="metric-label">Worst Performing Quarter</div>
+                <div className="metric-value" style={{ color: getPerformanceColor(statistics.worstQuarter?.return || 0) }}>
+                  {statistics.worstQuarter?.quarter || 'Q3'}
+                </div>
+                <div className="metric-detail">
+                  {formatPercentage(statistics.worstQuarter?.return || 0)} avg return
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Best/Worst 30+ Day Periods */}
+        <div className="stats-section">
+          <h3>Extended Seasonal Periods (30+ Days)</h3>
+          <div className="period-analysis">
+            <div className="period-metric">
+              <div className="metric-card">
+                <div className="metric-label">Best 30+ Day Period</div>
+                <div className="metric-value" style={{ color: getPerformanceColor(statistics.best30DayPeriod?.return || 0) }}>
+                  {statistics.best30DayPeriod?.period || 'Oct 15 - Nov 15'}
+                </div>
+                <div className="metric-detail">
+                  {formatPercentage(statistics.best30DayPeriod?.return || 0)} avg return
+                </div>
+                <div className="metric-dates">
+                  {statistics.best30DayPeriod?.startDate || 'Oct 15'} to {statistics.best30DayPeriod?.endDate || 'Nov 15'}
+                </div>
+              </div>
+            </div>
+            
+            <div className="period-metric">
+              <div className="metric-card">
+                <div className="metric-label">Worst 30+ Day Period</div>
+                <div className="metric-value" style={{ color: getPerformanceColor(statistics.worst30DayPeriod?.return || 0) }}>
+                  {statistics.worst30DayPeriod?.period || 'Sep 1 - Oct 1'}
+                </div>
+                <div className="metric-detail">
+                  {formatPercentage(statistics.worst30DayPeriod?.return || 0)} avg return
+                </div>
+                <div className="metric-dates">
+                  {statistics.worst30DayPeriod?.startDate || 'Sep 1'} to {statistics.worst30DayPeriod?.endDate || 'Oct 1'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Monthly Returns vs SPY */}
+        <div className="stats-section">
+          <h3>Monthly Performance vs S&P 500</h3>
+          <div className="spy-comparison">
+            <div className="spy-table">
+              <div className="table-header">
+                <div>Month</div>
+                <div>Stock Return</div>
+                <div>SPY Return</div>
+                <div>Outperformance</div>
+                <div>Status</div>
+              </div>
+              {monthlyData.map((month, index) => {
+                const spyComparison = statistics.monthlyVsSPY?.[index] || { month: month.monthName, outperformance: 0 };
+                const spyReturn = month.avgReturn - spyComparison.outperformance;
+                const outperformanceColor = spyComparison.outperformance > 0 ? '#00ff88' : '#ff6b6b';
+                
+                return (
+                  <div key={month.month} className="table-row">
+                    <div className="month-name">{month.monthName}</div>
+                    <div 
+                      className="stock-return"
+                      style={{ color: getPerformanceColor(month.avgReturn) }}
+                    >
+                      {formatPercentage(month.avgReturn)}
+                    </div>
+                    <div 
+                      className="spy-return"
+                      style={{ color: getPerformanceColor(spyReturn) }}
+                    >
+                      {formatPercentage(spyReturn)}
+                    </div>
+                    <div 
+                      className="outperformance"
+                      style={{ color: outperformanceColor }}
+                    >
+                      {formatPercentage(spyComparison.outperformance)}
+                    </div>
+                    <div className="outperformance-status">
+                      {spyComparison.outperformance > 0 ? '✅ Outperform' : '❌ Underperform'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            
+            <div className="spy-summary">
+              <div className="summary-metric">
+                <div className="summary-label">Months Outperforming SPY</div>
+                <div className="summary-value">
+                  {(statistics.monthlyVsSPY || []).filter(m => m.outperformance > 0).length} of 12
+                </div>
+              </div>
+              
+              <div className="summary-metric">
+                <div className="summary-label">Average Outperformance</div>
+                <div className="summary-value" style={{ 
+                  color: (statistics.monthlyVsSPY || []).reduce((sum, m) => sum + m.outperformance, 0) / 12 > 0 ? '#00ff88' : '#ff6b6b' 
+                }}>
+                  {formatPercentage((statistics.monthlyVsSPY || []).reduce((sum, m) => sum + m.outperformance, 0) / 12)}
+                </div>
+              </div>
+              
+              <div className="summary-metric">
+                <div className="summary-label">Best Outperformance Month</div>
+                <div className="summary-value">
+                  {(statistics.monthlyVsSPY || []).reduce((best, current) => 
+                    current.outperformance > best.outperformance ? current : best, 
+                    { month: 'Jan', outperformance: -999 }
+                  ).month}
+                </div>
               </div>
             </div>
           </div>

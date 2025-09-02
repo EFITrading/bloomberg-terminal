@@ -39,11 +39,15 @@ interface OpportunityCardProps {
 }
 
 const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
+  // Determine sentiment based on seasonal strength/weakness, not annualized return
+  const isSeasonalStrength = pattern.period.toLowerCase().includes('seasonal strength');
+  const sentiment = isSeasonalStrength ? 'Bullish' : 'Bearish';
+  
   return (
     <div className="opportunity-card">
       {rank && (
-        <div className="card-rank">
-          #{rank}
+        <div className={`card-rank ${isSeasonalStrength ? 'bullish' : 'bearish'}`}>
+          {sentiment}
         </div>
       )}
       
@@ -53,6 +57,12 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
       
       <div className="card-period">
         {pattern.period}
+      </div>
+      
+      <div className="card-dates">
+        <span className="start-date">{pattern.startDate}</span>
+        <span className="date-separator">→</span>
+        <span className="end-date">{pattern.endDate}</span>
       </div>
       
       <div className="card-company">
@@ -65,10 +75,10 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
       
       <div className="card-metrics">
         <div className="metric">
-          <div className={`metric-value ${pattern.annualizedReturn >= 0 ? 'positive' : 'negative'}`}>
-            {pattern.annualizedReturn >= 0 ? '+' : ''}{pattern.annualizedReturn.toFixed(1)}%
+          <div className={`metric-value ${pattern.averageReturn >= 0 ? 'positive' : 'negative'}`}>
+            {pattern.averageReturn >= 0 ? '+' : ''}{pattern.averageReturn.toFixed(1)}%
           </div>
-          <div className="metric-label">Annualized return</div>
+          <div className="metric-label">Average return</div>
         </div>
         
         <div className="metric">

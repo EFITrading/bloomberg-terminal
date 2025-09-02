@@ -176,20 +176,96 @@
   left: 0;
   right: 0;
   bottom: 0;
-  opacity: 0.1;
+  background: #000000;
+  overflow: hidden;
 }
 
-.hero-waves {
+.hero-geometric-pattern {
   position: absolute;
   width: 100%;
   height: 100%;
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 10px,
-    rgba(255, 102, 0, 0.1) 10px,
-    rgba(255, 102, 0, 0.1) 20px
-  );
+  background: #000000;
+  opacity: 0.4;
+  overflow: hidden;
+}
+
+.hero-geometric-pattern::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    /* Modern abstract flow shapes */
+    radial-gradient(ellipse 300px 200px at 20% 30%, rgba(255, 102, 0, 0.08) 0%, transparent 40%),
+    radial-gradient(ellipse 400px 250px at 80% 70%, rgba(0, 255, 255, 0.06) 0%, transparent 45%),
+    radial-gradient(ellipse 350px 180px at 60% 20%, rgba(255, 215, 0, 0.05) 0%, transparent 35%),
+    radial-gradient(ellipse 280px 300px at 15% 80%, rgba(255, 0, 127, 0.04) 0%, transparent 40%),
+    radial-gradient(ellipse 450px 200px at 90% 40%, rgba(127, 255, 0, 0.03) 0%, transparent 30%),
+    /* Subtle geometric grid overlay */
+    linear-gradient(90deg, rgba(255, 102, 0, 0.02) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255, 102, 0, 0.02) 1px, transparent 1px);
+  background-size: 
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    50px 50px,
+    50px 50px;
+  animation: modernFlow 25s ease-in-out infinite;
+}
+
+.hero-geometric-pattern::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    /* Floating orbs effect */
+    radial-gradient(circle at 25% 25%, rgba(255, 102, 0, 0.03) 0%, transparent 25%),
+    radial-gradient(circle at 75% 75%, rgba(0, 255, 255, 0.025) 0%, transparent 20%),
+    radial-gradient(circle at 85% 20%, rgba(255, 215, 0, 0.02) 0%, transparent 15%),
+    radial-gradient(circle at 10% 90%, rgba(255, 0, 127, 0.015) 0%, transparent 18%),
+    radial-gradient(circle at 60% 10%, rgba(127, 255, 0, 0.02) 0%, transparent 22%);
+  animation: orbFloat 20s ease-in-out infinite alternate;
+}
+
+@keyframes modernFlow {
+  0% { 
+    transform: translateX(0) translateY(0) scale(1);
+    filter: hue-rotate(0deg);
+  }
+  33% { 
+    transform: translateX(-20px) translateY(15px) scale(1.02);
+    filter: hue-rotate(10deg);
+  }
+  66% { 
+    transform: translateX(15px) translateY(-10px) scale(0.98);
+    filter: hue-rotate(-5deg);
+  }
+  100% { 
+    transform: translateX(0) translateY(0) scale(1);
+    filter: hue-rotate(0deg);
+  }
+}
+
+@keyframes orbFloat {
+  0% { 
+    transform: scale(1) rotate(0deg);
+    opacity: 0.3;
+  }
+  50% { 
+    transform: scale(1.1) rotate(180deg);
+    opacity: 0.5;
+  }
+  100% { 
+    transform: scale(1) rotate(360deg);
+    opacity: 0.3;
+  }
 }
 
 .hero-content {
@@ -218,12 +294,57 @@
   font-family: 'Roboto Mono', monospace;
 }
 
+/* Hero Additional Content */
+.hero-additional-content {
+  margin: 20px 0;
+  text-align: center;
+}
+
+.hero-description {
+  font-size: 16px;
+  color: #FF6600;
+  font-family: 'Roboto Mono', monospace;
+  margin: 0;
+  opacity: 0.9;
+}
+
 .hero-controls {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 16px;
+  gap: 24px;
   flex-wrap: wrap;
+}
+
+/* Hero Center Content - positioned between S&P 500 and Start Screener */
+.hero-center-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 20px;
+}
+
+.sectors-industries-btn {
+  padding: 10px 20px;
+  background: transparent;
+  border: 2px solid #FF6600;
+  color: #FF6600;
+  cursor: pointer;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 12px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  min-width: 140px;
+}
+
+.sectors-industries-btn:hover {
+  background: #FF6600;
+  color: #000000;
+  box-shadow: 0 2px 8px rgba(255, 102, 0, 0.3);
+  transform: translateY(-1px);
 }
 
 .market-dropdown {
@@ -318,6 +439,69 @@
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+/* Time Period Dropdown */
+.time-period-section {
+  background: #111111;
+  border-bottom: 2px solid #333333;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px 24px;
+}
+
+.time-period-dropdown-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.dropdown-label {
+  color: #FF6600;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.time-period-dropdown {
+  background: #000000;
+  border: 2px solid #333333;
+  border-radius: 6px;
+  color: #ffffff;
+  padding: 12px 16px;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 300px;
+}
+
+.time-period-dropdown:hover:not(:disabled) {
+  border-color: #FF6600;
+  background: rgba(255, 102, 0, 0.05);
+}
+
+.time-period-dropdown:focus {
+  outline: none;
+  border-color: #FF6600;
+  box-shadow: 0 0 10px rgba(255, 102, 0, 0.3);
+}
+
+.time-period-dropdown:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.time-period-dropdown option {
+  background: #000000;
+  color: #ffffff;
+  padding: 8px;
 }
 
 /* Opportunities Section */
@@ -415,6 +599,16 @@
   font-family: 'Roboto Mono', monospace;
 }
 
+.card-rank.bullish {
+  background: linear-gradient(135deg, #00BCD4, #26C6DA);
+  color: #000000;
+}
+
+.card-rank.bearish {
+  background: linear-gradient(135deg, #FF5252, #FF7043);
+  color: #FFFFFF;
+}
+
 .card-chart {
   margin-bottom: 16px;
 }
@@ -446,6 +640,32 @@
   font-family: 'Roboto Mono', monospace;
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+
+.card-dates {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  gap: 8px;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.start-date, .end-date {
+  color: #00BCD4;
+  background: rgba(0, 188, 212, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 188, 212, 0.3);
+  letter-spacing: 1px;
+}
+
+.date-separator {
+  color: #FF6600;
+  font-size: 18px;
+  font-weight: 900;
 }
 
 .card-company {
@@ -673,6 +893,20 @@
     padding: 0 16px;
   }
   
+  .time-period-section {
+    padding: 12px 16px;
+  }
+  
+  .time-period-dropdown-container {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .time-period-dropdown {
+    min-width: 100%;
+    font-size: 13px;
+  }
+  
   .card-metrics,
   .featured-metrics {
     flex-direction: column;
@@ -698,3 +932,231 @@
 .mb-2 { margin-bottom: 16px; }
 .mb-3 { margin-bottom: 24px; }
 .mb-4 { margin-bottom: 32px; }
+
+/* Enhanced Statistics Sections */
+.monthly-spy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+/* New Horizontal Monthly Layout */
+.monthly-spy-horizontal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.monthly-horizontal-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+}
+
+.month-abbr {
+  font-size: 11px;
+  color: #aaa;
+  font-weight: 600;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.performance-value {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.performance-value.positive {
+  color: #00ff88;
+  background: rgba(0, 255, 136, 0.1);
+}
+
+.performance-value.negative {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.spy-summary-horizontal {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.summary-item {
+  text-align: center;
+}
+
+.summary-label {
+  font-size: 11px;
+  color: #aaa;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-number {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.monthly-spy-item {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 12px;
+  text-align: center;
+}
+
+.month-label {
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.spy-performance {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.spy-performance.bullish {
+  color: #00ff88;
+}
+
+.spy-performance.bearish {
+  color: #ff6b6b;
+}
+
+.spy-status {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.spy-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.summary-stat {
+  text-align: center;
+}
+
+.summary-label {
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 4px;
+}
+
+.summary-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.item-detail {
+  font-size: 10px;
+  color: #888;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* Enhanced Performance Items */
+.performance-item {
+  position: relative;
+}
+
+.performance-item:hover {
+  background: #222;
+  border-color: #FF6600;
+  transform: translateY(-1px);
+  transition: all 0.2s ease;
+}
+
+.calculation-note {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  border-left: 3px solid #FF6600;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Responsive Enhancements */
+@media (max-width: 768px) {
+  .monthly-spy-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  
+  .monthly-spy-horizontal {
+    justify-content: center;
+    gap: 6px;
+  }
+  
+  .monthly-horizontal-item {
+    min-width: 50px;
+  }
+  
+  .spy-summary-horizontal {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .spy-summary {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .summary-stat {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .monthly-spy-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .monthly-spy-horizontal {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .monthly-horizontal-item {
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px 12px;
+    background: #222;
+    border-radius: 4px;
+  }
+  
+  .spy-summary-horizontal {
+    grid-template-columns: 1fr;
+  }
+}

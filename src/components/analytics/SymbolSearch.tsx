@@ -1,10 +1,6 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import PolygonService from '../../lib/polygonService';
-
-// Create polygon service instance
-const polygonService = new PolygonService();
 
 interface SymbolSearchProps {
   onSymbolSelect: (symbol: string) => void;
@@ -230,12 +226,12 @@ const SymbolSearch: React.FC<SymbolSearchProps> = ({ onSymbolSelect, initialSymb
           {!loading && searchResults.length === 0 && searchTerm.length > 0 && (
             <div className="search-section">
               <div className="search-no-results">
-                <div>No results found for "{searchTerm}"</div>
+                <div>No results found for &quot;{searchTerm}&quot;</div>
                 <div 
                   className="search-direct-option"
                   onClick={() => handleSymbolClick(searchTerm)}
                 >
-                  Use "{searchTerm}" anyway →
+                  Use &quot;{searchTerm}&quot; anyway →
                 </div>
               </div>
             </div>

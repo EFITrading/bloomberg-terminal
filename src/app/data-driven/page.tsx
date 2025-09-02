@@ -5,27 +5,32 @@ import '../seasonality.css';
 import { useState } from 'react';
 import SeasonaxLanding from '@/components/seasonax/SeasonaxLanding';
 import SeasonalityChart from '@/components/analytics/SeasonalityChart';
+import SectorsTable from '@/components/seasonax/SectorsTable';
 
 export default function DataDriven() {
-  const [currentView, setCurrentView] = useState<'landing' | 'chart'>('landing');
+  const [activeTab, setActiveTab] = useState<'screener' | 'sectors' | 'chart'>('screener');
 
   const handleStartScreener = () => {
-    setCurrentView('chart');
+    setActiveTab('chart');
   };
 
-  const handleBackToLanding = () => {
-    setCurrentView('landing');
+  const handleBackToTabs = () => {
+    setActiveTab('screener');
   };
 
-  if (currentView === 'chart') {
+  const handleSectorsClick = () => {
+    setActiveTab('sectors');
+  };
+
+  if (activeTab === 'chart') {
     return (
       <div className="data-driven-container">
         <div className="navigation-header">
           <button 
-            onClick={handleBackToLanding}
+            onClick={handleBackToTabs}
             className="back-button"
           >
-            ← Back to Seasonax Landing
+            ← Back to Data Driven
           </button>
           <h1>Seasonal Chart Analysis</h1>
         </div>
@@ -34,5 +39,27 @@ export default function DataDriven() {
     );
   }
 
-  return <SeasonaxLanding onStartScreener={handleStartScreener} />;
+  return (
+    <div className="data-driven-container">
+      <div className="tab-content">
+        {activeTab === 'screener' && (
+          <SeasonaxLanding onStartScreener={handleStartScreener} onSectorsClick={handleSectorsClick} />
+        )}
+        {activeTab === 'sectors' && (
+          <div>
+            <div className="navigation-header">
+              <button 
+                onClick={() => setActiveTab('screener')}
+                className="back-button"
+              >
+                ← Back to Screener
+              </button>
+              <h1>Sectors & Industries Analysis</h1>
+            </div>
+            <SectorsTable />
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
