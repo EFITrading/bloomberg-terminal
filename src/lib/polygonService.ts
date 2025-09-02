@@ -340,13 +340,14 @@ class PolygonService {
         // Calculate trend-based end date: analyze how long the trend actually continues
         const trendEndDate = this.calculateTrendEndDate(startDate, bestReversal.type, bestReversal.magnitude, yearsBack);
         
-        // Use calculated end date or default to short duration
+        // Use calculated end date or default to realistic seasonal duration
         let actualEndDate: Date;
         if (!trendEndDate) {
-          console.log(`⚠️ Could not calculate trend end date for ${symbol} - using default duration`);
-          // Create a default short duration instead of skipping
+          console.log(`⚠️ Could not calculate trend end date for ${symbol} - using default seasonal duration`);
+          // Create a default seasonal duration (4-6 weeks) instead of just 1 day
           actualEndDate = new Date(startDate);
-          actualEndDate.setDate(startDate.getDate() + 1); // 1 day minimum
+          const defaultWeeks = 4 + Math.floor(Math.random() * 3); // 4-6 weeks
+          actualEndDate.setDate(startDate.getDate() + (defaultWeeks * 7)); // Convert weeks to days
         } else {
           actualEndDate = trendEndDate;
         }
@@ -377,15 +378,20 @@ class PolygonService {
   }
 
   private calculateTrendEndDate(startDate: Date, trendType: 'bullish' | 'bearish', magnitude: number, yearsBack: number = 15): Date | null {
-    // No duration restrictions - allow patterns of any length based purely on magnitude
-    const baseDuration = 1; // minimum 1 day for calculation (no restrictions)
+    // Create realistic seasonal periods that last weeks to months
+    const baseDurationWeeks = 3; // Start with 3 weeks as minimum seasonal period
     
-    // Pattern duration is purely based on magnitude strength - no artificial caps
-    const magnitudeMultiplier = Math.abs(magnitude) / 5; // Scale directly from magnitude (5% = 1x multiplier)
-    const calculatedDuration = Math.floor(baseDuration + magnitudeMultiplier);
-    const finalDuration = Math.max(baseDuration, calculatedDuration);
+    // Scale duration based on magnitude - stronger patterns last longer
+    const magnitudeMultiplier = Math.abs(magnitude) / 2; // More generous scaling (2% = 1x multiplier)
+    const additionalWeeks = Math.min(magnitudeMultiplier * 4, 12); // Up to 12 additional weeks for strong patterns
     
-    console.log(`📈 Trend analysis: ${trendType} with ${Math.abs(magnitude).toFixed(1)}% magnitude → ${finalDuration} days duration (unlimited)`);
+    const totalWeeks = baseDurationWeeks + additionalWeeks;
+    const totalDays = Math.floor(totalWeeks * 7); // Convert weeks to days
+    
+    // Ensure minimum 2 weeks, maximum 4 months for realistic seasonal patterns
+    const finalDuration = Math.max(14, Math.min(totalDays, 120)); // 14 days to 120 days (2 weeks to 4 months)
+    
+    console.log(`📈 Seasonal trend: ${trendType} with ${Math.abs(magnitude).toFixed(1)}% magnitude → ${finalDuration} days (${(finalDuration/7).toFixed(1)} weeks)`);
     
     const endDate = new Date(startDate);
     endDate.setDate(startDate.getDate() + finalDuration);
