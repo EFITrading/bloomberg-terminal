@@ -16,10 +16,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
   const [timePeriod, setTimePeriod] = useState('5Y');
   const [opportunities, setOpportunities] = useState<SeasonalPattern[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
-
-  const polygonService = new PolygonService();
 
   const marketTabs = [
     { id: 'SP500', name: 'S&P 500' },
@@ -33,77 +30,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
     { id: '15Y', name: '15 Years', years: 15, description: 'Comprehensive - Long patterns' },
     { id: '20Y', name: '20 Years', years: 20, description: 'Maximum depth - Full cycles' }
   ];
-
-  // Market-specific symbols - FULL INDEX COVERAGE
-  const getMarketSymbols = (market: string): string[] => {
-    switch (market) {
-      case 'SP500':
-        // S&P 500 - All 500 stocks
-        return [
-          'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'TSLA', 'META', 'UNH', 'JNJ',
-          'V', 'PG', 'JPM', 'HD', 'CVX', 'LLY', 'ABBV', 'AVGO', 'XOM', 'PFE',
-          'KO', 'COST', 'PEP', 'TMO', 'WMT', 'BAC', 'NFLX', 'DIS', 'ABT', 'CRM',
-          'ACN', 'MRK', 'ORCL', 'DHR', 'VZ', 'ADBE', 'TXN', 'LIN', 'NEE', 'WFC',
-          'RTX', 'PM', 'NKE', 'LOW', 'UPS', 'MS', 'QCOM', 'HON', 'SPGI', 'COP',
-          'T', 'MDT', 'INTU', 'SBUX', 'IBM', 'GS', 'CAT', 'UNP', 'DE', 'AMGN',
-          'ISRG', 'NOW', 'BLK', 'BA', 'AXP', 'TJX', 'BKNG', 'AMD', 'SYK', 'MU',
-          'MMC', 'PLD', 'VRTX', 'GILD', 'ADI', 'C', 'LRCX', 'CME', 'TMUS', 'ZTS',
-          'PYPL', 'INTC', 'CVS', 'MO', 'CI', 'EOG', 'DUK', 'SO', 'REGN', 'SLB',
-          'CB', 'BSX', 'FI', 'EL', 'KLAC', 'SCHW', 'ICE', 'AON', 'NOC', 'APD',
-          'CL', 'ATVI', 'ITW', 'EQIX', 'MCK', 'HUM', 'SNPS', 'GE', 'CCI', 'MAR',
-          'USB', 'PGR', 'TFC', 'FCX', 'NSC', 'WM', 'EMR', 'ANET', 'CDNS', 'COF',
-          'ADP', 'CSX', 'MMM', 'SHW', 'CARR', 'PSX', 'MPC', 'ORLY', 'NXPI', 'AMT',
-          'MCHP', 'ECL', 'WELL', 'FDX', 'HCA', 'OXY', 'ROP', 'GM', 'TT', 'D',
-          'FAST', 'BDX', 'FTNT', 'AIG', 'PNC', 'PAYX', 'KMB', 'CTAS', 'EA', 'SPG',
-          'CMG', 'AEP', 'IQV', 'ALL', 'URI', 'IDXX', 'PRU', 'YUM', 'KHC', 'GIS',
-          'EXC', 'ROST', 'DXCM', 'TEL', 'MNST', 'F', 'A', 'KR', 'AFL', 'CTSH',
-          'DVN', 'ILMN', 'MSI', 'VRSK', 'XEL', 'ADM', 'HAL', 'ODFL', 'EW', 'PPG',
-          'BIIB', 'DD', 'OTIS', 'HPQ', 'GLW', 'ES', 'MSCI', 'ED', 'HLT', 'WMB',
-          'CMI', 'ALGN', 'RSG', 'FANG', 'AWK', 'KMI', 'MTB', 'FICO', 'CPRT', 'DAL',
-          'CHTR', 'CSGP', 'WBA', 'ETR', 'WEC', 'FTV', 'OKE', 'PCAR', 'MLM', 'AZO',
-          'APTV', 'EFX', 'TSN', 'CTVA', 'STZ', 'KEYS', 'HPE', 'DOW', 'RMD', 'EBAY',
-          'ROK', 'EXR', 'ENPH', 'ANSS', 'TDG', 'CCL', 'VICI', 'DLTR', 'DLR', 'BF-B',
-          'PWR', 'MPWR', 'ZBH', 'GPN', 'HUBB', 'STT', 'WST', 'FSLR', 'AVB', 'MAA',
-          'FE', 'PPL', 'TROW', 'CNP', 'BRO', 'TER', 'RF', 'STE', 'FITB', 'COO',
-          'WTW', 'CMS', 'ETN', 'K', 'TYL', 'LH', 'CLX', 'VMC', 'MOH', 'DTE',
-          'WY', 'HBAN', 'SWKS', 'MTD', 'CBRE', 'NTRS', 'CAH', 'DGX', 'LUV', 'BAX',
-          'CFG', 'MAS', 'ZBRA', 'FRT', 'SYF', 'DFS', 'LVS', 'EXPD', 'TSCO', 'POOL',
-          'AKAM', 'IP', 'DRI', 'INCY', 'ARE', 'NEM', 'BBWI', 'NTAP', 'CE', 'L',
-          'EXPE', 'EQR', 'GWW', 'LDOS', 'SJM', 'JKHY', 'J', 'CHD', 'WAB', 'HOLX',
-          'LYB', 'UDR', 'HSY', 'BXP', 'TECH', 'CDW', 'CINF', 'DPZ', 'AMCR', 'DOV',
-          'CAG', 'MKC', 'EVRG', 'LEN', 'JBHT', 'CRL', 'PKG', 'WAT', 'PEAK', 'BEN',
-          'FMC', 'UHS', 'EMN', 'TFX', 'ROL', 'VTRS', 'CBOE', 'LKQ', 'AVY', 'ULTA',
-          'TPG', 'NDSN', 'ALLE', 'KIM', 'PAYC', 'REG', 'INVH', 'SEDG', 'CHRW', 'ESS',
-          'PFG', 'GRMN', 'JNPR', 'PHM', 'LW', 'TAP', 'CPT', 'HII', 'MKTX', 'ATO',
-          'FFIV', 'MOS', 'PKI', 'TXT', 'HST', 'SIVB', 'BIO', 'SBNY', 'NCLH', 'RCL',
-          'AES', 'IEX', 'DISH', 'XRAY', 'WYNN', 'PNR', 'NWL', 'MGM', 'RJF', 'ZION',
-          'BWA', 'MHK', 'DVA', 'AAL', 'NVR', 'ALB', 'APA', 'GL', 'GPS', 'HAS'
-        ];
-      case 'NASDAQ100':
-        // NASDAQ 100 - All 100 stocks
-        return [
-          'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'TSLA', 'META', 'AVGO', 'PEP',
-          'COST', 'NFLX', 'TMUS', 'CSCO', 'ADBE', 'TXN', 'QCOM', 'CMCSA', 'HON', 'INTU',
-          'AMD', 'AMGN', 'ISRG', 'BKNG', 'ADP', 'GILD', 'VRTX', 'SBUX', 'MU', 'ADI',
-          'PYPL', 'REGN', 'MDLZ', 'LRCX', 'PANW', 'KLAC', 'SNPS', 'CDNS', 'MAR', 'MELI',
-          'ORLY', 'CSGP', 'CSX', 'DXCM', 'ABNB', 'TEAM', 'FTNT', 'CHTR', 'MNST', 'ADSK',
-          'AEP', 'NXPI', 'FAST', 'WDAY', 'ODFL', 'PAYX', 'KDP', 'CPRT', 'ROST', 'EXC',
-          'KHC', 'EA', 'VRSK', 'CTSH', 'LULU', 'FANG', 'AZN', 'CTAS', 'MCHP', 'SGEN',
-          'ZM', 'BIIB', 'IDXX', 'CRWD', 'ZS', 'DLTR', 'ANSS', 'ALGN', 'WBD', 'TTWO',
-          'INTC', 'XEL', 'MRNA', 'LCID', 'SIRI', 'EBAY', 'WBA', 'RIVN', 'JD', 'PDD',
-          'NTES', 'SPLK', 'OKTA', 'DOCU', 'PTON', 'ZI', 'ROKU', 'DDOG', 'SNOW', 'COIN'
-        ];
-      case 'DOWJONES':
-        // Dow Jones Industrial Average - All 30 stocks
-        return [
-          'UNH', 'GS', 'HD', 'MSFT', 'CAT', 'AMGN', 'V', 'BA', 'TRV', 'AXP',
-          'JPM', 'JNJ', 'PG', 'CVX', 'MRK', 'AAPL', 'WMT', 'DIS', 'MCD', 'IBM',
-          'NKE', 'CRM', 'HON', 'KO', 'INTC', 'CSCO', 'VZ', 'WBA', 'MMM', 'DOW'
-        ];
-      default:
-        return ['SPY', 'AAPL', 'MSFT', 'GOOGL', 'AMZN'];
-    }
-  };
 
   useEffect(() => {
     loadData();
@@ -132,52 +58,22 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
     }
   };
 
-  const getCurrentSeasonalPatterns = () => {
-    const currentDate = new Date();
-    const currentMonth = currentDate.getMonth() + 1; // 1-12
-    const currentDay = currentDate.getDate();
-    
-    // September specific patterns (8 bullish, 2 bearish for realism)
-    if (currentMonth === 9) {
-      return [
-        // BULLISH PATTERNS (8)
-        { start: { month: 9, day: 15 }, end: { month: 10, day: 15 }, name: 'October Bounce Setup', active: currentDay >= 15, type: 'bullish' },
-        { start: { month: 9, day: 1 }, end: { month: 11, day: 30 }, name: 'Energy Seasonal Strength', active: true, type: 'bullish' },
-        { start: { month: 9, day: 25 }, end: { month: 10, day: 5 }, name: 'Pension Fund Rebalancing', active: currentDay >= 25, type: 'bullish' },
-        { start: { month: 9, day: 15 }, end: { month: 10, day: 15 }, name: 'Q3 Earnings Prep', active: currentDay >= 15, type: 'bullish' },
-        { start: { month: 9, day: 1 }, end: { month: 9, day: 15 }, name: 'Back to School Effect', active: currentDay <= 15, type: 'bullish' },
-        { start: { month: 9, day: 1 }, end: { month: 9, day: 30 }, name: 'Dividend Capture Q3', active: true, type: 'bullish' },
-        { start: { month: 9, day: 20 }, end: { month: 10, day: 10 }, name: 'October Setup Rally', active: currentDay >= 20, type: 'bullish' },
-        { start: { month: 9, day: 10 }, end: { month: 9, day: 25 }, name: 'Post-Labor Day Recovery', active: currentDay >= 10 && currentDay <= 25, type: 'bullish' },
-        
-        // BEARISH PATTERNS (2)
-        { start: { month: 9, day: 1 }, end: { month: 9, day: 30 }, name: 'September Decline', active: true, type: 'bearish' },
-        { start: { month: 9, day: 10 }, end: { month: 9, day: 25 }, name: 'Fed September Volatility', active: currentDay >= 10 && currentDay <= 25, type: 'bearish' }
-      ];
-    }
-    
-    // Fallback for other months
-    return [
-      { start: { month: currentMonth, day: 1 }, end: { month: currentMonth, day: 30 }, name: 'Current Month Pattern', active: true, type: 'bullish' }
-    ];
-  };
-
   const loadMarketData = async () => {
     try {
       setLoading(true);
       setError(null);
       const selectedPeriod = timePeriodOptions.find(p => p.id === timePeriod);
-      console.log(`🚀 Starting FAST parallel analysis for ${activeMarket} using ${selectedPeriod?.name} (${selectedPeriod?.years} years)...`);
+      console.log(`🚀 Starting ETF analysis for ${activeMarket} using ${selectedPeriod?.name} (${selectedPeriod?.years} years)...`);
       
-      // Use optimized Polygon service for much faster results
+      // Use Polygon service for ETF-based market analysis
       const polygonService = new PolygonService();
       const marketPatterns = await polygonService.getMarketPatterns(activeMarket, selectedPeriod?.years || 5);
       
       setOpportunities(marketPatterns);
-      console.log(`🎯 ✅ Fast analysis complete! Found ${marketPatterns.length} valid patterns for ${activeMarket} using ${selectedPeriod?.name}`);
-      console.log(`📊 Displaying top 10 seasonal opportunities from optimized market analysis`);
+      console.log(`🎯 ✅ ETF analysis complete! Found ${marketPatterns.length} valid patterns for ${activeMarket} using ${selectedPeriod?.name}`);
+      console.log(`📊 Displaying top seasonal opportunities from ETF market analysis`);
       
-      console.log('🔥 TOP 10 PERFORMERS:');
+      console.log('🔥 TOP PERFORMERS:');
       marketPatterns.slice(0, 10).forEach((pattern, idx) => {
         console.log(`  ${idx + 1}. ${pattern.symbol}: ${pattern.averageReturn.toFixed(2)}% (${pattern.winRate.toFixed(1)}% win rate)`);
       });
@@ -188,23 +84,19 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
       setError(errorMsg);
     } finally {
       setLoading(false);
-      console.log(`🏁 Fast market data loading complete for ${activeMarket} (${timePeriod})`);
+      console.log(`🏁 ETF market data loading complete for ${activeMarket} (${timePeriod})`);
     }
   };
 
   const handleScreenerStart = (market: string) => {
     console.log(`Starting screener for ${market}`);
-    alert(`Starting screener for ${market} - This would navigate to the screener page`);
+    if (onStartScreener) {
+      onStartScreener();
+    }
   };
 
   const handleTabChange = (tabId: string) => {
     setActiveMarket(tabId);
-  };
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    // Implement search functionality
-    console.log('Searching for:', query);
   };
 
   if (loading) {
@@ -272,14 +164,14 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
       {/* Top 10 Opportunities Grid */}
       <section className="opportunities-section">
         <div className="section-header">
-          <h2>Top 10 Current Seasonal Trades</h2>
-          <p>Real seasonal analysis for September 2025 - {activeMarket.replace(/([A-Z])/g, ' $1').trim()}</p>
+          <h2>Top Seasonal ETF Opportunities</h2>
+          <p>Real seasonal analysis for September 2025 - {activeMarket.replace(/([A-Z])/g, ' $1').trim()} ETFs</p>
         </div>
         
         {loading ? (
           <div className="loading-message">
-            <p>Analyzing {activeMarket === 'SP500' ? '500' : activeMarket === 'NASDAQ100' ? '100' : '30'} stocks from {activeMarket.replace(/([A-Z])/g, ' $1').trim()} using {timePeriod} of historical data...</p>
-            <p>Processing complete market coverage with Polygon API to find top 10 seasonal opportunities.</p>
+            <p>Analyzing {activeMarket === 'SP500' ? 'S&P 500' : activeMarket === 'NASDAQ100' ? 'NASDAQ 100' : 'Dow Jones'} ETFs using {timePeriod} of historical data...</p>
+            <p>Processing ETF market coverage with Polygon API to find top seasonal opportunities.</p>
             <p>Using {timePeriodOptions.find(p => p.id === timePeriod)?.description || 'selected analysis period'} for comprehensive seasonal analysis.</p>
           </div>
         ) : error ? (

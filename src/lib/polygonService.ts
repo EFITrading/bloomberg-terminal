@@ -550,50 +550,31 @@ class PolygonService {
     
     switch (market) {
       case 'SP500':
-        // S&P 500 - Prioritize largest stocks for fastest results
-        symbols = [
-          'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'TSLA', 'META', 'UNH', 'JNJ',
-          'V', 'PG', 'JPM', 'HD', 'CVX', 'LLY', 'ABBV', 'AVGO', 'PFE', 'KO',
-          'TMO', 'COST', 'PEP', 'MRK', 'BAC', 'WMT', 'CSCO', 'ABT', 'DIS', 'ACN',
-          'ADBE', 'CRM', 'TXN', 'NFLX', 'VZ', 'QCOM', 'DHR', 'WFC', 'LIN', 'BRK-B',
-          'AMD', 'ORCL', 'TMUS', 'PM', 'NKE', 'COP', 'T', 'NEE', 'HON', 'UPS',
-          'CMCSA', 'IBM', 'BMY', 'LOW', 'RTX', 'AMGN', 'UNP', 'BA', 'SPGI', 'INTU'
-          // More symbols available but prioritizing speed with top performers
-        ];
+        // Use S&P 500 ETF and major sector ETFs for broader analysis
+        symbols = ['SPY', 'XLK', 'XLF', 'XLV', 'XLI', 'XLY', 'XLP', 'XLE', 'XLU', 'XLB'];
         break;
       case 'NASDAQ100':
-        // NASDAQ 100 - Top tech stocks first for best results
-        symbols = [
-          'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'TSLA', 'META', 'AVGO', 'PEP',
-          'COST', 'NFLX', 'TMUS', 'CSCO', 'ADBE', 'TXN', 'QCOM', 'CMCSA', 'HON', 'INTU',
-          'AMD', 'AMGN', 'ISRG', 'BKNG', 'ADP', 'GILD', 'VRTX', 'SBUX', 'MU', 'ADI',
-          'PYPL', 'REGN', 'MDLZ', 'LRCX', 'PANW', 'KLAC', 'SNPS', 'CDNS', 'MAR', 'MELI',
-          'ORLY', 'CSGP', 'CSX', 'DXCM', 'ABNB', 'TEAM', 'FTNT', 'CHTR', 'MNST', 'ADSK'
-        ];
+        // Use NASDAQ 100 ETF and tech-focused ETFs
+        symbols = ['QQQ', 'XLK', 'SOXX', 'FTEC', 'VGT'];
         break;
       case 'DOWJONES':
-        // Dow Jones Industrial Average - All 30 stocks (small enough to process all)
-        symbols = [
-          'UNH', 'GS', 'HD', 'MSFT', 'CAT', 'AMGN', 'V', 'BA', 'TRV', 'AXP',
-          'JPM', 'JNJ', 'PG', 'CVX', 'MRK', 'AAPL', 'WMT', 'DIS', 'MCD', 'IBM',
-          'NKE', 'CRM', 'HON', 'KO', 'INTC', 'CSCO', 'VZ', 'WBA', 'MMM', 'DOW'
-        ];
+        // Use Dow Jones ETF and blue-chip focused ETFs
+        symbols = ['DIA', 'VTI', 'VYM', 'DVY', 'HDV'];
         break;
       default:
-        symbols = ['SPY', 'AAPL', 'MSFT', 'GOOGL', 'AMZN'];
+        symbols = ['SPY'];
     }
 
-    console.log(`📊 Analyzing ${symbols.length} stocks for ${market} market coverage`);
+    console.log(`📊 Analyzing ${symbols.length} ETFs for ${market} market coverage`);
     console.log(`🚀 Using parallel processing for faster analysis...`);
     
     const patterns: SeasonalPattern[] = [];
-    const batchSize = 5; // Process 5 stocks simultaneously
-    const maxBatches = 10; // Limit to first 50 stocks for fast results
+    const batchSize = 3; // Process 3 ETFs simultaneously for optimal API usage
     
-    // Process stocks in parallel batches for speed
-    for (let batchStart = 0; batchStart < Math.min(symbols.length, batchSize * maxBatches); batchStart += batchSize) {
+    // Process ETFs in parallel batches for speed
+    for (let batchStart = 0; batchStart < symbols.length; batchStart += batchSize) {
       const batch = symbols.slice(batchStart, batchStart + batchSize);
-      console.log(`� Processing batch ${Math.floor(batchStart / batchSize) + 1}: ${batch.join(', ')}`);
+      console.log(`📈 Processing batch ${Math.floor(batchStart / batchSize) + 1}: ${batch.join(', ')}`);
       
       // Process this batch in parallel
       const batchPromises = batch.map(async (symbol) => {
