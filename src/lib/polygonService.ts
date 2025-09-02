@@ -68,7 +68,7 @@ class PolygonService {
     this.apiKey = apiKey;
   }
 
-  private async makeRequest<T>(endpoint: string): Promise<T> {
+  private async makeRequest<T>(endpoint: string): Promise<T | null> {
     const separator = endpoint.includes('?') ? '&' : '?';
     const url = `${BASE_URL}${endpoint}${separator}apikey=${this.apiKey}`;
     
@@ -89,9 +89,22 @@ class PolygonService {
         }
       }
       
-      const data = await response.json();
-      console.log(`API response received for ${endpoint}`);
-      return data;
+      // Check if response has content before parsing JSON
+      const responseText = await response.text();
+      if (!responseText || responseText.trim() === '') {
+        console.warn(`Empty response from Polygon API for ${endpoint}`);
+        return null;
+      }
+      
+      try {
+        const data = JSON.parse(responseText);
+        console.log(`API response received for ${endpoint}`);
+        return data;
+      } catch (parseError) {
+        console.error(`Failed to parse JSON response for ${endpoint}:`, parseError);
+        console.error('Response text:', responseText);
+        throw new Error(`Invalid JSON response from Polygon API: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+      }
     } catch (error) {
       console.error('Polygon API request failed:', error);
       throw error;
@@ -101,7 +114,7 @@ class PolygonService {
   async getTickerDetails(symbol: string): Promise<PolygonTickerData | null> {
     try {
       const data = await this.makeRequest<{results: PolygonTickerData}>(`/v3/reference/tickers/${symbol}`);
-      return data.results;
+      return data?.results || null;
     } catch (error) {
       console.error(`Failed to fetch ticker details for ${symbol}:`, error);
       return null;
@@ -171,7 +184,8 @@ class PolygonService {
     startDay: number,
     endMonth: number,
     endDay: number,
-    yearsBack: number = 10
+    yearsBack: number = 10,
+    trendType?: 'bullish' | 'bearish' // Add trend type parameter
   ): Promise<SeasonalPattern | null> {
     try {
       const tickerDetails = await this.getTickerDetails(symbol);
@@ -207,9 +221,16 @@ class PolygonService {
 
       const stats = this.calculateStatistics(yearlyReturns);
       
-      // Determine pattern type based on average return
-      const isPositive = stats.mean > 0;
-      const patternType = `${isPositive ? 'Seasonal Strength' : 'Seasonal Weakness'} (${Math.abs(stats.mean).toFixed(1)}%)`;
+      // Use the trend type from seasonal analysis if provided, otherwise fallback to mean
+      let patternType: string;
+      if (trendType) {
+        // Use the corrected trend type from seasonal chart analysis
+        patternType = `${trendType === 'bullish' ? 'Seasonal Strength' : 'Seasonal Weakness'} (${Math.abs(stats.mean).toFixed(1)}%)`;
+      } else {
+        // Fallback to old logic for backwards compatibility
+        const isPositive = stats.mean > 0;
+        patternType = `${isPositive ? 'Seasonal Strength' : 'Seasonal Weakness'} (${Math.abs(stats.mean).toFixed(1)}%)`;
+      }
       
       const pattern: SeasonalPattern = {
         symbol: symbol.toUpperCase(),
@@ -321,41 +342,43 @@ class PolygonService {
       // Find seasonal peaks and troughs (reversals)
       const reversals = this.findSeasonalTurningPoints(seasonalChart);
       
-      // ALWAYS anchor to current date ± 2-3 days regardless of reversals found
-      // Accept all patterns - no magnitude restrictions
-      const validReversals = reversals.filter(r => Math.abs(r.magnitude) > 0); // Any pattern with some movement
+      // ONLY show patterns that are actually starting around the current time period
+      const currentDate = new Date();
+      const currentDayOfYear = this.getDayOfYear(currentDate);
       
-      if (validReversals.length > 0) {
-        // Pick the most significant reversal but force dates to current ± 2-3 days
-        const bestReversal = validReversals.reduce((best, current) => 
+      // Find reversals that start within ±10 days of current date
+      const timingWindow = 10; // 10 days before/after current date
+      const currentSeasonalReversals = reversals.filter(r => {
+        const daysDiff = Math.abs(r.startDay - currentDayOfYear);
+        // Handle year wraparound (Dec 31 -> Jan 1)
+        const yearWrapDiff = Math.min(daysDiff, 365 - daysDiff);
+        return yearWrapDiff <= timingWindow && Math.abs(r.magnitude) > 2.0; // Require significant 2%+ magnitude
+      });
+      
+      if (currentSeasonalReversals.length > 0) {
+        // Pick the strongest reversal that's actually starting now
+        const bestReversal = currentSeasonalReversals.reduce((best, current) => 
           Math.abs(current.magnitude) > Math.abs(best.magnitude) ? current : best
         );
         
-        // Force start date to current date ± 2-3 days
-        const currentDate = new Date();
-        const startOffset = Math.floor(Math.random() * 6) - 3; // -3 to +2 days  
-        const startDate = new Date(currentDate);
-        startDate.setDate(currentDate.getDate() + startOffset);
+        // Use the actual reversal start date, not forced current date
+        const startDate = this.dayOfYearToDate(bestReversal.startDay);
+        const actualStartDate = new Date(currentDate.getFullYear(), startDate.month - 1, startDate.day);
         
         // Calculate trend-based end date: analyze how long the trend actually continues
-        const trendEndDate = this.calculateTrendEndDate(startDate, bestReversal.type, bestReversal.magnitude, yearsBack);
+        const trendEndDate = this.calculateTrendEndDate(actualStartDate, bestReversal.type, bestReversal.magnitude, yearsBack);
         
-        // Use calculated end date or default to realistic seasonal duration
-        let actualEndDate: Date;
+        // Use calculated end date - NO FALLBACKS
         if (!trendEndDate) {
-          console.log(`⚠️ Could not calculate trend end date for ${symbol} - using default seasonal duration`);
-          // Create a default seasonal duration (4-6 weeks) instead of just 1 day
-          actualEndDate = new Date(startDate);
-          const defaultWeeks = 4 + Math.floor(Math.random() * 3); // 4-6 weeks
-          actualEndDate.setDate(startDate.getDate() + (defaultWeeks * 7)); // Convert weeks to days
-        } else {
-          actualEndDate = trendEndDate;
+          console.error(`❌ Could not calculate trend end date for ${symbol} - no fallback data allowed`);
+          return null;
         }
+        const actualEndDate = trendEndDate;
         
-        const startDateFormatted = this.dayOfYearToDate(this.getDayOfYear(startDate));
+        const startDateFormatted = this.dayOfYearToDate(this.getDayOfYear(actualStartDate));
         const endDateFormatted = this.dayOfYearToDate(this.getDayOfYear(actualEndDate));
         
-        console.log(`📊 Found real seasonal reversal for ${symbol}: ${bestReversal.type} anchored to current date ${startDateFormatted.month}/${startDateFormatted.day} to ${endDateFormatted.month}/${endDateFormatted.day}`);
+        console.log(`📊 Found seasonal reversal for ${symbol}: ${bestReversal.type} starting on actual reversal date ${startDateFormatted.month}/${startDateFormatted.day} to ${endDateFormatted.month}/${endDateFormatted.day} (magnitude: ${bestReversal.magnitude.toFixed(1)}%)`);
         
         return {
           startMonth: startDateFormatted.month,
@@ -367,8 +390,8 @@ class PolygonService {
         };
       }
       
-      // If no reversals found at all, skip this symbol
-      console.log(`⚠️ No seasonal reversals found for ${symbol}, skipping...`);
+      // If no reversals found that match current timing, skip this symbol
+      console.log(`⚠️ No seasonal reversals found for ${symbol} starting around current date (Sep 2), skipping...`);
       return null; // Return null to skip this symbol
       
     } catch (error) {
@@ -433,12 +456,17 @@ class PolygonService {
           const nextPoint = smoothedChart[j];
           const magnitude = nextPoint.avgReturn - current.avgReturn;
           
-          if (Math.abs(magnitude) > 0.1) { // Accept any patterns above 0.1% magnitude (no restrictions)
+          if (Math.abs(magnitude) > 2.0) { // Require significant 2%+ seasonal moves only
+            // FIXED BUG: Determine trend type based on whether we're starting from high or low
+            // If starting from local HIGH → trend is BEARISH (going down)
+            // If starting from local LOW → trend is BULLISH (going up)
+            const trendType = isLocalHigh ? 'bearish' as const : 'bullish' as const;
+            
             reversals.push({
               startDay: current.day,
-              endDay: nextPoint.avgReturn > current.avgReturn ? nextPoint.day : current.day,
-              type: magnitude > 0 ? 'bullish' as const : 'bearish' as const,
-              magnitude: magnitude
+              endDay: nextPoint.day,
+              type: trendType,
+              magnitude: Math.abs(magnitude) // Use absolute magnitude for strength calculation
             });
             break;
           }
@@ -463,7 +491,7 @@ class PolygonService {
     };
   }
 
-  private async getDynamicSeasonalPeriod(symbol: string = 'AAPL', yearsBack: number = 15): Promise<{ startMonth: number; startDay: number; endMonth: number; endDay: number; name: string } | null> {
+  private async getDynamicSeasonalPeriod(symbol: string = 'AAPL', yearsBack: number = 15): Promise<{ startMonth: number; startDay: number; endMonth: number; endDay: number; name: string; trendType: 'bullish' | 'bearish' } | null> {
     try {
       const seasonalPattern = await this.findSeasonalReversals(symbol, yearsBack);
       
@@ -476,7 +504,8 @@ class PolygonService {
         startDay: seasonalPattern.startDay,
         endMonth: seasonalPattern.endMonth,
         endDay: seasonalPattern.endDay,
-        name: seasonalPattern.name
+        name: seasonalPattern.name,
+        trendType: seasonalPattern.type
       };
     } catch (error) {
       console.error('Error getting dynamic seasonal period:', error);
@@ -520,7 +549,8 @@ class PolygonService {
           seasonalPeriod.startDay,
           seasonalPeriod.endMonth,
           seasonalPeriod.endDay,
-          15
+          15,
+          seasonalPeriod.trendType // Pass the corrected trend type here too
         );
         
         if (seasonalData) {
@@ -602,7 +632,8 @@ class PolygonService {
             seasonalPeriod.startDay, 
             seasonalPeriod.endMonth, 
             seasonalPeriod.endDay, 
-            yearsBack
+            yearsBack,
+            seasonalPeriod.trendType // Pass the corrected trend type
           );
           
           if (seasonalData) {
