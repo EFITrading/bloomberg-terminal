@@ -1,0 +1,737 @@
+/* Pure Seasonality Analysis CSS */
+.sectors-analysis-container {
+  padding: 2rem;
+  background: #000000;
+  min-height: 100vh;
+  color: #ffffff;
+}
+
+.loading-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  text-align: center;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 3px solid #16213e;
+  border-top: 3px solid #00d4ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.analysis-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding: 2rem;
+  background: #000000;
+  border-radius: 15px;
+  border: 1px solid #00d4ff;
+}
+
+.header-content h1 {
+  font-size: 2.5rem;
+  margin: 0 0 0.5rem 0;
+  background: linear-gradient(45deg, #00d4ff, #00ff88);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.header-content p {
+  color: #a0a0a0;
+  font-size: 1.1rem;
+}
+
+.header-stats {
+  display: flex;
+  gap: 1rem;
+}
+
+.stat-card {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  border-radius: 10px;
+  text-align: center;
+  min-width: 120px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.stat-card.bullish { border-color: #00ff88; }
+.stat-card.bearish { border-color: #ff4757; }
+.stat-card.strong { border-color: #ffa502; }
+
+.stat-value {
+  display: block;
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.stat-label {
+  display: block;
+  font-size: 0.9rem;
+  color: #a0a0a0;
+  margin-top: 0.3rem;
+}
+
+.analysis-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.view-controls,
+.filter-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.control-btn {
+  padding: 0.7rem 1.2rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: #00d4ff;
+}
+
+.control-btn.active {
+  background: linear-gradient(45deg, #00d4ff, #0099cc);
+  border-color: #00d4ff;
+  color: #000;
+}
+
+.filter-select,
+.sort-select {
+  padding: 0.7rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #ffffff;
+  min-width: 150px;
+}
+
+/* Seasonality Heatmap Styles */
+.seasonality-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.seasonal-row {
+  display: grid;
+  grid-template-columns: 200px 1fr 300px;
+  gap: 1rem;
+  padding: 1rem;
+  background: #000000;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  align-items: center;
+}
+
+.sector-info h3 {
+  margin: 0;
+  color: #00d4ff;
+  font-size: 1.2rem;
+}
+
+.sector-info p {
+  margin: 0.3rem 0;
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+.type-badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.type-badge.sector {
+  background: rgba(0, 212, 255, 0.2);
+  color: #00d4ff;
+}
+
+.type-badge.etf {
+  background: rgba(255, 167, 2, 0.2);
+  color: #ffa502;
+}
+
+.monthly-heatmap {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 0.3rem;
+}
+
+.month-cell {
+  padding: 0.5rem;
+  border-radius: 6px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.3s ease;
+}
+
+.month-cell:hover {
+  transform: scale(1.05);
+  border-color: #ffffff;
+}
+
+.month-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.month-value {
+  display: block;
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+  color: #ffffff;
+}
+
+.seasonal-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.current-strength {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.strength-label {
+  font-size: 0.9rem;
+  color: #a0a0a0;
+}
+
+.strength-value {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.strength-value.positive { color: #00ff88; }
+.strength-value.negative { color: #ff4757; }
+
+.pattern-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.pattern-text {
+  color: #ffffff;
+  font-size: 0.9rem;
+}
+
+.reliability {
+  color: #a0a0a0;
+  font-size: 0.8rem;
+}
+
+/* Pattern Analysis Grid */
+.patterns-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.pattern-card {
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  padding: 1.5rem;
+  transition: transform 0.3s ease, border-color 0.3s ease;
+}
+
+.pattern-card:hover {
+  transform: translateY(-5px);
+  border-color: #00d4ff;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.card-header h3 {
+  margin: 0;
+  color: #00d4ff;
+  font-size: 1.3rem;
+}
+
+.seasonal-trend {
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.seasonal-trend.bullish {
+  background: rgba(0, 255, 136, 0.2);
+  color: #00ff88;
+}
+
+.seasonal-trend.bearish {
+  background: rgba(255, 71, 87, 0.2);
+  color: #ff4757;
+}
+
+.seasonal-trend.neutral {
+  background: rgba(255, 165, 2, 0.2);
+  color: #ffa502;
+}
+
+.pattern-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pattern-type {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.reliability-badge {
+  padding: 0.2rem 0.5rem;
+  background: rgba(0, 212, 255, 0.2);
+  color: #00d4ff;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  margin-left: auto;
+}
+
+.seasonal-pattern h4 {
+  margin: 0 0 0.5rem 0;
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.seasonal-pattern p {
+  margin: 0;
+  color: #a0a0a0;
+  font-style: italic;
+}
+
+.best-worst-months {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.best-months h5,
+.worst-months h5 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.months-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.month-tag {
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: bold;
+}
+
+.month-tag.best {
+  background: rgba(0, 255, 136, 0.2);
+  color: #00ff88;
+}
+
+.month-tag.worst {
+  background: rgba(255, 71, 87, 0.2);
+  color: #ff4757;
+}
+
+.seasonal-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: #a0a0a0;
+}
+
+.stat-value {
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.stat-value.positive { color: #00ff88; }
+.stat-value.negative { color: #ff4757; }
+
+.next-window {
+  padding: 1rem;
+  background: rgba(0, 212, 255, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(0, 212, 255, 0.3);
+}
+
+.next-window h5 {
+  margin: 0 0 0.5rem 0;
+  color: #00d4ff;
+  font-size: 0.9rem;
+}
+
+.window-info {
+  margin: 0 0 0.3rem 0;
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.days-until {
+  margin: 0;
+  color: #a0a0a0;
+  font-size: 0.8rem;
+}
+
+/* Seasonal Legend */
+.seasonal-legend {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.seasonal-legend h3 {
+  margin: 0 0 1rem 0;
+  color: #00d4ff;
+}
+
+.legend-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 0.8rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.legend-color {
+  width: 20px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.legend-color.positive {
+  background: rgba(0, 255, 136, 0.6);
+}
+
+.legend-color.negative {
+  background: rgba(255, 71, 87, 0.6);
+}
+
+.legend-text {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .seasonal-row {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .monthly-heatmap {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  
+  .patterns-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .analysis-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .header-stats {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .analysis-controls {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .monthly-heatmap {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  .best-worst-months {
+    grid-template-columns: 1fr;
+  }
+  
+  .seasonal-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Weekly table specific styles */
+.weekly-table-container {
+  margin: 2rem 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #333;
+  background: #000000;
+}
+
+.weekly-table-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
+  background: #000000;
+  border-bottom: 2px solid #333;
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: #ffffff;
+}
+
+.header-cell {
+  padding: 1.5rem;
+  text-align: center;
+  border-right: 1px solid #333;
+  background: #000000;
+  font-size: 1.1rem;
+}
+
+.header-cell:last-child {
+  border-right: none;
+}
+
+.date-range {
+  font-size: 1rem;
+  color: #888;
+  font-weight: normal;
+}
+
+.weekly-table-body {
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #000000;
+}
+
+.weekly-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
+  border-bottom: 1px solid #333;
+  transition: background-color 0.2s ease;
+  background: #000000;
+}
+
+.weekly-row:hover {
+  background: #111111;
+}
+
+.symbol-info {
+  padding: 1.5rem;
+  text-align: left;
+  border-right: 1px solid #333;
+  background: #000000;
+}
+
+.symbol-name {
+  font-weight: 600;
+  font-size: 1.3rem;
+  color: #ffffff;
+  margin-bottom: 0.25rem;
+}
+
+.symbol-desc {
+  font-size: 1.1rem;
+  color: #ccc;
+  margin-bottom: 0.25rem;
+}
+
+.symbol-type {
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.symbol-type.sector {
+  background: #1a365d;
+  color: #63b3ed;
+}
+
+.symbol-type.etf {
+  background: #2d1b69;
+  color: #a78bfa;
+}
+
+.week-cell {
+  padding: 1.5rem;
+  text-align: center;
+  border-right: 1px solid #333;
+  background: #000000;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.week-cell:last-child {
+  border-right: none;
+}
+
+.pattern-label {
+  font-weight: 600;
+  font-size: 1.2rem;
+  margin-bottom: 0.25rem;
+}
+
+.pattern-strength {
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.confidence {
+  font-size: 0.95rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+}
+
+.pattern-bullish {
+  background: #000000;
+  border-left: 3px solid #10b981;
+}
+
+.pattern-bullish .pattern-label {
+  color: #10b981;
+}
+
+.pattern-bullish .pattern-strength {
+  color: #34d399;
+}
+
+.pattern-bearish {
+  background: #000000;
+  border-left: 3px solid #ef4444;
+}
+
+.pattern-bearish .pattern-label {
+  color: #ef4444;
+}
+
+.pattern-bearish .pattern-strength {
+  color: #f87171;
+}
+
+.pattern-neutral {
+  background: #000000;
+  border-left: 3px solid #6b7280;
+}
+
+.pattern-neutral .pattern-label {
+  color: #9ca3af;
+}
+
+.pattern-neutral .pattern-strength {
+  color: #d1d5db;
+}
+
+.confidence-high {
+  background: #065f46;
+  color: #a7f3d0;
+}
+
+.confidence-medium {
+  background: #92400e;
+  color: #fde68a;
+}
+
+.confidence-low {
+  background: #7c2d12;
+  color: #fed7aa;
+}
+
+.reliability-cell {
+  padding: 1.5rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: #000000;
+}
+
+.reliability-value {
+  font-weight: 600;
+  font-size: 1.2rem;
+  color: #ffffff;
+  margin-bottom: 0.5rem;
+}
+
+.reliability-bar {
+  width: 100%;
+  height: 6px;
+  background: #333;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.reliability-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}

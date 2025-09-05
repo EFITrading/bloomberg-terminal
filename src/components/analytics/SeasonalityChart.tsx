@@ -2,10 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import PolygonService from '../../lib/polygonService';
+import ElectionCycleService, { ElectionCycleData } from '../../lib/electionCycleService';
 import SeasonaxSymbolSearch from './SeasonaxSymbolSearch';
 import SeasonaxMainChart from './SeasonaxMainChart';
 import SeasonaxStatistics from './SeasonaxStatistics';
 import SeasonaxControls from './SeasonaxControls';
+import HorizontalMonthlyReturns from './HorizontalMonthlyReturns';
 
 // Types for Polygon API data
 interface PolygonDataPoint {
@@ -21,6 +23,7 @@ interface PolygonDataPoint {
 
 // Create polygon service instance
 const polygonService = new PolygonService();
+const electionCycleService = new ElectionCycleService();
 
 interface DailySeasonalData {
   dayOfYear: number;
@@ -96,9 +99,16 @@ interface ChartSettings {
   comparisonSymbols: string[];
 }
 
-const SeasonalityChart: React.FC = () => {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('MSFT');
+interface SeasonalityChartProps {
+  onBackToTabs?: () => void;
+}
+
+const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs }) => {
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('SPY');
   const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null);
+  const [electionData, setElectionData] = useState<ElectionCycleData | null>(null);
+  const [isElectionMode, setIsElectionMode] = useState<boolean>(false);
+  const [selectedElectionPeriod, setSelectedElectionPeriod] = useState<string>('Election Year');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [chartSettings, setChartSettings] = useState<ChartSettings>({
@@ -121,6 +131,60 @@ const SeasonalityChart: React.FC = () => {
     }
   }, [selectedSymbol]);
 
+  const handleElectionModeToggle = async (isEnabled: boolean) => {
+    console.log('Election mode toggled:', isEnabled);
+    if (!isEnabled) {
+      // Switch back to normal seasonal mode
+      setIsElectionMode(false);
+      setElectionData(null);
+      // Reload regular seasonal data if we don't have it or need to refresh
+      if (!seasonalData) {
+        await loadSeasonalAnalysis(selectedSymbol);
+      }
+    } else {
+      setIsElectionMode(true);
+    }
+  };
+
+  const handleElectionPeriodSelect = async (period: string) => {
+    console.log('Election period selected:', period);
+    setSelectedElectionPeriod(period);
+    setIsElectionMode(true);
+    await loadElectionCycleAnalysis(selectedSymbol, period as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
+  };
+
+  const loadElectionCycleAnalysis = async (
+    symbol: string, 
+    electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
+  ) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      console.log(`Loading election cycle analysis for ${symbol} - ${electionType}`);
+      
+      const electionResult = await electionCycleService.analyzeElectionCycleSeasonality(
+        symbol,
+        electionType,
+        20 // 20 years of data
+      );
+
+      if (electionResult) {
+        setElectionData(electionResult);
+        console.log('Election cycle data loaded successfully:', electionResult.symbol, 'Years:', electionResult.statistics.yearsOfData);
+      } else {
+        setError('Failed to load election cycle data');
+      }
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load election cycle data';
+      setError(errorMessage);
+      console.error('Error loading election cycle data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadSeasonalAnalysis = async (symbol: string) => {
     setLoading(true);
     setError(null);
@@ -134,23 +198,48 @@ const SeasonalityChart: React.FC = () => {
 
       console.log(`Loading ${yearsToFetch} years of data for ${symbol}`);
 
-      // Fetch historical data
-      const historicalResponse = await polygonService.getHistoricalData(
-        symbol,
-        startDate.toISOString().split('T')[0],
-        endDate.toISOString().split('T')[0]
-      );
+      // Fetch historical data - if symbol is SPY, only fetch SPY data once
+      let historicalResponse, spyResponse;
+      
+      if (symbol.toUpperCase() === 'SPY') {
+        // For SPY, just fetch once and use for both
+        historicalResponse = await polygonService.getHistoricalData(
+          symbol,
+          startDate.toISOString().split('T')[0],
+          endDate.toISOString().split('T')[0]
+        );
+        spyResponse = null; // Don't need separate SPY data when analyzing SPY itself
+      } else {
+        // For other symbols, fetch both symbol and SPY for comparison
+        [historicalResponse, spyResponse] = await Promise.all([
+          polygonService.getHistoricalData(
+            symbol,
+            startDate.toISOString().split('T')[0],
+            endDate.toISOString().split('T')[0]
+          ),
+          polygonService.getHistoricalData(
+            'SPY',
+            startDate.toISOString().split('T')[0],
+            endDate.toISOString().split('T')[0]
+          )
+        ]);
+      }
 
       if (!historicalResponse || !historicalResponse.results || historicalResponse.results.length === 0) {
         throw new Error(`No historical data available for ${symbol}`);
+      }
+      
+      if (symbol.toUpperCase() !== 'SPY' && (!spyResponse || !spyResponse.results || spyResponse.results.length === 0)) {
+        throw new Error(`No SPY data available for comparison`);
       }
 
       // Get company details
       const tickerDetails = await polygonService.getTickerDetails(symbol);
 
-      // Process data into daily seasonal format
+      // Process data into daily seasonal format with or without SPY comparison
       const processedData = processDailySeasonalData(
         historicalResponse.results, 
+        spyResponse?.results || null,
         symbol,
         tickerDetails?.name || symbol,
         yearsToFetch
@@ -169,7 +258,8 @@ const SeasonalityChart: React.FC = () => {
   };
 
   const processDailySeasonalData = (
-    data: PolygonDataPoint[], 
+    data: PolygonDataPoint[],
+    spyData: PolygonDataPoint[] | null,
     symbol: string, 
     companyName: string,
     years: number
@@ -177,6 +267,14 @@ const SeasonalityChart: React.FC = () => {
     // Group data by day of year
     const dailyGroups: { [dayOfYear: number]: { date: Date; return: number; year: number }[] } = {};
     const yearlyReturns: { [year: number]: number } = {};
+    
+    // Create SPY lookup map for faster access (only if spyData is provided)
+    const spyLookup: { [timestamp: number]: PolygonDataPoint } = {};
+    if (spyData) {
+      spyData.forEach(item => {
+        spyLookup[item.t] = item;
+      });
+    }
     
     // Process historical data into daily returns
     for (let i = 1; i < data.length; i++) {
@@ -186,7 +284,25 @@ const SeasonalityChart: React.FC = () => {
       const year = date.getFullYear();
       const dayOfYear = getDayOfYear(date);
       
-      const dailyReturn = ((currentItem.c - previousItem.c) / previousItem.c) * 100;
+      // Calculate stock return
+      const stockReturn = ((currentItem.c - previousItem.c) / previousItem.c) * 100;
+      
+      let finalReturn = stockReturn;
+      
+      // If we have SPY data, calculate relative performance vs SPY
+      if (spyData && spyData.length > 0) {
+        const currentSpy = spyLookup[currentItem.t];
+        const previousSpy = spyLookup[previousItem.t];
+        
+        if (currentSpy && previousSpy) {
+          const spyReturn = ((currentSpy.c - previousSpy.c) / previousSpy.c) * 100;
+          finalReturn = stockReturn - spyReturn; // Relative to SPY
+        } else {
+          // Skip this data point if we don't have corresponding SPY data
+          continue;
+        }
+      }
+      // If no SPY data (i.e., analyzing SPY itself), use absolute returns
       
       if (!dailyGroups[dayOfYear]) {
         dailyGroups[dayOfYear] = [];
@@ -194,14 +310,14 @@ const SeasonalityChart: React.FC = () => {
       
       dailyGroups[dayOfYear].push({
         date,
-        return: dailyReturn,
+        return: finalReturn,
         year
       });
       
       if (!yearlyReturns[year]) {
         yearlyReturns[year] = 0;
       }
-      yearlyReturns[year] += dailyReturn;
+      yearlyReturns[year] += finalReturn;
     }
 
     // Calculate daily seasonal data
@@ -265,49 +381,72 @@ const SeasonalityChart: React.FC = () => {
       return: Math.min(...allReturns)
     };
 
-    // Calculate monthly aggregates for best/worst months analysis
-    const monthlyData: { [month: number]: number[] } = {};
-    dailyData.forEach(day => {
-      if (!monthlyData[day.month]) {
-        monthlyData[day.month] = [];
+    // Calculate monthly aggregates for best/worst months analysis using proper methodology
+    // Group data by month and year for proper monthly return calculation
+    const monthlyReturns: { [monthYear: string]: { ticker: number[], spy: number[] } } = {};
+    
+    // First, collect all daily returns by month-year for both ticker and SPY
+    for (let i = 1; i < data.length; i++) {
+      const currentItem = data[i];
+      const previousItem = data[i - 1];
+      const date = new Date(currentItem.t);
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1; // 1-12
+      const monthYear = `${year}-${month}`;
+      
+      const currentSpy = spyLookup[currentItem.t];
+      const previousSpy = spyLookup[previousItem.t];
+      
+      if (currentSpy && previousSpy) {
+        if (!monthlyReturns[monthYear]) {
+          monthlyReturns[monthYear] = { ticker: [], spy: [] };
+        }
+        
+        // Calculate daily returns
+        const tickerReturn = ((currentItem.c - previousItem.c) / previousItem.c) * 100;
+        const spyReturn = ((currentSpy.c - previousSpy.c) / previousSpy.c) * 100;
+        
+        monthlyReturns[monthYear].ticker.push(tickerReturn);
+        monthlyReturns[monthYear].spy.push(spyReturn);
       }
-      monthlyData[day.month].push(day.avgReturn);
+    }
+    
+    // Calculate monthly return for each month across all years
+    const monthlyData: { [month: number]: { tickerReturns: number[], spyReturns: number[] } } = {};
+    
+    Object.keys(monthlyReturns).forEach(monthYear => {
+      const [year, month] = monthYear.split('-').map(Number);
+      const monthNum = month;
+      
+      if (!monthlyData[monthNum]) {
+        monthlyData[monthNum] = { tickerReturns: [], spyReturns: [] };
+      }
+      
+      // Calculate monthly return as cumulative of daily returns for that month
+      const tickerMonthlyReturn = monthlyReturns[monthYear].ticker.reduce((sum, ret) => sum + ret, 0);
+      const spyMonthlyReturn = monthlyReturns[monthYear].spy.reduce((sum, ret) => sum + ret, 0);
+      
+      monthlyData[monthNum].tickerReturns.push(tickerMonthlyReturn);
+      monthlyData[monthNum].spyReturns.push(spyMonthlyReturn);
     });
 
     const monthlyAverages = Object.keys(monthlyData).map(month => {
       const monthNum = parseInt(month);
-      const returns = monthlyData[monthNum];
-      const avgDailyReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
+      const data = monthlyData[monthNum];
       
-      // Create realistic seasonal returns (simulate proper annualized monthly returns)
-      // Generate meaningful seasonal patterns with proper annualized scale
-      const seasonalMultipliers = [
-        1.2,   // Jan - Strong start
-        0.6,   // Feb - Winter weakness  
-        1.8,   // Mar - Spring rally
-        1.9,   // Apr - Continued strength
-        0.4,   // May - "Sell in May"
-        1.1,   // Jun - Mid-year recovery
-        1.3,   // Jul - Summer rally
-        0.7,   // Aug - August doldrums
-        0.2,   // Sep - September weakness
-        2.2,   // Oct - Strong seasonal period
-        1.7,   // Nov - Holiday rally
-        1.4    // Dec - Year-end strength
-      ];
+      // Calculate average monthly return over 15 years for both ticker and SPY
+      const avgTickerReturn = data.tickerReturns.length > 0 ? 
+        data.tickerReturns.reduce((sum, ret) => sum + ret, 0) / data.tickerReturns.length : 0;
+      const avgSpyReturn = data.spyReturns.length > 0 ? 
+        data.spyReturns.reduce((sum, ret) => sum + ret, 0) / data.spyReturns.length : 0;
       
-      // Apply seasonal multiplier and scale to realistic annual returns (5-25% range)
-      const baseReturn = 12; // Base 12% annual return
-      const seasonalReturn = baseReturn * seasonalMultipliers[monthNum - 1];
-      
-      // Calculate SPY outperformance (SPY historical avg ~10% annually)
-      const spyAnnualReturn = 10;
-      const outperformance = seasonalReturn - spyAnnualReturn;
+      // Calculate outperformance as ticker average minus SPY average
+      const outperformance = avgTickerReturn - avgSpyReturn;
       
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return {
         month: monthNames[monthNum - 1],
-        avgReturn: seasonalReturn,
+        avgReturn: avgTickerReturn,
         outperformance: outperformance
       };
     });
@@ -316,25 +455,36 @@ const SeasonalityChart: React.FC = () => {
     const bestMonths = sortedMonthsByPerformance.slice(0, 3);
     const worstMonths = sortedMonthsByPerformance.slice(-3).reverse();
 
-    // Calculate quarterly data with realistic seasonal returns
+    // Calculate REAL quarterly data from actual monthly averages
     const quarterlyData = [
-      { quarter: 'Q1', return: 14.4 }, // Jan(14.4) + Feb(7.2) + Mar(21.6) = 43.2 / 3 = 14.4
-      { quarter: 'Q2', return: 15.2 }, // Apr(22.8) + May(4.8) + Jun(13.2) = 40.8 / 3 = 13.6  
-      { quarter: 'Q3', return: 7.4 },  // Jul(15.6) + Aug(8.4) + Sep(2.4) = 26.4 / 3 = 8.8
-      { quarter: 'Q4', return: 19.8 }  // Oct(26.4) + Nov(20.4) + Dec(16.8) = 63.6 / 3 = 21.2
+      { 
+        quarter: 'Q1', 
+        return: monthlyAverages.slice(0, 3).reduce((sum, month) => sum + month.avgReturn, 0) / 3
+      },
+      { 
+        quarter: 'Q2', 
+        return: monthlyAverages.slice(3, 6).reduce((sum, month) => sum + month.avgReturn, 0) / 3
+      },
+      { 
+        quarter: 'Q3', 
+        return: monthlyAverages.slice(6, 9).reduce((sum, month) => sum + month.avgReturn, 0) / 3
+      },
+      { 
+        quarter: 'Q4', 
+        return: monthlyAverages.slice(9, 12).reduce((sum, month) => sum + month.avgReturn, 0) / 3
+      }
     ];
 
     const sortedQuarters = [...quarterlyData].sort((a, b) => b.return - a.return);
     
-    // Calculate SPY outperformance for quarters (SPY avg 2.5% quarterly)
-    const spyQuarterlyReturn = 2.5;
+    // Use real quarterly returns (already relative to SPY)
     const bestQuarters = [{ 
       quarter: sortedQuarters[0].quarter, 
-      outperformance: sortedQuarters[0].return - spyQuarterlyReturn 
+      outperformance: sortedQuarters[0].return
     }];
     const worstQuarters = [{ 
       quarter: sortedQuarters[sortedQuarters.length - 1].quarter, 
-      outperformance: sortedQuarters[sortedQuarters.length - 1].return - spyQuarterlyReturn 
+      outperformance: sortedQuarters[sortedQuarters.length - 1].return
     }];
 
     // Analyze 30+ day seasonal patterns from actual daily data
@@ -449,6 +599,8 @@ const SeasonalityChart: React.FC = () => {
 
   const handleSymbolChange = (symbol: string) => {
     setSelectedSymbol(symbol);
+    setIsElectionMode(false); // Reset to normal seasonal mode when symbol changes
+    setElectionData(null);
   };
 
   const handleSettingsChange = (newSettings: Partial<ChartSettings>) => {
@@ -458,7 +610,11 @@ const SeasonalityChart: React.FC = () => {
     // Reload data if years changed
     if (newSettings.yearsOfData && newSettings.yearsOfData !== chartSettings.yearsOfData) {
       if (selectedSymbol) {
-        loadSeasonalAnalysis(selectedSymbol);
+        if (isElectionMode) {
+          loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
+        } else {
+          loadSeasonalAnalysis(selectedSymbol);
+        }
       }
     }
   };
@@ -466,7 +622,11 @@ const SeasonalityChart: React.FC = () => {
   const handleRefresh = () => {
     if (selectedSymbol) {
       console.log('Refreshing data for', selectedSymbol);
-      loadSeasonalAnalysis(selectedSymbol);
+      if (isElectionMode) {
+        loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
+      } else {
+        loadSeasonalAnalysis(selectedSymbol);
+      }
     }
   };
 
@@ -497,16 +657,25 @@ const SeasonalityChart: React.FC = () => {
 
   return (
     <div className="seasonax-container">
-      {/* Header with symbol search and controls */}
+      {/* Header with symbol search, monthly returns, and controls */}
       <div className="seasonax-header">
         <SeasonaxSymbolSearch 
           onSymbolSelect={handleSymbolChange} 
           initialSymbol={selectedSymbol}
+          onElectionPeriodSelect={handleElectionPeriodSelect}
+          onElectionModeToggle={handleElectionModeToggle}
         />
+        {/* Show monthly returns based on current mode */}
+        {(isElectionMode ? electionData?.spyComparison?.monthlyData : seasonalData?.spyComparison?.monthlyData) && (
+          <HorizontalMonthlyReturns 
+            monthlyData={isElectionMode ? electionData!.spyComparison!.monthlyData : seasonalData!.spyComparison!.monthlyData}
+          />
+        )}
         <SeasonaxControls 
           settings={chartSettings}
           onSettingsChange={handleSettingsChange}
           onRefresh={handleRefresh}
+          onBackToTabs={onBackToTabs}
         />
       </div>
 
@@ -516,7 +685,13 @@ const SeasonalityChart: React.FC = () => {
             <h3>Error Loading Data</h3>
             <p>{error}</p>
             <button 
-              onClick={() => loadSeasonalAnalysis(selectedSymbol)}
+              onClick={() => {
+                if (isElectionMode) {
+                  loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
+                } else {
+                  loadSeasonalAnalysis(selectedSymbol);
+                }
+              }}
               className="retry-button"
             >
               Retry
@@ -528,16 +703,17 @@ const SeasonalityChart: React.FC = () => {
       {loading && (
         <div className="seasonax-loading">
           <div className="loading-spinner"></div>
-          <p>Loading seasonal analysis for {selectedSymbol}...</p>
+          <p>Loading {isElectionMode ? 'election cycle' : 'seasonal'} analysis for {selectedSymbol}...</p>
         </div>
       )}
 
-      {seasonalData && !loading && (
+      {/* Show data based on current mode */}
+      {((isElectionMode && electionData) || (!isElectionMode && seasonalData)) && !loading && (
         <div className="seasonax-content">
           {/* Main Chart Area */}
           <div className="seasonax-charts">
             <SeasonaxMainChart
-              data={seasonalData as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
+              data={(isElectionMode ? electionData : seasonalData) as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
               settings={chartSettings}
             />
           </div>
@@ -545,7 +721,7 @@ const SeasonalityChart: React.FC = () => {
           {/* Statistics Panel */}
           <div className="seasonax-sidebar">
             <SeasonaxStatistics 
-              data={seasonalData}
+              data={isElectionMode ? (electionData as any) : seasonalData!}
             />
           </div>
         </div>

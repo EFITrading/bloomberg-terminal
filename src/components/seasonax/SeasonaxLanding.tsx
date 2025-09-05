@@ -8,15 +8,18 @@ import OpportunityCard from './OpportunityCard';
 
 interface SeasonaxLandingProps {
   onStartScreener?: () => void;
-  onSectorsClick?: () => void;
 }
 
-const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSectorsClick }) => {
+const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) => {
   const [activeMarket, setActiveMarket] = useState('SP500');
-  const [timePeriod, setTimePeriod] = useState('5Y');
+  const [timePeriod, setTimePeriod] = useState('15Y'); // Changed default from 5Y to 15Y
   const [opportunities, setOpportunities] = useState<SeasonalPattern[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [streamStatus, setStreamStatus] = useState<string>('');
+  const [showWebsite, setShowWebsite] = useState(false);
+  const [progressStats, setProgressStats] = useState({ processed: 0, total: 500, found: 0 });
+  const [eventSource, setEventSource] = useState<EventSource | null>(null);
 
   const marketTabs = [
     { id: 'SP500', name: 'S&P 500' },
@@ -25,66 +28,128 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
   ];
 
   const timePeriodOptions = [
-    { id: '5Y', name: '5 Years', years: 5, description: 'Fast analysis - Recent trends' },
     { id: '10Y', name: '10 Years', years: 10, description: 'Balanced - Market cycles' },
     { id: '15Y', name: '15 Years', years: 15, description: 'Comprehensive - Long patterns' },
     { id: '20Y', name: '20 Years', years: 20, description: 'Maximum depth - Full cycles' }
   ];
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
     loadMarketData();
-  }, [activeMarket, timePeriod]); // Reload when market or time period changes
+  }, [timePeriod]); // Only reload when time period changes
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      console.log('🔄 Starting real seasonal pattern analysis...');
-      
-      // Load market data
-      console.log('📈 Starting market data analysis...');
-      await loadMarketData();
-      
-    } catch (error) {
-      console.error('❌ Failed to load initial data:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load seasonal data');
-    } finally {
-      setLoading(false);
-      console.log('🏁 Data loading complete');
-    }
-  };
+  // Cleanup EventSource on component unmount
+  useEffect(() => {
+    return () => {
+      if (eventSource) {
+        console.log('🔌 Cleaning up EventSource on component unmount...');
+        eventSource.close();
+      }
+    };
+  }, [eventSource]);
 
   const loadMarketData = async () => {
     try {
+      // Close any existing EventSource connection
+      if (eventSource) {
+        console.log('🔌 Closing existing EventSource connection...');
+        eventSource.close();
+        setEventSource(null);
+      }
+      
       setLoading(true);
       setError(null);
+      setShowWebsite(false);
+      setOpportunities([]);
+      setStreamStatus('');
+      setProgressStats({ processed: 0, total: 500, found: 0 });
+      
       const selectedPeriod = timePeriodOptions.find(p => p.id === timePeriod);
-      console.log(`🚀 Starting ETF analysis for ${activeMarket} using ${selectedPeriod?.name} (${selectedPeriod?.years} years)...`);
+      console.log(`🚀 Starting streaming seasonal screening for top 500 stocks using ${selectedPeriod?.name} (${selectedPeriod?.years} years)...`);
       
-      // Use Polygon service for ETF-based market analysis
-      const polygonService = new PolygonService();
-      const marketPatterns = await polygonService.getMarketPatterns(activeMarket, selectedPeriod?.years || 5);
+      // Use streaming API for progressive loading
+      const newEventSource = new EventSource(`/api/patterns/stream?years=${selectedPeriod?.years || 15}`);
+      setEventSource(newEventSource);
       
-      setOpportunities(marketPatterns);
-      console.log(`🎯 ✅ ETF analysis complete! Found ${marketPatterns.length} valid patterns for ${activeMarket} using ${selectedPeriod?.name}`);
-      console.log(`📊 Displaying top seasonal opportunities from ETF market analysis`);
+      newEventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          switch (data.type) {
+            case 'status':
+              setStreamStatus(data.message);
+              if (data.processed !== undefined) {
+                setProgressStats({ processed: data.processed, total: data.total, found: data.found });
+              }
+              console.log(`📊 ${data.message}`);
+              break;
+              
+            case 'opportunity':
+              // Add new opportunity to the list (check for duplicates)
+              setOpportunities(prev => {
+                // Check if this symbol already exists
+                const exists = prev.some(existing => existing.symbol === data.data.symbol);
+                if (exists) {
+                  console.log(`⚠️ Duplicate ${data.data.symbol} ignored`);
+                  return prev; // Don't add duplicate
+                }
+                
+                const newOpportunities = [...prev, data.data];
+                // Sort by average return (best opportunities first)
+                return newOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+              });
+              setProgressStats(data.stats);
+              console.log(`🎯 Found ${data.data.symbol}: ${data.data.averageReturn.toFixed(2)}% (${data.stats.found} total found)`);
+              break;
+              
+            case 'show_website':
+              setShowWebsite(true);
+              setLoading(false);
+              setStreamStatus(data.message);
+              setProgressStats({ processed: data.processed, total: data.total, found: data.found });
+              console.log(`🚀 ${data.message}`);
+              break;
+              
+            case 'batch_complete':
+              setStreamStatus(data.message);
+              setProgressStats({ processed: data.processed, total: data.total, found: data.found });
+              console.log(`✅ ${data.message}`);
+              break;
+              
+            case 'complete':
+              setStreamStatus(data.message);
+              setProgressStats({ processed: data.processed, total: data.total, found: data.found });
+              setLoading(false);
+              console.log(`🎯 ${data.message}`);
+              newEventSource.close();
+              setEventSource(null);
+              break;
+              
+            case 'error':
+              setError(data.message);
+              setLoading(false);
+              console.error(`❌ ${data.message}`);
+              newEventSource.close();
+              setEventSource(null);
+              break;
+          }
+        } catch (parseError) {
+          console.error('Failed to parse stream data:', parseError);
+        }
+      };
       
-      console.log('🔥 TOP PERFORMERS:');
-      marketPatterns.slice(0, 10).forEach((pattern, idx) => {
-        console.log(`  ${idx + 1}. ${pattern.symbol}: ${pattern.averageReturn.toFixed(2)}% (${pattern.winRate.toFixed(1)}% win rate)`);
-      });
+      newEventSource.onerror = (event) => {
+        console.error('Stream error:', event);
+        setError('Connection to streaming API lost');
+        setLoading(false);
+        newEventSource.close();
+        setEventSource(null);
+      };
       
     } catch (error) {
-      const errorMsg = `Failed to load ${activeMarket} data: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      const errorMsg = `Failed to start seasonal screening: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(`❌ ${errorMsg}`);
       setError(errorMsg);
-    } finally {
       setLoading(false);
-      console.log(`🏁 ETF market data loading complete for ${activeMarket} (${timePeriod})`);
     }
   };
 
@@ -99,11 +164,23 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
     setActiveMarket(tabId);
   };
 
-  if (loading) {
+  if (loading && !showWebsite) {
     return (
       <div className="seasonax-loading">
         <div className="loading-spinner"></div>
-        <p>Loading real-time seasonal patterns from Polygon API...</p>
+        <p>Starting progressive seasonal screening...</p>
+        <p>{streamStatus}</p>
+        {progressStats.processed > 0 && (
+          <div className="progress-info">
+            <p>📊 Processed: {progressStats.processed} | Found: {progressStats.found} opportunities</p>
+            <div className="progress-bar">
+              <div 
+                className="progress-fill" 
+                style={{ width: `${(progressStats.processed / progressStats.total) * 100}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -114,7 +191,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
         <div className="error-icon">⚠️</div>
         <h2>API Connection Error</h2>
         <p>{error}</p>
-        <button onClick={loadData} className="retry-button">
+        <button onClick={loadMarketData} className="retry-button">
           Retry API Connection
         </button>
       </div>
@@ -128,15 +205,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
       <HeroSection 
         onScreenerStart={handleScreenerStart} 
         onStartScreener={onStartScreener}
-        onSectorsClick={onSectorsClick}
-      />
-
-      {/* Market Tabs */}
-      <MarketTabs 
-        tabs={marketTabs} 
-        activeTab={activeMarket} 
-        onTabChange={handleTabChange}
-        loading={loading}
       />
 
       {/* Time Period Dropdown */}
@@ -161,41 +229,44 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener, onSe
         </div>
       </section>
 
-      {/* Top 10 Opportunities Grid */}
+      {/* Live Seasonal Opportunities Grid */}
       <section className="opportunities-section">
         <div className="section-header">
-          <h2>Top Seasonal ETF Opportunities</h2>
-          <p>Real seasonal analysis for September 2025 - {activeMarket.replace(/([A-Z])/g, ' $1').trim()} ETFs</p>
+          <h2>Live Seasonal Stock Screening ({opportunities.length})</h2>
+          <p>Progressive analysis - Opportunities appear as they're discovered from top 500 companies by market cap</p>
+          {streamStatus && (
+            <div className="stream-status">
+              <p className="status-message">{streamStatus}</p>
+              <div className="progress-stats">
+                <span>📊 Scanned: {progressStats.processed}/{progressStats.total}</span>
+                <span>🎯 Found: {progressStats.found} opportunities</span>
+              </div>
+              {progressStats.processed < progressStats.total && (
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill" 
+                    style={{ width: `${(progressStats.processed / progressStats.total) * 100}%` }}
+                  ></div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         
-        {loading ? (
-          <div className="loading-message">
-            <p>Analyzing {activeMarket === 'SP500' ? 'S&P 500' : activeMarket === 'NASDAQ100' ? 'NASDAQ 100' : 'Dow Jones'} ETFs using {timePeriod} of historical data...</p>
-            <p>Processing ETF market coverage with Polygon API to find top seasonal opportunities.</p>
-            <p>Using {timePeriodOptions.find(p => p.id === timePeriod)?.description || 'selected analysis period'} for comprehensive seasonal analysis.</p>
-          </div>
-        ) : error ? (
+        {error ? (
           <div className="error-message">
             <h3>Error Loading Data</h3>
             <p>{error}</p>
             <p>Please check your Polygon API key and rate limits.</p>
           </div>
-        ) : opportunities.length === 0 ? (
+        ) : opportunities.length === 0 && showWebsite ? (
           <div className="no-data-message">
-            <h3>No Seasonal Patterns Found</h3>
-            <p>Unable to load seasonal data. This could be due to:</p>
-            <ul>
-              <li>API rate limits or connectivity issues</li>
-              <li>Insufficient historical data for analysis</li>
-              <li>Weekend/holiday market closure</li>
-            </ul>
-            <button onClick={() => window.location.reload()} className="retry-button">
-              Retry Loading Data
-            </button>
+            <h3>Scanning for Seasonal Patterns...</h3>
+            <p>The system is progressively scanning stocks. Opportunities will appear here as they're found.</p>
           </div>
         ) : (
           <div className="opportunities-grid top-10">
-            {opportunities.slice(0, 10).map((opportunity, index) => (
+            {opportunities.map((opportunity, index) => (
               <OpportunityCard
                 key={`${opportunity.symbol}-${index}`}
                 pattern={opportunity}

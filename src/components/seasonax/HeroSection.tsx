@@ -5,10 +5,9 @@ import React, { useState } from 'react';
 interface HeroSectionProps {
   onScreenerStart?: (market: string) => void;
   onStartScreener?: () => void;
-  onSectorsClick?: () => void;
 }
 
-const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScreener, onSectorsClick }) => {
+const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScreener }) => {
   const [selectedMarket, setSelectedMarket] = useState('S&P 500');
 
   const markets = [
@@ -57,15 +56,6 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="hero-center-content">
-            <button 
-              className="sectors-industries-btn"
-              onClick={onSectorsClick}
-            >
-              Sectors/Industries
-            </button>
           </div>
           
           <button 

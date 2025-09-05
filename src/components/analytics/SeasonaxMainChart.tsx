@@ -363,12 +363,55 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
 
       // Draw zero line
       const zeroY = containerHeight - padding.bottom - ((0 - paddedMin) / paddedRange) * chartHeight;
-      ctx.strokeStyle = '#666666';
+      ctx.strokeStyle = '#FF6600';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(padding.left, zeroY);
       ctx.lineTo(containerWidth - padding.right, zeroY);
       ctx.stroke();
+
+      // Fill areas above and below zero line with the main seasonal data
+      if (processedData && processedData.length > 0) {
+        // Green area (above zero line) - positive returns
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
+        ctx.beginPath();
+        ctx.moveTo(padding.left, zeroY);
+        
+        processedData.forEach((dayData, index) => {
+          const x = padding.left + (dayData.dayOfYear / 365) * chartWidth;
+          const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+          
+          if (dayData.cumulativeReturn >= 0) {
+            ctx.lineTo(x, y);
+          } else {
+            ctx.lineTo(x, zeroY);
+          }
+        });
+        
+        ctx.lineTo(containerWidth - padding.right, zeroY);
+        ctx.closePath();
+        ctx.fill();
+
+        // Red area (below zero line) - negative returns
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
+        ctx.beginPath();
+        ctx.moveTo(padding.left, zeroY);
+        
+        processedData.forEach((dayData, index) => {
+          const x = padding.left + (dayData.dayOfYear / 365) * chartWidth;
+          const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+          
+          if (dayData.cumulativeReturn < 0) {
+            ctx.lineTo(x, y);
+          } else {
+            ctx.lineTo(x, zeroY);
+          }
+        });
+        
+        ctx.lineTo(containerWidth - padding.right, zeroY);
+        ctx.closePath();
+        ctx.fill();
+      }
 
       // Draw main seasonal line with processed data
       drawSeasonalLine(ctx, processedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, '#ffffff', 3, data.symbol);

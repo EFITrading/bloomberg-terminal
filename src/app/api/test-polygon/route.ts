@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import PolygonService from '@/lib/polygonService';
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // Test with aggregates endpoint (used for seasonal analysis)
-    const endDate = '2024-12-31';
-    const startDate = '2024-01-01';
-    const testUrl = `https://api.polygon.io/v2/aggs/ticker/AAPL/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apikey=${POLYGON_API_KEY}`;
+    const startDate = new Date();
+    startDate.setFullYear(startDate.getFullYear() - 1);
+    const endDate = new Date();
+    
+    const testUrl = `https://api.polygon.io/v2/aggs/ticker/AAPL/range/1/day/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=asc&apikey=${POLYGON_API_KEY}`;
     
     console.log('Testing Polygon Aggregates API with URL:', testUrl);
     
@@ -18,7 +20,8 @@ export async function GET() {
       console.error('Polygon API Error:', response.status, errorText);
       
       return NextResponse.json({
-        error: `API Error: ${response.status} - ${response.statusText}`,
+        error: 'Polygon API request failed',
+        status: response.status,
         details: errorText,
         url: testUrl.replace(POLYGON_API_KEY, '[API_KEY_HIDDEN]')
       }, { status: response.status });
@@ -29,14 +32,14 @@ export async function GET() {
     
     return NextResponse.json({
       success: true,
-      data: data,
+      dataPoints: data.results?.length || 0,
       message: 'Polygon API is working correctly'
     });
     
   } catch (error) {
-    console.error('Test API Error:', error);
+    console.error('Test Polygon API Error:', error);
     return NextResponse.json({
-      error: 'Connection failed',
+      error: 'Failed to test Polygon API',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }

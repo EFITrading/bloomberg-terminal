@@ -1,0 +1,227 @@
+/* Enhanced Seasonal Opportunity Cards */
+.seasonal-card {
+  background: linear-gradient(145deg, #1a1a1a 0%, #0d0d0d 100%);
+  border: 1px solid rgba(192, 192, 192, 0.15);
+  border-radius: 15px;
+  padding: 20px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.seasonal-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(192, 192, 192, 0.3);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.seasonal-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--crispy-orange), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.seasonal-card:hover::before {
+  opacity: 1;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.card-rank {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.card-rank.bullish {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.2), rgba(0, 255, 136, 0.1));
+  border-color: rgba(0, 255, 136, 0.3);
+  color: #00ff88;
+}
+
+.card-rank.bearish {
+  background: linear-gradient(135deg, rgba(255, 68, 68, 0.2), rgba(255, 68, 68, 0.1));
+  border-color: rgba(255, 68, 68, 0.3);
+  color: #ff4444;
+}
+
+.sentiment-badge {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 15px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.sentiment-badge.bullish {
+  background: rgba(0, 255, 136, 0.15);
+  border-color: rgba(0, 255, 136, 0.3);
+  color: #00ff88;
+}
+
+.sentiment-badge.bearish {
+  background: rgba(255, 68, 68, 0.15);
+  border-color: rgba(255, 68, 68, 0.3);
+  color: #ff4444;
+}
+
+.card-symbol-section {
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+.card-symbol {
+  font-size: 24px;
+  font-weight: 900;
+  color: #ffffff;
+  font-family: 'Roboto Mono', monospace;
+  letter-spacing: 1px;
+  margin-bottom: 5px;
+}
+
+.card-company {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-timing {
+  text-align: center;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.timing-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--crispy-orange);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.card-period {
+  font-size: 14px;
+  color: #ffffff;
+  font-weight: 600;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.card-dates {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 15px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.date-separator {
+  color: var(--crispy-orange);
+  font-weight: 700;
+}
+
+.card-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.metric {
+  text-align: center;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.metric.primary {
+  grid-column: 1 / -1;
+  background: rgba(255, 107, 53, 0.1);
+  border-color: rgba(255, 107, 53, 0.2);
+}
+
+.metric-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: 'Roboto Mono', monospace;
+  margin-bottom: 4px;
+}
+
+.metric.primary .metric-value {
+  font-size: 20px;
+}
+
+.metric-value.positive {
+  color: #00ff88;
+}
+
+.metric-value.negative {
+  color: #ff4444;
+}
+
+.metric-value.neutral {
+  color: #ffffff;
+}
+
+.metric-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.card-details {
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 400;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 10px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .seasonal-card {
+    padding: 15px;
+  }
+  
+  .card-symbol {
+    font-size: 20px;
+  }
+  
+  .card-metrics {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  
+  .metric.primary {
+    grid-column: 1;
+  }
+}

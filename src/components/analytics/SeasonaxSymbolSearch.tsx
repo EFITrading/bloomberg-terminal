@@ -5,22 +5,38 @@ import React, { useState, useRef, useEffect } from 'react';
 interface SeasonaxSymbolSearchProps {
   onSymbolSelect: (symbol: string) => void;
   initialSymbol: string;
+  onElectionPeriodSelect?: (period: string) => void;
+  onElectionModeToggle?: (isElectionMode: boolean) => void;
 }
 
 const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({ 
   onSymbolSelect, 
-  initialSymbol 
+  initialSymbol,
+  onElectionPeriodSelect,
+  onElectionModeToggle
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>(initialSymbol);
   const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [isElectionDropdownOpen, setIsElectionDropdownOpen] = useState<boolean>(false);
+  const [selectedElectionPeriod, setSelectedElectionPeriod] = useState<string>('Normal Mode');
+  const [isElectionMode, setIsElectionMode] = useState<boolean>(false);
   const [recentSymbols] = useState<string[]>(['MSFT', 'AAPL', 'GOOGL', 'AMZN', 'TSLA', 'NVDA']);
   
   const searchRef = useRef<HTMLDivElement>(null);
+
+  const electionPeriods = [
+    'Normal Mode',
+    'Election Year',
+    'Post-Election',
+    'Mid-Term',
+    'Pre-Election'
+  ];
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setIsElectionDropdownOpen(false);
       }
     };
 
@@ -62,15 +78,63 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
     return companies[symbol] || symbol;
   };
 
+  const handleElectionClick = () => {
+    setIsElectionDropdownOpen(!isElectionDropdownOpen);
+    setIsOpen(false); // Close search dropdown if open
+  };
+
+  const handleElectionPeriodSelect = (period: string) => {
+    setSelectedElectionPeriod(period);
+    setIsElectionDropdownOpen(false);
+    console.log('Selected election period:', period);
+    
+    if (period === 'Normal Mode') {
+      // Switch back to normal mode
+      setIsElectionMode(false);
+      if (onElectionModeToggle) {
+        onElectionModeToggle(false);
+      }
+    } else {
+      // Switch to election mode
+      setIsElectionMode(true);
+      if (onElectionModeToggle) {
+        onElectionModeToggle(true);
+      }
+      // Notify parent component about election period selection
+      if (onElectionPeriodSelect) {
+        onElectionPeriodSelect(period);
+      }
+    }
+  };
+
   return (
     <div className="seasonax-symbol-search" ref={searchRef}>
       <div className="symbol-display">
         <div className="symbol-main">
           <span className="symbol-ticker">{searchTerm}</span>
-          <span className="symbol-exchange">NASDAQ</span>
-          <span className="symbol-currency">USD</span>
+          <div className="election-dropdown-container">
+            <button 
+              className={`election-btn ${isElectionMode ? 'active' : 'inactive'}`}
+              onClick={handleElectionClick}
+            >
+              <span className="election-text">{selectedElectionPeriod}</span>
+              <span className="dropdown-arrow">▼</span>
+            </button>
+            {isElectionDropdownOpen && (
+              <div className="election-dropdown">
+                {electionPeriods.map((period) => (
+                  <div
+                    key={period}
+                    className={`election-option ${selectedElectionPeriod === period ? 'selected' : ''}`}
+                    onClick={() => handleElectionPeriodSelect(period)}
+                  >
+                    {period}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="symbol-company">{getCompanyName(searchTerm)}</div>
       </div>
       
       <div className="search-input-container">

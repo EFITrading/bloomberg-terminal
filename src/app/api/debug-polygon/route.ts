@@ -1,34 +1,30 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import PolygonService from '@/lib/polygonService';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    console.log('🔍 Testing SP500 seasonal analysis...');
+    console.log('🔍 Starting Polygon service debug...');
     
     const polygonService = new PolygonService();
     
-    // Test the exact same call that's failing
-    console.log('📊 Testing getMarketPatterns for SP500 with 5 years...');
-    const patterns = await polygonService.getMarketPatterns('SP500', 5);
+    console.log('✅ PolygonService instantiated successfully');
     
-    console.log(`✅ Success! Found ${patterns.length} patterns`);
+    const patterns = await polygonService.getMarketPatterns('SP500', 15);
+    
+    console.log(`✅ Retrieved ${patterns.length} patterns`);
     
     return NextResponse.json({
       success: true,
-      patternsFound: patterns.length,
-      samplePatterns: patterns.slice(0, 3).map(p => ({
-        symbol: p.symbol,
-        return: p.averageReturn,
-        period: p.period
-      }))
+      patterns: patterns.slice(0, 3), // Return first 3 for debugging
+      totalPatterns: patterns.length,
+      message: 'Polygon service is working correctly'
     });
     
   } catch (error) {
-    console.error('❌ SP500 Analysis Error:', error);
+    console.error('Debug Polygon API Error:', error);
     return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString()
-    });
+      error: 'Failed to debug Polygon API',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }

@@ -39,24 +39,50 @@ interface OpportunityCardProps {
 }
 
 const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
-  // Determine sentiment based on seasonal strength/weakness, not annualized return
-  const isSeasonalStrength = pattern.period.toLowerCase().includes('seasonal strength');
-  const sentiment = isSeasonalStrength ? 'Bullish' : 'Bearish';
+  // Determine sentiment from the pattern type or sentiment field
+  const patternType = pattern.patternType || '';
+  const sentiment = (pattern as any).sentiment || 
+    (patternType.toLowerCase().includes('bullish') ? 'Bullish' : 
+     patternType.toLowerCase().includes('bearish') ? 'Bearish' : 
+     pattern.averageReturn >= 0 ? 'Bullish' : 'Bearish');
+  
+  const isPositive = sentiment === 'Bullish';
+  const daysUntilStart = (pattern as any).daysUntilStart || 0;
+  
+  // Format the timing information
+  const getTimingText = () => {
+    if (daysUntilStart === 0) return 'Starts Today';
+    if (daysUntilStart === 1) return 'Starts Tomorrow';
+    if (daysUntilStart > 0) return `Starts in ${daysUntilStart} days`;
+    if (daysUntilStart === -1) return 'Started Yesterday';
+    return `Started ${Math.abs(daysUntilStart)} days ago`;
+  };
   
   return (
-    <div className="opportunity-card">
-      {rank && (
-        <div className={`card-rank ${isSeasonalStrength ? 'bullish' : 'bearish'}`}>
-          {sentiment}
+    <div className="opportunity-card seasonal-card">
+      <div className="card-header">
+        {rank && (
+          <div className={`card-rank ${isPositive ? 'bullish' : 'bearish'}`}>
+            #{rank}
+          </div>
+        )}
+        <div className={`sentiment-badge ${isPositive ? 'bullish' : 'bearish'}`}>
+          {sentiment.toUpperCase()}
         </div>
-      )}
+      </div>
+      
+      <div className="card-symbol-section">
+        <div className="card-symbol">{pattern.symbol}</div>
+        <div className="card-company">{pattern.company}</div>
+      </div>
+      
+      <div className="card-timing">
+        <div className="timing-text">{getTimingText()}</div>
+        <div className="card-period">{pattern.period}</div>
+      </div>
       
       <div className="card-chart">
         <SeasonalChart data={pattern.chartData} />
-      </div>
-      
-      <div className="card-period">
-        {pattern.period}
       </div>
       
       <div className="card-dates">
@@ -65,28 +91,31 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
         <span className="end-date">{pattern.endDate}</span>
       </div>
       
-      <div className="card-company">
-        {pattern.company}
-      </div>
-      
-      <div className="card-details">
-        {pattern.years}y | {pattern.exchange} | {pattern.currency} | {pattern.sector} | {pattern.marketCap}
-      </div>
-      
       <div className="card-metrics">
-        <div className="metric">
+        <div className="metric primary">
           <div className={`metric-value ${pattern.averageReturn >= 0 ? 'positive' : 'negative'}`}>
             {pattern.averageReturn >= 0 ? '+' : ''}{pattern.averageReturn.toFixed(1)}%
           </div>
-          <div className="metric-label">Average return</div>
+          <div className="metric-label">Expected Return</div>
         </div>
         
         <div className="metric">
           <div className={`metric-value ${pattern.winRate >= 50 ? 'positive' : 'negative'}`}>
-            {pattern.winRate.toFixed(1)}%
+            {pattern.winRate.toFixed(0)}%
           </div>
-          <div className="metric-label">Winning trades</div>
+          <div className="metric-label">Win Rate</div>
         </div>
+        
+        <div className="metric">
+          <div className="metric-value neutral">
+            {pattern.years}Y
+          </div>
+          <div className="metric-label">Historical Data</div>
+        </div>
+      </div>
+      
+      <div className="card-details">
+        {pattern.exchange} | {pattern.currency} | 30-day pattern
       </div>
     </div>
   );

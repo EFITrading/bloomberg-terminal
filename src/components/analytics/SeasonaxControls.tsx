@@ -20,13 +20,15 @@ interface SeasonaxControlsProps {
   onSettingsChange: (settings: Partial<ChartSettings>) => void;
   onRefresh?: () => void;
   onCompareStock?: (symbol: string) => void;
+  onBackToTabs?: () => void;
 }
 
 const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({ 
   settings, 
   onSettingsChange,
   onRefresh,
-  onCompareStock
+  onCompareStock,
+  onBackToTabs
 }) => {
   const [chartType, setChartType] = useState<'line' | 'bar' | 'candle'>('line');
   const [showCompareDialog, setShowCompareDialog] = useState(false);
@@ -81,6 +83,15 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
     <div className="seasonax-controls">
       {/* Compare controls */}
       <div className="compare-controls">
+        {onBackToTabs && (
+          <button 
+            className="back-btn" 
+            onClick={onBackToTabs}
+            title="Back to Data Driven"
+          >
+            ← Back
+          </button>
+        )}
         <button 
           className="compare-btn" 
           onClick={handleCompare}
@@ -136,30 +147,36 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
       {/* Chart controls */}
       <div className="chart-controls">
         <button 
-          className={`control-btn ${settings.smoothing ? 'active' : ''}`}
+          className={`control-btn smooth-btn ${settings.smoothing ? 'active' : ''}`}
           onClick={() => onSettingsChange({...settings, smoothing: !settings.smoothing})}
           title="Smooth abnormal pumps/crashes"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M3 17l6-6 4 4 8-8v4h2V7h-4v2l-6 6-4-4-6 6z"/>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12l6-6 4 4 8-8"/>
+            <path d="M21 4v4h-4"/>
           </svg>
         </button>
         <button 
-          className={`control-btn ${settings.detrend ? 'active' : ''}`}
+          className={`control-btn detrend-btn ${settings.detrend ? 'active' : ''}`}
           onClick={() => onSettingsChange({...settings, detrend: !settings.detrend})}
           title="Detrend seasonality"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm2 4v-2H3c0 1.1.89 2 2 2zM3 9h2V7H3v2zm12 12h2v-2h-2v2zm4-18H9c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12H9V5h10v10zm-8-2h6V9h-6v4z"/>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 3l18 18"/>
+            <path d="M3 21l7-7 4 4 7-7"/>
           </svg>
         </button>
         <button 
-          className={`control-btn ${settings.showCurrentDate ? 'active' : ''}`}
+          className={`control-btn current-date-btn ${settings.showCurrentDate ? 'active' : ''}`}
           onClick={() => onSettingsChange({...settings, showCurrentDate: !settings.showCurrentDate})}
           title="Show current date line"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+            <circle cx="12" cy="16" r="2"/>
           </svg>
         </button>
       </div>
