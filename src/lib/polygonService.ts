@@ -212,10 +212,28 @@ class PolygonService {
 
   async getTickerDetails(symbol: string): Promise<PolygonTickerData | null> {
     try {
-      const data = await this.makeRequest<{results: PolygonTickerData}>(`/v3/reference/tickers/${symbol}`);
+      const endpoint = `/api/ticker-details?symbol=${symbol}`;
+      console.log(`📋 Fetching ticker details for ${symbol} via backend API`);
+      
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Successfully fetched ticker details for ${symbol}`);
       return data?.results || null;
+      
     } catch (error) {
-      console.error(`Failed to get ticker details for ${symbol}:`, error);
+      console.error(`❌ Failed to get ticker details for ${symbol}:`, error);
       return null;
     }
   }
@@ -228,12 +246,28 @@ class PolygonService {
     multiplier: number = 1
   ): Promise<PolygonAggregateData | null> {
     try {
-      const data = await this.makeRequest<PolygonAggregateData>(
-        `/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${startDate}/${endDate}?adjusted=true&sort=asc`
-      );
+      const endpoint = `/api/historical-data?symbol=${symbol}&startDate=${startDate}&endDate=${endDate}`;
+      console.log(`📊 Fetching historical data for ${symbol} from ${startDate} to ${endDate} via backend API`);
+      
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Successfully fetched ${data.resultsCount || 0} data points for ${symbol}`);
       return data;
+      
     } catch (error) {
-      console.error(`Failed to get historical data for ${symbol}:`, error);
+      console.error(`❌ Failed to fetch historical data for ${symbol}:`, error);
       return null;
     }
   }
@@ -252,12 +286,26 @@ class PolygonService {
       const endDateStr = endDate.toISOString().split('T')[0];
       const startDateStr = startDate.toISOString().split('T')[0];
 
-      console.log(`📊 Fetching ${years} years of data for ${symbol} (${startDateStr} to ${endDateStr})`);
+      console.log(`📊 Fetching ${years} years of bulk data for ${symbol} (${startDateStr} to ${endDateStr})`);
 
-      const data = await this.makeRequest<PolygonAggregateData>(
-        `/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${startDateStr}/${endDateStr}?adjusted=true&sort=asc&limit=50000`
-      );
-
+      // Use the same backend API endpoint as getHistoricalData
+      const endpoint = `/api/historical-data?symbol=${symbol}&startDate=${startDateStr}&endDate=${endDateStr}`;
+      
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
       if (data && data.results) {
         console.log(`✅ Retrieved ${data.results.length} data points for ${symbol}`);
       }

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import PolygonService, { SeasonalPattern } from '@/lib/polygonService';
+import GlobalDataCache from '@/lib/GlobalDataCache';
 import HeroSection from './HeroSection';
 import MarketTabs from './MarketTabs';
 import OpportunityCard from './OpportunityCard';
@@ -49,28 +50,102 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
 
   const loadMarketData = async () => {
     try {
-      // Close any existing EventSource connection
-      if (eventSource) {
-        console.log('🔌 Closing existing EventSource connection...');
-        eventSource.close();
-        setEventSource(null);
+      const cache = GlobalDataCache.getInstance();
+      
+      // FORCE CLEAR ALL CACHED DATA (especially election cycle data)
+      console.log('🧹 Clearing ALL cached data to fix election cycle issues...');
+      cache.clear(); // Clear everything
+      
+      // Also clear browser storage
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+        console.log('✅ Browser storage cleared');
+      } catch (e) {
+        console.log('ℹ️ Browser storage clear failed (likely in SSR)');
       }
+      
+      // Check if we have cached seasonal opportunities from the real DataPreloader
+      const cachedOpportunities = cache.get(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES);
+      if (cachedOpportunities && cachedOpportunities.length > 0) {
+        // Validate that this is real data (has required fields)
+        const isRealData = cachedOpportunities.every((opp: any) => 
+          opp.symbol && opp.companyName && opp.sentiment && 
+          typeof opp.averageReturn === 'number' && typeof opp.winRate === 'number'
+        );
+        
+        if (isRealData) {
+          // Additional deduplication safety check
+          const uniqueOpportunities = cachedOpportunities.filter((opp: any, index: number, array: any[]) => 
+            array.findIndex((o: any) => o.symbol === opp.symbol) === index
+          );
+          
+          console.log(`⚡ Using cached REAL seasonal opportunities (${uniqueOpportunities.length} unique items) - instant load!`);
+          setOpportunities(uniqueOpportunities.sort((a: any, b: any) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)));
+          setLoading(false);
+          setStreamStatus('✅ Real data loaded from cache - Ready!');
+          setProgressStats({ processed: 600, total: 600, found: uniqueOpportunities.length });
+          return;
+        } else {
+          console.warn('⚠️ Cache contains invalid/fake data, forcing refresh...');
+          cache.clear(); // Clear all cache to force fresh data
+        }
+      }
+      
+      // If no valid cache, try to load from the SeasonalScreenerService directly
+      console.log('� No valid cache found, loading fresh data from SeasonalScreenerService...');
+      
+      // Import and use the real service
+      const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService');
+      const seasonalService = new SeasonalScreenerService();
       
       setLoading(true);
       setError(null);
       setShowWebsite(false);
       setOpportunities([]);
-      setStreamStatus('');
-      setProgressStats({ processed: 0, total: 500, found: 0 });
+      setStreamStatus('🔄 Loading real seasonal data from 600+ stocks...');
+      setProgressStats({ processed: 0, total: 600, found: 0 });
       
       const selectedPeriod = timePeriodOptions.find(p => p.id === timePeriod);
-      console.log(`🚀 Starting streaming seasonal screening for top 500 stocks using ${selectedPeriod?.name} (${selectedPeriod?.years} years)...`);
+      const years = selectedPeriod?.years || 15;
       
-      // Use streaming API for progressive loading
-      const newEventSource = new EventSource(`/api/patterns/stream?years=${selectedPeriod?.years || 15}`);
-      setEventSource(newEventSource);
-      
-      newEventSource.onmessage = (event) => {
+      try {
+        // Load real data directly from the service
+        setStreamStatus('📊 Analyzing seasonal patterns...');
+        const realOpportunities = await seasonalService.screenSeasonalOpportunities(years, 600, 0);
+        
+        if (realOpportunities && realOpportunities.length > 0) {
+          console.log(`✅ Loaded ${realOpportunities.length} REAL seasonal opportunities`);
+          
+          // Cache the real data for future use
+          cache.set(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES, realOpportunities);
+          
+          // Set the real data
+          setOpportunities(realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)));
+          setLoading(false);
+          setStreamStatus('✅ Real seasonal data loaded successfully!');
+          setProgressStats({ processed: 600, total: 600, found: realOpportunities.length });
+        } else {
+          throw new Error('No seasonal opportunities found');
+        }
+      } catch (serviceError) {
+        console.error('❌ Direct service failed, falling back to streaming API:', serviceError);
+        
+        // Fallback to streaming API as last resort
+        setStreamStatus('🔄 Falling back to streaming API...');
+        
+        // Close any existing EventSource connection
+        if (eventSource) {
+          console.log('🔌 Closing existing EventSource connection...');
+          eventSource.close();
+          setEventSource(null);
+        }
+        
+        // Use streaming API for progressive loading
+        const newEventSource = new EventSource(`/api/patterns/stream?years=${years}`);
+        setEventSource(newEventSource);
+        
+        newEventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           
@@ -84,18 +159,23 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
               break;
               
             case 'opportunity':
-              // Add new opportunity to the list (check for duplicates)
+              // Add new opportunity to the list (check for duplicates with enhanced logic)
               setOpportunities(prev => {
-                // Check if this symbol already exists
-                const exists = prev.some(existing => existing.symbol === data.data.symbol);
+                // Check if this symbol already exists (case insensitive)
+                const exists = prev.some(existing => 
+                  existing.symbol.toUpperCase() === data.data.symbol.toUpperCase()
+                );
                 if (exists) {
-                  console.log(`⚠️ Duplicate ${data.data.symbol} ignored`);
+                  console.log(`⚠️ Duplicate ${data.data.symbol} ignored (already exists)`);
                   return prev; // Don't add duplicate
                 }
                 
                 const newOpportunities = [...prev, data.data];
-                // Sort by average return (best opportunities first)
-                return newOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+                // Sort by average return (best opportunities first) and ensure uniqueness
+                const uniqueOpportunities = newOpportunities.filter((opp, index, array) => 
+                  array.findIndex(o => o.symbol.toUpperCase() === opp.symbol.toUpperCase()) === index
+                );
+                return uniqueOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
               });
               setProgressStats(data.stats);
               console.log(`🎯 Found ${data.data.symbol}: ${data.data.averageReturn.toFixed(2)}% (${data.stats.found} total found)`);
@@ -137,13 +217,14 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
         }
       };
       
-      newEventSource.onerror = (event) => {
-        console.error('Stream error:', event);
-        setError('Connection to streaming API lost');
-        setLoading(false);
-        newEventSource.close();
-        setEventSource(null);
-      };
+        newEventSource.onerror = (event) => {
+          console.error('Stream error:', event);
+          setError('Connection to streaming API lost');
+          setLoading(false);
+          newEventSource.close();
+          setEventSource(null);
+        };
+      }
       
     } catch (error) {
       const errorMsg = `Failed to start seasonal screening: ${error instanceof Error ? error.message : 'Unknown error'}`;

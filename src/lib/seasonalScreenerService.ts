@@ -682,6 +682,7 @@ class SeasonalScreenerService {
   // Main screening function with bulk requests and configurable batch size
   async screenSeasonalOpportunities(years: number = 15, maxStocks: number = 100, startOffset: number = 0): Promise<SeasonalOpportunity[]> {
     const opportunities: SeasonalOpportunity[] = [];
+    const seenSymbols = new Set<string>(); // Track processed symbols to avoid duplicates
     const actualMaxStocks = Math.min(maxStocks, TOP500_BY_MARKET_CAP.length - startOffset);
     console.log(`🔍 Starting bulk seasonal screening of ${actualMaxStocks} companies (positions ${startOffset + 1}-${startOffset + actualMaxStocks}) by market cap...`);
 
@@ -699,11 +700,18 @@ class SeasonalScreenerService {
       // Process ALL stocks in parallel - NO BATCHING, MAXIMUM SPEED
       const stocksToProcess = TOP500_BY_MARKET_CAP.slice(startOffset, startOffset + actualMaxStocks);
       
-      console.log(`� Processing ALL ${stocksToProcess.length} companies in PARALLEL - NO LIMITS!`);
+      console.log(`🚀 Processing ALL ${stocksToProcess.length} companies in PARALLEL - NO LIMITS!`);
       
       // Process everything at once
       const allPromises = stocksToProcess.map(async (stock: StockListItem) => {
         try {
+          // Skip if we've already processed this symbol
+          if (seenSymbols.has(stock.symbol)) {
+            console.log(`⚠️ Skipping duplicate symbol: ${stock.symbol}`);
+            return;
+          }
+          seenSymbols.add(stock.symbol);
+          
           console.log(`📊 Getting bulk data for ${stock.symbol}...`);
           
           // Use bulk historical data request
@@ -726,11 +734,13 @@ class SeasonalScreenerService {
             );
             
             if (analysis) {
+              let bestOpportunity: SeasonalOpportunity | null = null;
+              
               // Check bullish seasonal (best 30-day period)
               if (analysis.spyComparison?.best30DayPeriod) {
                 const bullish = analysis.spyComparison.best30DayPeriod;
                 if (this.isSeasonalCurrentlyActive(bullish.startDate)) {
-                  opportunities.push({
+                  bestOpportunity = {
                     symbol: stock.symbol,
                     companyName: stock.name,
                     sentiment: 'Bullish',
@@ -742,7 +752,7 @@ class SeasonalScreenerService {
                     years: analysis.statistics.yearsOfData,
                     daysUntilStart: this.parseSeasonalDate(bullish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
                     isCurrentlyActive: true
-                  });
+                  };
                   console.log(`🟢 Found BULLISH seasonal for ${stock.symbol}: ${bullish.period} (+${bullish.return.toFixed(2)}%)`);
                 }
               }
@@ -751,7 +761,7 @@ class SeasonalScreenerService {
               if (analysis.spyComparison?.worst30DayPeriod) {
                 const bearish = analysis.spyComparison.worst30DayPeriod;
                 if (this.isSeasonalCurrentlyActive(bearish.startDate)) {
-                  opportunities.push({
+                  const bearishOpportunity: SeasonalOpportunity = {
                     symbol: stock.symbol,
                     companyName: stock.name,
                     sentiment: 'Bearish',
@@ -763,9 +773,19 @@ class SeasonalScreenerService {
                     years: analysis.statistics.yearsOfData,
                     daysUntilStart: this.parseSeasonalDate(bearish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
                     isCurrentlyActive: true
-                  });
-                  console.log(`🔴 Found BEARISH seasonal for ${stock.symbol}: ${bearish.period} (${bearish.return.toFixed(2)}%)`);
+                  };
+                  
+                  // Only use bearish if no bullish found, or if bearish is much stronger
+                  if (!bestOpportunity || Math.abs(bearish.return) > Math.abs(bestOpportunity.averageReturn) * 1.5) {
+                    bestOpportunity = bearishOpportunity;
+                    console.log(`🔴 Found BEARISH seasonal for ${stock.symbol}: ${bearish.period} (${bearish.return.toFixed(2)}%)`);
+                  }
                 }
+              }
+              
+              // Only add the best opportunity for this symbol
+              if (bestOpportunity) {
+                opportunities.push(bestOpportunity);
               }
             }
           } catch (error) {
@@ -784,14 +804,19 @@ class SeasonalScreenerService {
       return this.getMockSeasonalData();
     }
 
+    // Remove any remaining duplicates by symbol (safety check)
+    const uniqueOpportunities = opportunities.filter((opportunity, index, array) => 
+      array.findIndex(o => o.symbol === opportunity.symbol) === index
+    );
+
     // Sort by absolute return (strongest signals first)
-    opportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+    uniqueOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
     
-    console.log(`🎯 Bulk screening complete! Found ${opportunities.length} active seasonal opportunities`);
-    console.log(`📈 Bullish opportunities: ${opportunities.filter(o => o.sentiment === 'Bullish').length}`);
-    console.log(`📉 Bearish opportunities: ${opportunities.filter(o => o.sentiment === 'Bearish').length}`);
+    console.log(`🎯 Bulk screening complete! Found ${uniqueOpportunities.length} unique seasonal opportunities`);
+    console.log(`📈 Bullish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bullish').length}`);
+    console.log(`📉 Bearish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bearish').length}`);
     
-    return opportunities;
+    return uniqueOpportunities;
   }
 
   // Mock data for testing

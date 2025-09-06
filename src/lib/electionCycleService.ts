@@ -195,17 +195,31 @@ class ElectionCycleService {
       return validYears.includes(date.getFullYear());
     });
 
-    // Calculate daily returns for filtered data
+    // Calculate daily returns for filtered data (improved with year boundary handling)
     for (let i = 1; i < filteredData.length; i++) {
       const currentPoint = filteredData[i];
       const previousPoint = filteredData[i - 1];
       const currentDate = new Date(currentPoint.t);
+      const previousDate = new Date(previousPoint.t);
       const year = currentDate.getFullYear();
+      const previousYear = previousDate.getFullYear();
       
       if (!validYears.includes(year)) continue;
 
+      // Skip calculations that cross year boundaries to avoid artificial jumps
+      if (year !== previousYear) {
+        console.log(`Skipping year boundary calculation: ${previousDate.toDateString()} -> ${currentDate.toDateString()}`);
+        continue;
+      }
+
       const dayOfYear = this.getDayOfYear(currentDate);
       const symbolReturn = ((currentPoint.c - previousPoint.c) / previousPoint.c) * 100;
+      
+      // Filter out extreme outliers that could be data errors (> 50% daily moves)
+      if (Math.abs(symbolReturn) > 50) {
+        console.log(`Filtering extreme outlier: ${symbolReturn.toFixed(2)}% on ${currentDate.toDateString()}`);
+        continue;
+      }
       
       // Find corresponding SPY data (only if benchmarking)
       const dateKey = currentDate.toDateString();
@@ -246,7 +260,7 @@ class ElectionCycleService {
       }
     });
 
-    // Generate daily seasonal data
+    // Generate daily seasonal data with improved cumulative calculation
     const dailyData: DailySeasonalData[] = [];
     let cumulativeReturn = 0;
 
@@ -255,12 +269,30 @@ class ElectionCycleService {
       
       if (dayData && dayData.length > 0) {
         const returns = dayData.map(d => d.return);
-        const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
-        const positiveReturns = returns.filter(ret => ret > 0).length;
         
-        cumulativeReturn += avgReturn;
+        // Filter out extreme outliers before averaging
+        const filteredReturns = returns.filter(ret => Math.abs(ret) <= 30); // Remove daily moves > 30%
         
-        const date = new Date(2024, 0, dayOfYear); // Use 2024 as reference year for month/day
+        if (filteredReturns.length === 0) {
+          console.log(`No valid returns for day ${dayOfYear}, skipping...`);
+          continue;
+        }
+        
+        const avgReturn = filteredReturns.reduce((sum, ret) => sum + ret, 0) / filteredReturns.length;
+        const positiveReturns = filteredReturns.filter(ret => ret > 0).length;
+        
+        // Improved cumulative return calculation with smoothing for early days
+        if (dayOfYear === 1) {
+          // For the first day, start with the average return but limit extreme values
+          cumulativeReturn = Math.max(-10, Math.min(10, avgReturn)); // Cap first day at +/-10%
+        } else {
+          // Use proper compounding but with protection against extreme values
+          const dailyFactor = Math.max(-0.15, Math.min(0.15, avgReturn / 100)); // Cap daily at +/-15%
+          cumulativeReturn = ((1 + cumulativeReturn / 100) * (1 + dailyFactor) - 1) * 100;
+        }
+        
+        // Use a more reliable date calculation
+        const date = this.getDayOfYearDate(dayOfYear);
         const month = date.getMonth() + 1;
         const day = date.getDate();
         const monthName = date.toLocaleDateString('en-US', { month: 'short' });
@@ -268,7 +300,9 @@ class ElectionCycleService {
         // Create yearly returns object for this day
         const dayYearlyReturns: { [year: number]: number } = {};
         dayData.forEach(d => {
-          dayYearlyReturns[d.year] = d.return;
+          if (Math.abs(d.return) <= 30) { // Only include reasonable returns
+            dayYearlyReturns[d.year] = d.return;
+          }
         });
 
         dailyData.push({
@@ -278,7 +312,7 @@ class ElectionCycleService {
           monthName,
           avgReturn,
           cumulativeReturn,
-          occurrences: dayData.length,
+          occurrences: filteredReturns.length,
           positiveYears: positiveReturns,
           winningTrades: positiveReturns,
           pattern: avgReturn > 0 ? 1 : -1,
@@ -436,10 +470,19 @@ class ElectionCycleService {
   }
 
   private getDayOfYear(date: Date): number {
-    const start = new Date(date.getFullYear(), 0, 0);
+    // More accurate day of year calculation
+    const start = new Date(date.getFullYear(), 0, 1); // Start from January 1st
     const diff = date.getTime() - start.getTime();
     const oneDay = 1000 * 60 * 60 * 24;
-    return Math.floor(diff / oneDay);
+    return Math.floor(diff / oneDay) + 1; // Add 1 because January 1st should be day 1, not day 0
+  }
+
+  // Helper function to convert day of year back to a proper date
+  private getDayOfYearDate(dayOfYear: number): Date {
+    // Use a non-leap year (2023) as reference to avoid Feb 29 issues
+    const referenceYear = 2023;
+    const date = new Date(referenceYear, 0, dayOfYear);
+    return date;
   }
 }
 

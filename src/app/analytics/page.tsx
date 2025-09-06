@@ -2,6 +2,7 @@ import '../terminal.css';
 import Background from '@/components/terminal/Background';
 import Navigation from '@/components/terminal/Navigation';
 import Footer from '@/components/terminal/Footer';
+import RRGAnalytics from '@/components/analytics/RRGAnalytics';
 
 export default function Analytics() {
   return (
@@ -11,7 +12,7 @@ export default function Analytics() {
       <main className="main-content">
         <div className="terminal-container">
           <div className="terminal-header">
-            <div className="terminal-title">Analytics</div>
+            <div className="terminal-title">Analytics - Relative Rotation Graph (RRG)</div>
             <div className="terminal-controls">
               <span className="control-button minimize"></span>
               <span className="control-button maximize"></span>
@@ -19,17 +20,10 @@ export default function Analytics() {
             </div>
           </div>
           <div className="terminal-content">
-            <div className="hero-content">
-              <h1 className="hero-title">Advanced Analytics</h1>
-              <p className="hero-subtitle">
-                Sophisticated analytics tools for professional traders and analysts
-              </p>
-              <div className="coming-soon">
-                <h2>Coming Soon</h2>
-                <p>Advanced analytics features are currently in development.</p>
-                <p>For now, visit the <a href="/data-driven" style={{color: '#00ff88'}}>Data-Driven</a> page for seasonal analysis.</p>
-              </div>
-            </div>
+            <RRGAnalytics 
+              defaultTimeframe="14 weeks"
+              defaultBenchmark="SPY"
+            />
           </div>
         </div>
       </main>

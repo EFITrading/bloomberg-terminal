@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import PolygonService from '../../lib/polygonService';
 import ElectionCycleService, { ElectionCycleData } from '../../lib/electionCycleService';
+import GlobalDataCache from '../../lib/GlobalDataCache';
 import SeasonaxSymbolSearch from './SeasonaxSymbolSearch';
 import SeasonaxMainChart from './SeasonaxMainChart';
 import SeasonaxStatistics from './SeasonaxStatistics';
@@ -101,9 +102,10 @@ interface ChartSettings {
 
 interface SeasonalityChartProps {
   onBackToTabs?: () => void;
+  autoStart?: boolean;
 }
 
-const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs }) => {
+const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoStart = false }) => {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('SPY');
   const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null);
   const [electionData, setElectionData] = useState<ElectionCycleData | null>(null);
@@ -130,6 +132,14 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs }) => 
       loadSeasonalAnalysis(selectedSymbol);
     }
   }, [selectedSymbol]);
+
+  // Auto-start data loading when autoStart prop is true
+  useEffect(() => {
+    if (autoStart && selectedSymbol) {
+      console.log('🚀 Auto-starting seasonal analysis for:', selectedSymbol);
+      loadSeasonalAnalysis(selectedSymbol);
+    }
+  }, [autoStart, selectedSymbol]);
 
   const handleElectionModeToggle = async (isEnabled: boolean) => {
     console.log('Election mode toggled:', isEnabled);
@@ -190,6 +200,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs }) => 
     setError(null);
     
     try {
+      const cache = GlobalDataCache.getInstance();
+      
       // Calculate date range (max 20 years due to API limit)
       const yearsToFetch = Math.min(chartSettings.yearsOfData, 20);
       const endDate = new Date();
@@ -197,44 +209,66 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs }) => 
       startDate.setFullYear(endDate.getFullYear() - yearsToFetch);
 
       console.log(`Loading ${yearsToFetch} years of data for ${symbol}`);
-
-      // Fetch historical data - if symbol is SPY, only fetch SPY data once
-      let historicalResponse, spyResponse;
       
-      if (symbol.toUpperCase() === 'SPY') {
-        // For SPY, just fetch once and use for both
-        historicalResponse = await polygonService.getHistoricalData(
-          symbol,
-          startDate.toISOString().split('T')[0],
-          endDate.toISOString().split('T')[0]
-        );
-        spyResponse = null; // Don't need separate SPY data when analyzing SPY itself
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      // Check cache first for faster loading
+      let historicalResponse, spyResponse, tickerDetails;
+      
+      const cachedHistorical = cache.get(GlobalDataCache.keys.HISTORICAL_DATA(symbol, startDateStr, endDateStr));
+      const cachedTicker = cache.get(GlobalDataCache.keys.TICKER_DETAILS(symbol));
+      
+      if (cachedHistorical && cachedTicker) {
+        console.log(`⚡ Using cached data for ${symbol} - instant load!`);
+        historicalResponse = cachedHistorical;
+        tickerDetails = cachedTicker;
+        
+        // For SPY comparison
+        if (symbol.toUpperCase() !== 'SPY') {
+          const cachedSPY = cache.get(GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr));
+          if (cachedSPY) {
+            spyResponse = cachedSPY;
+            console.log(`⚡ Using cached SPY data for comparison - instant load!`);
+          } else {
+            spyResponse = await polygonService.getHistoricalData('SPY', startDateStr, endDateStr);
+            if (spyResponse) {
+              cache.set(GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr), spyResponse);
+            }
+          }
+        } else {
+          spyResponse = null;
+        }
       } else {
-        // For other symbols, fetch both symbol and SPY for comparison
-        [historicalResponse, spyResponse] = await Promise.all([
-          polygonService.getHistoricalData(
-            symbol,
-            startDate.toISOString().split('T')[0],
-            endDate.toISOString().split('T')[0]
-          ),
-          polygonService.getHistoricalData(
-            'SPY',
-            startDate.toISOString().split('T')[0],
-            endDate.toISOString().split('T')[0]
-          )
-        ]);
+        console.log(`🔄 Fetching new data for ${symbol}...`);
+        
+        // Fetch historical data - if symbol is SPY, only fetch SPY data once
+        if (symbol.toUpperCase() === 'SPY') {
+          // For SPY, just fetch once and use for both
+          historicalResponse = await polygonService.getHistoricalData(symbol, startDateStr, endDateStr);
+          spyResponse = null; // Don't need separate SPY data when analyzing SPY itself
+        } else {
+          // For other symbols, fetch both symbol and SPY for comparison
+          [historicalResponse, spyResponse] = await Promise.all([
+            polygonService.getHistoricalData(symbol, startDateStr, endDateStr),
+            polygonService.getHistoricalData('SPY', startDateStr, endDateStr)
+          ]);
+        }
+        
+        // Get company details
+        tickerDetails = await polygonService.getTickerDetails(symbol);
+        
+        // Cache the results for next time
+        if (historicalResponse) {
+          cache.set(GlobalDataCache.keys.HISTORICAL_DATA(symbol, startDateStr, endDateStr), historicalResponse);
+        }
+        if (spyResponse) {
+          cache.set(GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr), spyResponse);
+        }
+        if (tickerDetails) {
+          cache.set(GlobalDataCache.keys.TICKER_DETAILS(symbol), tickerDetails);
+        }
       }
-
-      if (!historicalResponse || !historicalResponse.results || historicalResponse.results.length === 0) {
-        throw new Error(`No historical data available for ${symbol}`);
-      }
-      
-      if (symbol.toUpperCase() !== 'SPY' && (!spyResponse || !spyResponse.results || spyResponse.results.length === 0)) {
-        throw new Error(`No SPY data available for comparison`);
-      }
-
-      // Get company details
-      const tickerDetails = await polygonService.getTickerDetails(symbol);
 
       // Process data into daily seasonal format with or without SPY comparison
       const processedData = processDailySeasonalData(
