@@ -21,6 +21,30 @@ interface SeasonalWeek {
   strength: number; // Percentage outperformance vs SPY
   confidence: number; // 0-100 based on historical consistency
 }
+
+interface SeasonalData {
+  symbol: string;
+  name: string;
+  type: 'sector' | 'etf';
+  currentSeasonalStrength: number;
+  seasonalTrend: 'bullish' | 'bearish' | 'neutral';
+  seasonalPattern: string;
+  bestMonths: string[];
+  worstMonths: string[];
+  
+  // Monthly data
+  jan: number;
+  feb: number;
+  mar: number;
+  apr: number;
+  may: number;
+  jun: number;
+  jul: number;
+  aug: number;
+  sep: number;
+  oct: number;
+  nov: number;
+  dec: number;
   
   // Seasonal Statistics
   winRate: number; // % of years this pattern worked
@@ -391,7 +415,7 @@ const SectorsAnalysis: React.FC = () => {
                   <div className="best-months">
                     <h5>🟢 Best Months</h5>
                     <div className="months-list">
-                      {item.bestMonths.map(month => (
+                      {item.bestMonths.map((month: string) => (
                         <span key={month} className="month-tag best">{month}</span>
                       ))}
                     </div>
@@ -399,7 +423,7 @@ const SectorsAnalysis: React.FC = () => {
                   <div className="worst-months">
                     <h5>🔴 Worst Months</h5>
                     <div className="months-list">
-                      {item.worstMonths.map(month => (
+                      {item.worstMonths.map((month: string) => (
                         <span key={month} className="month-tag worst">{month}</span>
                       ))}
                     </div>

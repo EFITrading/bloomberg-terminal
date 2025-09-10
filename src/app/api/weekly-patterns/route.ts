@@ -3,9 +3,8 @@ import { getWeeklyPatterns } from '@/lib/polygonService';
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    const searchParams = request.nextUrl.searchParams;
     const symbol = searchParams.get('symbol');
-    const years = parseInt(searchParams.get('years') || '15');
 
     if (!symbol) {
       return NextResponse.json(
@@ -14,7 +13,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const patterns = await getWeeklyPatterns([symbol]);
+    const patterns = await getWeeklyPatterns(symbol);
     
     if (patterns.length === 0) {
       return NextResponse.json({
@@ -28,41 +27,43 @@ export async function GET(request: NextRequest) {
     // Transform the data to match the component's expected structure
     const transformedPattern = {
       symbol: pattern.symbol,
-      sector: pattern.sector,
-      currentWeek: pattern.weeks[0] ? {
-        pattern: pattern.weeks[0].sentiment === 'BULLISH' ? 'Bullish' : 
-                pattern.weeks[0].sentiment === 'BEARISH' ? 'Bearish' : 'Neutral',
-        strength: pattern.weeks[0].relativePerformance,
-        confidence: pattern.weeks[0].confidence
-      } : null,
-      nextWeek: pattern.weeks[1] ? {
-        pattern: pattern.weeks[1].sentiment === 'BULLISH' ? 'Bullish' : 
-                pattern.weeks[1].sentiment === 'BEARISH' ? 'Bearish' : 'Neutral',
-        strength: pattern.weeks[1].relativePerformance,
-        confidence: pattern.weeks[1].confidence
-      } : null,
-      week3: pattern.weeks[2] ? {
-        pattern: pattern.weeks[2].sentiment === 'BULLISH' ? 'Bullish' : 
-                pattern.weeks[2].sentiment === 'BEARISH' ? 'Bearish' : 'Neutral',
-        strength: pattern.weeks[2].relativePerformance,
-        confidence: pattern.weeks[2].confidence
-      } : null,
-      week4: pattern.weeks[3] ? {
-        pattern: pattern.weeks[3].sentiment === 'BULLISH' ? 'Bullish' : 
-                pattern.weeks[3].sentiment === 'BEARISH' ? 'Bearish' : 'Neutral',
-        strength: pattern.weeks[3].relativePerformance,
-        confidence: pattern.weeks[3].confidence
-      } : null,
-      reliability: Math.round(pattern.weeks.reduce((sum, week) => sum + week.confidence, 0) / pattern.weeks.length)
+      name: pattern.companyName,
+      type: 'SECTOR' as const,
+      currentWeek: {
+        dateRange: 'Current Week',
+        pattern: pattern.pattern === 'bullish' ? 'Bullish' as const : 
+                pattern.pattern === 'bearish' ? 'Bearish' as const : 'Neutral' as const,
+        strength: pattern.avgReturn,
+        confidence: parseInt(pattern.confidence.replace('%', ''))
+      },
+      nextWeek: {
+        dateRange: 'Next Week',  
+        pattern: 'Neutral' as const,
+        strength: 0,
+        confidence: 50
+      },
+      week3: {
+        dateRange: 'Week 3',
+        pattern: 'Neutral' as const,
+        strength: 0,
+        confidence: 50  
+      },
+      week4: {
+        dateRange: 'Week 4',
+        pattern: 'Neutral' as const,
+        strength: 0,
+        confidence: 50
+      },
+      reliability: parseInt(pattern.confidence.replace('%', ''))
     };
     
     return NextResponse.json({
       success: true,
-      weeklyPattern: transformedPattern
+      data: transformedPattern
     });
 
   } catch (error) {
-    console.error('Error in weekly-patterns API:', error);
+    console.error('Weekly patterns API error:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to fetch weekly patterns' },
       { status: 500 }

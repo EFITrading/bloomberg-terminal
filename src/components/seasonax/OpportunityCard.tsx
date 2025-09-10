@@ -55,7 +55,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
   const sentiment = (pattern as any).sentiment || 
     (patternType.toLowerCase().includes('bullish') ? 'Bullish' : 
      patternType.toLowerCase().includes('bearish') ? 'Bearish' : 
-     pattern.averageReturn >= 0 ? 'Bullish' : 'Bearish');
+     (pattern.averageReturn || pattern.avgReturn || 0) >= 0 ? 'Bullish' : 'Bearish');
   
   const isPositive = sentiment === 'Bullish';
   const daysUntilStart = (pattern as any).daysUntilStart || 0;
@@ -104,8 +104,8 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
       
       <div className="card-metrics">
         <div className="metric primary">
-          <div className={`metric-value ${pattern.averageReturn >= 0 ? 'positive' : 'negative'}`}>
-            {pattern.averageReturn >= 0 ? '+' : ''}{pattern.averageReturn.toFixed(1)}%
+          <div className={`metric-value ${(pattern.averageReturn || pattern.avgReturn || 0) >= 0 ? 'positive' : 'negative'}`}>
+            {(pattern.averageReturn || pattern.avgReturn || 0) >= 0 ? '+' : ''}{(pattern.averageReturn || pattern.avgReturn || 0).toFixed(1)}%
           </div>
           <div className="metric-label">Expected Return</div>
         </div>

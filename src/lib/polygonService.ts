@@ -48,12 +48,15 @@ interface PolygonAggregateData {
 interface SeasonalPattern {
   symbol: string;
   companyName: string;
+  company?: string; // alias for companyName
   sector: string;
   pattern: string;
+  patternType?: string;
   period: string;
   startDate: string;
   endDate: string;
   avgReturn: number;
+  averageReturn?: number; // alias for avgReturn
   winRate: number;
   years: number;
   lastReturn?: number;
@@ -68,6 +71,9 @@ interface SeasonalPattern {
   currentPrice?: number;
   priceChange?: number;
   priceChangePercent?: number;
+  exchange?: string;
+  currency?: string;
+  chartData?: any;
   analystRating?: string;
   targetPrice?: number;
   dividendYield?: number;
@@ -104,6 +110,18 @@ interface WeeklyPattern {
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 const BASE_URL = 'https://api.polygon.io';
+
+// Helper function to add aliases to seasonal patterns
+function enrichSeasonalPattern(pattern: Partial<SeasonalPattern>): SeasonalPattern {
+  return {
+    ...pattern,
+    company: pattern.company || pattern.companyName,
+    averageReturn: pattern.averageReturn ?? pattern.avgReturn,
+    exchange: pattern.exchange || 'NASDAQ',
+    currency: pattern.currency || 'USD',
+    chartData: pattern.chartData || []
+  } as SeasonalPattern;
+}
 
 class PolygonService {
   private apiKey: string;
@@ -238,6 +256,22 @@ class PolygonService {
     }
   }
 
+  async getRealtimeQuote(symbol: string): Promise<any> {
+    try {
+      // Mock implementation for realtime quotes
+      return {
+        symbol,
+        price: Math.random() * 100 + 50,
+        change: (Math.random() - 0.5) * 10,
+        changePercent: (Math.random() - 0.5) * 5,
+        volume: Math.floor(Math.random() * 1000000)
+      };
+    } catch (error) {
+      console.error(`❌ Failed to get realtime quote for ${symbol}:`, error);
+      return null;
+    }
+  }
+
   async getHistoricalData(
     symbol: string,
     startDate: string,
@@ -319,8 +353,8 @@ class PolygonService {
 
   async getFeaturedPatterns(): Promise<SeasonalPattern[]> {
     // Return mock featured patterns for now
-    return [
-      {
+    const patterns = [
+      enrichSeasonalPattern({
         symbol: 'AAPL',
         companyName: 'Apple Inc.',
         sector: 'Technology',
@@ -335,8 +369,26 @@ class PolygonService {
         category: 'Bearish',
         description: 'Apple historically underperforms in September before iPhone launches',
         riskLevel: 'Medium'
-      }
+      }),
+      enrichSeasonalPattern({
+        symbol: 'TSLA',
+        companyName: 'Tesla Inc.',
+        sector: 'Consumer Discretionary',
+        pattern: 'December Rally',
+        period: 'Dec 1 - Dec 31',
+        startDate: 'Dec 1',
+        endDate: 'Dec 31',
+        avgReturn: 8.5,
+        winRate: 75,
+        years: 8,
+        confidence: 'High',
+        category: 'Bullish',
+        description: 'Tesla typically rallies in December due to year-end deliveries',
+        riskLevel: 'High'
+      })
     ];
+    
+    return patterns;
   }
 
   async getMarketPatterns(market: string, years: number): Promise<SeasonalPattern[]> {
@@ -501,5 +553,12 @@ export async function getWeeklyPatterns(symbol?: string): Promise<WeeklyPattern[
   const service = new PolygonService(API_KEY);
   return service.getWeeklyPatterns(symbol);
 }
+
+// Create a default instance
+const polygonService = new PolygonService(POLYGON_API_KEY || '');
+
+// Export interfaces and main service
+export type { SeasonalPattern, WeeklyPattern };
+export { polygonService };
 
 export default PolygonService;

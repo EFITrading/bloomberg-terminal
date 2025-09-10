@@ -8,13 +8,15 @@ import DataPreloader from '@/components/DataPreloader';
 
 export default function Home() {
   return (
-    <>
+    <div className="terminal-app">
       <DataPreloader />
       <Background />
       <Navigation />
-      <HeroSection />
-      <ToolsSection />
+      <main className="main-content">
+        <HeroSection />
+        <ToolsSection />
+      </main>
       <Footer />
-    </>
+    </div>
   );
 }

@@ -121,7 +121,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
           cache.set(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES, realOpportunities);
           
           // Set the real data
-          setOpportunities(realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)));
+          setOpportunities(realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)) as unknown as SeasonalPattern[]);
           setLoading(false);
           setStreamStatus('✅ Real seasonal data loaded successfully!');
           setProgressStats({ processed: 600, total: 600, found: realOpportunities.length });
