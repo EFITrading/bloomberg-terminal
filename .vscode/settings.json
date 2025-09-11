@@ -1,11 +1,11 @@
 {
   "files.autoSave": "afterDelay",
   "files.autoSaveDelay": 1000,
-  "git.enableAutoFetch": true,
-  "git.autofetch": true,
-  "workbench.localHistory.enabled": true,
-  "workbench.localHistory.maxFileSize": 256,
-  "workbench.localHistory.maxFileEntries": 50,
+  "git.enableAutoFetch": false,
+  "git.autofetch": false,
+  "workbench.localHistory.enabled": false,
+  "workbench.localHistory.maxFileSize": 128,
+  "workbench.localHistory.maxFileEntries": 10,
   "files.hotExit": "onExitAndWindowClose",
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
@@ -15,6 +15,26 @@
   "git.enableSmartCommit": true,
   "git.suggestSmartCommit": true,
   "scm.inputFontFamily": "Consolas, 'Courier New', monospace",
-  "timeline.showView": true,
-  "timeline.pageSize": 20
+  "timeline.showView": false,
+  "timeline.pageSize": 10,
+  "search.maxResults": 10000,
+  "search.followSymlinks": false,
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.next/**": true,
+    "**/coverage/**": true
+  },
+  "typescript.preferences.includePackageJsonAutoImports": "off",
+  "typescript.suggest.autoImports": false,
+  "typescript.preferences.includeDocumentSymbols": false,
+  "editor.suggest.showSnippets": false,
+  "editor.suggest.showKeywords": false,
+  "workbench.editor.limit.enabled": true,
+  "workbench.editor.limit.value": 10,
+  "extensions.ignoreRecommendations": true,
+  "telemetry.telemetryLevel": "off"
 }

@@ -254,6 +254,7 @@
     "react-hook-form": "^7.62.0",
     "react-hot-toast": "^2.6.0",
     "react-hotkeys-hook": "^5.1.0",
+    "react-icons": "^5.5.0",
     "react-input-mask": "^2.0.4",
     "react-intersection-observer": "^9.16.0",
     "react-konva": "^19.0.7",
