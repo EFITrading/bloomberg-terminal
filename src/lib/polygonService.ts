@@ -242,8 +242,10 @@ class PolygonService {
       });
       
       if (!response.ok) {
+        // Log the error but don't throw - return null instead
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
+        console.warn(`⚠️ Ticker details API error for ${symbol}: ${errorData.error || `${response.status} ${response.statusText}`}`);
+        return null;
       }
       
       const data = await response.json();
@@ -292,8 +294,10 @@ class PolygonService {
       });
       
       if (!response.ok) {
+        // Log the error but don't throw - return null instead
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
+        console.warn(`⚠️ Historical data API error for ${symbol}: ${errorData.error || `${response.status} ${response.statusText}`}`);
+        return null;
       }
       
       const data = await response.json();
@@ -334,8 +338,10 @@ class PolygonService {
       });
       
       if (!response.ok) {
+        // Log the error but don't throw - return null instead
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
+        console.warn(`⚠️ Bulk historical data API error for ${symbol}: ${errorData.error || `${response.status} ${response.statusText}`}`);
+        return null;
       }
       
       const data = await response.json();

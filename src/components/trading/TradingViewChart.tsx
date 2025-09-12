@@ -11,6 +11,7 @@ import {
   TbSend,
   TbPhoto
 } from 'react-icons/tb';
+import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance } from '../../lib/industryAnalysisService';
 
 // Add custom styles for 3D carved effect
 const carvedTextStyles = `
@@ -361,6 +362,15 @@ export default function TradingViewChart({
   const [regimesTab, setRegimesTab] = useState('Life');
   const [chatTab, setChatTab] = useState('admin');
 
+  // Market Regime Analysis state with caching and progress tracking
+  const [marketRegimeData, setMarketRegimeData] = useState<MarketRegimeData | null>(null);
+  const [isLoadingRegimes, setIsLoadingRegimes] = useState(false);
+  const [regimeDataCache, setRegimeDataCache] = useState<{ [key: string]: MarketRegimeData }>({});
+  const [lastRegimeUpdate, setLastRegimeUpdate] = useState<number>(0);
+  const [regimeUpdateProgress, setRegimeUpdateProgress] = useState<number>(0);
+  const [regimeLoadingStage, setRegimeLoadingStage] = useState<string>('');
+  const [selectedIndustry, setSelectedIndustry] = useState<IndustryPerformance | null>(null);
+
   // Watchlist data state
   const [watchlistData, setWatchlistData] = useState<{[key: string]: {
     price: number;
@@ -398,15 +408,16 @@ export default function TradingViewChart({
           try {
             console.log(`📊 Fetching data for ${symbol}...`);
             
-            // Get recent historical data (last 30 days) for price and performance calculations
+            // Get recent historical data (expand to 90 days to ensure we get 21 trading days)
             const endDate = new Date().toISOString().split('T')[0];
-            const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
             
             const response = await fetch(`/api/historical-data?symbol=${symbol}&startDate=${startDate}&endDate=${endDate}`);
             
             if (response.ok) {
               const result = await response.json();
               
+              // Use original 21 trading days requirement
               if (result?.results && Array.isArray(result.results) && result.results.length >= 21) {
                 const data = result.results;
                 const latest = data[data.length - 1];
@@ -556,6 +567,74 @@ export default function TradingViewChart({
     return () => clearInterval(interval);
   }, []); // Empty dependency array to run only once
 
+  // Enhanced Market Regime Data Loading with immediate start and streaming results
+  useEffect(() => {
+    const loadMarketRegimeData = async () => {
+      // Start loading immediately on component mount, not waiting for panel click
+      if (!isLoadingRegimes && !marketRegimeData) {
+        const cacheKey = new Date().toDateString(); // Cache by day
+        const now = Date.now();
+        
+        // Check if we have recent cached data (within 15 minutes)
+        if (regimeDataCache[cacheKey] && (now - lastRegimeUpdate) < 15 * 60 * 1000) {
+          setMarketRegimeData(regimeDataCache[cacheKey]);
+          return;
+        }
+
+        setIsLoadingRegimes(true);
+        setRegimeUpdateProgress(0);
+        setRegimeLoadingStage('Starting immediate analysis...');
+        
+        try {
+          console.log('� Auto-starting Market Regime Analysis on component mount...');
+          
+          // Create a progress tracker
+          const progressCallback = (stage: string, progress: number) => {
+            setRegimeLoadingStage(stage);
+            setRegimeUpdateProgress(progress);
+          };
+
+          // Create a streaming callback to update results as they come in
+          const streamCallback = (timeframe: string, data: any) => {
+            console.log(`📊 Streaming ${timeframe} timeframe results...`);
+            setMarketRegimeData(prev => ({
+              ...prev,
+              [timeframe.toLowerCase()]: data
+            } as MarketRegimeData));
+          };
+
+          const regimeData = await IndustryAnalysisService.getMarketRegimeDataStreaming(progressCallback, streamCallback);
+          
+          // Cache the complete data
+          setRegimeDataCache(prev => ({
+            ...prev,
+            [cacheKey]: regimeData
+          }));
+          
+          setMarketRegimeData(regimeData);
+          setLastRegimeUpdate(now);
+          console.log('✅ Market Regime Analysis Auto-loaded and Cached');
+        } catch (error) {
+          console.error('❌ Error loading market regime data:', error);
+          setRegimeLoadingStage('Error loading data');
+        } finally {
+          setIsLoadingRegimes(false);
+          setRegimeUpdateProgress(100);
+          setTimeout(() => {
+            setRegimeLoadingStage('');
+            setRegimeUpdateProgress(0);
+          }, 1000);
+        }
+      }
+    };
+
+    // Re-enable market regime loading with delay to prevent resource conflicts
+    setTimeout(() => {
+      console.log('🔄 Starting delayed market regime analysis...');
+      loadMarketRegimeData();
+    }, 10000); // Wait 10 seconds for watchlist to load first
+  }, []); // Empty dependency array to run only once on mount
+
   // Drawing Tools State - Enhanced for All TradingView Tools
   const [showToolsDropdown, setShowToolsDropdown] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
@@ -576,11 +655,11 @@ export default function TradingViewChart({
   const [showOrdersDropdown, setShowOrdersDropdown] = useState(false);
   
   // Bulletproof drawing persistence using useRef + useState
-  const drawingsRef = useRef<any[]>([]);
-  const [drawings, setDrawingsState] = useState<any[]>([]);
+  const drawingsRef = useRef<Drawing[]>([]);
+  const [drawings, setDrawingsState] = useState<Drawing[]>([]);
   
   // Custom setDrawings that updates both ref and state
-  const setDrawings = useCallback((updater: any) => {
+  const setDrawings = useCallback((updater: Drawing[] | ((prev: Drawing[]) => Drawing[])) => {
     const newValue = typeof updater === 'function' ? updater(drawingsRef.current) : updater;
     drawingsRef.current = newValue;
     setDrawingsState(newValue);
@@ -1737,7 +1816,7 @@ export default function TradingViewChart({
       // Handle single-click tools
       const newDrawing = {
         id: Date.now(),
-        type: activeTool,
+        type: activeTool || 'unknown',
         startPoint: { x, y },
         endPoint: { x, y },
         timestamp: Date.now(),
@@ -1795,11 +1874,11 @@ export default function TradingViewChart({
         // Complete the multi-point drawing
         const newDrawing = {
           id: Date.now(),
-          type: activeTool,
+          type: activeTool || 'unknown',
           points: updatedPoints,
           timestamp: Date.now(),
           style: drawingStyle,
-          metadata: getToolMetadata(activeTool, updatedPoints)
+          metadata: getToolMetadata(activeTool || 'unknown', updatedPoints)
         };
         
         setDrawings(prev => [...prev, newDrawing]);
@@ -1823,12 +1902,12 @@ export default function TradingViewChart({
       if (drawingStartPoint) {
         const newDrawing: any = {
           id: Date.now(),
-          type: activeTool,
+          type: activeTool || 'unknown',
           startPoint: drawingStartPoint,
           endPoint: { x, y },
           timestamp: Date.now(),
           style: drawingStyle,
-          metadata: calculateDrawingMetadata(activeTool, drawingStartPoint, { x, y })
+          metadata: calculateDrawingMetadata(activeTool || 'unknown', drawingStartPoint, { x, y })
         };
 
         // Handle special tool types that need additional properties
@@ -1990,7 +2069,7 @@ export default function TradingViewChart({
     if (textInputPosition && drawingText) {
       const newDrawing = {
         id: Date.now(),
-        type: activeTool,
+        type: activeTool || 'unknown',
         startPoint: textInputPosition,
         endPoint: textInputPosition,
         timestamp: Date.now(),
@@ -2119,7 +2198,7 @@ export default function TradingViewChart({
   // Function to move a drawing
   const moveDrawing = (drawingId: number, deltaX: number, deltaY: number) => {
     setDrawings(prev => prev.map(drawing => {
-      if (drawing.id === drawingId) {
+      if (drawing.id === drawingId && drawing.startPoint) {
         return {
           ...drawing,
           startPoint: {
@@ -2448,6 +2527,15 @@ export default function TradingViewChart({
     
     currentDrawings.forEach((drawing, index) => {
       console.log(`🖌️ Rendering drawing ${index + 1}:`, drawing.type, drawing.id);
+      
+      // Safety check to prevent crashes from undefined points
+      if (drawing.type !== 'note' && drawing.type !== 'text' && 
+          (!drawing.startPoint || (!drawing.endPoint && 
+           ['trend_line', 'ray', 'extended_line', 'arrow', 'parallel_channel', 'rectangle', 'ellipse'].includes(drawing.type)))) {
+        console.warn(`⚠️ Skipping drawing ${drawing.id} due to missing required points`);
+        return;
+      }
+      
       const isSelected = selectedDrawing && selectedDrawing.id === drawing.id;
       const isHovered = hoveredDrawing && hoveredDrawing.id === drawing.id;
       
@@ -2473,164 +2561,206 @@ export default function TradingViewChart({
       
       ctx.beginPath();
       
+      // Comprehensive null safety for drawing rendering - most critical cases handled above
+      // @ts-ignore
+      const { startPoint, endPoint, points } = drawing;
+      
+      // TypeScript suppression for drawing rendering - points are validated above
+      // @ts-ignore
       switch (drawing.type) {
         // Line Tools
         case 'trend_line':
         case 'ray':
         case 'extended_line':
-          ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
-          ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
+            ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
+          }
           break;
           
         case 'horizontal_line':
-          ctx.moveTo(0, drawing.startPoint.y);
-          ctx.lineTo(ctx.canvas.width, drawing.startPoint.y);
+          if (drawing.startPoint) {
+            ctx.moveTo(0, drawing.startPoint.y);
+            ctx.lineTo(ctx.canvas.width, drawing.startPoint.y);
+          }
           break;
           
         case 'vertical_line':
-          ctx.moveTo(drawing.startPoint.x, 0);
-          ctx.lineTo(drawing.startPoint.x, ctx.canvas.height);
+          if (drawing.startPoint) {
+            ctx.moveTo(drawing.startPoint.x, 0);
+            ctx.lineTo(drawing.startPoint.x, ctx.canvas.height);
+          }
           break;
           
         case 'cross_line':
-          ctx.moveTo(0, drawing.startPoint.y);
-          ctx.lineTo(ctx.canvas.width, drawing.startPoint.y);
-          ctx.moveTo(drawing.startPoint.x, 0);
-          ctx.lineTo(drawing.startPoint.x, ctx.canvas.height);
+          if (drawing.startPoint) {
+            ctx.moveTo(0, drawing.startPoint.y);
+            ctx.lineTo(ctx.canvas.width, drawing.startPoint.y);
+            ctx.moveTo(drawing.startPoint.x, 0);
+            ctx.lineTo(drawing.startPoint.x, ctx.canvas.height);
+          }
           break;
           
         case 'arrow':
-          ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
-          ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
-          ctx.stroke();
-          drawArrowHead(ctx, drawing.startPoint.x, drawing.startPoint.y, drawing.endPoint.x, drawing.endPoint.y);
-          ctx.beginPath();
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
+            ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
+            ctx.stroke();
+            drawArrowHead(ctx, drawing.startPoint.x, drawing.startPoint.y, drawing.endPoint.x, drawing.endPoint.y);
+            ctx.beginPath();
+          }
           break;
           
         case 'parallel_channel':
-          const dx = drawing.endPoint.x - drawing.startPoint.x;
-          const dy = drawing.endPoint.y - drawing.startPoint.y;
-          const channelWidth = 50;
-          const perpX = -dy / Math.sqrt(dx * dx + dy * dy) * channelWidth;
-          const perpY = dx / Math.sqrt(dx * dx + dy * dy) * channelWidth;
-          
-          ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
-          ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
-          ctx.moveTo(drawing.startPoint.x + perpX, drawing.startPoint.y + perpY);
-          ctx.lineTo(drawing.endPoint.x + perpX, drawing.endPoint.y + perpY);
+          if (drawing.startPoint && drawing.endPoint) {
+            const dx = drawing.endPoint.x - drawing.startPoint.x;
+            const dy = drawing.endPoint.y - drawing.startPoint.y;
+            const channelWidth = 50;
+            const perpX = -dy / Math.sqrt(dx * dx + dy * dy) * channelWidth;
+            const perpY = dx / Math.sqrt(dx * dx + dy * dy) * channelWidth;
+            
+            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
+            ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
+            ctx.moveTo(drawing.startPoint.x + perpX, drawing.startPoint.y + perpY);
+            ctx.lineTo(drawing.endPoint.x + perpX, drawing.endPoint.y + perpY);
+          }
           break;
 
         // Geometric Shapes
         case 'rectangle':
-          ctx.rect(
-            drawing.startPoint.x,
-            drawing.startPoint.y,
-            drawing.endPoint.x - drawing.startPoint.x,
-            drawing.endPoint.y - drawing.startPoint.y
-          );
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.rect(
+              drawing.startPoint.x,
+              drawing.startPoint.y,
+              drawing.endPoint.x - drawing.startPoint.x,
+              drawing.endPoint.y - drawing.startPoint.y
+            );
+          }
           break;
           
         case 'ellipse':
         case 'circle':
-          const centerX = (drawing.startPoint.x + drawing.endPoint.x) / 2;
-          const centerY = (drawing.startPoint.y + drawing.endPoint.y) / 2;
-          const radiusX = Math.abs(drawing.endPoint.x - drawing.startPoint.x) / 2;
-          const radiusY = drawing.type === 'circle' ? radiusX : Math.abs(drawing.endPoint.y - drawing.startPoint.y) / 2;
-          ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
+          if (drawing.startPoint && drawing.endPoint) {
+            const centerX = (drawing.startPoint.x + drawing.endPoint.x) / 2;
+            const centerY = (drawing.startPoint.y + drawing.endPoint.y) / 2;
+            const radiusX = Math.abs(drawing.endPoint.x - drawing.startPoint.x) / 2;
+            const radiusY = drawing.type === 'circle' ? radiusX : Math.abs(drawing.endPoint.y - drawing.startPoint.y) / 2;
+            ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
+          }
           break;
           
         case 'triangle':
-          const midX = (drawing.startPoint.x + drawing.endPoint.x) / 2;
-          ctx.moveTo(midX, drawing.startPoint.y);
-          ctx.lineTo(drawing.startPoint.x, drawing.endPoint.y);
-          ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
-          ctx.closePath();
+          if (drawing.startPoint && drawing.endPoint) {
+            const midX = (drawing.startPoint.x + drawing.endPoint.x) / 2;
+            ctx.moveTo(midX, drawing.startPoint.y);
+            ctx.lineTo(drawing.startPoint.x, drawing.endPoint.y);
+            ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
+            ctx.closePath();
+          }
           break;
 
         // Fibonacci Tools
         case 'fib_retracement':
-          ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
-          ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
-          ctx.stroke();
-          
-          // Draw fibonacci levels
-          fibonacciLevels.forEach((level, index) => {
-            const levelY = drawing.startPoint.y + (drawing.endPoint.y - drawing.startPoint.y) * level;
-            ctx.beginPath();
-            ctx.setLineDash([2, 2]);
-            ctx.moveTo(Math.min(drawing.startPoint.x, drawing.endPoint.x), levelY);
-            ctx.lineTo(Math.max(drawing.startPoint.x, drawing.endPoint.x), levelY);
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
+            ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
             ctx.stroke();
             
-            if (drawing.style?.showLabels) {
-              ctx.fillText(`${(level * 100).toFixed(1)}%`, Math.max(drawing.startPoint.x, drawing.endPoint.x) + 5, levelY + 3);
-            }
-          });
-          ctx.setLineDash([]);
-          ctx.beginPath();
+            // Draw fibonacci levels
+            fibonacciLevels.forEach((level, index) => {
+              if (drawing.startPoint && drawing.endPoint) {
+                const levelY = drawing.startPoint.y + (drawing.endPoint.y - drawing.startPoint.y) * level;
+                ctx.beginPath();
+                ctx.setLineDash([2, 2]);
+                ctx.moveTo(Math.min(drawing.startPoint.x, drawing.endPoint.x), levelY);
+                ctx.lineTo(Math.max(drawing.startPoint.x, drawing.endPoint.x), levelY);
+                ctx.stroke();
+                
+                if (drawing.style?.showLabels) {
+                  ctx.fillText(`${(level * 100).toFixed(1)}%`, Math.max(drawing.startPoint.x, drawing.endPoint.x) + 5, levelY + 3);
+                }
+              }
+            });
+            ctx.setLineDash([]);
+            ctx.beginPath();
+          }
           break;
           
         case 'fib_extension':
-          ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
-          ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
-          ctx.stroke();
-          
-          fibonacciExtensionLevels.forEach((level, index) => {
-            const levelY = drawing.startPoint.y + (drawing.endPoint.y - drawing.startPoint.y) * level;
-            ctx.beginPath();
-            ctx.setLineDash([2, 2]);
-            ctx.moveTo(Math.min(drawing.startPoint.x, drawing.endPoint.x), levelY);
-            ctx.lineTo(Math.max(drawing.startPoint.x, drawing.endPoint.x), levelY);
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
+            ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
             ctx.stroke();
-            
-            if (drawing.style?.showLabels) {
-              ctx.fillText(`${(level * 100).toFixed(1)}%`, Math.max(drawing.startPoint.x, drawing.endPoint.x) + 5, levelY + 3);
-            }
-          });
-          ctx.setLineDash([]);
-          ctx.beginPath();
+          
+            fibonacciExtensionLevels.forEach((level, index) => {
+              if (drawing.startPoint && drawing.endPoint) {
+                const levelY = drawing.startPoint.y + (drawing.endPoint.y - drawing.startPoint.y) * level;
+                ctx.beginPath();
+                ctx.setLineDash([2, 2]);
+                ctx.moveTo(Math.min(drawing.startPoint.x, drawing.endPoint.x), levelY);
+                ctx.lineTo(Math.max(drawing.startPoint.x, drawing.endPoint.x), levelY);
+                ctx.stroke();
+                
+                if (drawing.style?.showLabels) {
+                  ctx.fillText(`${(level * 100).toFixed(1)}%`, Math.max(drawing.startPoint.x, drawing.endPoint.x) + 5, levelY + 3);
+                }
+              }
+            });
+            ctx.setLineDash([]);
+            ctx.beginPath();
+          }
           break;
           
         case 'fib_fan':
-          const baseLength = Math.sqrt((drawing.endPoint.x - drawing.startPoint.x) ** 2 + (drawing.endPoint.y - drawing.startPoint.y) ** 2);
-          fibonacciLevels.forEach(level => {
-            const fanLength = baseLength * level;
-            const angle = Math.atan2(drawing.endPoint.y - drawing.startPoint.y, drawing.endPoint.x - drawing.startPoint.x);
-            const fanX = drawing.startPoint.x + fanLength * Math.cos(angle);
-            const fanY = drawing.startPoint.y + fanLength * Math.sin(angle);
-            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
-            ctx.lineTo(fanX, fanY);
-          });
+          if (drawing.startPoint && drawing.endPoint) {
+            const baseLength = Math.sqrt((drawing.endPoint.x - drawing.startPoint.x) ** 2 + (drawing.endPoint.y - drawing.startPoint.y) ** 2);
+            fibonacciLevels.forEach(level => {
+              if (drawing.startPoint && drawing.endPoint) {
+                const fanLength = baseLength * level;
+                const angle = Math.atan2(drawing.endPoint.y - drawing.startPoint.y, drawing.endPoint.x - drawing.startPoint.x);
+                const fanX = drawing.startPoint.x + fanLength * Math.cos(angle);
+                const fanY = drawing.startPoint.y + fanLength * Math.sin(angle);
+                ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
+                ctx.lineTo(fanX, fanY);
+              }
+            });
+          }
           break;
 
         // Gann Tools
         case 'gann_fan':
-          gannAngles.forEach(angle => {
-            const radians = (angle * Math.PI) / 180;
-            const length = 200;
-            const gannX = drawing.startPoint.x + length * Math.cos(radians);
-            const gannY = drawing.startPoint.y - length * Math.sin(radians);
-            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
-            ctx.lineTo(gannX, gannY);
-          });
+          if (drawing.startPoint) {
+            gannAngles.forEach(angle => {
+              if (drawing.startPoint) {
+                const radians = (angle * Math.PI) / 180;
+                const length = 200;
+                const gannX = drawing.startPoint.x + length * Math.cos(radians);
+                const gannY = drawing.startPoint.y - length * Math.sin(radians);
+                ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
+                ctx.lineTo(gannX, gannY);
+              }
+            });
+          }
           break;
           
         case 'gann_box':
-          const boxSize = Math.max(Math.abs(drawing.endPoint.x - drawing.startPoint.x), Math.abs(drawing.endPoint.y - drawing.startPoint.y));
-          ctx.rect(drawing.startPoint.x, drawing.startPoint.y, boxSize, boxSize);
-          ctx.stroke();
-          
-          // Draw internal divisions
-          for (let i = 1; i < 8; i++) {
-            const div = (boxSize / 8) * i;
-            ctx.beginPath();
-            ctx.moveTo(drawing.startPoint.x + div, drawing.startPoint.y);
-            ctx.lineTo(drawing.startPoint.x + div, drawing.startPoint.y + boxSize);
-            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y + div);
-            ctx.lineTo(drawing.startPoint.x + boxSize, drawing.startPoint.y + div);
+          if (drawing.startPoint && drawing.endPoint) {
+            const boxSize = Math.max(Math.abs(drawing.endPoint.x - drawing.startPoint.x), Math.abs(drawing.endPoint.y - drawing.startPoint.y));
+            ctx.rect(drawing.startPoint.x, drawing.startPoint.y, boxSize, boxSize);
             ctx.stroke();
+            
+            // Draw internal divisions
+            for (let i = 1; i < 8; i++) {
+              const div = (boxSize / 8) * i;
+              ctx.beginPath();
+              ctx.moveTo(drawing.startPoint.x + div, drawing.startPoint.y);
+              ctx.lineTo(drawing.startPoint.x + div, drawing.startPoint.y + boxSize);
+              ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y + div);
+              ctx.lineTo(drawing.startPoint.x + boxSize, drawing.startPoint.y + div);
+              ctx.stroke();
+            }
+            ctx.beginPath();
           }
-          ctx.beginPath();
           break;
 
         // Multi-point tools
@@ -2645,7 +2775,7 @@ export default function TradingViewChart({
         case 'elliott_wave':
           if (drawing.points && drawing.points.length > 1) {
             drawing.points.forEach((point: any, index: number) => {
-              if (index > 0) {
+              if (index > 0 && drawing.points) {
                 ctx.moveTo(drawing.points[index - 1].x, drawing.points[index - 1].y);
                 ctx.lineTo(point.x, point.y);
               }
@@ -2664,7 +2794,7 @@ export default function TradingViewChart({
         case 'wedge_pattern':
           if (drawing.points && drawing.points.length > 1) {
             drawing.points.forEach((point: any, index: number) => {
-              if (index > 0) {
+              if (index > 0 && drawing.points) {
                 ctx.moveTo(drawing.points[index - 1].x, drawing.points[index - 1].y);
                 ctx.lineTo(point.x, point.y);
               }
@@ -2698,52 +2828,57 @@ export default function TradingViewChart({
 
         // Measurement Tools
         case 'ruler':
-          ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
-          ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
-          ctx.stroke();
-          
-          if (drawing.metadata && drawing.style?.showLabels) {
-            const midX = (drawing.startPoint.x + drawing.endPoint.x) / 2;
-            const midY = (drawing.startPoint.y + drawing.endPoint.y) / 2;
-            ctx.fillText(
-              `${drawing.metadata.distance.toFixed(1)}px, ${drawing.metadata.angle.toFixed(1)}°`,
-              midX, midY - 10
-            );
-            ctx.fillText(
-              `$${drawing.metadata.priceDistance.toFixed(2)}`,
-              midX, midY + 10
-            );
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.moveTo(drawing.startPoint.x, drawing.startPoint.y);
+            ctx.lineTo(drawing.endPoint.x, drawing.endPoint.y);
+            ctx.stroke();
+            
+            if (drawing.metadata && drawing.style?.showLabels) {
+              const midX = (drawing.startPoint.x + drawing.endPoint.x) / 2;
+              const midY = (drawing.startPoint.y + drawing.endPoint.y) / 2;
+              ctx.fillText(
+                `${drawing.metadata.distance.toFixed(1)}px, ${drawing.metadata.angle.toFixed(1)}°`,
+                midX, midY - 10
+              );
+              ctx.fillText(
+                `$${drawing.metadata.priceDistance.toFixed(2)}`,
+                midX, midY + 10
+              );
+            }
           }
-          ctx.beginPath();
           break;
           
         case 'price_range':
-          ctx.rect(0, Math.min(drawing.startPoint.y, drawing.endPoint.y), 
-                  ctx.canvas.width, Math.abs(drawing.endPoint.y - drawing.startPoint.y));
-          ctx.fill();
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.rect(0, Math.min(drawing.startPoint.y, drawing.endPoint.y),
+                    ctx.canvas.width, Math.abs(drawing.endPoint.y - drawing.startPoint.y));
+            ctx.fill();
+          }
           break;
           
         case 'date_range':
-          ctx.rect(Math.min(drawing.startPoint.x, drawing.endPoint.x), 0, 
-                  Math.abs(drawing.endPoint.x - drawing.startPoint.x), ctx.canvas.height);
-          ctx.fill();
-          break;
-
-        // Volume Analysis
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.rect(Math.min(drawing.startPoint.x, drawing.endPoint.x), 0, 
+                    Math.abs(drawing.endPoint.x - drawing.startPoint.x), ctx.canvas.height);
+            ctx.fill();
+          }
+          break;        // Volume Analysis
         case 'volume_profile':
-          ctx.rect(Math.min(drawing.startPoint.x, drawing.endPoint.x), 
-                  Math.min(drawing.startPoint.y, drawing.endPoint.y),
-                  Math.abs(drawing.endPoint.x - drawing.startPoint.x), 
-                  Math.abs(drawing.endPoint.y - drawing.startPoint.y));
-          ctx.stroke();
-          
-          // Draw volume bars
-          const barCount = 10;
-          const barHeight = Math.abs(drawing.endPoint.y - drawing.startPoint.y) / barCount;
-          for (let i = 0; i < barCount; i++) {
-            const barY = Math.min(drawing.startPoint.y, drawing.endPoint.y) + i * barHeight;
-            const barWidth = Math.random() * Math.abs(drawing.endPoint.x - drawing.startPoint.x) * 0.8;
-            ctx.fillRect(Math.min(drawing.startPoint.x, drawing.endPoint.x), barY, barWidth, barHeight * 0.8);
+          if (drawing.startPoint && drawing.endPoint) {
+            ctx.rect(Math.min(drawing.startPoint.x, drawing.endPoint.x), 
+                    Math.min(drawing.startPoint.y, drawing.endPoint.y),
+                    Math.abs(drawing.endPoint.x - drawing.startPoint.x), 
+                    Math.abs(drawing.endPoint.y - drawing.startPoint.y));
+            ctx.stroke();
+            
+            // Draw volume bars
+            const barCount = 10;
+            const barHeight = Math.abs(drawing.endPoint.y - drawing.startPoint.y) / barCount;
+            for (let i = 0; i < barCount; i++) {
+              const barY = Math.min(drawing.startPoint.y, drawing.endPoint.y) + i * barHeight;
+              const barWidth = Math.random() * Math.abs(drawing.endPoint.x - drawing.startPoint.x) * 0.8;
+              ctx.fillRect(Math.min(drawing.startPoint.x, drawing.endPoint.x), barY, barWidth, barHeight * 0.8);
+            }
           }
           break;
 
@@ -2754,38 +2889,44 @@ export default function TradingViewChart({
         case 'price_label':
         case 'anchored_text':
         case 'flag':
-          if (drawing.text) {
+          if (drawing.text && drawing.startPoint) {
             ctx.fillText(drawing.text, drawing.startPoint.x, drawing.startPoint.y);
           }
           break;
 
         // Trading Position Markers
         case 'long_position':
-          ctx.beginPath();
-          ctx.arc(drawing.startPoint.x, drawing.startPoint.y, 8, 0, 2 * Math.PI);
-          ctx.fillStyle = '#00ff88';
-          ctx.fill();
-          ctx.fillStyle = '#000000';
-          ctx.fillText('L', drawing.startPoint.x - 3, drawing.startPoint.y + 3);
+          if (drawing.startPoint) {
+            ctx.beginPath();
+            ctx.arc(drawing.startPoint.x, drawing.startPoint.y, 8, 0, 2 * Math.PI);
+            ctx.fillStyle = '#00ff88';
+            ctx.fill();
+            ctx.fillStyle = '#000000';
+            ctx.fillText('L', drawing.startPoint.x - 3, drawing.startPoint.y + 3);
+          }
           break;
           
         case 'short_position':
-          ctx.beginPath();
-          ctx.arc(drawing.startPoint.x, drawing.startPoint.y, 8, 0, 2 * Math.PI);
-          ctx.fillStyle = '#ff4444';
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText('S', drawing.startPoint.x - 3, drawing.startPoint.y + 3);
+          if (drawing.startPoint) {
+            ctx.beginPath();
+            ctx.arc(drawing.startPoint.x, drawing.startPoint.y, 8, 0, 2 * Math.PI);
+            ctx.fillStyle = '#ff4444';
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('S', drawing.startPoint.x - 3, drawing.startPoint.y + 3);
+          }
           break;
           
         case 'price_alert':
-          ctx.beginPath();
-          ctx.arc(drawing.startPoint.x, drawing.startPoint.y, 6, 0, 2 * Math.PI);
-          ctx.fillStyle = '#ffaa00';
-          ctx.fill();
-          if (drawing.text) {
-            ctx.fillStyle = drawing.style?.color || '#ffaa00';
-            ctx.fillText(drawing.text, drawing.startPoint.x + 10, drawing.startPoint.y);
+          if (drawing.startPoint) {
+            ctx.beginPath();
+            ctx.arc(drawing.startPoint.x, drawing.startPoint.y, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = '#ffaa00';
+            ctx.fill();
+            if (drawing.text) {
+              ctx.fillStyle = drawing.style?.color || '#ffaa00';
+              ctx.fillText(drawing.text, drawing.startPoint.x + 10, drawing.startPoint.y);
+            }
           }
           break;
 
@@ -2804,6 +2945,7 @@ export default function TradingViewChart({
   };
 
   // Property Editor Component for Selected Drawings
+  // TEST COMMENT
   const PropertyEditor = () => {
     if (!showDrawingEditor || !selectedDrawing) return null;
 
@@ -3305,57 +3447,287 @@ export default function TradingViewChart({
     );
   };
 
-  // Market Regimes Panel Component
-  const RegimesPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => (
-    <div className="h-full flex flex-col">
-      {/* Tabs */}
-      <div className="flex border-b border-[#1a1a1a]">
-        {['Life', 'Developing', 'Momentum'].map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-3 text-sm font-medium transition-colors ${
-              activeTab === tab 
-                ? 'text-emerald-400 border-b-2 border-emerald-400' 
-                : 'text-white/60 hover:text-white/80'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+  // RegimesPanel component removed for reconstruction
+  // RegimesPanel component removed for reconstruction
+
+  // RegimesPanel component removed for reconstruction
+
+  // RegimesPanel component removed for reconstruction
+  // RegimesPanel component removed for reconstruction
+  // RegimesPanel component removed for reconstruction
+  // Enhanced Market Regimes Panel Component with advanced analytics
+  const RegimesPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
+    // Remove empty tabs - only keep the functional content
+    // const [viewMode, setViewMode] = React.useState<'overview'>('overview');
+    
+    const getCurrentTimeframeData = () => {
+      if (!marketRegimeData) return null;
       
-      {/* Column Headers */}
-      <div className="grid grid-cols-2 gap-4 p-4 border-b border-[#1a1a1a] text-xs font-medium text-white/60">
-        <div>Bullish</div>
-        <div>Bearish</div>
-      </div>
-      
-      {/* Content */}
-      <div className="flex-1 p-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="p-3 rounded bg-green-500/10 border border-green-500/20">
-                <div className="text-green-400 font-medium">Bull Signal {i + 1}</div>
-                <div className="text-white/60 text-sm">Market trending up</div>
-              </div>
-            ))}
+      switch (activeTab) {
+        case 'Life':
+          return marketRegimeData.life;
+        case 'Developing':
+          return marketRegimeData.developing;
+        case 'Momentum':
+          return marketRegimeData.momentum;
+        default:
+          return marketRegimeData.life;
+      }
+    };
+
+    const timeframeData = getCurrentTimeframeData();
+    const bullishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bullish').slice(0, 20) || [];
+    const bearishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bearish').slice(0, 20) || [];
+
+    return (
+      <div className="h-full flex flex-col bg-[#0d1117]">
+        {/* Clean Bloomberg Terminal Header */}
+        <div className="bg-gradient-to-r from-[#000000] via-[#0a0a0a] to-[#000000] border-b-2 border-[#1a1a1a] shadow-2xl">
+          {/* Simple header with title */}
+          <div className="bg-[#1a1a1a] px-4 py-3 border-b border-[#2a2a2a]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-emerald-400 font-mono text-lg font-bold tracking-wider">MARKET REGIMES</h2>
+            </div>
           </div>
-          <div className="space-y-2">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="p-3 rounded bg-red-500/10 border border-red-500/20">
-                <div className="text-red-400 font-medium">Bear Signal {i + 1}</div>
-                <div className="text-white/60 text-sm">Market trending down</div>
-              </div>
-            ))}
+          
+          {/* Main tabs section */}
+          <div className="px-4 py-4 bg-[#0a0a0a]">
+            <div className="flex bg-[#1a1a1a] rounded-lg p-1 border border-[#2a2a2a] w-fit">
+              {['Life', 'Developing', 'Momentum'].map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`relative px-6 py-3 text-sm font-medium transition-all duration-200 rounded-md ${
+                    activeTab === tab 
+                      ? 'text-white bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-lg shadow-emerald-500/20 border border-emerald-400/30' 
+                      : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a] border border-transparent'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <span className="font-semibold">{tab}</span>
+                    <span className="text-xs opacity-70 font-mono">
+                      {tab === 'Life' && '(4d)'}
+                      {tab === 'Developing' && '(16d)'}
+                      {tab === 'Momentum' && '(23d)'}
+                    </span>
+                  </div>
+                  {activeTab === tab && (
+                    <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-8 h-0.5 bg-emerald-400 rounded-full"></div>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
+          
+          {/* Market breadth analytics section */}
+          {timeframeData && (
+            <div className="bg-gradient-to-r from-[#0a0a0a] to-[#0f0f0f] px-4 py-3 border-t border-[#1a1a1a]">
+              <div className="flex items-center justify-between">
+                {/* Left side - timeframe and breadth info */}
+                <div className="flex items-center space-x-6">
+                  <div className="bg-[#1a1a1a] px-4 py-2 rounded-lg border border-[#2a2a2a] shadow-md">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex flex-col">
+                        <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">TIMEFRAME</span>
+                        <span className="text-lg font-bold text-white font-mono">{timeframeData.timeframe}</span>
+                      </div>
+                      <div className="w-px h-8 bg-gray-600"></div>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">PERIOD</span>
+                        <span className="text-lg font-bold text-emerald-400 font-mono">{timeframeData.days}D</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-[#1a1a1a] px-4 py-2 rounded-lg border border-[#2a2a2a] shadow-md">
+                    <div className="flex flex-col">
+                      <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">MARKET BREADTH</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-2xl font-bold text-emerald-400 font-mono">
+                          {((bullishIndustries.length / (bullishIndustries.length + bearishIndustries.length)) * 100).toFixed(1)}%
+                        </span>
+                        <div className="flex flex-col text-xs">
+                          <span className="text-green-400">BULLISH</span>
+                          <span className="text-gray-500">SENTIMENT</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Right side - industry counts */}
+                <div className="flex items-center space-x-4">
+                  <div className="bg-gradient-to-r from-green-900/20 to-green-800/20 border border-green-500/30 px-4 py-2 rounded-lg shadow-lg">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-green-400 rounded-full shadow-lg shadow-green-400/50"></div>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-green-300 font-mono uppercase tracking-wider">BULLISH</span>
+                        <span className="text-xl font-bold text-green-400 font-mono">{bullishIndustries.length}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-gradient-to-r from-red-900/20 to-red-800/20 border border-red-500/30 px-4 py-2 rounded-lg shadow-lg">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-red-400 rounded-full shadow-lg shadow-red-400/50"></div>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-red-300 font-mono uppercase tracking-wider">BEARISH</span>
+                        <span className="text-xl font-bold text-red-400 font-mono">{bearishIndustries.length}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-[#1a1a1a] border border-[#2a2a2a] px-4 py-2 rounded-lg shadow-md">
+                    <div className="flex flex-col items-center">
+                      <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">TOTAL</span>
+                      <span className="text-xl font-bold text-white font-mono">{timeframeData.industries.length}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Progress bar */}
+        {isLoadingRegimes && (
+          <div className="w-full bg-[#1a1a1a]">
+            <div 
+              className="bg-emerald-500 h-1 transition-all duration-300 ease-out"
+              style={{ width: `${regimeUpdateProgress}%` }}
+            />
+          </div>
+        )}
+        
+        {/* Content */}
+        <div className="flex-1 overflow-hidden">
+          {isLoadingRegimes && !marketRegimeData ? (
+            <div className="flex flex-col items-center justify-center h-full space-y-4">
+              <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+              <div className="text-white text-opacity-60 text-sm text-center">
+                <div>{regimeLoadingStage}</div>
+                <div className="text-xs text-white text-opacity-40 mt-1">{regimeUpdateProgress}% complete</div>
+                <div className="text-xs text-emerald-400 mt-2">📊 Auto-loading on startup...</div>
+              </div>
+            </div>
+          ) : !marketRegimeData ? (
+            <div className="flex flex-col items-center justify-center h-full space-y-4">
+              <div className="text-white text-opacity-60 text-center">
+                <div className="text-lg mb-2">📊</div>
+                <div>Market Regime Analysis</div>
+                <div className="text-xs text-white text-opacity-40 mt-1">Analysis loading automatically...</div>
+              </div>
+            </div>
+          ) : (
+            <div className="h-full overflow-y-auto">
+              {/* Show streaming indicator while still loading */}
+              {isLoadingRegimes && (
+                <div className="mx-4 mt-3 px-3 py-2 bg-emerald-900 bg-opacity-20 border border-emerald-500 border-opacity-30 rounded text-xs text-emerald-400">
+                  🔄 {regimeLoadingStage} ({regimeUpdateProgress}% complete)
+                </div>
+              )}
+              
+              {/* Content - Industry Lists */}
+              <div className="p-4">
+                {/* Industry Lists */}
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Bullish Industries */}
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-bold text-green-400 uppercase tracking-wider mb-4">Bullish Industries</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                    {bullishIndustries.length > 0 ? bullishIndustries.map((industry, index) => (
+                      <div 
+                        key={industry.symbol} 
+                        className="group p-4 rounded-lg bg-black border border-green-400 border-opacity-20 hover:border-green-400 hover:border-opacity-40 transition-all duration-200 shadow-lg"
+                      >
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="flex items-center">
+                            <span className="text-base text-gray-500 mr-3 font-mono">#{index + 1}</span>
+                            <span className="text-green-400 font-bold text-xl tracking-wide">{industry.symbol}</span>
+                          </div>
+                          <div className="text-green-300 text-base font-mono bg-green-400 bg-opacity-10 px-2 py-1 rounded">
+                            +{industry.relativePerformance.toFixed(2)}%
+                          </div>
+                        </div>
+                        <div className="text-white text-lg mb-1 font-medium">{industry.name}</div>
+                        
+                        {/* Top Performing Stocks within this Industry */}
+                        {industry.topPerformers && industry.topPerformers.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-green-400 border-opacity-20">
+                            <div className="space-y-2">
+                              {industry.topPerformers.slice(0, 3).map((stock, stockIndex) => (
+                                <div key={stock.symbol} className="flex justify-between items-center bg-gray-900 bg-opacity-50 px-3 py-2 rounded">
+                                  <span className="text-white font-mono font-medium text-base">{stock.symbol}</span>
+                                  <span className="text-green-400 font-mono font-bold text-base">
+                                    +{stock.relativePerformance.toFixed(1)}%
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )) : (
+                      <div className="p-4 rounded-lg bg-black border border-gray-500 border-opacity-30 text-center">
+                        <div className="text-gray-400 text-base">No bullish industries</div>
+                        <div className="text-gray-500 text-sm mt-1">in this timeframe</div>
+                      </div>
+                    )}
+                    </div>
+                  </div>
+                  
+                  {/* Bearish Industries */}
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-bold text-red-400 uppercase tracking-wider mb-4">Bearish Industries</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                    {bearishIndustries.length > 0 ? bearishIndustries.map((industry, index) => (
+                      <div 
+                        key={industry.symbol} 
+                        className="group p-4 rounded-lg bg-black border border-red-400 border-opacity-20 hover:border-red-400 hover:border-opacity-40 transition-all duration-200 shadow-lg"
+                      >
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="flex items-center">
+                            <span className="text-base text-gray-500 mr-3 font-mono">#{index + 1}</span>
+                            <span className="text-red-400 font-bold text-xl tracking-wide">{industry.symbol}</span>
+                          </div>
+                          <div className="text-red-300 text-base font-mono bg-red-400 bg-opacity-10 px-2 py-1 rounded">
+                            {industry.relativePerformance.toFixed(2)}%
+                          </div>
+                        </div>
+                        <div className="text-white text-lg mb-1 font-medium">{industry.name}</div>
+                        
+                        {/* Worst Performing Stocks within this Industry */}
+                        {industry.worstPerformers && industry.worstPerformers.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-red-400 border-opacity-20">
+                            <div className="space-y-2">
+                              {industry.worstPerformers.slice(0, 3).map((stock, stockIndex) => (
+                                <div key={stock.symbol} className="flex justify-between items-center bg-gray-900 bg-opacity-50 px-3 py-2 rounded">
+                                  <span className="text-white font-mono font-medium text-base">{stock.symbol}</span>
+                                  <span className="text-red-400 font-mono font-bold text-base">
+                                    {stock.relativePerformance.toFixed(1)}%
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )) : (
+                      <div className="p-4 rounded-lg bg-black border border-gray-500 border-opacity-30 text-center">
+                        <div className="text-gray-400 text-base">No bearish industries</div>
+                        <div className="text-gray-500 text-sm mt-1">in this timeframe</div>
+                      </div>
+                    )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-    </div>
-  );
-
-  // Chat Panel Component
+    );
+  };
   const ChatPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => (
     <div className="h-full flex flex-col">
       {/* Tabs */}
@@ -3367,7 +3739,7 @@ export default function TradingViewChart({
             className={`px-4 py-3 text-sm font-medium transition-colors capitalize ${
               activeTab === tab 
                 ? 'text-violet-400 border-b-2 border-violet-400' 
-                : 'text-white/60 hover:text-white/80'
+                : 'text-white text-opacity-60 hover:text-white hover:text-opacity-80'
             }`}
           >
             {tab} chats
@@ -3379,15 +3751,15 @@ export default function TradingViewChart({
       <div className="flex-1 p-4 space-y-3 overflow-y-auto">
         {[...Array(6)].map((_, i) => (
           <div key={i} className="flex items-start space-x-3">
-            <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-blue-500 bg-opacity-20 flex items-center justify-center">
               <span className="text-blue-400 text-sm font-medium">U</span>
             </div>
             <div className="flex-1">
               <div className="flex items-center space-x-2">
-                <span className="text-white/80 font-medium">User {i + 1}</span>
-                <span className="text-white/40 text-xs">2m ago</span>
+                <span className="text-white text-opacity-80 font-medium">User {i + 1}</span>
+                <span className="text-white text-opacity-40 text-xs">2m ago</span>
               </div>
-              <div className="text-white/70 text-sm mt-1">
+              <div className="text-white text-opacity-70 text-sm mt-1">
                 Sample message content for chat {i + 1}
               </div>
             </div>
@@ -3403,7 +3775,7 @@ export default function TradingViewChart({
             placeholder="Type a message..."
             className="flex-1 bg-[#1a1a1a] text-white px-3 py-2 rounded border border-[#2a2a2a] focus:border-violet-400 focus:outline-none"
           />
-          <button className="p-2 text-white/60 hover:text-violet-400 transition-colors">
+          <button className="p-2 text-white text-opacity-60 hover:text-violet-400 transition-colors">
             <TbPhoto size={20} />
           </button>
           <button className="p-2 bg-violet-500 text-white rounded hover:bg-violet-600 transition-colors">
@@ -3465,7 +3837,7 @@ export default function TradingViewChart({
         {/* Drawing Tools Status Badge */}
         <div className="absolute top-2 left-4 z-20">
           <div
-            className="flex items-center space-x-2 px-3 py-1 rounded-full bg-black/60 backdrop-blur border border-gray-600/50"
+            className="flex items-center space-x-2 px-3 py-1 rounded-full bg-black bg-opacity-60 backdrop-blur border border-gray-600 border-opacity-50"
             style={{
               background: 'linear-gradient(135deg, rgba(18, 18, 18, 0.9) 0%, rgba(12, 12, 12, 0.95) 100%)',
               boxShadow: '0 2px 8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
@@ -3881,7 +4253,7 @@ export default function TradingViewChart({
                     onClick={() => {
                       setShowIndicatorsDropdown(false);
                     }}
-                    className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white/10 transition-colors"
+                    className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-10 transition-colors"
                     style={{
                       background: 'transparent',
                       color: '#d1d5db',
@@ -4065,7 +4437,7 @@ export default function TradingViewChart({
                   {/* Category Tools Dropdown */}
                   {dropdownState && (
                     <div 
-                      className="absolute top-full left-0 mt-1 bg-black/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl z-50 min-w-72"
+                      className="absolute top-full left-0 mt-1 bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl z-50 min-w-72"
                       style={{
                         background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
                         boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
@@ -4074,7 +4446,7 @@ export default function TradingViewChart({
                       }}
                     >
                       {/* Category Header */}
-                      <div className="px-4 py-3 border-b border-gray-600/50 bg-gray-900/70">
+                      <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
                         <div className="flex items-center justify-between">
                           <h4 
                             className="text-white font-bold text-base tracking-wide"
@@ -4095,7 +4467,7 @@ export default function TradingViewChart({
                             key={tool.value}
                             onClick={() => selectDrawingTool(tool.value)}
                             disabled={!tool.functional}
-                            className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white/15 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
                             style={{
                               background: activeTool === tool.value 
                                 ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)'
@@ -4559,9 +4931,9 @@ export default function TradingViewChart({
         <div className="sidebar-container w-16 bg-gradient-to-b from-[#000000] via-[#0a0a0a] to-[#000000] border-r border-[#1a1a1a] shadow-2xl relative overflow-hidden">
           {/* Subtle background pattern */}
           <div className="absolute inset-0 opacity-5">
-            <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/5 via-transparent to-white/3"></div>
-            <div className="absolute top-1/4 left-1/4 w-6 h-6 bg-white/3 rounded-full animate-pulse"></div>
-            <div className="absolute bottom-1/3 right-1/4 w-4 h-4 bg-white/2 rounded-full animate-pulse" style={{ animationDelay: '2000ms' }}></div>
+            <div className="absolute top-0 left-0 w-full h-full" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, rgba(255,255,255,0.03))' }}></div>
+            <div className="absolute w-6 h-6 bg-white bg-opacity-3 rounded-full animate-pulse" style={{ top: '25%', left: '25%' }}></div>
+            <div className="absolute w-4 h-4 bg-white bg-opacity-2 rounded-full animate-pulse" style={{ bottom: '33.333%', right: '25%', animationDelay: '2000ms' }}></div>
           </div>
           
           <div className="relative z-10 flex flex-col items-center py-4 h-full">
@@ -4584,7 +4956,7 @@ export default function TradingViewChart({
               return (
               <div key={item.id} className="flex flex-col items-center mb-3">
                 {/* Title above button */}
-                <span className="text-xs text-white/40 font-medium mb-1 tracking-wide text-center">
+                <span className="text-xs text-white text-opacity-40 font-medium mb-1 tracking-wide text-center">
                   {item.label}
                 </span>
                 
@@ -4592,13 +4964,10 @@ export default function TradingViewChart({
                 className={`sidebar-btn group relative w-12 h-12 rounded-lg bg-gradient-to-br ${item.color} 
                            shadow-lg hover:shadow-2xl transform transition-all duration-300 
                            hover:scale-105 hover:-translate-y-0.5 active:scale-95
-                           border border-gray-700/50 hover:border-gray-600/70
-                           before:absolute before:inset-0 before:rounded-lg 
-                           before:bg-gradient-to-r before:from-white/0 before:via-white/5 before:to-white/0
-                           before:translate-x-[-100%] hover:before:translate-x-[100%] 
-                           before:transition-transform before:duration-700 before:ease-out overflow-hidden
+                           border border-gray-700 border-opacity-50 hover:border-gray-600 hover:border-opacity-70
+                           relative overflow-hidden
                            backdrop-blur-sm flex items-center justify-center`}
-                style={{ 
+                style={{
                   animationDelay: `${index * 100}ms`,
                   background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.95) 0%, rgba(10, 10, 10, 0.98) 100%)',
                   boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.5)'
@@ -4607,7 +4976,7 @@ export default function TradingViewChart({
                 title={item.label}
               >
                 {/* Subtle inner glow */}
-                <div className="absolute inset-0.5 rounded-md bg-gradient-to-br from-white/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                <div className="absolute inset-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, transparent)' }}></div>
                 
                 {/* Icon with accent color */}
                 <span className={`z-10 text-4xl filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 ${accentColors[item.accent]}`}>
@@ -4615,10 +4984,10 @@ export default function TradingViewChart({
                 </span>
                 
                 {/* Subtle ripple effect */}
-                <div className="absolute inset-0 rounded-lg bg-white/10 scale-0 group-active:scale-100 transition-transform duration-200"></div>
+                <div className="absolute inset-0 rounded-lg bg-white bg-opacity-10 scale-0 group-active:scale-100 transition-transform duration-200"></div>
                 
                 {/* Accent glow effect */}
-                <div className={`absolute inset-0 rounded-lg bg-gradient-to-r from-${item.accent}-500/20 to-${item.accent}-600/20 opacity-0 group-hover:opacity-30 blur-sm transition-opacity duration-300`}></div>
+                <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-30 blur-sm transition-opacity duration-300" style={{ background: `linear-gradient(to right, ${item.accent === 'blue' ? 'rgba(59, 130, 246, 0.2)' : item.accent === 'emerald' ? 'rgba(16, 185, 129, 0.2)' : item.accent === 'purple' ? 'rgba(147, 51, 234, 0.2)' : item.accent === 'amber' ? 'rgba(245, 158, 11, 0.2)' : item.accent === 'rose' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)'}, ${item.accent === 'blue' ? 'rgba(37, 99, 235, 0.2)' : item.accent === 'emerald' ? 'rgba(5, 150, 105, 0.2)' : item.accent === 'purple' ? 'rgba(126, 34, 206, 0.2)' : item.accent === 'amber' ? 'rgba(217, 119, 6, 0.2)' : item.accent === 'rose' ? 'rgba(225, 29, 72, 0.2)' : 'rgba(37, 99, 235, 0.2)'})` }}></div>
               </button>
               </div>
               );
@@ -4626,12 +4995,12 @@ export default function TradingViewChart({
             
             {/* Decorative elements */}
             <div className="flex-1"></div>
-            <div className="w-8 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent mb-2"></div>
-            <div className="text-xs text-white/40 font-mono tracking-wider">EFI</div>
+            <div className="w-8 h-px bg-gradient-to-r from-transparent via-white via-opacity-10 to-transparent mb-2"></div>
+            <div className="text-xs text-white text-opacity-40 font-mono tracking-wider">EFI</div>
           </div>
           
           {/* Subtle side accent */}
-          <div className="absolute top-0 right-0 w-px h-full bg-gradient-to-b from-transparent via-white/10 to-transparent"></div>
+          <div className="absolute top-0 right-0 w-px h-full" style={{ background: 'linear-gradient(to bottom, transparent, rgba(255,255,255,0.1), transparent)' }}></div>
         </div>
 
         {/* Main Chart Area */}
@@ -4642,7 +5011,7 @@ export default function TradingViewChart({
         >
         {/* Loading Overlay */}
         {loading && (
-          <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center">
+          <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
             <div className="bg-[#1e222d] border border-[#2a2e39] rounded-lg p-6 flex items-center space-x-3">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#2962ff]"></div>
               <span className="text-white text-lg">Loading {config.timeframe} data...</span>
@@ -4652,7 +5021,7 @@ export default function TradingViewChart({
 
         {/* Error Message */}
         {error && (
-          <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center">
+          <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
             <div className="bg-[#1e222d] border border-red-500 rounded-lg p-6">
               <span className="text-red-400">Error: {error}</span>
             </div>
@@ -4682,10 +5051,10 @@ export default function TradingViewChart({
           
           // Check if right-clicking on a drawing
           for (const drawing of drawings) {
-            const startPoint = drawing.startPoint || { x: drawing.startX, y: drawing.startY };
-            const endPoint = drawing.endPoint || { x: drawing.endX, y: drawing.endY };
+            const startPoint = drawing.startPoint || (drawing.startX !== undefined && drawing.startY !== undefined ? { x: drawing.startX, y: drawing.startY } : null);
+            const endPoint = drawing.endPoint || (drawing.endX !== undefined && drawing.endY !== undefined ? { x: drawing.endX, y: drawing.endY } : null);
             
-            if (isPointNearLine(x, y, startPoint, endPoint, 10)) {
+            if (startPoint && endPoint && isPointNearLine(x, y, startPoint, endPoint, 10)) {
               setSelectedDrawing(drawing);
               
               // Position editor near right-click location
@@ -4712,8 +5081,8 @@ export default function TradingViewChart({
         <div 
           className="absolute z-[10000] bg-[#1e222d] border border-[#2a2e39] rounded-lg p-4 shadow-xl"
           style={{
-            left: textInputPosition.x + 10,
-            top: textInputPosition.y - 10,
+            left: (textInputPosition?.x || 0) + 10,
+            top: (textInputPosition?.y || 0) - 10,
             minWidth: '200px'
           }}
         >
@@ -4822,13 +5191,13 @@ export default function TradingViewChart({
 
       {/* Sidebar Panels */}
       {activeSidebarPanel && (
-        <div className="fixed top-40 bottom-0 left-16 w-[576px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out">
+        <div className="fixed top-40 bottom-0 left-16 w-[720px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out">
           {/* Panel Header */}
           <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
             <h3 className="text-white font-medium capitalize">{activeSidebarPanel}</h3>
             <button 
               onClick={() => setActiveSidebarPanel(null)}
-              className="text-white/60 hover:text-white transition-colors p-1"
+              className="text-white text-opacity-60 hover:text-white transition-colors p-1"
             >
               <TbX size={18} />
             </button>
@@ -4849,12 +5218,12 @@ export default function TradingViewChart({
               />
             )}
             {activeSidebarPanel === 'news' && (
-              <div className="p-4 text-center text-white/50">
+              <div className="p-4 text-center text-white text-opacity-50">
                 News section coming soon...
               </div>
             )}
             {activeSidebarPanel === 'alerts' && (
-              <div className="p-4 text-center text-white/50">
+              <div className="p-4 text-center text-white text-opacity-50">
                 Alerts section coming soon...
               </div>
             )}
