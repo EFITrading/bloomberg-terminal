@@ -69,19 +69,19 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
       const cachedOpportunities = cache.get(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES);
       if (cachedOpportunities && cachedOpportunities.length > 0) {
         // Validate that this is real data (has required fields)
-        const isRealData = cachedOpportunities.every((opp: any) => 
-          opp.symbol && opp.companyName && opp.sentiment && 
+        const isRealData = cachedOpportunities.every((opp: SeasonalPattern) => 
+          opp.symbol && opp.companyName && 
           typeof opp.averageReturn === 'number' && typeof opp.winRate === 'number'
         );
         
         if (isRealData) {
           // Additional deduplication safety check
-          const uniqueOpportunities = cachedOpportunities.filter((opp: any, index: number, array: any[]) => 
-            array.findIndex((o: any) => o.symbol === opp.symbol) === index
+          const uniqueOpportunities = cachedOpportunities.filter((opp: SeasonalPattern, index: number, array: SeasonalPattern[]) => 
+            array.findIndex((o: SeasonalPattern) => o.symbol === opp.symbol) === index
           );
           
           console.log(`⚡ Using cached REAL seasonal opportunities (${uniqueOpportunities.length} unique items) - instant load!`);
-          setOpportunities(uniqueOpportunities.sort((a: any, b: any) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)));
+          setOpportunities(uniqueOpportunities.sort((a: SeasonalPattern, b: SeasonalPattern) => Math.abs(b.averageReturn || b.avgReturn) - Math.abs(a.averageReturn || a.avgReturn)));
           setLoading(false);
           setStreamStatus('✅ Real data loaded from cache - Ready!');
           setProgressStats({ processed: 600, total: 600, found: uniqueOpportunities.length });

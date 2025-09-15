@@ -1,5 +1,8 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+import Navigation from '@/components/terminal/Navigation'
+import Background from '@/components/terminal/Background'
+import BackgroundLoader from '@/components/BackgroundLoader'
 
 import './globals.css'
 
@@ -20,7 +23,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} antialiased`}>{children}</body>
+      <body className={`${inter.variable} antialiased`}>
+        <div className="terminal-app">
+          <BackgroundLoader />
+          <Background />
+          <Navigation />
+          <main className="main-content">
+            {children}
+          </main>
+        </div>
+      </body>
     </html>
   )
 }

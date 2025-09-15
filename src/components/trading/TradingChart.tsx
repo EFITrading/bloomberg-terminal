@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as d3 from 'd3';
-// @ts-ignore
+// @ts-expect-error technicalindicators package lacks TypeScript definitions
 import { technicalindicators } from 'technicalindicators';
 import { Button } from '../../../components/ui/button';
 import { 

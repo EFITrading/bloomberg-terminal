@@ -1,12 +1,21 @@
 "use client";
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '../../../components/ui/button';
-import { Ruler, Edit3, Minus, RotateCcw } from 'lucide-react';
+import { Ruler, RotateCcw } from 'lucide-react';
+
+interface DataPoint {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
 
 interface FibonacciDrawingProps {
   canvas: HTMLCanvasElement | null;
-  data: any[];
+  data: DataPoint[];
   isActive: boolean;
   onToggle: () => void;
   onClear: () => void;
@@ -28,6 +37,13 @@ const FIB_LEVELS: FibLevel[] = [
   { level: 1, label: '100.0%', color: '#ffffff' },
 ];
 
+interface FibRetracement {
+  id: number;
+  start: { x: number; y: number; price: number };
+  end: { x: number; y: number; price: number };
+  levels: FibLevel[];
+}
+
 export default function FibonacciDrawing({ 
   canvas, 
   data, 
@@ -35,7 +51,7 @@ export default function FibonacciDrawing({
   onToggle, 
   onClear 
 }: FibonacciDrawingProps) {
-  const [fibRetracements, setFibRetracements] = useState<any[]>([]);
+  const [fibRetracements, setFibRetracements] = useState<FibRetracement[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPoint, setStartPoint] = useState<{ x: number; y: number; price: number } | null>(null);
 
@@ -102,7 +118,7 @@ export default function FibonacciDrawing({
       fibRetracements.forEach(fib => {
         const priceDiff = fib.end.price - fib.start.price;
         
-        fib.levels.forEach((level: FibLevel) => {
+        fib.levels.forEach((level) => {
           const fibPrice = fib.start.price + (priceDiff * level.level);
           
           // Convert price back to y coordinate

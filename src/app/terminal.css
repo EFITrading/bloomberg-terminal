@@ -1111,6 +1111,7 @@
 /* App Container Enhancement */
 .terminal-app {
     min-height: 100vh;
+    background: #000000;
     position: relative;
     overflow-x: hidden;
 }

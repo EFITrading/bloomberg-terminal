@@ -204,11 +204,32 @@ class BackgroundDataService {
       
       const cachedOpportunities = cache.get(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES);
       if (!cachedOpportunities) {
-        // Load only a subset, not all 600+ stocks
+        // Load only a subset initially, not all 600+ stocks to prevent blocking
         const screeningService = new SeasonalScreenerService();
-        const opportunities = await screeningService.screenSeasonalOpportunities(10, 50, 0); // Reduced to 50 stocks, 10 years
-        cache.set(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES, opportunities);
-        console.log(`✅ Loaded ${opportunities.length} seasonal opportunities (reduced dataset)`);
+        
+        // Load in smaller chunks to prevent blocking
+        let allOpportunities: any[] = [];
+        const chunkSize = 25; // Load 25 stocks at a time
+        const totalStocks = 100; // Start with 100 stocks instead of 600
+        
+        for (let offset = 0; offset < totalStocks; offset += chunkSize) {
+          try {
+            const chunk = await screeningService.screenSeasonalOpportunities(10, chunkSize, offset);
+            if (chunk && chunk.length > 0) {
+              allOpportunities = allOpportunities.concat(chunk);
+            }
+            
+            // Add delay between chunks to prevent blocking
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            this.updateStatus(`Loading seasonal opportunities... (${Math.min(offset + chunkSize, totalStocks)}/${totalStocks})`);
+          } catch (error) {
+            console.warn(`⚠️ Failed to load seasonal chunk ${offset}-${offset + chunkSize}:`, error);
+          }
+        }
+        
+        cache.set(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES, allOpportunities);
+        console.log(`✅ Loaded ${allOpportunities.length} seasonal opportunities (chunked loading)`);
       }
     } catch (error) {
       console.warn('⚠️ Seasonal opportunities loading failed:', error);

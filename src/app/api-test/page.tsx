@@ -38,7 +38,7 @@ export default function ApiTestPage() {
       </div>
       <div>
         <h3>Test Result:</h3>
-        <pre style={{ background: '#f5f5f5', padding: '10px', whiteSpace: 'pre-wrap' }}>
+        <pre style={{ background: '#1a1a1a', color: '#ffffff', padding: '10px', whiteSpace: 'pre-wrap', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '4px' }}>
           {testResult}
         </pre>
       </div>

@@ -15,14 +15,24 @@ export default function MarketPage() {
   const [chartHeight, setChartHeight] = useState(800);
 
   useEffect(() => {
+    // Disable scrolling on this page
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    
     const updateHeight = () => {
-      const headerHeight = 60; // Minimal header height for full TradingView experience
-      setChartHeight(window.innerHeight - headerHeight);
+      const navHeight = 120; // Account for the navigation bar height + more padding for chart toolbar
+      setChartHeight(window.innerHeight - navHeight);
     };
 
     updateHeight();
     window.addEventListener('resize', updateHeight);
-    return () => window.removeEventListener('resize', updateHeight);
+    
+    // Cleanup function to restore scrolling when leaving the page
+    return () => {
+      window.removeEventListener('resize', updateHeight);
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    };
   }, []);
 
   const handleSymbolChange = (symbol: string) => {
@@ -34,23 +44,15 @@ export default function MarketPage() {
   };
 
   return (
-    <div className="h-screen bg-[#0a0a0a] text-white overflow-hidden">
-      <div className="max-w-none mx-auto h-full flex flex-col">
-        {/* Minimal Header for Full TradingView Experience */}
-        <div className="p-2 shrink-0 bg-[#131722] border-b border-[#2a2e39]">
-          <h1 className="text-lg font-semibold text-center">Bloomberg Terminal - Professional Trading Platform</h1>
-        </div>
-
-        {/* Full-Screen TradingView Chart */}
-        <div className="flex-1 min-h-0">
-          <TradingViewChart
-            symbol={selectedSymbol}
-            initialTimeframe={selectedTimeframe}
-            height={chartHeight}
-            onSymbolChange={handleSymbolChange}
-            onTimeframeChange={handleTimeframeChange}
-          />
-        </div>
+    <div className="h-screen bg-[#0a0a0a] text-white overflow-hidden fixed inset-0" style={{ paddingTop: '120px' }}>
+      <div className="w-full h-full">
+        <TradingViewChart
+          symbol={selectedSymbol}
+          initialTimeframe={selectedTimeframe}
+          height={chartHeight}
+          onSymbolChange={handleSymbolChange}
+          onTimeframeChange={handleTimeframeChange}
+        />
       </div>
     </div>
   );
