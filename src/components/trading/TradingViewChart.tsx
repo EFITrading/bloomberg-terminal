@@ -794,21 +794,6 @@ export default function TradingViewChart({
   const [showToolsDropdown, setShowToolsDropdown] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
   
-  // Individual Category Dropdown States
-  const [showLineToolsDropdown, setShowLineToolsDropdown] = useState(false);
-  const [showFibDropdown, setShowFibDropdown] = useState(false);
-  const [showShapesDropdown, setShowShapesDropdown] = useState(false);
-  const [showGannDropdown, setShowGannDropdown] = useState(false);
-  const [showElliottDropdown, setShowElliottDropdown] = useState(false);
-  const [showPredictionDropdown, setShowPredictionDropdown] = useState(false);
-  const [showMeasureDropdown, setShowMeasureDropdown] = useState(false);
-  const [showNotesDropdown, setShowNotesDropdown] = useState(false);
-  const [showVolumeDropdown, setShowVolumeDropdown] = useState(false);
-  const [showPatternsDropdown, setShowPatternsDropdown] = useState(false);
-  const [showHarmonicDropdown, setShowHarmonicDropdown] = useState(false);
-  const [showCyclesDropdown, setShowCyclesDropdown] = useState(false);
-  const [showOrdersDropdown, setShowOrdersDropdown] = useState(false);
-  
   // Bulletproof drawing persistence using useRef + useState
   const drawingsRef = useRef<Drawing[]>([]);
   const [drawings, setDrawingsState] = useState<Drawing[]>([]);
@@ -816,15 +801,33 @@ export default function TradingViewChart({
   // Custom setDrawings that updates both ref and state
   const setDrawings = useCallback((updater: Drawing[] | ((prev: Drawing[]) => Drawing[])) => {
     const newValue = typeof updater === 'function' ? updater(drawingsRef.current) : updater;
+    const prevLength = drawingsRef.current.length;
     drawingsRef.current = newValue;
     setDrawingsState(newValue);
-    console.log('� PERSISTENT: drawings updated to', newValue.length, 'items');
+    
+    if (newValue.length > prevLength) {
+      console.log('✅ [STATE] Drawing ADDED:', newValue.length, 'total (was', prevLength + ')');
+      console.log('🆕 [STATE] Latest drawing:', newValue[newValue.length - 1]);
+    } else if (newValue.length < prevLength) {
+      console.log('❌ [STATE] Drawing REMOVED:', newValue.length, 'total (was', prevLength + ')');
+    } else {
+      console.log('🔄 [STATE] Drawing UPDATED:', newValue.length, 'total');
+    }
   }, []);
   
   // Debug: Monitor drawings state changes
   useEffect(() => {
     console.log('🔍 Drawings state changed:', drawings.length, drawings);
+    console.log('🔍 Latest drawing:', drawings[drawings.length - 1]);
   }, [drawings]);
+
+  // Debug: Monitor activeTool state changes
+  useEffect(() => {
+    console.log('🔧 activeTool changed to:', activeTool);
+    console.log('🔧 activeTool type:', typeof activeTool);
+    console.log('🔧 activeTool is truthy:', !!activeTool);
+  }, [activeTool]);
+
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingStartPoint, setDrawingStartPoint] = useState<{ x: number; y: number } | null>(null);
   const [multiPointDrawing, setMultiPointDrawing] = useState<{ x: number; y: number }[]>([]);
@@ -894,6 +897,25 @@ export default function TradingViewChart({
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const chartHeight = dimensions.height; // Use full height since volume is now integrated
   const volumeAreaHeight = 80; // Fixed height for volume area above X-axis
+
+  // Dedicated overlay rendering for drawings
+  useEffect(() => {
+    const overlayCanvas = overlayCanvasRef.current;
+    if (!overlayCanvas) return;
+
+    const ctx = overlayCanvas.getContext('2d');
+    if (!ctx) return;
+
+    console.log('🎨 [OVERLAY-EFFECT] Rendering drawings on overlay canvas:', drawings.length);
+    
+    // Clear overlay first
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    
+    // Draw all stored drawings
+    if (drawings.length > 0) {
+      drawStoredDrawings(ctx);
+    }
+  }, [drawings, dimensions, scrollOffset, visibleCandleCount]);
 
   // TradingView-style color scheme (dynamic based on theme)
   const colors = {
@@ -976,50 +998,63 @@ export default function TradingViewChart({
     try {
       // Professional-grade date range calculation like TradingView/Bloomberg
       const now = new Date();
-      const endDate = now.toISOString().split('T')[0];
+      
+      // ALWAYS request data up to current date - no weekend restrictions
+      // Force to current date: September 14, 2025
+      let endDate = now.toISOString().split('T')[0];
+      
+      // Double-check we're using the actual current date
+      console.log(`📅 Current date: ${now.toString()}`);
+      console.log(`📅 Forcing end date to: ${endDate} (should be 2025-09-14)`);
+      
       let startDate: string;
       let daysBack: number;
       
-      // Professional timeframe ranges that match industry standards
+      // Professional timeframe ranges that prioritize recent data
       switch (timeframe) {
         case '1m':
-          daysBack = 7; // 7 days of 1-minute data (max for most APIs)
+          daysBack = 2; // 2 days of 1-minute data (focus on very recent)
           break;
         case '5m':
-          daysBack = 30; // 30 days of 5-minute data
+          daysBack = 7; // 1 week of 5-minute data (focus on recent activity)
           break;
         case '15m':
-          daysBack = 90; // 3 months of 15-minute data
+          daysBack = 21; // 3 weeks of 15-minute data
           break;
         case '30m':
-          daysBack = 180; // 6 months of 30-minute data
+          daysBack = 60; // 2 months of 30-minute data (was 6 months, too much)
           break;
         case '1h':
-          daysBack = 365; // 1 year of hourly data
+          daysBack = 120; // 4 months of hourly data (was 1 year, too much)
           break;
         case '4h':
-          daysBack = 1095; // 3 years of 4-hour data
+          daysBack = 365; // 1 year of 4-hour data (was 3 years)
           break;
         case '1d':
-          daysBack = 5475; // 15 years of daily data (TradingView Pro level)
+          daysBack = 1095; // 3 years of daily data (was 15 years)
           break;
         case '1w':
-          daysBack = 7300; // 20 years of weekly data
+          daysBack = 2190; // 6 years of weekly data (was 20 years)
           break;
         case '1mo':
-          daysBack = 10950; // 30 years of monthly data
+          daysBack = 3650; // 10 years of monthly data (was 30 years)
           break;
         default:
-          daysBack = 365; // Default to 1 year
+          daysBack = 120; // Default to 4 months
       }
       
       startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
       
       console.log(`📊 PROFESSIONAL FETCH: ${sym} ${timeframe} from ${startDate} to ${endDate} (${daysBack} days)`);
+      console.log(`📅 Current time: ${now.toISOString()}`);
+      console.log(`📅 Start date: ${startDate}`);
+      console.log(`📅 End date: ${endDate}`);
       
-      // High-performance parallel requests with aggressive caching
+      // High-performance parallel requests with cache busting for real-time data
+      const cacheBuster = Date.now();
+      console.log(`🚀 API Request: symbol=${sym}, start=${startDate}, end=${endDate}, timeframe=${timeframe}`);
       const [historicalResponse] = await Promise.allSettled([
-        fetch(`/api/historical-data?symbol=${sym}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&cache=aggressive&_t=${Date.now()}`)
+        fetch(`/api/historical-data?symbol=${sym}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&nocache=true&force=current&_t=${cacheBuster}`)
       ]);
       
       // Fetch real-time price separately for immediate feedback
@@ -1033,6 +1068,7 @@ export default function TradingViewChart({
       
       // ULTRA-FAST JSON PARSING optimized for large datasets
       const result = await historicalResponse.value.json();
+      console.log(`🔍 API Response for ${sym} ${timeframe}:`, result);
       
       if (result && result.results && Array.isArray(result.results)) {
         console.log(`📈 Processing ${result.results.length} data points for ${sym} ${timeframe}`);
@@ -1103,7 +1139,11 @@ export default function TradingViewChart({
               visibleCandles = Math.min(300, dataLength);
           }
           
+          // FORCE SCROLL TO ABSOLUTE END TO SHOW LATEST DATA (September 12, 2025)
           const scrollOffset = Math.max(0, dataLength - visibleCandles);
+          
+          console.log(`📊 Scroll calculation: dataLength=${dataLength}, visibleCandles=${visibleCandles}, scrollOffset=${scrollOffset}`);
+          console.log(`📊 This should show data from index ${scrollOffset} to ${scrollOffset + visibleCandles - 1}`);
           
           // ATOMIC STATE UPDATE - all at once for best performance
           setData(transformedData);
@@ -1111,9 +1151,28 @@ export default function TradingViewChart({
           setScrollOffset(scrollOffset);
           setVisibleCandleCount(visibleCandles);
           
+          console.log(`✅ Data successfully set for ${sym} ${timeframe}:`, {
+            dataLength: transformedData.length,
+            priceRange: { min: minPrice - padding, max: maxPrice + padding },
+            scrollOffset,
+            visibleCandles,
+            firstDataPoint: transformedData[0] ? new Date(transformedData[0].timestamp).toISOString() : 'none',
+            lastDataPoint: transformedData[transformedData.length - 1] ? new Date(transformedData[transformedData.length - 1].timestamp).toISOString() : 'none'
+          });
+          
           // Update current price from historical data (real-time fetched separately)
           const latest = transformedData[dataLength - 1];
           setCurrentPrice(latest.close);
+          
+          // Calculate price change and percentage change
+          if (dataLength >= 2) {
+            const previous = transformedData[dataLength - 2];
+            const change = latest.close - previous.close;
+            const changePercent = (change / previous.close) * 100;
+            setPriceChange(change);
+            setPriceChangePercent(changePercent);
+            console.log(`💰 ${symbol} Price Change: ${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent.toFixed(2)}%)`);
+          }
         } else {
           console.warn(`⚠️ No data returned for ${symbol} ${timeframe}`);
           setData([]);
@@ -1203,7 +1262,9 @@ export default function TradingViewChart({
     return () => clearInterval(interval);
   }, [symbol, fetchRealTimePrice]);
 
-  // Initialize scroll position with FULL DATA - EFFICIENT RENDERING
+  // Initialize scroll position with FULL DATA - DISABLED to prevent override
+  // This was overriding the timeframe-specific scroll positioning
+  /*
   useEffect(() => {
     if (data.length > 0) {
       const defaultVisible = Math.min(500, data.length); // SHOW UP TO 500 CANDLES
@@ -1211,6 +1272,7 @@ export default function TradingViewChart({
       setScrollOffset(Math.max(0, data.length - defaultVisible));
     }
   }, [data.length]);
+  */
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -1228,42 +1290,13 @@ export default function TradingViewChart({
       if (showToolsDropdown && !target.closest('.tools-dropdown')) {
         setShowToolsDropdown(false);
       }
-
-      // Individual category dropdowns
-      if (showLineToolsDropdown && !target.closest('.linetools-dropdown') && !target.closest('.star-favorite-btn')) {
-        setShowLineToolsDropdown(false);
-      }
-      if (showFibDropdown && !target.closest('.fibtools-dropdown') && !target.closest('.star-favorite-btn')) {
-        setShowFibDropdown(false);
-      }
-      if (showShapesDropdown && !target.closest('.shapes-dropdown') && !target.closest('.star-favorite-btn')) {
-        setShowShapesDropdown(false);
-      }
-      if (showGannDropdown && !target.closest('.gann-dropdown') && !target.closest('.star-favorite-btn')) {
-        setShowGannDropdown(false);
-      }
-      if (showElliottDropdown && !target.closest('.elliott-dropdown') && !target.closest('.star-favorite-btn')) {
-        setShowElliottDropdown(false);
-      }
-      if (showPredictionDropdown && !target.closest('.prediction-dropdown') && !target.closest('.star-favorite-btn')) {
-        setShowPredictionDropdown(false);
-      }
-      if (showMeasureDropdown && !target.closest('.measure-dropdown')) {
-        setShowMeasureDropdown(false);
-      }
-      if (showNotesDropdown && !target.closest('.notes-dropdown')) {
-        setShowNotesDropdown(false);
-      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showTimeframeDropdown, showIndicatorsDropdown, showToolsDropdown, 
-      showLineToolsDropdown, showFibDropdown, showShapesDropdown, showGannDropdown,
-      showElliottDropdown, showPredictionDropdown, showMeasureDropdown, showNotesDropdown,
-      showVolumeDropdown, showPatternsDropdown, showHarmonicDropdown, showCyclesDropdown, showOrdersDropdown]);
+  }, [showTimeframeDropdown, showIndicatorsDropdown, showToolsDropdown]);
 
   // Render overlay (crosshair, zoom feedback)
   const renderOverlay = useCallback(() => {
@@ -1308,28 +1341,28 @@ export default function TradingViewChart({
 
       // PROFESSIONAL CROSSHAIR LABELS - Display price and date/time on axes
       if (crosshairInfo.visible) {
-        // CRISP HIGH-QUALITY TEXT RENDERING
-        ctx.font = 'bold 14px "Segoe UI", system-ui, -apple-system, sans-serif';
+        // CRISP HIGH-QUALITY TEXT RENDERING - Larger and crisper
+        ctx.font = 'bold 18px "Segoe UI", system-ui, -apple-system, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingEnabled = false; // Disable for crisper text
         ctx.imageSmoothingQuality = 'high';
 
         // Y-AXIS PRICE LABEL (right side)
         const priceText = crosshairInfo.price;
-        const priceTextWidth = ctx.measureText(priceText).width + 20;
+        const priceTextWidth = ctx.measureText(priceText).width + 24; // Increased padding for larger text
         const priceY = crosshairPosition.y;
         
         // Price label background (right side of chart) - darker for contrast
         ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748';
         ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568';
         ctx.lineWidth = 1;
-        ctx.fillRect(width - priceTextWidth - 5, priceY - 14, priceTextWidth, 28);
-        ctx.strokeRect(width - priceTextWidth - 5, priceY - 14, priceTextWidth, 28);
+        ctx.fillRect(width - priceTextWidth - 5, priceY - 16, priceTextWidth, 32); // Larger background
+        ctx.strokeRect(width - priceTextWidth - 5, priceY - 16, priceTextWidth, 32);
         
-        // CRISP WHITE PRICE TEXT with shadow for clarity
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-        ctx.shadowBlur = 2;
+        // CRISP WHITE PRICE TEXT with enhanced shadow for maximum clarity
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+        ctx.shadowBlur = 3;
         ctx.shadowOffsetX = 1;
         ctx.shadowOffsetY = 1;
         ctx.fillStyle = '#FFFFFF';
@@ -1343,8 +1376,8 @@ export default function TradingViewChart({
         ctx.shadowOffsetY = 0;
 
         // X-AXIS DATE/TIME LABEL (bottom)
-        const dateText = crosshairInfo.date + (crosshairInfo.time ? ` ${crosshairInfo.time}` : '');
-        const dateTextWidth = ctx.measureText(dateText).width + 20;
+        const dateText = crosshairInfo.date; // Only show date, no time
+        const dateTextWidth = ctx.measureText(dateText).width + 24; // Increased padding
         const dateX = crosshairPosition.x;
         
         // Ensure date label doesn't go off screen
@@ -1354,17 +1387,17 @@ export default function TradingViewChart({
         ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748';
         ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568';
         ctx.lineWidth = 1;
-        ctx.fillRect(labelX - dateTextWidth/2, height - 37, dateTextWidth, 28);
-        ctx.strokeRect(labelX - dateTextWidth/2, height - 37, dateTextWidth, 28);
+        ctx.fillRect(labelX - dateTextWidth/2, height - 41, dateTextWidth, 32); // Larger background
+        ctx.strokeRect(labelX - dateTextWidth/2, height - 41, dateTextWidth, 32);
         
-        // CRISP WHITE DATE TEXT with shadow for clarity
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-        ctx.shadowBlur = 2;
+        // CRISP WHITE DATE TEXT with enhanced shadow for maximum clarity
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+        ctx.shadowBlur = 3;
         ctx.shadowOffsetX = 1;
         ctx.shadowOffsetY = 1;
         ctx.fillStyle = '#FFFFFF';
         ctx.textAlign = 'center';
-        ctx.fillText(dateText, labelX, height - 23);
+        ctx.fillText(dateText, labelX, height - 25); // Adjusted position for larger background
         
         // Reset shadow
         ctx.shadowColor = 'transparent';
@@ -1581,11 +1614,20 @@ export default function TradingViewChart({
   // Render main price chart with integrated volume
   const renderChart = useCallback(() => {
     const canvas = chartCanvasRef.current;
-    if (!canvas || !data.length || dimensions.width === 0 || dimensions.height === 0) return;
+    console.log(`🎨 renderChart called - data.length: ${data.length}, dimensions: ${dimensions.width}x${dimensions.height}`);
+    
+    if (!canvas || !data.length || dimensions.width === 0 || dimensions.height === 0) {
+      console.log(`🚫 renderChart early return - canvas: ${!!canvas}, data.length: ${data.length}, dimensions: ${dimensions.width}x${dimensions.height}`);
+      return;
+    }
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      console.log(`🚫 renderChart - no canvas context`);
+      return;
+    }
 
+    console.log(`✅ renderChart proceeding with rendering...`);
     const { width } = dimensions;
     const height = chartHeight;
 
@@ -1771,8 +1813,15 @@ export default function TradingViewChart({
       console.log(`🔍 No indicators to draw. config.indicators:`, config.indicators);
     }
 
-    // Draw stored drawings on top of everything
-    drawStoredDrawings(ctx);
+    // Draw stored drawings on overlay canvas (not main chart)
+    const overlayCanvas = overlayCanvasRef.current;
+    if (overlayCanvas) {
+      const overlayCtx = overlayCanvas.getContext('2d');
+      if (overlayCtx) {
+        console.log('🎨 [OVERLAY] Drawing on overlay canvas');
+        drawStoredDrawings(overlayCtx);
+      }
+    }
 
     console.log(`✅ Integrated chart rendered successfully with ${config.theme} theme`);
 
@@ -2420,12 +2469,165 @@ export default function TradingViewChart({
     ctx.font = `${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     ctx.textAlign = 'center';
 
-    // Calculate how many labels we can fit
+    // TradingView-style adaptive labeling based on zoom level
+    const getOptimalLabelFormat = (timeframe: string, visibleCandleCount: number, timeSpan: number) => {
+      const isIntraday = timeframe.includes('m') || timeframe.includes('h');
+      const hoursSpan = timeSpan / (1000 * 60 * 60);
+      const daysSpan = timeSpan / (1000 * 60 * 60 * 24);
+      const monthsSpan = daysSpan / 30;
+      const yearsSpan = daysSpan / 365;
+
+      // Very zoomed in (intraday with small time span)
+      if (isIntraday && hoursSpan <= 24) {
+        return { 
+          format: 'time', 
+          spacing: Math.max(1, Math.floor(visibleCandleCount / 6))
+        };
+      }
+      // Intraday but longer span
+      else if (isIntraday && hoursSpan <= 168) { // 1 week
+        return { 
+          format: 'datetime', 
+          spacing: Math.max(1, Math.floor(visibleCandleCount / 8))
+        };
+      }
+      // Daily view, short term
+      else if (daysSpan <= 30) {
+        return { 
+          format: 'date', 
+          spacing: Math.max(1, Math.floor(visibleCandleCount / 6))
+        };
+      }
+      // Medium term (months)
+      else if (monthsSpan <= 12) {
+        return { 
+          format: 'monthday', 
+          spacing: Math.max(1, Math.floor(visibleCandleCount / 8))
+        };
+      }
+      // Long term (years)
+      else if (yearsSpan <= 5) {
+        return { 
+          format: 'monthyear', 
+          spacing: Math.max(1, Math.floor(visibleCandleCount / 10))
+        };
+      }
+      // Very long term
+      else {
+        return { 
+          format: 'year', 
+          spacing: Math.max(1, Math.floor(visibleCandleCount / 12))
+        };
+      }
+    };
+
+    // Calculate time span of visible data
+    const timeSpan = visibleData.length > 1 ? 
+      visibleData[visibleData.length - 1].timestamp - visibleData[0].timestamp : 
+      24 * 60 * 60 * 1000; // 1 day fallback
+
+    const labelConfig = getOptimalLabelFormat(config.timeframe, visibleCandleCount, timeSpan);
+
+    // Format date based on adaptive format
+    const formatDateLabel = (timestamp: number, format: string): string => {
+      const date = new Date(timestamp);
+      
+      switch (format) {
+        case 'time':
+          return date.toLocaleTimeString('en-US', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false
+          });
+        case 'datetime':
+          return date.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric'
+          }) + ' ' + date.toLocaleTimeString('en-US', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false
+          });
+        case 'date':
+          return date.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric'
+          });
+        case 'monthday':
+          return date.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric'
+          });
+        case 'monthyear':
+          return date.toLocaleDateString('en-US', { 
+            month: 'short', 
+            year: 'numeric'
+          });
+        case 'year':
+          return date.getFullYear().toString();
+        default:
+          return date.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric'
+          });
+      }
+    };
+
+    // Calculate how many labels we can fit - enhanced with overlap prevention
+
+    // Track label positions to prevent overlap
+    const labelPositions: { x: number; width: number; text: string }[] = [];
+    
+    const canPlaceLabel = (x: number, text: string): boolean => {
+      const textWidth = ctx.measureText(text).width;
+      const labelLeft = x - textWidth / 2;
+      const labelRight = x + textWidth / 2;
+      
+      // Check if this label would overlap with any existing labels
+      for (const existing of labelPositions) {
+        const existingLeft = existing.x - existing.width / 2;
+        const existingRight = existing.x + existing.width / 2;
+        
+        if (!(labelRight < existingLeft - 10 || labelLeft > existingRight + 10)) {
+          return false; // Overlap detected
+        }
+      }
+      
+      // Check if label is too close to chart edges
+      if (labelLeft < 45 || labelRight > width - 10) {
+        return false;
+      }
+      
+      return true;
+    };
+
+    const addLabel = (x: number, text: string, isFuture: boolean = false) => {
+      if (canPlaceLabel(x, text)) {
+        const textWidth = ctx.measureText(text).width;
+        labelPositions.push({ x, width: textWidth, text });
+        
+        // Set appropriate color
+        ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor;
+        
+        // Draw the label
+        ctx.fillText(text, x, height - 8);
+        
+        // Draw tick mark
+        ctx.strokeStyle = isFuture ? 'rgba(255, 255, 255, 0.3)' : colors.grid;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, height - 20);
+        ctx.lineTo(x, height - 15);
+        ctx.stroke();
+      }
+    };
+
+    // Calculate how many labels we can fit (old method as fallback)
     const maxLabels = Math.floor(chartWidth / 80); // One label every 80px
-    const labelStep = Math.max(1, Math.floor(visibleCandleCount / maxLabels));
+    const labelStep = labelConfig.spacing;
     
     const candleSpacing = chartWidth / visibleCandleCount;
-
+    
     // Calculate if we're showing future area
     const startIndex = Math.max(0, Math.floor(scrollOffset));
     const actualDataEnd = Math.min(allData.length, startIndex + visibleCandleCount);
@@ -2453,86 +2655,34 @@ export default function TradingViewChart({
       return baseTimestamp + (periodsAhead * milliseconds);
     };
 
-    // Draw labels for actual data
+    // Draw labels for actual data with overlap prevention
     visibleData.forEach((candle, index) => {
-      if (index % labelStep === 0 || index === visibleData.length - 1) {
+      if (index % labelStep === 0) {
         const x = 40 + (index * candleSpacing) + candleSpacing / 2;
-        
-        // Format time based on timeframe
-        let timeLabel = '';
-        const date = new Date(candle.timestamp);
-        
-        if (config.timeframe.includes('m') || config.timeframe.includes('h')) {
-          // For intraday, show time
-          timeLabel = date.toLocaleTimeString('en-US', { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            hour12: false
-          });
-        } else {
-          // For daily and above, show date
-          timeLabel = date.toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric'
-          });
-        }
-        
-        // Draw time label at bottom
-        ctx.fillText(timeLabel, x, height - 8);
-        
-        // Draw tick mark
-        ctx.strokeStyle = colors.grid;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x, height - 20);
-        ctx.lineTo(x, height - 15);
-        ctx.stroke();
+        const timeLabel = formatDateLabel(candle.timestamp, labelConfig.format);
+        addLabel(x, timeLabel, false);
       }
     });
+
+    // Always try to add the last visible data point if not already added
+    if (visibleData.length > 0) {
+      const lastIndex = visibleData.length - 1;
+      const x = 40 + (lastIndex * candleSpacing) + candleSpacing / 2;
+      const timeLabel = formatDateLabel(visibleData[lastIndex].timestamp, labelConfig.format);
+      addLabel(x, timeLabel, false);
+    }
 
     // Draw future labels if we're showing future area
     if (showingFutureArea && futurePeriodsShown > 0 && allData.length > 0) {
       const lastDataTimestamp = allData[allData.length - 1].timestamp;
       
       for (let i = 1; i <= futurePeriodsShown; i++) {
-        const futureIndex = visibleData.length + i - 1;
-        if (futureIndex % labelStep === 0) {
+        if (i % labelStep === 0) {
+          const futureIndex = visibleData.length + i - 1;
           const x = 40 + (futureIndex * candleSpacing) + candleSpacing / 2;
           const futureTimestamp = getFutureTimestamp(lastDataTimestamp, i);
-          
-          // Format future time based on timeframe
-          let timeLabel = '';
-          const date = new Date(futureTimestamp);
-          
-          if (config.timeframe.includes('m') || config.timeframe.includes('h')) {
-            // For intraday, show time
-            timeLabel = date.toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: false
-            });
-          } else {
-            // For daily and above, show date
-            timeLabel = date.toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric'
-            });
-          }
-          
-          // Draw future time label with slightly different style
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; // Slightly dimmed for future
-          ctx.fillText(timeLabel, x, height - 8);
-          
-          // Draw tick mark
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'; // Dimmed tick for future
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(x, height - 20);
-          ctx.lineTo(x, height - 15);
-          ctx.stroke();
-          
-          // Reset color
-          ctx.fillStyle = config.axisStyle.xAxis.textColor;
+          const timeLabel = formatDateLabel(futureTimestamp, labelConfig.format);
+          addLabel(x, timeLabel, true);
         }
       }
     }
@@ -2541,9 +2691,10 @@ export default function TradingViewChart({
   // Re-render when data or settings change
   useEffect(() => {
     if (dimensions.width > 0 && dimensions.height > 0) {
+      console.log(`🎨 Rendering chart with ${data.length} data points`);
       renderChart();
     }
-  }, [renderChart, config.theme, config.colors, dimensions]);
+  }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount]);
 
   // TradingView-style interaction handlers
   const [lastMouseX, setLastMouseX] = useState(0);
@@ -2559,7 +2710,12 @@ export default function TradingViewChart({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    console.log('🖱️ Unified mouse down at:', { x, y, activeTool });
+    console.log('🖱️ Unified mouse down at:', { x, y, activeTool, buttonPressed: e.button });
+    console.log('🎯 Current active tool state:', activeTool);
+    console.log('� Tool value type:', typeof activeTool);
+    console.log('🔧 Tool is truthy:', !!activeTool);
+    console.log('�📊 Canvas dimensions:', { width: canvas.width, height: canvas.height });
+    console.log('📐 Click position:', { clientX: e.clientX, clientY: e.clientY, rectLeft: rect.left, rectTop: rect.top });
 
     // Define tool categories within the function scope
     const textTools = ['text', 'note', 'callout', 'price_label', 'anchored_text'];
@@ -2597,6 +2753,19 @@ export default function TradingViewChart({
       if (singleClickTools.includes(activeTool)) {
         console.log('🖱️ Single-click tool activated:', activeTool, 'at:', { x, y });
         
+        // Convert screen coordinates to TradingView time+price coordinates
+        const priceChartHeight = dimensions.height * 0.7;
+        const ratio = y / priceChartHeight;
+        const price = priceRange.max - (ratio * (priceRange.max - priceRange.min));
+        
+        const canvasWidth = dimensions.width - 80; // Chart width minus margins
+        const pointsPerPixel = (data.length - 1) / canvasWidth;
+        const dataIndex = Math.round((x + scrollOffset) * pointsPerPixel);
+        const boundedIndex = Math.max(0, Math.min(dataIndex, data.length - 1));
+        const time = data[boundedIndex]?.timestamp || Date.now();
+        
+        console.log('🎯 TradingView coordinates:', { time, price, screenX: x, screenY: y });
+        
         let newDrawing;
         
         if (activeTool === 'ray') {
@@ -2604,7 +2773,9 @@ export default function TradingViewChart({
           newDrawing = {
             id: Date.now(),
             type: 'ray',
-            startPoint: { x, y },
+            startPoint: { x, y }, // Legacy coordinates for compatibility
+            time: time,           // TradingView time coordinate
+            price: price,         // TradingView price coordinate
             timestamp: Date.now(),
             style: drawingStyle
           };
@@ -2612,7 +2783,9 @@ export default function TradingViewChart({
           newDrawing = {
             id: Date.now(),
             type: 'vertical_line',
-            startPoint: { x, y },
+            startPoint: { x, y }, // Legacy coordinates for compatibility
+            time: time,           // TradingView time coordinate
+            price: price,         // TradingView price coordinate
             timestamp: Date.now(),
             style: drawingStyle
           };
@@ -2621,8 +2794,10 @@ export default function TradingViewChart({
           newDrawing = {
             id: Date.now(),
             type: activeTool || 'unknown',
-            startPoint: { x, y },
-            endPoint: { x, y },
+            startPoint: { x, y }, // Legacy coordinates for compatibility
+            endPoint: { x, y },   // Legacy coordinates for compatibility
+            time: time,           // TradingView time coordinate
+            price: price,         // TradingView price coordinate
             timestamp: Date.now(),
             style: drawingStyle
           };
@@ -2634,7 +2809,8 @@ export default function TradingViewChart({
           console.log('📊 Updated drawings array:', updated.length, 'drawings');
           return updated;
         });
-        setActiveTool(null); // Clear tool after single use
+        // Don't clear activeTool - keep it active for multiple drawings like TradingView  
+        // setActiveTool(null); // Removed - keep tool active
         return;
       }
 
@@ -2650,11 +2826,39 @@ export default function TradingViewChart({
           if (drawingStartPoint) {
             console.log('✅ Completing two-point tool:', activeTool);
             
+            // Convert screen coordinates to TradingView time+price coordinates
+            const priceChartHeight = dimensions.height * 0.7;
+            const canvasWidth = dimensions.width - 80; // Chart width minus margins
+            const pointsPerPixel = (data.length - 1) / canvasWidth;
+            
+            // Start point conversion
+            const startRatio = drawingStartPoint.y / priceChartHeight;
+            const startPrice = priceRange.max - (startRatio * (priceRange.max - priceRange.min));
+            const startDataIndex = Math.round((drawingStartPoint.x + scrollOffset) * pointsPerPixel);
+            const startBoundedIndex = Math.max(0, Math.min(startDataIndex, data.length - 1));
+            const startTime = data[startBoundedIndex]?.timestamp || Date.now();
+            
+            // End point conversion
+            const endRatio = y / priceChartHeight;
+            const endPrice = priceRange.max - (endRatio * (priceRange.max - priceRange.min));
+            const endDataIndex = Math.round((x + scrollOffset) * pointsPerPixel);
+            const endBoundedIndex = Math.max(0, Math.min(endDataIndex, data.length - 1));
+            const endTime = data[endBoundedIndex]?.timestamp || Date.now();
+            
+            console.log('🎯 TradingView two-point coordinates:', { 
+              start: { time: startTime, price: startPrice }, 
+              end: { time: endTime, price: endPrice } 
+            });
+            
             const newDrawing: Drawing = {
               id: Date.now(),
               type: activeTool || 'unknown',
-              startPoint: drawingStartPoint,
-              endPoint: { x, y },
+              startPoint: drawingStartPoint, // Legacy coordinates for compatibility
+              endPoint: { x, y },           // Legacy coordinates for compatibility
+              time1: startTime,             // TradingView start time coordinate
+              price1: startPrice,           // TradingView start price coordinate
+              time2: endTime,               // TradingView end time coordinate
+              price2: endPrice,             // TradingView end price coordinate
               timestamp: Date.now(),
               style: drawingStyle
             };
@@ -2667,7 +2871,8 @@ export default function TradingViewChart({
             });
             setIsDrawing(false);
             setDrawingStartPoint(null);
-            setActiveTool(null); // Clear tool after use
+            // Don't clear activeTool - keep it active for multiple drawings like TradingView
+            // setActiveTool(null); // Removed - keep tool active
           }
         }
         return;
@@ -2675,7 +2880,18 @@ export default function TradingViewChart({
 
       // Handle multi-point tools
       if (multiPointTools.includes(activeTool)) {
-        const newPoint = { x, y };
+        // Convert screen coordinates to TradingView time+price coordinates
+        const priceChartHeight = dimensions.height * 0.7;
+        const ratio = y / priceChartHeight;
+        const price = priceRange.max - (ratio * (priceRange.max - priceRange.min));
+        
+        const canvasWidth = dimensions.width - 80; // Chart width minus margins
+        const pointsPerPixel = (data.length - 1) / canvasWidth;
+        const dataIndex = Math.round((x + scrollOffset) * pointsPerPixel);
+        const boundedIndex = Math.max(0, Math.min(dataIndex, data.length - 1));
+        const time = data[boundedIndex]?.timestamp || Date.now();
+        
+        const newPoint = { x, y, time, price }; // Include TradingView coordinates
         const updatedPoints = [...multiPointDrawing, newPoint];
         setMultiPointDrawing(updatedPoints);
         
@@ -2700,7 +2916,7 @@ export default function TradingViewChart({
           const newDrawing = {
             id: Date.now(),
             type: activeTool || 'unknown',
-            points: updatedPoints,
+            points: updatedPoints, // Now includes TradingView coordinates
             timestamp: Date.now(),
             style: drawingStyle
           };
@@ -2709,7 +2925,8 @@ export default function TradingViewChart({
           setDrawings(prev => [...prev, newDrawing]);
           setMultiPointDrawing([]);
           setCurrentDrawingPhase(0);
-          setActiveTool(null);
+          // Don't clear activeTool - keep it active for multiple drawings like TradingView
+          // setActiveTool(null); // Removed - keep tool active
         } else {
           // Continue to next phase
           setCurrentDrawingPhase(prev => prev + 1);
@@ -2775,16 +2992,34 @@ export default function TradingViewChart({
 
     // Handle drawing dragging
     if (isDraggingDrawing && selectedDrawing) {
-      // Convert Y to price
-      const priceChartHeight = dimensions.height * 0.7;
-      const ratio = y / priceChartHeight;
-      const newPrice = priceRange.max - ((priceRange.max - priceRange.min) * ratio);
+      // Convert Y to price using the same calculation as chart rendering
+      const volumeAreaHeight = 80;
+      const timeAxisHeight = 30;
+      const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+      const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
+      const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
       
-      setDrawings(prev => prev.map((d: any) => 
-        d.id === selectedDrawing.id 
-          ? { ...d, price: newPrice, y }
-          : d
-      ));
+      // Calculate visible data range for accurate price conversion
+      const startIndex = Math.max(0, Math.floor(scrollOffset));
+      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+      const visibleData = data.slice(startIndex, endIndex);
+      
+      if (visibleData.length > 0) {
+        const prices = visibleData.flatMap(d => [d.high, d.low]);
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+        const padding = (maxPrice - minPrice) * 0.1;
+        const adjustedMin = minPrice - padding;
+        const adjustedMax = maxPrice + padding;
+        
+        const newPrice = adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
+        
+        setDrawings(prev => prev.map((d: any) => 
+          d.id === selectedDrawing.id 
+            ? { ...d, price: newPrice, y }
+            : d
+        ));
+      }
       return;
     }
 
@@ -2805,26 +3040,64 @@ export default function TradingViewChart({
 
     // Update crosshair info
     if (data.length > 0 && config.crosshair) {
-      const priceChartHeight = dimensions.height * 0.7;
-      const relativeY = y / priceChartHeight;
-      const price = priceRange.max - ((priceRange.max - priceRange.min) * relativeY);
+      // Calculate correct chart dimensions (matching renderChart function)
+      const volumeAreaHeight = 80;
+      const timeAxisHeight = 30;
+      const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+      const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
+      const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
       
-      // Calculate candle index
-      const chartWidth = dimensions.width - 100;
-      const candleWidth = chartWidth / visibleCandleCount;
-      const relativeX = Math.max(0, x - 40);
-      const visibleCandleIndex = Math.floor(relativeX / candleWidth);
-      const candleIndex = scrollOffset + visibleCandleIndex;
+      // Calculate visible data range (matching renderChart function)
+      const startIndex = Math.max(0, Math.floor(scrollOffset));
+      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+      const visibleData = data.slice(startIndex, endIndex);
       
-      if (candleIndex >= 0 && candleIndex < data.length) {
-        const candle = data[candleIndex];
-        setCrosshairInfo({
-          visible: true,
-          price: `$${price.toFixed(2)}`,
-          date: new Date(candle?.timestamp || Date.now()).toLocaleDateString(),
-          time: String(candle?.timestamp || ''),
-          volume: candle?.volume || 0
-        });
+      if (visibleData.length > 0) {
+        // Calculate price range for visible data (matching renderChart function)
+        const prices = visibleData.flatMap(d => [d.high, d.low]);
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+        const padding = (maxPrice - minPrice) * 0.1;
+        const adjustedMin = minPrice - padding;
+        const adjustedMax = maxPrice + padding;
+        
+        // Convert Y coordinate to price (EXACT same formula as renderChart)
+        // Only consider mouse position within the price chart area
+        if (y <= priceChartHeight) {
+          const price = adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
+          
+          // Calculate candle index
+          const chartWidth = dimensions.width - 100;
+          const candleWidth = chartWidth / visibleCandleCount;
+          const relativeX = Math.max(0, x - 40);
+          const visibleCandleIndex = Math.floor(relativeX / candleWidth);
+          const candleIndex = scrollOffset + visibleCandleIndex;
+          
+          if (candleIndex >= 0 && candleIndex < data.length) {
+            const candle = data[candleIndex];
+            const candleDate = new Date(candle?.timestamp || Date.now());
+            setCrosshairInfo({
+              visible: true,
+              price: `$${price.toFixed(2)}`,
+              date: candleDate.toLocaleDateString(),
+              time: candleDate.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+              }),
+              volume: candle?.volume || 0
+            });
+          }
+        } else {
+          // Mouse is outside price chart area, hide crosshair info
+          setCrosshairInfo({
+            visible: false,
+            price: '',
+            date: '',
+            time: '',
+            volume: 0
+          });
+        }
       }
     }
   }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair]);
@@ -2835,8 +3108,13 @@ export default function TradingViewChart({
     setSelectedDrawing(null);
   }, []);
 
-  // Simple drawing rendering effect
+  // Simple drawing rendering effect - DISABLED to prevent conflicts with main TradingView drawing system
   useEffect(() => {
+    console.log('🔄 [CONFLICT] Simple drawing effect triggered - SKIPPING to avoid conflicts');
+    // Commented out to prevent conflicts with main drawStoredDrawings function
+    // const overlayCanvas = overlayCanvasRef.current;
+    // if (!overlayCanvas || drawings.length === 0) return;
+    
     const overlayCanvas = overlayCanvasRef.current;
     if (!overlayCanvas || drawings.length === 0) return;
 
@@ -2896,9 +3174,11 @@ export default function TradingViewChart({
   // Handle timeframe change - SIMPLE DIRECT FETCH (no broken cache)
   const handleTimeframeChange = (timeframe: string) => {
     console.log(`🔄 TIMEFRAME CHANGE: ${symbol} -> ${timeframe}`);
+    console.log(`🔄 Current data length before change: ${data.length}`);
+    console.log(`🔄 Current loading state: ${loading}`);
     
     // ALWAYS fetch fresh data - no cache bullshit that shows wrong prices
-    console.log(`� FRESH FETCH: Getting live ${timeframe} data for ${symbol}`);
+    console.log(`🚀 FRESH FETCH: Getting live ${timeframe} data for ${symbol}`);
     fetchData(symbol, timeframe);
     
     // Update config
@@ -2952,23 +3232,10 @@ export default function TradingViewChart({
   // Drawing Tools Functions
   const selectDrawingTool = (toolValue: string) => {
     console.log(`🎨 Activating drawing tool: ${toolValue}`);
+    console.log(`🔧 Previous activeTool: ${activeTool}`);
     setActiveTool(toolValue);
+    console.log(`🔧 Set activeTool to: ${toolValue}`);
     setShowToolsDropdown(false);
-    
-    // Close all category dropdowns
-    setShowLineToolsDropdown(false);
-    setShowFibDropdown(false);
-    setShowShapesDropdown(false);
-    setShowGannDropdown(false);
-    setShowElliottDropdown(false);
-    setShowPredictionDropdown(false);
-    setShowMeasureDropdown(false);
-    setShowNotesDropdown(false);
-    setShowVolumeDropdown(false);
-    setShowPatternsDropdown(false);
-    setShowHarmonicDropdown(false);
-    setShowCyclesDropdown(false);
-    setShowOrdersDropdown(false);
     
     // Reset any ongoing drawing
     setIsDrawing(false);
@@ -3200,7 +3467,8 @@ export default function TradingViewChart({
       });
       setIsDrawing(false);
       setDrawingStartPoint(null);
-      setActiveTool(null); // Clear tool after single use
+      // Don't clear activeTool - keep it active for multiple drawings like TradingView
+      // setActiveTool(null); // Removed - keep tool active
       return;
     }
 
@@ -3259,7 +3527,8 @@ export default function TradingViewChart({
         setDrawings(prev => [...prev, newDrawing]);
         setMultiPointDrawing([]);
         setCurrentDrawingPhase(0);
-        setActiveTool(null);
+        // Don't clear activeTool - keep it active for multiple drawings like TradingView
+        // setActiveTool(null); // Removed - keep tool active
       } else {
         // Continue to next phase
         setCurrentDrawingPhase(prev => prev + 1);
@@ -3323,7 +3592,8 @@ export default function TradingViewChart({
           });
           setIsDrawing(false);
           setDrawingStartPoint(null);
-          setActiveTool(null); // Clear tool after use
+          // Don't clear activeTool - keep it active for multiple drawings like TradingView
+          // setActiveTool(null); // Removed - keep tool active
         }
       }
       return;
@@ -3913,10 +4183,11 @@ export default function TradingViewChart({
   // TradingView-style drawing renderer: converts time+price coordinates to screen position
   const drawStoredDrawings = (ctx: CanvasRenderingContext2D) => {
     const currentDrawings = drawingsRef.current;
-    console.log('🎨 Rendering TradingView-style drawings, count:', currentDrawings.length);
+    console.log('🎨 [RENDER] Starting render cycle, total drawings:', currentDrawings.length);
+    console.log('🎨 [RENDER] Drawings to render:', currentDrawings.map(d => ({ id: d.id, type: d.type })));
     
     if (currentDrawings.length === 0) {
-      console.log('❌ No drawings to render');
+      console.log('❌ [RENDER] No drawings to render');
       return;
     }
 
@@ -5845,7 +6116,15 @@ export default function TradingViewChart({
                   key={tool.value}
                   onClick={() => {
                     console.log('🌟 Favorite tool clicked:', tool.value);
+                    console.log('🔧 Tool details:', tool);
+                    console.log('🎯 Current activeTool before:', activeTool);
                     selectDrawingTool(tool.value);
+                    console.log('🎯 Current activeTool after:', activeTool);
+                    
+                    // Add delayed check to see if state was updated
+                    setTimeout(() => {
+                      console.log('🕐 activeTool after timeout:', activeTool);
+                    }, 100);
                   }}
                   className={`btn-3d-carved relative group ${activeTool === tool.value ? 'active' : 'text-white'}`}
                   style={{
@@ -6116,144 +6395,6 @@ export default function TradingViewChart({
               borderRadius: '2px'
             }}></div>
 
-            {/* Drawing Tools Category Buttons */}
-            {Object.entries(DRAWING_TOOLS).slice(0, 8).map(([category, tools]) => {
-              const categoryKey = category.toLowerCase().replace(/\s+/g, '');
-              const dropdownState = {
-                'linetools': showLineToolsDropdown,
-                'fibtools': showFibDropdown,
-                'shapes': showShapesDropdown,
-                'gann': showGannDropdown,
-                'elliott': showElliottDropdown,
-                'prediction': showPredictionDropdown,
-                'measure': showMeasureDropdown,
-                'notes': showNotesDropdown,
-                'volume': showVolumeDropdown,
-                'patterns': showPatternsDropdown,
-                'harmonic': showHarmonicDropdown,
-                'cycles': showCyclesDropdown,
-                'orders': showOrdersDropdown
-              }[categoryKey];
-              
-              const setDropdownState = {
-                'linetools': setShowLineToolsDropdown,
-                'fibtools': setShowFibDropdown,
-                'shapes': setShowShapesDropdown,
-                'gann': setShowGannDropdown,
-                'elliott': setShowElliottDropdown,
-                'prediction': setShowPredictionDropdown,
-                'measure': setShowMeasureDropdown,
-                'notes': setShowNotesDropdown,
-                'volume': setShowVolumeDropdown,
-                'patterns': setShowPatternsDropdown,
-                'harmonic': setShowHarmonicDropdown,
-                'cycles': setShowCyclesDropdown,
-                'orders': setShowOrdersDropdown
-              }[categoryKey];
-
-              const hasActiveTool = tools.some(tool => tool.value === activeTool);
-              const functionalCount = tools.filter(t => t.functional).length;
-              
-              return (
-                <div key={category} className={`relative ${categoryKey}-dropdown`}>
-                  <button 
-                    ref={drawingToolRefs.current[categoryKey] || null}
-                    onClick={(e) => {
-                      // Calculate dropdown position
-                      const buttonRef = drawingToolRefs.current[categoryKey];
-                      if (buttonRef?.current) {
-                        const rect = buttonRef.current.getBoundingClientRect();
-                        
-                        // Map category keys to state property names
-                        const stateKey = {
-                          'linetools': 'lineTools',
-                          'fibtools': 'fib',
-                          'shapes': 'shapes',
-                          'gann': 'gann',
-                          'elliott': 'elliott',
-                          'prediction': 'prediction',
-                          'measure': 'measure',
-                          'notes': 'notes',
-                          'volume': 'volume',
-                          'patterns': 'patterns',
-                          'harmonic': 'harmonic',
-                          'cycles': 'cycles',
-                          'orders': 'orders'
-                        }[categoryKey] || categoryKey;
-                        
-                        setDropdownPositions(prev => ({
-                          ...prev,
-                          [stateKey]: {
-                            x: rect.left,
-                            y: rect.bottom + 8,
-                            width: rect.width
-                          }
-                        }));
-                      }
-                      
-                      setDropdownState && setDropdownState(!dropdownState);
-                    }}
-                    className="relative group flex items-center space-x-1"
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      background: hasActiveTool || dropdownState
-                        ? 'linear-gradient(145deg, #2962ff 0%, #1e4db7 50%, #2962ff 100%)'
-                        : 'linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
-                      color: '#ffffff',
-                      fontWeight: '600',
-                      fontSize: '11px',
-                      letterSpacing: '0.5px',
-                      textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-                      boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 -1px 2px rgba(255, 255, 255, 0.05), 0 2px 4px rgba(0, 0, 0, 0.4)',
-                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!hasActiveTool && !dropdownState) {
-                        e.currentTarget.style.background = 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0, 0, 0, 0.4), inset 0 -2px 4px rgba(255, 255, 255, 0.1), 0 4px 8px rgba(0, 0, 0, 0.5)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!hasActiveTool && !dropdownState) {
-                        e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 -1px 2px rgba(255, 255, 255, 0.05), 0 2px 4px rgba(0, 0, 0, 0.4)';
-                      }
-                    }}
-                  >
-                    {/* Special handling for Line Tools to show a custom icon */}
-                    {categoryKey === 'linetools' ? (
-                      <>
-                        <span style={{ 
-                          color: '#c0c0c0', 
-                          fontSize: '16px', 
-                          fontWeight: 'bold',
-                          textShadow: '0 0 6px rgba(192, 192, 192, 0.8)',
-                          filter: 'brightness(1.2)'
-                        }}>
-                          ━
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span>{tools[0]?.icon || '�'}</span>
-                        <span>{category.split(' ')[0]}</span>
-                      </>
-                    )}
-                    <span style={{ 
-                      transform: dropdownState ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.2s ease',
-                      fontSize: '8px'
-                    }}>
-                      ▼
-                    </span>
-                  </button>
-                </div>
-              );
-            })}
           </div>
 
           {/* SETTINGS Button - Professional Orange Design */}
@@ -7155,469 +7296,7 @@ export default function TradingViewChart({
         document.body
       )}
 
-      {/* Line Tools Portal Dropdown */}
-      {showLineToolsDropdown && createPortal(
-        <div 
-          className="fixed bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl min-w-72"
-          style={{
-            left: `${dropdownPositions.lineTools?.x || 0}px`,
-            top: `${dropdownPositions.lineTools?.y || 0}px`,
-            background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            zIndex: 999999
-          }}
-        >
-          <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
-            <h4 className="text-white font-bold text-base tracking-wide" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', letterSpacing: '0.5px' }}>
-              Line Tools
-            </h4>
-          </div>
-          <div className="py-1 max-h-80 overflow-y-auto">
-            {DRAWING_TOOLS['Line Tools']?.map((tool: any) => (
-              <div key={tool.value} className="flex items-center group">
-                <button
-                  onClick={() => {
-                    selectDrawingTool(tool.value);
-                    setShowLineToolsDropdown(false);
-                  }}
-                  disabled={!tool.functional}
-                  className="flex-1 px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{
-                    background: activeTool === tool.value ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)' : 'transparent',
-                    color: '#ffffff',
-                    fontSize: '14px',
-                    fontWeight: '500'
-                  }}
-                >
-                  <span className="text-lg" style={{ color: activeTool === tool.value ? '#ffffff' : '#c0c0c0', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}>
-                    {tool.icon}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold">
-                      <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', fontSize: '15px' }}>
-                        {tool.label}
-                      </span>
-                    </div>
-                  </div>
-                  {activeTool === tool.value && <span className="text-blue-300 text-xs">✓</span>}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('🌟 STAR CLICKED FOR:', tool.label, 'Value:', tool.value);
-                    toggleFavoriteDrawingTool(tool.value);
-                  }}
-                  className="star-favorite-btn px-4 py-3 hover:bg-yellow-500 hover:bg-opacity-30 transition-all duration-200 bg-gray-800"
-                  title={favoriteDrawingTools.includes(tool.value) ? "Remove from favorites" : "Add to favorites"}
-                  style={{ minWidth: '40px', backgroundColor: '#333' }}
-                >
-                  <span className={`text-lg font-bold ${favoriteDrawingTools.includes(tool.value) ? 'text-yellow-400' : 'text-gray-400'}`}>
-                    ★
-                  </span>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
 
-      {/* Fib Tools Portal Dropdown */}
-      {showFibDropdown && createPortal(
-        <div 
-          className="fixed bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl min-w-72"
-          style={{
-            left: `${dropdownPositions.fib?.x || 0}px`,
-            top: `${dropdownPositions.fib?.y || 0}px`,
-            background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            zIndex: 999999
-          }}
-        >
-          <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
-            <h4 className="text-white font-bold text-base tracking-wide" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', letterSpacing: '0.5px' }}>
-              Fib Tools
-            </h4>
-          </div>
-          <div className="py-1 max-h-80 overflow-y-auto">
-            {DRAWING_TOOLS['FIB Tools']?.map((tool: any) => (
-              <div key={tool.value} className="flex items-center group">
-                <button
-                  onClick={() => {
-                    selectDrawingTool(tool.value);
-                    setShowFibDropdown(false);
-                  }}
-                  disabled={!tool.functional}
-                  className="flex-1 px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{
-                    background: activeTool === tool.value ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)' : 'transparent',
-                    color: '#ffffff',
-                    fontSize: '14px',
-                    fontWeight: '500'
-                  }}
-                >
-                  <span className="text-lg" style={{ color: activeTool === tool.value ? '#ffffff' : '#c0c0c0', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}>
-                    {tool.icon}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold">
-                      <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', fontSize: '15px' }}>
-                        {tool.label}
-                      </span>
-                    </div>
-                  </div>
-                  {activeTool === tool.value && <span className="text-blue-300 text-xs">✓</span>}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('🌟 FIB STAR CLICKED FOR:', tool.label, 'Value:', tool.value);
-                    toggleFavoriteDrawingTool(tool.value);
-                  }}
-                  className="star-favorite-btn px-4 py-3 hover:bg-yellow-500 hover:bg-opacity-30 transition-all duration-200 bg-gray-800"
-                  title={favoriteDrawingTools.includes(tool.value) ? "Remove from favorites" : "Add to favorites"}
-                  style={{ minWidth: '40px', backgroundColor: '#333' }}
-                >
-                  <span className={`text-lg font-bold ${favoriteDrawingTools.includes(tool.value) ? 'text-yellow-400' : 'text-gray-400'}`}>
-                    ★
-                  </span>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Shapes Portal Dropdown */}
-      {showShapesDropdown && createPortal(
-        <div 
-          className="fixed bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl min-w-72"
-          style={{
-            left: `${dropdownPositions.shapes?.x || 0}px`,
-            top: `${dropdownPositions.shapes?.y || 0}px`,
-            background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            zIndex: 999999
-          }}
-        >
-          <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
-            <h4 className="text-white font-bold text-base tracking-wide" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', letterSpacing: '0.5px' }}>
-              Shapes
-            </h4>
-          </div>
-          <div className="py-1 max-h-80 overflow-y-auto">
-            {DRAWING_TOOLS['Shapes']?.map((tool: any) => (
-              <button
-                key={tool.value}
-                onClick={() => {
-                  selectDrawingTool(tool.value);
-                  setShowShapesDropdown(false);
-                }}
-                disabled={!tool.functional}
-                className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: activeTool === tool.value ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)' : 'transparent',
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  fontWeight: '500'
-                }}
-              >
-                <span className="text-lg" style={{ color: activeTool === tool.value ? '#ffffff' : '#c0c0c0', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}>
-                  {tool.icon}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">
-                    <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', fontSize: '15px' }}>
-                      {tool.label}
-                    </span>
-                  </div>
-                </div>
-                {activeTool === tool.value && <span className="text-blue-300 text-xs">✓</span>}
-              </button>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Gann Portal Dropdown */}
-      {showGannDropdown && createPortal(
-        <div 
-          className="fixed bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl min-w-72"
-          style={{
-            left: `${dropdownPositions.gann?.x || 0}px`,
-            top: `${dropdownPositions.gann?.y || 0}px`,
-            background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            zIndex: 999999
-          }}
-        >
-          <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
-            <h4 className="text-white font-bold text-base tracking-wide" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', letterSpacing: '0.5px' }}>
-              Gann
-            </h4>
-          </div>
-          <div className="py-1 max-h-80 overflow-y-auto">
-            {DRAWING_TOOLS['Gann']?.map((tool: any) => (
-              <button
-                key={tool.value}
-                onClick={() => {
-                  selectDrawingTool(tool.value);
-                  setShowGannDropdown(false);
-                }}
-                disabled={!tool.functional}
-                className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: activeTool === tool.value ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)' : 'transparent',
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  fontWeight: '500'
-                }}
-              >
-                <span className="text-lg" style={{ color: activeTool === tool.value ? '#ffffff' : '#c0c0c0', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}>
-                  {tool.icon}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">
-                    <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', fontSize: '15px' }}>
-                      {tool.label}
-                    </span>
-                  </div>
-                </div>
-                {activeTool === tool.value && <span className="text-blue-300 text-xs">✓</span>}
-              </button>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Elliott Portal Dropdown */}
-      {showElliottDropdown && createPortal(
-        <div 
-          className="fixed bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl min-w-72"
-          style={{
-            left: `${dropdownPositions.elliott?.x || 0}px`,
-            top: `${dropdownPositions.elliott?.y || 0}px`,
-            background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            zIndex: 999999
-          }}
-        >
-          <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
-            <h4 className="text-white font-bold text-base tracking-wide" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', letterSpacing: '0.5px' }}>
-              Elliott
-            </h4>
-          </div>
-          <div className="py-1 max-h-80 overflow-y-auto">
-            {DRAWING_TOOLS['Elliott']?.map((tool: any) => (
-              <button
-                key={tool.value}
-                onClick={() => {
-                  selectDrawingTool(tool.value);
-                  setShowElliottDropdown(false);
-                }}
-                disabled={!tool.functional}
-                className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: activeTool === tool.value ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)' : 'transparent',
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  fontWeight: '500'
-                }}
-              >
-                <span className="text-lg" style={{ color: activeTool === tool.value ? '#ffffff' : '#c0c0c0', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}>
-                  {tool.icon}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">
-                    <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', fontSize: '15px' }}>
-                      {tool.label}
-                    </span>
-                  </div>
-                </div>
-                {activeTool === tool.value && <span className="text-blue-300 text-xs">✓</span>}
-              </button>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Prediction Portal Dropdown */}
-      {showPredictionDropdown && createPortal(
-        <div 
-          className="fixed bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl min-w-72"
-          style={{
-            left: `${dropdownPositions.prediction?.x || 0}px`,
-            top: `${dropdownPositions.prediction?.y || 0}px`,
-            background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            zIndex: 999999
-          }}
-        >
-          <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
-            <h4 className="text-white font-bold text-base tracking-wide" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', letterSpacing: '0.5px' }}>
-              Prediction
-            </h4>
-          </div>
-          <div className="py-1 max-h-80 overflow-y-auto">
-            {DRAWING_TOOLS['Prediction']?.map((tool: any) => (
-              <button
-                key={tool.value}
-                onClick={() => {
-                  selectDrawingTool(tool.value);
-                  setShowPredictionDropdown(false);
-                }}
-                disabled={!tool.functional}
-                className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: activeTool === tool.value ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)' : 'transparent',
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  fontWeight: '500'
-                }}
-              >
-                <span className="text-lg" style={{ color: activeTool === tool.value ? '#ffffff' : '#c0c0c0', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}>
-                  {tool.icon}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">
-                    <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', fontSize: '15px' }}>
-                      {tool.label}
-                    </span>
-                  </div>
-                </div>
-                {activeTool === tool.value && <span className="text-blue-300 text-xs">✓</span>}
-              </button>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Measure Portal Dropdown */}
-      {showMeasureDropdown && createPortal(
-        <div 
-          className="fixed bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl min-w-72"
-          style={{
-            left: `${dropdownPositions.measure?.x || 0}px`,
-            top: `${dropdownPositions.measure?.y || 0}px`,
-            background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            zIndex: 999999
-          }}
-        >
-          <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
-            <h4 className="text-white font-bold text-base tracking-wide" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', letterSpacing: '0.5px' }}>
-              Measure
-            </h4>
-          </div>
-          <div className="py-1 max-h-80 overflow-y-auto">
-            {DRAWING_TOOLS['Measure']?.map((tool: any) => (
-              <button
-                key={tool.value}
-                onClick={() => {
-                  selectDrawingTool(tool.value);
-                  setShowMeasureDropdown(false);
-                }}
-                disabled={!tool.functional}
-                className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: activeTool === tool.value ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)' : 'transparent',
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  fontWeight: '500'
-                }}
-              >
-                <span className="text-lg" style={{ color: activeTool === tool.value ? '#ffffff' : '#c0c0c0', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}>
-                  {tool.icon}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">
-                    <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', fontSize: '15px' }}>
-                      {tool.label}
-                    </span>
-                  </div>
-                </div>
-                {activeTool === tool.value && <span className="text-blue-300 text-xs">✓</span>}
-              </button>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Notes Portal Dropdown */}
-      {showNotesDropdown && createPortal(
-        <div 
-          className="fixed bg-black bg-opacity-95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl min-w-72"
-          style={{
-            left: `${dropdownPositions.notes?.x || 0}px`,
-            top: `${dropdownPositions.notes?.y || 0}px`,
-            background: 'linear-gradient(135deg, rgba(26,26,26,0.98) 0%, rgba(45,45,45,0.98) 100%)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            zIndex: 999999
-          }}
-        >
-          <div className="px-4 py-3 border-b border-gray-600 border-opacity-50 bg-gray-900 bg-opacity-70">
-            <h4 className="text-white font-bold text-base tracking-wide" style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', letterSpacing: '0.5px' }}>
-              Notes
-            </h4>
-          </div>
-          <div className="py-1 max-h-80 overflow-y-auto">
-            {DRAWING_TOOLS['Notes']?.map((tool: any) => (
-              <button
-                key={tool.value}
-                onClick={() => {
-                  selectDrawingTool(tool.value);
-                  setShowNotesDropdown(false);
-                }}
-                disabled={!tool.functional}
-                className="w-full px-4 py-3 text-left flex items-center space-x-3 hover:bg-white hover:bg-opacity-15 transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: activeTool === tool.value ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)' : 'transparent',
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  fontWeight: '500'
-                }}
-              >
-                <span className="text-lg" style={{ color: activeTool === tool.value ? '#ffffff' : '#c0c0c0', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}>
-                  {tool.icon}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">
-                    <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)', fontSize: '15px' }}>
-                      {tool.label}
-                    </span>
-                  </div>
-                </div>
-                {activeTool === tool.value && <span className="text-blue-300 text-xs">✓</span>}
-              </button>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
     </>
   );
 }

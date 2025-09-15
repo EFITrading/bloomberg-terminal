@@ -18,6 +18,32 @@ const cleanupCache = () => {
   }
 };
 
+// Smart data point limits based on timeframe to prioritize recent data
+function getMaxDataPointsForTimeframe(timeframe: string): number {
+  switch (timeframe) {
+    case '1m':
+      return 500;   // ~8 hours of minute data
+    case '5m':
+      return 2000;  // ~7 days of 5-minute data
+    case '15m':
+      return 1500;  // ~15 days of 15-minute data
+    case '30m':
+      return 1000;  // ~20 days of 30-minute data
+    case '1h':
+      return 800;   // ~33 days of hourly data
+    case '4h':
+      return 600;   // ~100 days of 4-hour data
+    case '1d':
+      return 500;   // ~2 years of daily data
+    case '1w':
+      return 300;   // ~6 years of weekly data
+    case '1M':
+      return 200;   // ~16 years of monthly data
+    default:
+      return 1000;  // Default limit
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -25,6 +51,8 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const timeframe = searchParams.get('timeframe') || '1d';
+    const nocache = searchParams.get('nocache') === 'true';
+    const force = searchParams.get('force');
 
     if (!symbol || !startDate || !endDate) {
       return NextResponse.json(
@@ -40,8 +68,11 @@ export async function GET(request: NextRequest) {
     // Clean up cache if needed
     cleanupCache();
     
-    // Check cache first for INSTANT response
-    if (cache.has(cacheKey)) {
+    // Skip cache if nocache is requested or if forcing current data
+    const skipCache = nocache || force === 'current';
+    
+    // Check cache first for INSTANT response (unless skipping cache)
+    if (!skipCache && cache.has(cacheKey)) {
       const cached = cache.get(cacheKey)!;
       if (now - cached.timestamp < CACHE_DURATION) {
         console.log(`⚡ CACHE HIT: ${symbol} ${timeframe} (${cache.size} cached items)`);
@@ -51,7 +82,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`📊 PROFESSIONAL API: Fetching ${timeframe} data for ${symbol} from ${startDate} to ${endDate}`);
+    if (skipCache) {
+      console.log(`🔥 CACHE BYPASS: Forcing fresh data for ${symbol} ${timeframe} up to ${endDate}`);
+    }
+
+    console.log(`📊 PROFESSIONAL API: Fetching ${timeframe} data for ${symbol} from ${startDate} to ${endDate}${skipCache ? ' (FRESH DATA)' : ''}`);
 
     // Map timeframes to Polygon.io format
     const timeframeMap: { [key: string]: { multiplier: number; timespan: string } } = {
@@ -69,7 +104,10 @@ export async function GET(request: NextRequest) {
     const timeframeConfig = timeframeMap[timeframe] || { multiplier: 1, timespan: 'day' };
 
     // Make request to Polygon.io API with PROFESSIONAL-GRADE settings
-    const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${timeframeConfig.multiplier}/${timeframeConfig.timespan}/${startDate}/${endDate}?adjusted=true&sort=asc&limit=50000&apikey=${POLYGON_API_KEY}`;
+    // Request in DESCENDING order to get latest data first, then limit
+    const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${timeframeConfig.multiplier}/${timeframeConfig.timespan}/${startDate}/${endDate}?adjusted=true&sort=desc&limit=50000&apikey=${POLYGON_API_KEY}`;
+    
+    console.log(`🔗 Polygon API URL (DESC order for latest first): ${url}`);
     
     const response = await fetch(url, {
       method: 'GET',
@@ -125,10 +163,40 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    console.log(`⚡ ULTRA-FAST: ${data.resultsCount || 0} data points for ${symbol} in ${timeframe}`);
+    // CRITICAL FIX: Since we requested DESC order, data is newest-first
+    // Apply intelligent limits based on timeframe to prioritize recent data
+    let limitedResults = data.results;
+    const maxDataPoints = getMaxDataPointsForTimeframe(timeframe);
     
-    // CACHE THE RESULT for next request
-    cache.set(cacheKey, { data, timestamp: now });
+    if (limitedResults.length > maxDataPoints) {
+      // Take the first N results (which are the newest due to DESC order)
+      limitedResults = limitedResults.slice(0, maxDataPoints);
+      console.log(`📊 Limited to ${maxDataPoints} most recent data points for ${timeframe}`);
+    }
+    
+    // Reverse back to ascending order (oldest to newest) for chart display
+    limitedResults.reverse();
+    
+    console.log(`⚡ ULTRA-FAST: ${limitedResults.length} data points for ${symbol} in ${timeframe} (showing latest data)`);
+    
+    // Log the actual data range received
+    if (limitedResults.length > 0) {
+      const firstPoint = new Date(limitedResults[0].t).toISOString().split('T')[0];
+      const lastPoint = new Date(limitedResults[limitedResults.length - 1].t).toISOString().split('T')[0];
+      console.log(`📅 Data range received: ${firstPoint} to ${lastPoint} (should end around Sep 12, 2025)`);
+    }
+
+    // Create response with limited, properly ordered data
+    const finalResponse = {
+      ...data,
+      results: limitedResults,
+      resultsCount: limitedResults.length
+    };
+    
+    // CACHE THE RESULT for next request (unless we're forcing fresh data)
+    if (!skipCache) {
+      cache.set(cacheKey, { data: finalResponse, timestamp: now });
+    }
     
     // Clean old cache entries (keep cache size manageable)
     if (cache.size > 1000) {
@@ -136,7 +204,7 @@ export async function GET(request: NextRequest) {
       if (oldestKey) cache.delete(oldestKey);
     }
     
-    return NextResponse.json(data);
+    return NextResponse.json(finalResponse);
 
   } catch (error) {
     console.error('❌ Historical data API error:', error);
