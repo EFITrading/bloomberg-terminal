@@ -213,160 +213,6 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
           </p>
         </div>
         
-        <div className="header-actions">
-          <button 
-            className={`refresh-btn ${refreshing ? 'refreshing' : ''}`}
-            onClick={refreshData}
-            disabled={refreshing || loading}
-          >
-            {refreshing ? '🔄 Refreshing...' : '🔄 Refresh Data'}
-          </button>
-        </div>
-      </div>
-
-      <div className="rrg-controls-panel">
-        <div className="control-group">
-          <label>Analysis Mode:</label>
-          <div className="cascading-dropdown">
-            <div className="dropdown-trigger">
-              <button 
-                className="analysis-mode-btn"
-                disabled={loading}
-              >
-                {selectedSectorETF ? (
-                  <>
-                    <span className="mode-icon">🔍</span>
-                    <span className="mode-text">{selectedSectorETF} Holdings</span>
-                    <span className="mode-info">
-                      ({sectorETFs[selectedSectorETF as keyof typeof sectorETFs].holdings.length} stocks)
-                    </span>
-                  </>
-                ) : selectedMode === 'sectors' ? (
-                  <>
-                    <span className="mode-icon">📊</span>
-                    <span className="mode-text">Sector Analysis (11 Sector SPDRs)</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="mode-icon">🎯</span>
-                    <span className="mode-text">Custom Securities</span>
-                  </>
-                )}
-                <span className="dropdown-arrow">▼</span>
-              </button>
-              
-              <div className="dropdown-menu">
-                <div className="dropdown-item-group">
-                  <button
-                    className={`dropdown-item ${selectedMode === 'sectors' && !selectedSectorETF ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedMode('sectors');
-                      setSelectedSectorETF(null);
-                    }}
-                    disabled={loading}
-                  >
-                    <span className="item-icon">📊</span>
-                    <span className="item-text">Sector Analysis (11 Sector SPDRs)</span>
-                  </button>
-                  
-                  <div className="dropdown-submenu">
-                    <div className="submenu-trigger">
-                      <span className="item-icon">🏢</span>
-                      <span className="item-text">Sector ETF Holdings Analysis</span>
-                      <span className="submenu-arrow">▶</span>
-                    </div>
-                    <div className="submenu-content">
-                      <div className="submenu-header">Select Sector ETF:</div>
-                      {Object.entries(sectorETFs).map(([symbol, info]) => (
-                        <button
-                          key={symbol}
-                          className={`submenu-item ${selectedSectorETF === symbol ? 'active' : ''}`}
-                          onClick={() => {
-                            setSelectedMode('sectors');
-                            setSelectedSectorETF(symbol);
-                          }}
-                          disabled={loading}
-                        >
-                          <span className="etf-symbol">{symbol}</span>
-                          <span className="etf-name">{info.name}</span>
-                          <span className="holdings-count">({info.holdings.length} holdings)</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <button
-                    className={`dropdown-item ${selectedMode === 'custom' ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedMode('custom');
-                      setSelectedSectorETF(null);
-                    }}
-                    disabled={loading}
-                  >
-                    <span className="item-icon">🎯</span>
-                    <span className="item-text">Custom Securities</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {selectedMode === 'custom' && (
-          <div className="control-group">
-            <label>Custom Symbols:</label>
-            <input
-              type="text"
-              value={customSymbols}
-              onChange={(e) => setCustomSymbols(e.target.value)}
-              placeholder="AAPL, MSFT, GOOGL, TSLA, etc."
-              disabled={loading}
-            />
-            <small>Enter comma-separated symbols</small>
-          </div>
-        )}
-
-        <div className="control-group">
-          <label>Benchmark:</label>
-          <select 
-            value={benchmark} 
-            onChange={(e) => setBenchmark(e.target.value)}
-            disabled={loading}
-          >
-            {benchmarkOptions.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="control-group">
-          <label>Timeframe:</label>
-          <select 
-            value={timeframe} 
-            onChange={(e) => setTimeframe(e.target.value)}
-            disabled={loading}
-          >
-            {timeframeOptions.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="control-group">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={showTails}
-              onChange={(e) => setShowTails(e.target.checked)}
-              disabled={loading}
-            />
-            Show Rotation Trails
-          </label>
-        </div>
       </div>
 
       {loading && (
@@ -406,6 +252,20 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
             onLookbackChange={(index) => {
               console.log(`Lookback changed to ${index} weeks ago`);
             }}
+            onRefresh={refreshData}
+            // Pass control props
+            selectedMode={selectedMode}
+            selectedSectorETF={selectedSectorETF}
+            customSymbols={customSymbols}
+            timeframeOptions={timeframeOptions}
+            benchmarkOptions={benchmarkOptions}
+            sectorETFs={sectorETFs}
+            onModeChange={setSelectedMode}
+            onSectorETFChange={setSelectedSectorETF}
+            onCustomSymbolsChange={setCustomSymbols}
+            onBenchmarkChange={setBenchmark}
+            onTimeframeChange={setTimeframe}
+            loading={loading}
           />
 
           <div className="rrg-summary">

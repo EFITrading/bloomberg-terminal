@@ -2,8 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
+// Type definitions for Polygon API
+interface PolygonDataItem {
+  t: number; // timestamp
+  o: number; // open
+  h: number; // high
+  l: number; // low
+  c: number; // close
+  v: number; // volume
+  vw?: number; // volume weighted average price
+  n?: number; // number of transactions
+}
+
+interface PolygonApiResponse {
+  ticker: string;
+  queryCount: number;
+  resultsCount: number;
+  adjusted: boolean;
+  results: PolygonDataItem[];
+  status: string;
+  message?: string;
+}
+
 // PROFESSIONAL-GRADE CACHING FOR LARGE DATASETS - optimized for multi-year data
-const cache = new Map<string, { data: any; timestamp: number }>();
+const cache = new Map<string, { data: PolygonApiResponse; timestamp: number }>();
 const CACHE_DURATION = 600000; // 10 minutes for large historical datasets
 
 // CACHE MANAGEMENT for optimal memory usage

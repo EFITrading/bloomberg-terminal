@@ -5957,7 +5957,7 @@ export default function TradingViewChart({
               { label: '5M', value: '5m' },
               { label: '30M', value: '30m' },
               { label: '1H', value: '1h' },
-              { label: '4H', value: '4h' },
+              { label: '24H', value: '4h' },
               { label: 'D', value: '1d' }
             ].map((tf, index) => (
               <button
