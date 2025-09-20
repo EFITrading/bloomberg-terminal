@@ -10,10 +10,13 @@ interface OptionsData {
   type: 'call' | 'put';
 }
 
-interface OpenInterestChartProps {}
+interface OpenInterestChartProps {
+  selectedTicker?: string;
+}
 
-export default function OpenInterestChart({}: OpenInterestChartProps) {
-  const [selectedTicker, setSelectedTicker] = useState<string>('SPY');
+export default function OpenInterestChart({ selectedTicker: propTicker }: OpenInterestChartProps) {
+  const [selectedTicker, setSelectedTicker] = useState<string>(propTicker || 'SPY');
+  const [tickerInput, setTickerInput] = useState<string>(propTicker || 'SPY');
   const [selectedExpiration, setSelectedExpiration] = useState<string>('');
   const [showAllDates, setShowAllDates] = useState<boolean>(false);
   const [expirationDates, setExpirationDates] = useState<string[]>([]);
@@ -22,6 +25,14 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
   const [error, setError] = useState<string>('');
   const [zoomTransform, setZoomTransform] = useState<any>(null);
   const [currentPrice, setCurrentPrice] = useState<number>(0);
+  
+  // Sync with prop changes
+  useEffect(() => {
+    if (propTicker && propTicker !== selectedTicker) {
+      setSelectedTicker(propTicker);
+      setTickerInput(propTicker);
+    }
+  }, [propTicker]);
   
   // Toggle states for chart visibility
   const [showCalls, setShowCalls] = useState<boolean>(true);
@@ -74,7 +85,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
     };
 
     fetchExpirations();
-  }, [selectedTicker]);
+  }, [selectedTicker]); // Back to using selectedTicker since it's now properly synced
 
   // Fetch options data for selected expiration or all dates
   useEffect(() => {
@@ -260,7 +271,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
     };
 
     fetchOptionsData();
-  }, [selectedTicker, selectedExpiration, showAllDates, expirationDates]);
+  }, [selectedTicker, selectedExpiration, showAllDates, expirationDates]); // Back to selectedTicker
 
   // D3 Chart rendering
   useEffect(() => {
@@ -733,7 +744,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
           pointerEvents: 'none'
         }} />
         
-        {/* Ticker Selector */}
+        {/* Current Ticker Display */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', zIndex: 1 }}>
           <label style={{ 
             color: '#ffffff', 
@@ -748,9 +759,15 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
           </label>
           <input
             type="text"
-            placeholder="Enter symbol"
-            value={selectedTicker}
-            onChange={(e) => setSelectedTicker(e.target.value.toUpperCase())}
+            value={tickerInput}
+            onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                setSelectedTicker(tickerInput);
+              }
+            }}
+            onBlur={() => setSelectedTicker(tickerInput)}
             style={{
               background: '#000000',
               border: '1px solid #333333',
@@ -760,33 +777,17 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
               fontSize: '14px',
               fontWeight: '500',
               width: '140px',
-              outline: 'none',
-              transition: 'all 0.2s ease',
               fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
               boxShadow: `
                 inset 0 2px 4px rgba(0, 0, 0, 0.6),
                 inset 0 -1px 0 rgba(255, 255, 255, 0.05),
                 0 1px 0 rgba(255, 255, 255, 0.1)
               `,
-              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
+              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+              outline: 'none',
+              cursor: 'text'
             }}
-            onFocus={(e) => {
-              e.target.style.border = '1px solid #d97706';
-              e.target.style.boxShadow = `
-                inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                0 0 0 2px rgba(217, 119, 6, 0.2),
-                0 1px 0 rgba(255, 255, 255, 0.1)
-              `;
-            }}
-            onBlur={(e) => {
-              e.target.style.border = '1px solid #333333';
-              e.target.style.boxShadow = `
-                inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                0 1px 0 rgba(255, 255, 255, 0.1)
-              `;
-            }}
+            placeholder="Enter ticker..."
           />
         </div>
         
