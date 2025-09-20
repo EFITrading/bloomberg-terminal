@@ -21,6 +21,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [zoomTransform, setZoomTransform] = useState<any>(null);
+  const [currentPrice, setCurrentPrice] = useState<number>(0);
   
   // Toggle states for chart visibility
   const [showCalls, setShowCalls] = useState<boolean>(true);
@@ -43,9 +44,26 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
         if (result.success && result.data) {
           const dates = Object.keys(result.data).sort();
           setExpirationDates(dates);
-          if (dates.length > 0 && !selectedExpiration) {
-            setSelectedExpiration(dates[0]);
+          
+          console.log('Available expiration dates:', dates);
+          console.log('Current selectedExpiration:', selectedExpiration);
+          console.log('API result data keys:', Object.keys(result.data));
+          
+          // Extract current price from API response
+          if (result.currentPrice) {
+            setCurrentPrice(result.currentPrice);
           }
+          
+          if (dates.length > 0) {
+            console.log('FORCING selectedExpiration to:', dates[0]);
+            // Use setTimeout to ensure state update happens
+            setTimeout(() => {
+              setSelectedExpiration(dates[0]);
+            }, 100);
+          }
+        } else {
+          console.error('API call failed or no data:', result);
+          setError('No data received from API');
         }
       } catch (err) {
         setError('Failed to fetch expiration dates');
@@ -60,7 +78,18 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
 
   // Fetch options data for selected expiration or all dates
   useEffect(() => {
-    if (!selectedTicker || (!selectedExpiration && !showAllDates)) return;
+    console.log('useEffect triggered - selectedTicker:', selectedTicker, 'selectedExpiration:', selectedExpiration, 'showAllDates:', showAllDates);
+    
+    if (!selectedTicker) {
+      console.log('No ticker selected, returning');
+      return;
+    }
+    
+    // If no expiration is selected and we're not showing all dates, return early
+    if (!selectedExpiration && !showAllDates) {
+      console.log('No expiration selected and not showing all dates, returning');
+      return;
+    }
 
     const fetchOptionsData = async () => {
       try {
@@ -76,6 +105,11 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
             const result = await response.json();
             
             if (result.success && result.data && result.data[expDate]) {
+              // Extract current price from API response
+              if (result.currentPrice) {
+                setCurrentPrice(result.currentPrice);
+              }
+              
               const expirationData = result.data[expDate];
               
               // Process calls for this expiration
@@ -136,8 +170,29 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
           const response = await fetch(`/api/options-chain?ticker=${selectedTicker}`);
           const result = await response.json();
           
-          if (result.success && result.data && result.data[selectedExpiration]) {
-            const expirationData = result.data[selectedExpiration];
+          if (result.success && result.data) {
+            console.log('API Response received, processing...');
+            console.log('Available expirations:', Object.keys(result.data));
+            console.log('Selected expiration:', selectedExpiration);
+            
+            // Use first available expiration if selected one doesn't exist
+            const availableExpirations = Object.keys(result.data);
+            const expirationToUse = availableExpirations.includes(selectedExpiration) 
+              ? selectedExpiration 
+              : availableExpirations[0];
+              
+            console.log('Using expiration:', expirationToUse);
+            
+            if (expirationToUse && result.data[expirationToUse]) {
+              console.log('Processing data for expiration:', expirationToUse);
+              console.log('Expiration data:', result.data[expirationToUse]);
+              
+              // Extract current price from API response
+              if (result.currentPrice) {
+                setCurrentPrice(result.currentPrice);
+              }
+              
+              const expirationData = result.data[expirationToUse];
             const chartData: OptionsData[] = [];
             const strikeMap = new Map<number, { call?: number; put?: number }>();
             
@@ -186,9 +241,15 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
             });
             
             setData(chartData.sort((a, b) => a.strike - b.strike || (a.type === 'call' ? -1 : 1)));
+            console.log('Chart data set:', chartData.length, 'items');
           } else {
+            console.log('No data found for expiration:', expirationToUse);
             setError('No options data available for this expiration');
           }
+        } else {
+          console.log('API call failed or no data');
+          setError('Failed to fetch options data');
+        }
         }
       } catch (err) {
         setError('Failed to fetch options data');
@@ -208,7 +269,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const margin = { top: 30, right: 180, bottom: 70, left: 80 };
+    const margin = { top: 30, right: 180, bottom: 80, left: 80 };
     const width = 1500 - margin.left - margin.right;
     const height = 750 - margin.top - margin.bottom;
 
@@ -292,14 +353,26 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
           .attr('height', (d: any) => height - newYScale(d.openInterest));
         
         // Update X-axis with visible strikes only
+        const maxVisibleLabels = 15;
+        const visibleTickInterval = Math.max(1, Math.ceil(visibleStrikes.length / maxVisibleLabels));
+        const filteredVisibleTicks = visibleStrikes.filter((_, index) => index % visibleTickInterval === 0);
+        
+        const customVisibleXAxis = d3.axisBottom(newXBandScale)
+          .tickValues(filteredVisibleTicks.map(s => s.toString()));
+        
         const xAxisUpdate = container.select('.x-axis') as d3.Selection<SVGGElement, unknown, null, undefined>;
-        xAxisUpdate.call(d3.axisBottom(newXBandScale) as any);
+        xAxisUpdate.call(customVisibleXAxis);
+        
+        // Calculate dynamic font size for visible ticks (larger sizes)
+        const visibleFontSize = Math.max(14, Math.min(18, 250 / filteredVisibleTicks.length));
         
         xAxisUpdate.selectAll('text')
           .style('fill', 'white')
-          .style('font-size', '12px')
-          .attr('transform', 'rotate(-45)')
-          .style('text-anchor', 'end');
+          .style('font-size', `${visibleFontSize}px`)
+          .attr('transform', 'rotate(-35)')
+          .style('text-anchor', 'end')
+          .attr('dx', '-0.5em')
+          .attr('dy', '0.5em');
         
         xAxisUpdate.selectAll('path, line')
           .style('stroke', 'white')
@@ -311,7 +384,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
         
         yAxisUpdate.selectAll('text')
           .style('fill', 'white')
-          .style('font-size', '12px');
+          .style('font-size', '14px');
         
         yAxisUpdate.selectAll('path, line')
           .style('stroke', 'white')
@@ -374,18 +447,33 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
         }).remove();
       });
 
-    // X-axis
+    // X-axis with intelligent tick filtering
+    const maxLabels = 15; // Maximum number of labels to show
+    const tickInterval = Math.max(1, Math.ceil(uniqueStrikes.length / maxLabels));
+    
+    // Create filtered tick values - show every nth strike
+    const filteredTicks = uniqueStrikes.filter((_, index) => index % tickInterval === 0);
+    
+    // Create custom axis with filtered ticks
+    const customXAxis = d3.axisBottom(xScale)
+      .tickValues(filteredTicks.map(s => s.toString()));
+    
     const xAxis = container
       .append('g')
       .attr('class', 'x-axis')
       .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(xScale));
+      .call(customXAxis);
+    
+    // Calculate dynamic font size based on number of visible ticks (larger sizes)
+    const fontSize = Math.max(14, Math.min(18, 250 / filteredTicks.length));
     
     xAxis.selectAll('text')
       .style('fill', '#ff9900')
-      .style('font-size', '12px')
-      .attr('transform', 'rotate(-45)')
-      .style('text-anchor', 'end');
+      .style('font-size', `${fontSize}px`)
+      .attr('transform', 'rotate(-35)')
+      .style('text-anchor', 'end')
+      .attr('dx', '-0.5em')
+      .attr('dy', '0.5em');
     
     xAxis.selectAll('path, line')
       .style('stroke', '#ff9900')
@@ -399,7 +487,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
     
     yAxis.selectAll('text')
       .style('fill', '#ff9900')
-      .style('font-size', '12px');
+      .style('font-size', '14px');
     
     yAxis.selectAll('path, line')
       .style('stroke', '#ff9900')
@@ -425,9 +513,8 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
       .style('font-size', '14px')
       .text('Strike Price ($)');
 
-    // Current Price Line (estimate from middle of strike range)
+    // Current Price Line - use real current price from API
     const strikes = uniqueStrikes;
-    const currentPrice = strikes.length > 0 ? (strikes[0] + strikes[strikes.length - 1]) / 2 : 0;
     
     if (currentPrice > 0) {
       // Find the position on the x-scale for the current price
@@ -565,7 +652,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
       svg.call(zoom.transform as any, zoomTransform);
     }
 
-  }, [data, showCalls, showPuts]);
+  }, [data, showCalls, showPuts, currentPrice]);
 
   return (
     <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace' }}>
@@ -732,7 +819,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
             ) : (
               expirationDates.map(date => (
                 <option key={date} value={date} style={{ background: '#000000', color: '#ffffff' }}>
-                  {new Date(date).toLocaleDateString()}
+                  {new Date(date + 'T00:00:00').toLocaleDateString()}
                 </option>
               ))
             )}
@@ -1082,7 +1169,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
             ⚠️ NO DATA AVAILABLE ⚠️
           </h3>
           <p style={{ fontWeight: 'bold' }}>
-            No open interest data found for {selectedTicker} on {new Date(selectedExpiration).toLocaleDateString()}
+            No open interest data found for {selectedTicker} on {new Date(selectedExpiration + 'T00:00:00').toLocaleDateString()}
           </p>
         </div>
       )}

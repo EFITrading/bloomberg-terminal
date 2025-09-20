@@ -148,68 +148,79 @@ export default function GEXChart({
           const response = await fetch(`/api/options-chain?ticker=${selectedTicker}`);
           const result = await response.json();
           
-          if (result.success && result.data && result.data[selectedExpiration]) {
-            const expirationData = result.data[selectedExpiration];
-            const chartData: GEXData[] = [];
-            const strikeMap = new Map<number, { callGEX?: number; putGEX?: number }>();
-            
-            // Get current spot price
-            const spotPrice = expirationData.underlying_price || 100; // fallback
-            
-            // Process calls
-            if (expirationData.calls) {
-              Object.entries(expirationData.calls).forEach(([strike, callData]: [string, any]) => {
-                const strikeNum = parseFloat(strike);
-                const openInterest = callData.open_interest || callData.openInterest || 0;
-                
-                if (openInterest > 0) {
-                  const gex = calculateGammaExposure(openInterest, strikeNum, spotPrice, 'call');
-                  
-                  if (!strikeMap.has(strikeNum)) {
-                    strikeMap.set(strikeNum, {});
-                  }
-                  strikeMap.get(strikeNum)!.callGEX = gex;
-                }
-              });
-            }
-            
-            // Process puts
-            if (expirationData.puts) {
-              Object.entries(expirationData.puts).forEach(([strike, putData]: [string, any]) => {
-                const strikeNum = parseFloat(strike);
-                const openInterest = putData.open_interest || putData.openInterest || 0;
-                
-                if (openInterest > 0) {
-                  const gex = calculateGammaExposure(openInterest, strikeNum, spotPrice, 'put');
-                  
-                  if (!strikeMap.has(strikeNum)) {
-                    strikeMap.set(strikeNum, {});
-                  }
-                  strikeMap.get(strikeNum)!.putGEX = gex;
-                }
-              });
-            }
-            
-            // Convert to chart data
-            strikeMap.forEach((data, strike) => {
-              const callGEX = data.callGEX || 0;
-              const putGEX = data.putGEX || 0;
+          if (result.success && result.data) {
+            // Use EXACT same logic as OpenInterest chart
+            const availableExpirations = Object.keys(result.data);
+            const expirationToUse = availableExpirations.includes(selectedExpiration) 
+              ? selectedExpiration 
+              : availableExpirations[0];
               
-              if (Math.abs(callGEX) > 0 || Math.abs(putGEX) > 0) {
-                chartData.push({
-                  strike,
-                  gammaExposure: callGEX,
-                  type: 'call'
-                });
-                chartData.push({
-                  strike,
-                  gammaExposure: putGEX,
-                  type: 'put'
+            if (expirationToUse && result.data[expirationToUse]) {
+              const expirationData = result.data[expirationToUse];
+              
+              const chartData: GEXData[] = [];
+              const strikeMap = new Map<number, { callGEX?: number; putGEX?: number }>();
+              
+              // Get current spot price - use same logic as OpenInterest chart
+              const spotPrice = result.currentPrice || expirationData.underlying_price || 100;
+              
+              // Process calls
+              if (expirationData.calls) {
+                Object.entries(expirationData.calls).forEach(([strike, callData]: [string, any]) => {
+                  const strikeNum = parseFloat(strike);
+                  const openInterest = callData.open_interest || callData.openInterest || 0;
+                  
+                  if (openInterest > 0) {
+                    const gex = calculateGammaExposure(openInterest, strikeNum, spotPrice, 'call');
+                    
+                    if (!strikeMap.has(strikeNum)) {
+                      strikeMap.set(strikeNum, {});
+                    }
+                    strikeMap.get(strikeNum)!.callGEX = gex;
+                  }
                 });
               }
-            });
-            
-            setData(chartData.sort((a, b) => a.strike - b.strike || (a.type === 'call' ? -1 : 1)));
+              
+              // Process puts
+              if (expirationData.puts) {
+                Object.entries(expirationData.puts).forEach(([strike, putData]: [string, any]) => {
+                  const strikeNum = parseFloat(strike);
+                  const openInterest = putData.open_interest || putData.openInterest || 0;
+                  
+                  if (openInterest > 0) {
+                    const gex = calculateGammaExposure(openInterest, strikeNum, spotPrice, 'put');
+                    
+                    if (!strikeMap.has(strikeNum)) {
+                      strikeMap.set(strikeNum, {});
+                    }
+                    strikeMap.get(strikeNum)!.putGEX = gex;
+                  }
+                });
+              }
+              
+              // Convert to chart data
+              strikeMap.forEach((data, strike) => {
+                const callGEX = data.callGEX || 0;
+                const putGEX = data.putGEX || 0;
+                
+                if (Math.abs(callGEX) > 0 || Math.abs(putGEX) > 0) {
+                  chartData.push({
+                    strike,
+                    gammaExposure: callGEX,
+                    type: 'call'
+                  });
+                  chartData.push({
+                    strike,
+                    gammaExposure: putGEX,
+                    type: 'put'
+                  });
+                }
+              });
+              
+              setData(chartData.sort((a, b) => a.strike - b.strike || (a.type === 'call' ? -1 : 1)));
+            } else {
+              setError('No options data available for GEX calculation');
+            }
           } else {
             setError('No options data available for GEX calculation');
           }
@@ -232,7 +243,7 @@ export default function GEXChart({
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const margin = { top: 30, right: 180, bottom: 70, left: 100 };
+    const margin = { top: 30, right: 180, bottom: 80, left: 100 };
     const width = 1500 - margin.left - margin.right;
     const height = 600 - margin.top - margin.bottom;
 
@@ -315,14 +326,26 @@ export default function GEXChart({
           .attr('height', (d: any) => Math.abs(newYScale(d.gammaExposure) - newYScale(0)));
         
         // Update X-axis with visible strikes only
+        const maxVisibleLabels = 15;
+        const visibleTickInterval = Math.max(1, Math.ceil(visibleStrikes.length / maxVisibleLabels));
+        const filteredVisibleTicks = visibleStrikes.filter((_, index) => index % visibleTickInterval === 0);
+        
+        const customVisibleXAxis = d3.axisBottom(newXBandScale)
+          .tickValues(filteredVisibleTicks.map(s => s.toString()));
+        
         const xAxisUpdate = container.select('.x-axis') as d3.Selection<SVGGElement, unknown, null, undefined>;
-        xAxisUpdate.call(d3.axisBottom(newXBandScale) as any);
+        xAxisUpdate.call(customVisibleXAxis);
+        
+        // Calculate dynamic font size for visible ticks (larger sizes)
+        const visibleFontSize = Math.max(14, Math.min(18, 250 / filteredVisibleTicks.length));
         
         xAxisUpdate.selectAll('text')
           .style('fill', 'white')
-          .style('font-size', '12px')
-          .attr('transform', 'rotate(-45)')
-          .style('text-anchor', 'end');
+          .style('font-size', `${visibleFontSize}px`)
+          .attr('transform', 'rotate(-35)')
+          .style('text-anchor', 'end')
+          .attr('dx', '-0.5em')
+          .attr('dy', '0.5em');
         
         xAxisUpdate.selectAll('path, line')
           .style('stroke', 'white')
@@ -341,7 +364,7 @@ export default function GEXChart({
         
         yAxisUpdate.selectAll('text')
           .style('fill', 'white')
-          .style('font-size', '12px');
+          .style('font-size', '14px');
         
         yAxisUpdate.selectAll('path, line')
           .style('stroke', 'white')
@@ -353,8 +376,18 @@ export default function GEXChart({
           .attr('y2', newYScale(0));
       });
 
-    // Create axes
-    const xAxis = d3.axisBottom(xScale);
+    // Create axes with intelligent tick filtering
+    const maxLabels = 15; // Maximum number of labels to show
+    const tickInterval = Math.max(1, Math.ceil(uniqueStrikes.length / maxLabels));
+    
+    // Create filtered tick values - show every nth strike
+    const filteredTicks = uniqueStrikes.filter((_, index) => index % tickInterval === 0);
+    
+    // Create custom axis with filtered ticks
+    const customXAxis = d3.axisBottom(xScale)
+      .tickValues(filteredTicks.map(s => s.toString()));
+    
+    const xAxis = customXAxis;
     const yAxis = d3.axisLeft(yScale)
       .tickFormat(d => {
         const val = Math.abs(Number(d));
@@ -365,6 +398,9 @@ export default function GEXChart({
       });
 
     // Add X axis
+    // Calculate dynamic font size based on number of visible ticks (larger sizes)
+    const fontSize = Math.max(14, Math.min(18, 250 / filteredTicks.length));
+    
     container
       .append('g')
       .attr('class', 'x-axis')
@@ -372,10 +408,12 @@ export default function GEXChart({
       .call(xAxis)
       .selectAll('text')
       .style('font-family', '"SF Mono", Consolas, monospace')
-      .style('font-size', '12px')
+      .style('font-size', `${fontSize}px`)
       .style('fill', '#ffffff')
-      .attr('transform', 'rotate(-45)')
-      .style('text-anchor', 'end');
+      .attr('transform', 'rotate(-35)')
+      .style('text-anchor', 'end')
+      .attr('dx', '-0.5em')
+      .attr('dy', '0.5em');
 
     // Add Y axis
     container
@@ -384,7 +422,7 @@ export default function GEXChart({
       .call(yAxis)
       .selectAll('text')
       .style('font-family', '"SF Mono", Consolas, monospace')
-      .style('font-size', '12px')
+      .style('font-size', '14px')
       .style('fill', '#ffffff');
 
     // Add zero line
