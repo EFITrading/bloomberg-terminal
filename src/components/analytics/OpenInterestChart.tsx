@@ -269,7 +269,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const margin = { top: 30, right: 180, bottom: 80, left: 80 };
+    const margin = { top: 60, right: 180, bottom: 80, left: 80 };
     const width = 1500 - margin.left - margin.right;
     const height = 750 - margin.top - margin.bottom;
 
@@ -389,6 +389,37 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
         yAxisUpdate.selectAll('path, line')
           .style('stroke', 'white')
           .style('stroke-width', '1px');
+        
+        // Update current price line position during zoom
+        if (currentPrice > 0) {
+          const currentPriceX = visibleStrikes.findIndex(strike => strike >= currentPrice);
+          let xPosition;
+          
+          if (currentPriceX === -1) {
+            // Price is above all visible strikes
+            xPosition = width;
+          } else if (currentPriceX === 0) {
+            // Price is below all visible strikes
+            xPosition = 0;
+          } else {
+            // Interpolate between strikes
+            const lowerStrike = visibleStrikes[currentPriceX - 1];
+            const upperStrike = visibleStrikes[currentPriceX];
+            const ratio = (currentPrice - lowerStrike) / (upperStrike - lowerStrike);
+            const lowerX = (newXBandScale(lowerStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+            const upperX = (newXBandScale(upperStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+            xPosition = lowerX + ratio * (upperX - lowerX);
+          }
+          
+          // Update the current price line position
+          container.select('.current-price-line')
+            .attr('x1', xPosition)
+            .attr('x2', xPosition);
+            
+          // Update the current price label position
+          container.select('.current-price-label')
+            .attr('x', xPosition);
+        }
       });
 
     // Filter data based on toggle states
@@ -493,11 +524,23 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
       .style('stroke', '#ff9900')
       .style('stroke-width', '1px');
 
+    // Chart title - positioned higher to avoid overlap with current price line
+    container
+      .append('text')
+      .attr('x', width / 2)
+      .attr('y', -35)
+      .style('text-anchor', 'middle')
+      .style('font-family', '"SF Pro Display", sans-serif')
+      .style('font-size', '16px')
+      .style('font-weight', '600')
+      .style('fill', '#ff9900')
+      .text('Open Interest (OI)');
+
     // Axis labels
     container
       .append('text')
       .attr('transform', 'rotate(-90)')
-      .attr('y', -50)
+      .attr('y', -70)
       .attr('x', 0 - (height / 2))
       .attr('dy', '1em')
       .style('text-anchor', 'middle')
@@ -540,6 +583,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
       // Draw vertical dotted line
       container
         .append('line')
+        .attr('class', 'current-price-line')
         .attr('x1', xPosition)
         .attr('x2', xPosition)
         .attr('y1', 0)
@@ -552,6 +596,7 @@ export default function OpenInterestChart({}: OpenInterestChartProps) {
       // Add text label above the line
       container
         .append('text')
+        .attr('class', 'current-price-label')
         .attr('x', xPosition)
         .attr('y', -10)
         .style('text-anchor', 'middle')

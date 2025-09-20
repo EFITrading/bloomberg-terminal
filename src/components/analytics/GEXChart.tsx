@@ -33,30 +33,42 @@ export default function GEXChart({
   const [data, setData] = useState<GEXData[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [zoomTransform, setZoomTransform] = useState<any>(null);
+  const [showNetGamma, setShowNetGamma] = useState<boolean>(true); // Default to NET view
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Helper function to calculate gamma exposure
+  /**
+   * Calculate Gamma Exposure (GEX) using real Polygon gamma data
+   * 
+   * Simple formula: GEX = Gamma × Open Interest × 100 × Spot²
+   * No bullshit, no dealer perspective flipping, just straight math
+   */
   const calculateGammaExposure = (
     openInterest: number, 
-    strike: number, 
     spot: number, 
-    contractType: 'call' | 'put'
+    polygonGamma?: number,
+    contractType: 'call' | 'put' = 'call'
   ): number => {
-    // Estimate gamma based on moneyness (distance from spot to strike)
-    const moneyness = strike / spot;
-    const timeToExpiry = 0.25; // Assume 3 months average for simplicity
-    const volatility = 0.3; // Assume 30% IV for simplicity
+    // Use Polygon's real gamma - if no gamma, return 0
+    if (!polygonGamma || isNaN(polygonGamma)) {
+      return 0;
+    }
+
+    // Use absolute value of gamma (gamma should always be positive)
+    const absGamma = Math.abs(polygonGamma);
     
-    // Simplified gamma estimation (real calculation would use Black-Scholes)
-    // Gamma is highest at-the-money and decreases as you move away
-    const distanceFromATM = Math.abs(moneyness - 1);
-    const estimatedGamma = Math.exp(-Math.pow(distanceFromATM * 3, 2)) * 0.01;
+    // GEX = Gamma × OI × 100 × Spot²
+    let gex = absGamma * openInterest * 100 * spot * spot;
     
-    // GEX = Open Interest * Gamma * Spot^2 * 100 (multiplier for scaling)
-    // For puts, we multiply by -1 to show negative gamma exposure
-    const gex = openInterest * estimatedGamma * Math.pow(spot, 2) * 100;
-    return contractType === 'put' ? -gex : gex;
+    // Apply dealer perspective signs:
+    // - Calls: Positive GEX (dealers short gamma)
+    // - Puts: Negative GEX (dealers short gamma)
+    if (contractType === 'put') {
+      gex = -gex;
+    }
+    
+    return gex;
   };
 
   // Fetch GEX data
@@ -89,7 +101,12 @@ export default function GEXChart({
                   const openInterest = callData.open_interest || callData.openInterest || 0;
                   
                   if (openInterest > 0) {
-                    const gex = calculateGammaExposure(openInterest, strikeNum, spotPrice, 'call');
+                    const gex = calculateGammaExposure(
+                      openInterest, 
+                      spotPrice, 
+                      callData.greeks?.gamma,
+                      'call'
+                    );
                     
                     if (!combinedStrikeMap.has(strikeNum)) {
                       combinedStrikeMap.set(strikeNum, {});
@@ -108,7 +125,12 @@ export default function GEXChart({
                   const openInterest = putData.open_interest || putData.openInterest || 0;
                   
                   if (openInterest > 0) {
-                    const gex = calculateGammaExposure(openInterest, strikeNum, spotPrice, 'put');
+                    const gex = calculateGammaExposure(
+                      openInterest, 
+                      spotPrice, 
+                      putData.greeks?.gamma,
+                      'put'
+                    );
                     
                     if (!combinedStrikeMap.has(strikeNum)) {
                       combinedStrikeMap.set(strikeNum, {});
@@ -129,16 +151,33 @@ export default function GEXChart({
             const putGEX = data.putGEX || 0;
             
             if (Math.abs(callGEX) > 0 || Math.abs(putGEX) > 0) {
-              chartData.push({
-                strike,
-                gammaExposure: callGEX,
-                type: 'call'
-              });
-              chartData.push({
-                strike,
-                gammaExposure: putGEX,
-                type: 'put'
-              });
+              if (showNetGamma) {
+                // Show NET gamma exposure (calls + puts)
+                const netGEX = callGEX + putGEX;
+                if (Math.abs(netGEX) > 0) {
+                  chartData.push({
+                    strike,
+                    gammaExposure: netGEX,
+                    type: netGEX >= 0 ? 'call' : 'put' // Color based on net direction
+                  });
+                }
+              } else {
+                // Show separate call and put bars
+                if (Math.abs(callGEX) > 0) {
+                  chartData.push({
+                    strike,
+                    gammaExposure: callGEX,
+                    type: 'call'
+                  });
+                }
+                if (Math.abs(putGEX) > 0) {
+                  chartData.push({
+                    strike,
+                    gammaExposure: putGEX,
+                    type: 'put'
+                  });
+                }
+              }
             }
           });
           
@@ -163,6 +202,7 @@ export default function GEXChart({
               
               // Get current spot price - use same logic as OpenInterest chart
               const spotPrice = result.currentPrice || expirationData.underlying_price || 100;
+              setCurrentPrice(spotPrice);
               
               // Process calls
               if (expirationData.calls) {
@@ -171,7 +211,12 @@ export default function GEXChart({
                   const openInterest = callData.open_interest || callData.openInterest || 0;
                   
                   if (openInterest > 0) {
-                    const gex = calculateGammaExposure(openInterest, strikeNum, spotPrice, 'call');
+                    const gex = calculateGammaExposure(
+                      openInterest, 
+                      spotPrice, 
+                      callData.greeks?.gamma,
+                      'call'
+                    );
                     
                     if (!strikeMap.has(strikeNum)) {
                       strikeMap.set(strikeNum, {});
@@ -188,7 +233,12 @@ export default function GEXChart({
                   const openInterest = putData.open_interest || putData.openInterest || 0;
                   
                   if (openInterest > 0) {
-                    const gex = calculateGammaExposure(openInterest, strikeNum, spotPrice, 'put');
+                    const gex = calculateGammaExposure(
+                      openInterest, 
+                      spotPrice, 
+                      putData.greeks?.gamma,
+                      'put'
+                    );
                     
                     if (!strikeMap.has(strikeNum)) {
                       strikeMap.set(strikeNum, {});
@@ -204,16 +254,33 @@ export default function GEXChart({
                 const putGEX = data.putGEX || 0;
                 
                 if (Math.abs(callGEX) > 0 || Math.abs(putGEX) > 0) {
-                  chartData.push({
-                    strike,
-                    gammaExposure: callGEX,
-                    type: 'call'
-                  });
-                  chartData.push({
-                    strike,
-                    gammaExposure: putGEX,
-                    type: 'put'
-                  });
+                  if (showNetGamma) {
+                    // Show NET gamma exposure (calls + puts)
+                    const netGEX = callGEX + putGEX;
+                    if (Math.abs(netGEX) > 0) {
+                      chartData.push({
+                        strike,
+                        gammaExposure: netGEX,
+                        type: netGEX >= 0 ? 'call' : 'put' // Color based on net direction
+                      });
+                    }
+                  } else {
+                    // Show separate call and put bars
+                    if (Math.abs(callGEX) > 0) {
+                      chartData.push({
+                        strike,
+                        gammaExposure: callGEX,
+                        type: 'call'
+                      });
+                    }
+                    if (Math.abs(putGEX) > 0) {
+                      chartData.push({
+                        strike,
+                        gammaExposure: putGEX,
+                        type: 'put'
+                      });
+                    }
+                  }
                 }
               });
               
@@ -234,7 +301,7 @@ export default function GEXChart({
     };
 
     fetchGEXData();
-  }, [selectedTicker, selectedExpiration, showAllDates, expirationDates]);
+  }, [selectedTicker, selectedExpiration, showAllDates, expirationDates, showNetGamma]);
 
   // D3 Chart rendering
   useEffect(() => {
@@ -243,7 +310,7 @@ export default function GEXChart({
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const margin = { top: 30, right: 180, bottom: 80, left: 100 };
+    const margin = { top: 60, right: 180, bottom: 80, left: 100 };
     const width = 1500 - margin.left - margin.right;
     const height = 600 - margin.top - margin.bottom;
 
@@ -259,13 +326,6 @@ export default function GEXChart({
       .domain(uniqueStrikes.map(s => s.toString()))
       .range([0, width])
       .padding(0.2);
-
-    // Sub-scale for call/put positioning within each strike
-    const xSubScale = d3
-      .scaleBand()
-      .domain(['call', 'put'])
-      .range([0, xScale.bandwidth()])
-      .padding(0.1);
 
     // Y scale for gamma exposure (positive and negative)
     const maxGEX = d3.max(data, d => Math.abs(d.gammaExposure)) || 1;
@@ -307,22 +367,15 @@ export default function GEXChart({
           .range([0, width])
           .padding(0.2);
         
-        const newXSubScale = d3.scaleBand()
-          .domain(['call', 'put'])
-          .range([0, newXBandScale.bandwidth()])
-          .padding(0.1);
-        
-        // Update bars with new scales
+        // Update bars with new scales - centered on each strike
         container.selectAll('.gex-bar')
           .style('display', (d: any) => visibleStrikes.includes(d.strike) ? 'block' : 'none')
           .attr('x', (d: any) => {
             if (!visibleStrikes.includes(d.strike)) return -1000; // Hide off-screen bars
-            const baseX = newXBandScale(d.strike.toString()) || 0;
-            const subX = newXSubScale(d.type) || 0;
-            return baseX + subX;
+            return newXBandScale(d.strike.toString()) || 0;
           })
           .attr('y', (d: any) => d.gammaExposure >= 0 ? newYScale(d.gammaExposure) : newYScale(0))
-          .attr('width', newXSubScale.bandwidth())
+          .attr('width', newXBandScale.bandwidth())
           .attr('height', (d: any) => Math.abs(newYScale(d.gammaExposure) - newYScale(0)));
         
         // Update X-axis with visible strikes only
@@ -374,6 +427,37 @@ export default function GEXChart({
         container.select('.zero-line')
           .attr('y1', newYScale(0))
           .attr('y2', newYScale(0));
+          
+        // Update current price line position to stay anchored at actual price
+        if (currentPrice > 0) {
+          const currentPriceX = visibleStrikes.findIndex(strike => strike >= currentPrice);
+          let xPosition: number;
+          
+          if (currentPriceX === -1) {
+            // Current price is above all visible strikes
+            xPosition = (newXBandScale(visibleStrikes[visibleStrikes.length - 1].toString()) || 0) + newXBandScale.bandwidth() / 2;
+          } else if (currentPriceX === 0) {
+            // Current price is below the first visible strike  
+            xPosition = (newXBandScale(visibleStrikes[0].toString()) || 0) + newXBandScale.bandwidth() / 2;
+          } else {
+            // Interpolate between strikes
+            const lowerStrike = visibleStrikes[currentPriceX - 1];
+            const upperStrike = visibleStrikes[currentPriceX];
+            const ratio = (currentPrice - lowerStrike) / (upperStrike - lowerStrike);
+            const lowerX = (newXBandScale(lowerStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+            const upperX = (newXBandScale(upperStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+            xPosition = lowerX + ratio * (upperX - lowerX);
+          }
+          
+          // Update the current price line position
+          container.select('.current-price-line')
+            .attr('x1', xPosition)
+            .attr('x2', xPosition);
+            
+          // Update the current price label position
+          container.select('.current-price-label')
+            .attr('x', xPosition);
+        }
       });
 
     // Create axes with intelligent tick filtering
@@ -444,38 +528,36 @@ export default function GEXChart({
       return true;
     });
 
-    // Add bars with enhanced styling
+    // Add bars with enhanced styling - centered on each strike
     container
       .selectAll('.gex-bar')
       .data(filteredData)
       .enter()
       .append('rect')
       .attr('class', 'gex-bar')
-      .attr('x', d => (xScale(d.strike.toString()) || 0) + (xSubScale(d.type) || 0))
+      .attr('x', d => (xScale(d.strike.toString()) || 0))
       .attr('y', d => d.gammaExposure >= 0 ? yScale(d.gammaExposure) : yScale(0))
-      .attr('width', xSubScale.bandwidth())
+      .attr('width', xScale.bandwidth())
       .attr('height', d => Math.abs(yScale(d.gammaExposure) - yScale(0)))
       .style('fill', d => {
         if (d.gammaExposure > 0) {
-          return '#8b5cf6'; // Bright purple for positive gamma
+          return '#a855f7'; // Brighter, more vibrant purple for positive gamma
         } else {
-          return '#d97706'; // Orange for negative gamma
+          return '#f59e0b'; // Brighter, more vibrant orange for negative gamma
         }
       })
       .style('stroke', d => {
         if (d.gammaExposure > 0) {
-          return '#7c3aed'; // Darker purple border
+          return '#9333ea'; // Bright purple border
         } else {
-          return '#b45309'; // Darker orange border
+          return '#d97706'; // Bright orange border
         }
       })
       .style('stroke-width', 1)
-      .style('opacity', 0.95)
-      .style('filter', 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3))')
+      .style('opacity', 1.0)
       .on('mouseover', function(event, d) {
         d3.select(this)
-          .style('opacity', 1)
-          .style('filter', 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5))')
+          .style('opacity', 1.0)
           .style('stroke-width', 2);
         
         // Show enhanced tooltip
@@ -522,23 +604,70 @@ export default function GEXChart({
       })
       .on('mouseout', function() {
         d3.select(this)
-          .style('opacity', 0.85)
-          .style('filter', 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3))')
+          .style('opacity', 1.0)
           .style('stroke-width', 1);
         d3.selectAll('.gex-tooltip').remove();
       });
 
-    // Add chart title
+    // Add current price vertical line (same logic as OpenInterest chart)
+    if (currentPrice > 0) {
+      const strikes = uniqueStrikes;
+      const currentPriceX = strikes.findIndex(strike => strike >= currentPrice);
+      let xPosition: number;
+      
+      if (currentPriceX === -1) {
+        // Current price is above all strikes
+        xPosition = (xScale(strikes[strikes.length - 1].toString()) || 0) + xScale.bandwidth() / 2;
+      } else if (currentPriceX === 0) {
+        // Current price is below the first strike
+        xPosition = (xScale(strikes[0].toString()) || 0) + xScale.bandwidth() / 2;
+      } else {
+        // Interpolate between strikes
+        const lowerStrike = strikes[currentPriceX - 1];
+        const upperStrike = strikes[currentPriceX];
+        const ratio = (currentPrice - lowerStrike) / (upperStrike - lowerStrike);
+        const lowerX = (xScale(lowerStrike.toString()) || 0) + xScale.bandwidth() / 2;
+        const upperX = (xScale(upperStrike.toString()) || 0) + xScale.bandwidth() / 2;
+        xPosition = lowerX + ratio * (upperX - lowerX);
+      }
+
+      // Draw vertical dotted line
+      container
+        .append('line')
+        .attr('class', 'current-price-line')
+        .attr('x1', xPosition)
+        .attr('x2', xPosition)
+        .attr('y1', 0)
+        .attr('y2', height)
+        .style('stroke', '#ff9900')
+        .style('stroke-width', 2)
+        .style('stroke-dasharray', '5,5')
+        .style('opacity', 0.8);
+
+      // Add text label above the line
+      container
+        .append('text')
+        .attr('class', 'current-price-label')
+        .attr('x', xPosition)
+        .attr('y', -10)
+        .style('text-anchor', 'middle')
+        .style('fill', '#ff9900')
+        .style('font-size', '12px')
+        .style('font-weight', 'bold')
+        .text(`Current Price: $${currentPrice.toFixed(2)}`);
+    }
+
+    // Add chart title - positioned higher to avoid overlap with current price line
     container
       .append('text')
       .attr('x', width / 2)
-      .attr('y', -10)
+      .attr('y', -35)
       .style('text-anchor', 'middle')
       .style('font-family', '"SF Pro Display", sans-serif')
       .style('font-size', '16px')
       .style('font-weight', '600')
       .style('fill', '#ffffff')
-      .text(`Gamma Exposure (GEX) - ${selectedTicker} ${showAllDates ? 'All Dates' : new Date(selectedExpiration).toLocaleDateString()}`);
+      .text(`Gamma Exposure (GEX)`);
 
     // Add Y axis label
     container
@@ -738,6 +867,32 @@ export default function GEXChart({
           {/* Click overlays for GEX legend items */}
           {data.length > 0 && (
             <>
+              {/* Net/Separate Gamma toggle - positioned above existing toggles */}
+              <div
+                onClick={() => setShowNetGamma(!showNetGamma)}
+                style={{
+                  position: 'absolute',
+                  top: '30px', // Above existing toggles
+                  right: '50px',
+                  width: '160px',
+                  height: '20px',
+                  cursor: 'pointer',
+                  backgroundColor: 'transparent',
+                  zIndex: 10,
+                  border: '1px solid #666666',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  color: '#ff9900',
+                  fontFamily: '"Roboto Mono", monospace'
+                }}
+                title={`Click to switch to ${showNetGamma ? 'Separate' : 'Net'} view`}
+              >
+                {showNetGamma ? 'NET GAMMA' : 'SEPARATE'}
+              </div>
+              
               {/* Positive Gamma legend click area - covers checkbox AND full text */}
               <div
                 onClick={() => setShowPositiveGamma(!showPositiveGamma)}
