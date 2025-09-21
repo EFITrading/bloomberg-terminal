@@ -323,16 +323,8 @@ const CHART_TYPES = [...MAIN_CHART_TYPES, ...DROPDOWN_CHART_TYPES];
 
 // Technical Indicators
 const INDICATORS = [
-  { label: 'SMA 20', value: 'sma20', category: 'trend' },
-  { label: 'SMA 50', value: 'sma50', category: 'trend' },
-  { label: 'EMA 12', value: 'ema12', category: 'trend' },
-  { label: 'EMA 26', value: 'ema26', category: 'trend' },
-  { label: 'RSI', value: 'rsi', category: 'momentum' },
-  { label: 'MACD', value: 'macd', category: 'momentum' },
-  { label: 'Bollinger Bands', value: 'bollinger', category: 'volatility' },
-  { label: 'Stochastic', value: 'stoch', category: 'momentum' },
-  { label: 'Williams %R', value: 'williams', category: 'momentum' },
-  { label: 'ATR', value: 'atr', category: 'volatility' }
+  { label: 'Flow Algo', value: 'flowalgo', category: 'flow' },
+  { label: 'GEX', value: 'gex', category: 'gamma' }
 ];
 
 // ✨ TradingView-Style Drawing Properties Panel Component
@@ -811,6 +803,441 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
   );
 };
 
+// Black-Scholes Mathematical Functions for Expected Range Calculations
+// Normal cumulative distribution function
+const normalCDF = (x: number): number => {
+  return 0.5 * (1 + erf(x / Math.sqrt(2)));
+};
+
+// Error function approximation (Abramowitz and Stegun)
+const erf = (x: number): number => {
+  const a1 =  0.254829592;
+  const a2 = -0.284496736;
+  const a3 =  1.421413741;
+  const a4 = -1.453152027;
+  const a5 =  1.061405429;
+  const p  =  0.3275911;
+
+  const sign = x >= 0 ? 1 : -1;
+  x = Math.abs(x);
+
+  const t = 1.0 / (1.0 + p * x);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+  return sign * y;
+};
+
+// Calculate d2 parameter for Black-Scholes model
+const calculateD2 = (currentPrice: number, strikePrice: number, riskFreeRate: number, volatility: number, timeToExpiry: number): number => {
+  const d1 = (Math.log(currentPrice / strikePrice) + (riskFreeRate + 0.5 * volatility * volatility) * timeToExpiry) / (volatility * Math.sqrt(timeToExpiry));
+  return d1 - volatility * Math.sqrt(timeToExpiry);
+};
+
+// Calculate chance of profit for selling a call option
+const chanceOfProfitSellCall = (currentPrice: number, strikePrice: number, riskFreeRate: number, volatility: number, timeToExpiry: number): number => {
+  const d2 = calculateD2(currentPrice, strikePrice, riskFreeRate, volatility, timeToExpiry);
+  return (1 - normalCDF(d2)) * 100; // Probability stock stays BELOW strike for call sellers to profit
+};
+
+// Calculate chance of profit for selling a put option - FIXED AI Suite logic
+const chanceOfProfitSellPut = (currentPrice: number, strikePrice: number, riskFreeRate: number, volatility: number, timeToExpiry: number): number => {
+  const d2 = calculateD2(currentPrice, strikePrice, riskFreeRate, volatility, timeToExpiry);
+  return normalCDF(d2) * 100; // FIXED: Should be d2 for chance stock stays ABOVE strike
+};
+
+// Find strike price for target probability using binary search - EXACT AI Suite logic
+const findStrikeForProbability = (S: number, r: number, sigma: number, T: number, targetProb: number, isCall: boolean): number => {
+  console.log(`Finding strike for ${targetProb}% ${isCall ? 'call' : 'put'} - Stock: $${S}, IV: ${(sigma*100).toFixed(1)}%, T: ${T.toFixed(4)}`);
+  
+  if (isCall) {
+    // For selling calls: Use binary search for efficiency
+    let low = S + 0.01; // Start just above stock price
+    let high = S * 1.50; // Search up to 50% above stock price
+    
+    for (let i = 0; i < 50; i++) {
+      const mid = (low + high) / 2;
+      const prob = chanceOfProfitSellCall(S, mid, r, sigma, T);
+      console.log(`Iteration ${i}: Strike $${mid.toFixed(2)} -> ${prob.toFixed(2)}% (target: ${targetProb}%)`);
+      
+      if (Math.abs(prob - targetProb) < 0.1) {
+        console.log(`Found call strike: $${mid.toFixed(2)} gives ${prob.toFixed(2)}% probability`);
+        return mid; // Return exact strike
+      }
+      
+      if (prob < targetProb) {
+        low = mid; // Need higher strike
+      } else {
+        high = mid; // Need lower strike
+      }
+    }
+    const result = (low + high) / 2;
+    console.log(`Call search converged: $${result.toFixed(2)}`);
+    return result;
+  } else {
+    // For puts: Use binary search for efficiency
+    let low = S * 0.50; // Search down to 50% below stock price
+    let high = S - 0.01; // Start just below stock price
+    
+    for (let i = 0; i < 50; i++) {
+      const mid = (low + high) / 2;
+      const prob = chanceOfProfitSellPut(S, mid, r, sigma, T);
+      console.log(`Iteration ${i}: Strike $${mid.toFixed(2)} -> ${prob.toFixed(2)}% (target: ${targetProb}%)`);
+      
+      if (Math.abs(prob - targetProb) < 0.1) {
+        console.log(`Found put strike: $${mid.toFixed(2)} gives ${prob.toFixed(2)}% probability`);
+        return mid; // Return exact strike
+      }
+      
+      if (prob < targetProb) {
+        high = mid; // Need lower strike
+      } else {
+        low = mid; // Need higher strike
+      }
+    }
+    const result = (low + high) / 2;
+    console.log(`Put search converged: $${result.toFixed(2)}`);
+    return result;
+  }
+};
+
+// Polygon API Integration for Expected Range Calculations
+const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+const riskFreeRate = 0.0408; // 4.08% risk-free rate
+
+// Black-Scholes price calculation
+const calculateBlackScholesPrice = (S: number, K: number, r: number, sigma: number, T: number, isCall: boolean): number => {
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+  const d2 = d1 - sigma * Math.sqrt(T);
+  
+  if (isCall) {
+    return S * normalCDF(d1) - K * Math.exp(-r * T) * normalCDF(d2);
+  } else {
+    return K * Math.exp(-r * T) * normalCDF(-d2) - S * normalCDF(-d1);
+  }
+};
+
+// Vega calculation for IV estimation
+const calculateVega = (S: number, K: number, r: number, sigma: number, T: number): number => {
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+  return S * Math.sqrt(T) * (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1);
+};
+
+// Simple IV estimation function using Newton-Raphson method
+const estimateIVFromPrice = (S: number, K: number, optionPrice: number, r: number, T: number, isCall: boolean): number => {
+  let iv = 0.20; // starting guess
+  
+  for (let i = 0; i < 50; i++) {
+    const theoreticalPrice = calculateBlackScholesPrice(S, K, r, iv, T, isCall);
+    const vega = calculateVega(S, K, r, iv, T);
+    
+    if (Math.abs(vega) < 0.0001) break;
+    
+    const diff = theoreticalPrice - optionPrice;
+    iv = iv - diff / vega;
+    
+    if (Math.abs(diff) < 0.01) break;
+    if (iv <= 0) iv = 0.01;
+    if (iv >= 3) iv = 3;
+  }
+  
+  return Math.max(0.05, Math.min(2.0, iv)); // Clamp between 5% and 200%
+};
+
+// Calculate IV from options chain using real bid/ask data
+const calculateIVFromOptionsChain = async (optionsResults: any[], price: number, timeToExpiry: number, label: string): Promise<number> => {
+  console.log(`${label} - Total options found:`, optionsResults.length);
+  console.log(`${label} - Current stock price:`, price);
+  
+  // Get ATM options for IV calculation - within 5% of current price
+  const atmOptions = optionsResults.filter((opt: any) => {
+    const strike = parseFloat(opt.strike_price);
+    const percentDiff = Math.abs(strike - price) / price;
+    return percentDiff < 0.05;
+  });
+
+  if (atmOptions.length === 0) {
+    throw new Error(`No ATM options found for ${label} within 5% range`);
+  }
+
+  // Find the CLOSEST strike to current price
+  const closestOption = atmOptions.reduce((closest, current) => {
+    const closestDiff = Math.abs(parseFloat(closest.strike_price) - price);
+    const currentDiff = Math.abs(parseFloat(current.strike_price) - price);
+    return currentDiff < closestDiff ? current : closest;
+  });
+
+  // Get real bid/ask quotes
+  const contractTicker = closestOption.ticker;
+  const quotesResponse = await fetch(
+    `https://api.polygon.io/v3/quotes/${contractTicker}?limit=1&apikey=${POLYGON_API_KEY}`
+  );
+
+  if (!quotesResponse.ok) {
+    throw new Error(`Failed to fetch ${label} options quotes: ${quotesResponse.status}`);
+  }
+
+  const quotesData = await quotesResponse.json();
+  
+  if (!quotesData.results || quotesData.results.length === 0) {
+    throw new Error(`No ${label} options quotes available for ${contractTicker}`);
+  }
+
+  const quote = quotesData.results[0];
+  
+  if (!quote.bid_price || !quote.ask_price || quote.bid_price <= 0 || quote.ask_price <= 0) {
+    throw new Error(`Invalid ${label} options quote data for ${contractTicker}`);
+  }
+
+  const midPrice = (quote.bid_price + quote.ask_price) / 2;
+  
+  if (midPrice <= 0) {
+    throw new Error(`Invalid ${label} mid price for ${contractTicker}`);
+  }
+
+  // Calculate IV from real market price
+  const calculatedIV = estimateIVFromPrice(price, parseFloat(closestOption.strike_price), midPrice, riskFreeRate, timeToExpiry, closestOption.contract_type === 'call');
+  
+  if (!calculatedIV || calculatedIV <= 0) {
+    throw new Error(`Failed to calculate valid IV from ${label} market data`);
+  }
+
+  return calculatedIV;
+};
+
+// Fetch market data for Expected Range calculations
+const fetchMarketDataForExpectedRange = async (symbol: string) => {
+  try {
+    // Get current stock price
+    const stockResponse = await fetch(
+      `https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`
+    );
+
+    if (!stockResponse.ok) {
+      throw new Error(`Failed to fetch stock data: ${stockResponse.status}`);
+    }
+
+    const stockData = await stockResponse.json();
+    const currentPrice = stockData.results.p; // Correct property is 'p' not 'price'
+    
+    console.log(`Current ${symbol} price: $${currentPrice}`);
+
+    // Calculate 5% range for API filtering - EXACT same logic as AI Suite
+    const lowerBound = currentPrice * 0.95;
+    const upperBound = currentPrice * 1.05;
+    console.log(`Looking for strikes between $${lowerBound.toFixed(2)} and $${upperBound.toFixed(2)}`);
+
+    // Use correct weekly expiration (Sept 26th) and monthly (October 17th)
+    const weeklyExpiryDate = '2025-09-26'; // September 26, 2025 (this Friday)
+    const monthlyExpiryDate = '2025-10-17'; // October 17, 2025
+
+    // Calculate days to expiry
+    const today = new Date();
+    const weeklyExpiry = new Date(weeklyExpiryDate);
+    const monthlyExpiry = new Date(monthlyExpiryDate);
+    
+    const weeklyDTE = Math.max(1, Math.ceil((weeklyExpiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+    const monthlyDTE = Math.max(1, Math.ceil((monthlyExpiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+
+    // Fetch options chains with API-level strike filtering (EXACT same as AI Suite)
+    const weeklyOptionsResponse = await fetch(
+      `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${weeklyExpiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=200&apikey=${POLYGON_API_KEY}`
+    );
+    
+    const monthlyOptionsResponse = await fetch(
+      `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${monthlyExpiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=200&apikey=${POLYGON_API_KEY}`
+    );
+
+    if (!weeklyOptionsResponse.ok || !monthlyOptionsResponse.ok) {
+      throw new Error('Failed to fetch options chains');
+    }
+
+    const [weeklyOptionsData, monthlyOptionsData] = await Promise.all([
+      weeklyOptionsResponse.json(),
+      monthlyOptionsResponse.json()
+    ]);
+
+    if (!weeklyOptionsData.results || weeklyOptionsData.results.length === 0) {
+      throw new Error(`No weekly options data available for ${symbol} on ${weeklyExpiryDate}`);
+    }
+    
+    if (!monthlyOptionsData.results || monthlyOptionsData.results.length === 0) {
+      throw new Error(`No monthly options data available for ${symbol} on ${monthlyExpiryDate}`);
+    }
+
+    // Calculate IVs from real market data
+    const weeklyTimeToExpiry = weeklyDTE / 365;
+    const monthlyTimeToExpiry = monthlyDTE / 365;
+
+    const weeklyIV = await calculateIVFromOptionsChain(weeklyOptionsData.results, currentPrice, weeklyTimeToExpiry, 'Weekly');
+    const monthlyIV = await calculateIVFromOptionsChain(monthlyOptionsData.results, currentPrice, monthlyTimeToExpiry, 'Monthly');
+
+    return {
+      currentPrice,
+      weeklyIV,
+      monthlyIV,
+      weeklyDTE,
+      monthlyDTE,
+      weeklyTimeToExpiry,
+      monthlyTimeToExpiry
+    };
+  } catch (error) {
+    console.error('Error fetching market data for Expected Range:', error);
+    throw error;
+  }
+};
+
+// Calculate Expected Range Levels (8 horizontal lines) - EXACT AI Suite logic
+const calculateExpectedRangeLevels = async (symbol: string) => {
+  try {
+    const marketData = await fetchMarketDataForExpectedRange(symbol);
+    const { currentPrice, weeklyIV, monthlyIV, weeklyTimeToExpiry, monthlyTimeToExpiry } = marketData;
+
+    console.log(`🎯 Expected Range Calculation for ${symbol}:`);
+    console.log(`Current Price: $${currentPrice}`);
+    console.log(`Weekly IV: ${(weeklyIV * 100).toFixed(2)}%, Time: ${weeklyTimeToExpiry.toFixed(4)} years`);
+    console.log(`Monthly IV: ${(monthlyIV * 100).toFixed(2)}%, Time: ${monthlyTimeToExpiry.toFixed(4)} years`);
+
+    // Calculate the 8 strike prices for chart lines - EXACT same function calls as AI Suite
+    const levels = {
+      weekly80Call: findStrikeForProbability(currentPrice, riskFreeRate, weeklyIV, weeklyTimeToExpiry, 80, true),
+      weekly90Call: findStrikeForProbability(currentPrice, riskFreeRate, weeklyIV, weeklyTimeToExpiry, 90, true),
+      weekly80Put: findStrikeForProbability(currentPrice, riskFreeRate, weeklyIV, weeklyTimeToExpiry, 80, false),
+      weekly90Put: findStrikeForProbability(currentPrice, riskFreeRate, weeklyIV, weeklyTimeToExpiry, 90, false),
+      monthly80Call: findStrikeForProbability(currentPrice, riskFreeRate, monthlyIV, monthlyTimeToExpiry, 80, true),
+      monthly90Call: findStrikeForProbability(currentPrice, riskFreeRate, monthlyIV, monthlyTimeToExpiry, 90, true),
+      monthly80Put: findStrikeForProbability(currentPrice, riskFreeRate, monthlyIV, monthlyTimeToExpiry, 80, false),
+      monthly90Put: findStrikeForProbability(currentPrice, riskFreeRate, monthlyIV, monthlyTimeToExpiry, 90, false)
+    };
+
+    console.log(`📊 Expected Range Results:`);
+    console.log(`Weekly 80% Call: $${levels.weekly80Call.toFixed(2)}`);
+    console.log(`Weekly 90% Call: $${levels.weekly90Call.toFixed(2)}`);
+    console.log(`Weekly 80% Put: $${levels.weekly80Put.toFixed(2)}`);
+    console.log(`Weekly 90% Put: $${levels.weekly90Put.toFixed(2)}`);
+    console.log(`Monthly 80% Call: $${levels.monthly80Call.toFixed(2)}`);
+    console.log(`Monthly 90% Call: $${levels.monthly90Call.toFixed(2)}`);
+    console.log(`Monthly 80% Put: $${levels.monthly80Put.toFixed(2)}`);
+    console.log(`Monthly 90% Put: $${levels.monthly90Put.toFixed(2)}`);
+
+    return {
+      levels,
+      marketData
+    };
+  } catch (error) {
+    console.error('Error calculating Expected Range levels:', error);
+    return null;
+  }
+};
+
+// Render Expected Range Lines on Chart
+const renderExpectedRangeLines = (
+  ctx: CanvasRenderingContext2D,
+  chartWidth: number,
+  chartHeight: number,
+  minPrice: number,
+  maxPrice: number,
+  levels: any,
+  visibleData?: any[],
+  visibleCandleCount?: number
+) => {
+  console.log('🎨 Rendering Expected Range Lines...');
+  console.log(`Chart price range: $${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`);
+  console.log('Expected Range levels:', levels);
+  
+  const priceRange = maxPrice - minPrice;
+  
+  // Calculate where the last candle is positioned
+  let lastCandleX = chartWidth - 100; // Default fallback
+  if (visibleData && visibleCandleCount) {
+    const candleSpacing = chartWidth / visibleCandleCount;
+    const candleWidth = Math.max(2, chartWidth / visibleCandleCount * 0.8);
+    const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1);
+    lastCandleX = 40 + (lastVisibleIndex * candleSpacing) + (candleSpacing - candleWidth) / 2 + candleWidth;
+  }
+  
+  console.log(`Last candle position: x=${lastCandleX.toFixed(1)}`);
+  
+  // Define colors for the 8 lines
+  const colors = {
+    weekly80Call: '#00FF00',   // Green for weekly 80% call
+    weekly90Call: '#32CD32',   // Light green for weekly 90% call
+    weekly80Put: '#FF0000',    // Red for weekly 80% put
+    weekly90Put: '#FF6347',    // Light red for weekly 90% put
+    monthly80Call: '#0000FF',  // Blue for monthly 80% call
+    monthly90Call: '#4169E1',  // Light blue for monthly 90% call
+    monthly80Put: '#800080',   // Purple for monthly 80% put
+    monthly90Put: '#9370DB'    // Light purple for monthly 90% put
+  };
+
+  // Function to convert price to Y coordinate
+  const priceToY = (price: number): number => {
+    return chartHeight - ((price - minPrice) / priceRange) * chartHeight;
+  };
+
+  // Draw horizontal lines for each level
+  const linesToDraw = [
+    { price: levels.weekly80Call, color: colors.weekly80Call, label: 'W80C' },
+    { price: levels.weekly90Call, color: colors.weekly90Call, label: 'W90C' },
+    { price: levels.weekly80Put, color: colors.weekly80Put, label: 'W80P' },
+    { price: levels.weekly90Put, color: colors.weekly90Put, label: 'W90P' },
+    { price: levels.monthly80Call, color: colors.monthly80Call, label: 'M80C' },
+    { price: levels.monthly90Call, color: colors.monthly90Call, label: 'M90C' },
+    { price: levels.monthly80Put, color: colors.monthly80Put, label: 'M80P' },
+    { price: levels.monthly90Put, color: colors.monthly90Put, label: 'M90P' }
+  ];
+
+  ctx.lineWidth = 3; // Make lines thicker and more visible
+  ctx.font = 'bold 12px Arial';
+  
+  let linesDrawn = 0;
+  
+  linesToDraw.forEach(line => {
+    console.log(`Drawing line: ${line.label} at $${line.price.toFixed(2)} (range: $${minPrice.toFixed(2)}-$${maxPrice.toFixed(2)})`);
+    
+    // Draw lines even if slightly outside range, but extend the range if needed
+    const y = priceToY(line.price);
+    
+    // Only skip if way outside the chart bounds
+    if (y >= -50 && y <= chartHeight + 50) {
+      // Draw horizontal line from last candle extending to the right
+      // First draw a shadow line for better visibility
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.lineWidth = 6;
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(lastCandleX, y + 1); // Slightly offset shadow
+      ctx.lineTo(chartWidth - 100, y + 1);
+      ctx.stroke();
+      
+      // Then draw the main colored line
+      ctx.strokeStyle = line.color;
+      ctx.lineWidth = 4; // Make lines even thicker
+      ctx.globalAlpha = 1.0; // Ensure full opacity
+      ctx.setLineDash([]); // Solid line for maximum visibility
+      ctx.beginPath();
+      ctx.moveTo(lastCandleX, y); // Start from last candle position
+      ctx.lineTo(chartWidth - 100, y); // Extend to right edge (before price axis)
+      ctx.stroke();
+      
+      // Draw price label on the right with background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; // Darker background for text
+      ctx.fillRect(chartWidth - 95, y - 15, 90, 20);
+      
+      ctx.fillStyle = line.color;
+      ctx.font = 'bold 14px Arial'; // Larger font
+      ctx.fillText(`${line.label}: $${line.price.toFixed(2)}`, chartWidth - 90, y - 2);
+      
+      linesDrawn++;
+      console.log(`✅ Drew line: ${line.label} at Y=${y.toFixed(1)}`);
+    } else {
+      console.log(`❌ Skipped line: ${line.label} - Y=${y.toFixed(1)} outside bounds`);
+    }
+  });
+  
+  console.log(`📊 Drew ${linesDrawn} out of ${linesToDraw.length} Expected Range lines`);
+};
+
 interface TradingViewChartProps {
   symbol: string;
   initialTimeframe?: string;
@@ -935,6 +1362,11 @@ export default function TradingViewChart({
   const [regimeUpdateProgress, setRegimeUpdateProgress] = useState<number>(0);
   const [regimeLoadingStage, setRegimeLoadingStage] = useState<string>('');
   const [selectedIndustry, setSelectedIndustry] = useState<IndustryPerformance | null>(null);
+
+  // Expected Range state for probability levels
+  const [expectedRangeLevels, setExpectedRangeLevels] = useState<any>(null);
+  const [isLoadingExpectedRange, setIsLoadingExpectedRange] = useState(false);
+  const [isExpectedRangeActive, setIsExpectedRangeActive] = useState(false);
 
   // Watchlist data state
   const [watchlistData, setWatchlistData] = useState<{[key: string]: {
@@ -1153,6 +1585,14 @@ export default function TradingViewChart({
     
     return () => clearInterval(interval);
   }, []); // Empty dependency array to run only once
+
+  // Expected Range data loading - reset when symbol changes
+  useEffect(() => {
+    // Reset Expected Range levels when symbol changes
+    if (expectedRangeLevels) {
+      setExpectedRangeLevels(null);
+    }
+  }, [symbol]);
 
   // Enhanced Market Regime Data Loading with immediate start and streaming results
   useEffect(() => {
@@ -2415,7 +2855,7 @@ export default function TradingViewChart({
 
     // Calculate chart areas - reserve space for volume, indicators, and time axis
     const timeAxisHeight = 25;
-    const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+    const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
     const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
     
     const priceChartHeight = height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
@@ -2473,10 +2913,37 @@ export default function TradingViewChart({
 
     // Calculate price range for visible data using shared function
     const currentPriceRange = getCurrentChartPriceRange();
-    const adjustedMin = currentPriceRange.min;
-    const adjustedMax = currentPriceRange.max;
+    let adjustedMin = currentPriceRange.min;
+    let adjustedMax = currentPriceRange.max;
 
-    console.log(`💰 Price range: $${adjustedMin.toFixed(2)} - $${adjustedMax.toFixed(2)}`);
+    // Expand price range to include Expected Range levels if active
+    if (isExpectedRangeActive && expectedRangeLevels) {
+      const allLevels = [
+        expectedRangeLevels.weekly80Call,
+        expectedRangeLevels.weekly90Call,
+        expectedRangeLevels.weekly80Put,
+        expectedRangeLevels.weekly90Put,
+        expectedRangeLevels.monthly80Call,
+        expectedRangeLevels.monthly90Call,
+        expectedRangeLevels.monthly80Put,
+        expectedRangeLevels.monthly90Put
+      ];
+      
+      const minLevel = Math.min(...allLevels);
+      const maxLevel = Math.max(...allLevels);
+      
+      // Expand the range to include all Expected Range levels with some padding
+      const originalRange = adjustedMax - adjustedMin;
+      const padding = originalRange * 0.05; // 5% padding
+      
+      adjustedMin = Math.min(adjustedMin, minLevel - padding);
+      adjustedMax = Math.max(adjustedMax, maxLevel + padding);
+      
+      console.log(`📊 Expanded price range for Expected Range: $${adjustedMin.toFixed(2)} - $${adjustedMax.toFixed(2)}`);
+      console.log(`📊 Expected Range levels: $${minLevel.toFixed(2)} - $${maxLevel.toFixed(2)}`);
+    }
+
+    console.log(`💰 Final price range: $${adjustedMin.toFixed(2)} - $${adjustedMax.toFixed(2)}`);
 
     // Draw chart in price chart area - use consistent spacing regardless of future area
     const candleWidth = Math.max(2, chartWidth / visibleCandleCount * 0.8);
@@ -2566,6 +3033,22 @@ export default function TradingViewChart({
 
     // Draw price scale on the right for price chart area
     drawPriceScale(ctx, width, priceChartHeight, adjustedMin, adjustedMax);
+
+    // Draw Expected Range lines on top of candlesticks (standalone button)
+    if (isExpectedRangeActive && expectedRangeLevels) {
+      console.log('🎨 Rendering Expected Range lines on top of chart');
+      renderExpectedRangeLines(
+        ctx,
+        chartWidth,
+        priceChartHeight,
+        adjustedMin,
+        adjustedMax,
+        expectedRangeLevels,
+        visibleData,
+        visibleCandleCount
+      );
+      console.log('📊 Expected Range lines rendered on top');
+    }
 
     // Draw time axis at the bottom
     drawTimeAxis(ctx, width, height, visibleData, chartWidth, visibleCandleCount, scrollOffset, data);
@@ -2752,37 +3235,15 @@ export default function TradingViewChart({
     config.indicators.forEach(indicator => {
       console.log(`🎨 Rendering indicator: ${indicator}`);
       switch (indicator) {
-        case 'sma20':
-          drawSMA(ctx, visibleData, chartWidth, chartHeight, adjustedMin, adjustedMax, candleSpacing, 20, '#ffeb3b');
+        case 'flowalgo':
+          // TODO: Implement Flow Algo indicator  
+          console.log('📊 Flow Algo indicator - to be implemented');
           break;
-        case 'sma50':
-          drawSMA(ctx, visibleData, chartWidth, chartHeight, adjustedMin, adjustedMax, candleSpacing, 50, '#ff9800');
-          break;
-        case 'ema12':
-          drawEMA(ctx, visibleData, chartWidth, chartHeight, adjustedMin, adjustedMax, candleSpacing, 12, '#2196f3');
-          break;
-        case 'ema26':
-          drawEMA(ctx, visibleData, chartWidth, chartHeight, adjustedMin, adjustedMax, candleSpacing, 26, '#9c27b0');
-          break;
-        case 'bollinger':
-          drawBollingerBands(ctx, visibleData, chartWidth, chartHeight, adjustedMin, adjustedMax, candleSpacing);
-          break;
-        case 'rsi':
-          const rsiPanelStart = indicatorStartY + (oscillatorIndex * panelHeight);
-          const rsiPanelEnd = rsiPanelStart + panelHeight;
-          drawRSI(ctx, visibleData, chartWidth, candleSpacing, rsiPanelStart, rsiPanelEnd);
-          oscillatorIndex++;
-          break;
-        case 'macd':
-          const macdPanelStart = indicatorStartY + (oscillatorIndex * panelHeight);
-          const macdPanelEnd = macdPanelStart + panelHeight;
-          drawMACD(ctx, visibleData, chartWidth, candleSpacing, macdPanelStart, macdPanelEnd);
-          oscillatorIndex++;
-          break;
-        case 'stoch':
-          const stochPanelStart = indicatorStartY + (oscillatorIndex * panelHeight);
-          const stochPanelEnd = stochPanelStart + panelHeight;
-          // drawStochastic(ctx, visibleData, chartWidth, candleSpacing, stochPanelStart, stochPanelEnd);
+        case 'gex':
+          const gexPanelStart = indicatorStartY + (oscillatorIndex * panelHeight);
+          const gexPanelEnd = gexPanelStart + panelHeight;
+          // TODO: Implement GEX indicator
+          console.log('📊 GEX indicator - to be implemented');
           oscillatorIndex++;
           break;
         default:
@@ -3928,7 +4389,7 @@ export default function TradingViewChart({
       const deltaY = y - yAxisDragStart.y;
       const volumeAreaHeight = 60;
       const timeAxisHeight = 25;
-      const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+      const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
       const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
       const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
       
@@ -3970,7 +4431,7 @@ export default function TradingViewChart({
       const deltaY = y - (lastMousePosition.y || y);
       const volumeAreaHeight = 60;
       const timeAxisHeight = 25;
-      const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+      const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
       const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
       const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
       
@@ -4031,7 +4492,7 @@ export default function TradingViewChart({
       // Calculate correct chart dimensions (matching renderChart function)
       const volumeAreaHeight = 60;
       const timeAxisHeight = 25;
-      const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+      const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
       const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
       const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
       
@@ -4134,7 +4595,7 @@ export default function TradingViewChart({
         // Calculate new price range (Y-axis)
         const volumeAreaHeight = 60;
         const timeAxisHeight = 25;
-        const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+        const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
         const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
         const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
         
@@ -6119,10 +6580,15 @@ export default function TradingViewChart({
           <div className="relative indicators-dropdown search-bar-premium">
             <button 
               ref={indicatorsButtonRef}
-              onClick={() => {
-                setShowIndicatorsDropdown(!showIndicatorsDropdown);
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
                 if (!showIndicatorsDropdown) {
                   updateDropdownPosition('indicators');
+                  setShowIndicatorsDropdown(true);
+                } else {
+                  setShowIndicatorsDropdown(false);
                 }
               }}
               className={`btn-3d-carved relative group flex items-center space-x-2 ${showIndicatorsDropdown || config.indicators.length > 0 ? 'active' : 'text-white'}`}
@@ -6146,6 +6612,52 @@ export default function TradingViewChart({
               >
                 <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
               </svg>
+            </button>
+          </div>
+
+          {/* Expected Range Button - Standalone */}
+          <div className="ml-4">
+            <button
+              onClick={() => {
+                const newActiveState = !isExpectedRangeActive;
+                setIsExpectedRangeActive(newActiveState);
+                
+                if (newActiveState) {
+                  // Load Expected Range levels when activated
+                  if (!expectedRangeLevels && !isLoadingExpectedRange) {
+                    setIsLoadingExpectedRange(true);
+                    calculateExpectedRangeLevels(symbol).then(result => {
+                      if (result) {
+                        setExpectedRangeLevels(result.levels);
+                        console.log('📊 Expected Range levels loaded:', result.levels);
+                      } else {
+                        console.error('📊 Failed to load Expected Range levels');
+                      }
+                      setIsLoadingExpectedRange(false);
+                    });
+                  }
+                } else {
+                  // Clear levels when deactivated
+                  setExpectedRangeLevels(null);
+                }
+                
+                console.log(`📊 Expected Range ${newActiveState ? 'activated' : 'deactivated'}`);
+              }}
+              className={`btn-3d-carved relative group flex items-center space-x-2 ${isExpectedRangeActive ? 'active' : 'text-white'}`}
+              style={{
+                padding: '10px 14px',
+                fontWeight: '700',
+                fontSize: '13px',
+                borderRadius: '4px'
+              }}
+            >
+              <span>EXPECTED RANGE</span>
+              {isLoadingExpectedRange && (
+                <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full"></div>
+              )}
+              {isExpectedRangeActive && !isLoadingExpectedRange && (
+                <span className="text-green-400 text-sm">✓</span>
+              )}
             </button>
           </div>
 
