@@ -9,10 +9,14 @@ const TradingViewChart = dynamic(
   { ssr: false }
 );
 
+// Import TradingChatbot
+import TradingChatbot from '../../components/chatbot/TradingChatbot';
+
 export default function MarketPage() {
   const [selectedSymbol, setSelectedSymbol] = useState('SPY');
   const [selectedTimeframe, setSelectedTimeframe] = useState('1d');
   const [chartHeight, setChartHeight] = useState(800);
+  const [showChatbot, setShowChatbot] = useState(false);
 
   useEffect(() => {
     // Disable scrolling on this page
@@ -43,6 +47,10 @@ export default function MarketPage() {
     setSelectedTimeframe(timeframe);
   };
 
+  const handleAIButtonClick = () => {
+    setShowChatbot(!showChatbot);
+  };
+
   return (
     <div className="h-screen bg-[#0a0a0a] text-white overflow-hidden fixed inset-0" style={{ paddingTop: '120px' }}>
       <div className="w-full h-full">
@@ -52,8 +60,22 @@ export default function MarketPage() {
           height={chartHeight}
           onSymbolChange={handleSymbolChange}
           onTimeframeChange={handleTimeframeChange}
+          onAIButtonClick={handleAIButtonClick}
         />
       </div>
+      
+      {/* AI Trading Chatbot */}
+      {showChatbot && (
+        <div className="fixed bottom-6 right-6 z-[1001] drop-shadow-2xl">
+          <div className="relative">
+            {/* Glow effect */}
+            <div className="absolute -inset-2 bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-400 rounded-xl blur-lg opacity-30 animate-pulse"></div>
+            <div className="relative z-10">
+              <TradingChatbot />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

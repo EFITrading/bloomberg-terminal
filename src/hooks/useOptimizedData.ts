@@ -80,7 +80,7 @@ export const useOptimizedData = (): UseOptimizedDataReturn => {
         startDate = new Date(now.getTime() - (90 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
         break;
       case '1d':
-        startDate = new Date(now.getTime() - (365 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
+        startDate = new Date(now.getTime() - (7124 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
         break;
       case '1w':
         startDate = new Date(now.getTime() - (5 * 365 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];

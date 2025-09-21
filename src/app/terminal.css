@@ -30,8 +30,8 @@
     top: -100%;
     font-family: 'Space Mono', monospace;
     font-size: 14px;
-    color: #00FF88;
-    text-shadow: 0 0 5px rgba(0, 255, 136, 0.5);
+    color: #FF6600;
+    text-shadow: 0 0 5px rgba(255, 102, 0, 0.5);
     animation: matrix-fall linear infinite;
     opacity: 0.6;
 }
@@ -93,16 +93,16 @@
     width: 60px;
     height: 60px;
     background: rgba(0, 0, 0, 0.95);
-    border: 1px solid rgba(0, 255, 255, 0.3);
+    border: 1px solid rgba(255, 102, 0, 0.3);
     display: flex;
     align-items: center;
     justify-content: center;
     font-family: 'Space Mono', monospace;
     font-size: 10px;
-    color: #00FFFF;
+    color: #FF6600;
     box-shadow: 
         0 5px 20px rgba(0, 0, 0, 0.7),
-        inset 0 2px 5px rgba(0, 255, 255, 0.05);
+        inset 0 2px 5px rgba(255, 102, 0, 0.05);
     animation: float-data 10s ease-in-out infinite;
 }
 

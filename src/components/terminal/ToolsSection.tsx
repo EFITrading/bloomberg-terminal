@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   SeasonalityVisualization,
-  OptionsFlowVisualization,
+  DataFlowVisualization,
   ChartVisualization,
   MarketRegimeVisualization,
   ScreenerVisualization,
@@ -30,7 +30,7 @@ export default function ToolsSection() {
       features: ['Real-time Scanning', 'Institutional Tracking', 'Flow Analysis'],
       accuracy: '<50ms',
       coverage: 'All Exchanges',
-      visualization: <OptionsFlowVisualization />
+      visualization: <DataFlowVisualization />
     },
     {
       name: 'Advanced Charting Suite',

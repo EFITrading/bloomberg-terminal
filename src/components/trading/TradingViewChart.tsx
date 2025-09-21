@@ -10,7 +10,9 @@ import {
   TbTrendingUp,
   TbX,
   TbSend,
-  TbPhoto
+  TbPhoto,
+  TbUser,
+  TbLock
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 
@@ -53,6 +55,9 @@ interface ChartDataPoint {
 interface DrawingPoint {
   x: number;
   y: number;
+  // TradingView-style time+price coordinates for absolute positioning
+  timestamp?: number;   // Actual timestamp for precise anchoring
+  price?: number;       // Actual price for precise anchoring
 }
 
 // Data coordinates for persistent drawings
@@ -66,10 +71,6 @@ interface DrawingMetadata {
 }
 
 // Specific metadata interfaces for different drawing types
-interface WaveDrawingMetadata extends DrawingMetadata {
-  waveLabels: string[];
-}
-
 interface MeasureDrawingMetadata extends DrawingMetadata {
   distance: number;
   angle: number;
@@ -138,32 +139,120 @@ interface DrawingStyle {
   showLevels?: boolean;
 }
 
-// Drawing Interface with TradingView-style time+price coordinates
+// Enhanced TradingView-style Drawing interface with all professional features
 interface Drawing {
   id: string | number;
   type: string;
+  name?: string;
+  
+  // Time/Price Coordinates (TradingView standard)
+  startTimestamp?: number;
+  startPrice?: number;
+  endTimestamp?: number;
+  endPrice?: number;
+  timestamp?: number;  // For single-point drawings
+  price?: number;      // For single-point drawings
+  
+  // Multi-point drawings (patterns, etc.)
+  points?: DrawingPoint[];
+  
+  // Text and annotations
+  text?: string;
+  richText?: {
+    content: string;
+    fontSize: number;
+    fontFamily: string;
+    fontWeight: 'normal' | 'bold';
+    fontStyle: 'normal' | 'italic';
+    textAlign: 'left' | 'center' | 'right';
+    verticalAlign: 'top' | 'middle' | 'bottom';
+    backgroundColor?: string;
+    borderColor?: string;
+    borderWidth?: number;
+    borderRadius?: number;
+    padding?: number;
+  };
+  
+  // Enhanced styling with full TradingView feature set
+  style?: {
+    color: string;
+    lineWidth: number;
+    lineStyle: 'solid' | 'dashed' | 'dotted';
+    fillColor?: string;
+    fillOpacity?: number;
+    transparency?: number;
+    
+    // Line specific
+    extendLeft?: boolean;
+    extendRight?: boolean;
+    showPriceLabels?: boolean;
+    showTimeLabels?: boolean;
+    
+    // Text specific
+    textColor?: string;
+    fontSize?: number;
+    fontFamily?: string;
+    bold?: boolean;
+    italic?: boolean;
+    
+    // Shape specific
+    borderColor?: string;
+    borderWidth?: number;
+    cornerRadius?: number;
+    
+    // Legacy compatibility
+    lineDash?: number[];
+    textSize?: number;
+    showLabels?: boolean;
+    showLevels?: boolean;
+    
+    // Advanced
+    zIndex?: number;
+    locked?: boolean;
+    visible?: boolean;
+    selected?: boolean;
+  };
+  
+  // Drawing state and metadata
+  metadata?: DrawingMetadata & {
+    createdAt?: number;
+    updatedAt?: number;
+    version?: number;
+    creator?: string;
+    description?: string;
+    tags?: string[];
+  };
+  
+  // Interaction state
+  isSelected?: boolean;
+  isHovered?: boolean;
+  isEditing?: boolean;
+  isLocked?: boolean;
+  isDragging?: boolean;
+  
+  // Drawing-specific properties
+  channelWidth?: number;
+  arrowHead?: 'none' | 'start' | 'end' | 'both';
+  patternType?: string;
+  
+  // Legacy compatibility
   startPoint?: DrawingPoint;
   endPoint?: DrawingPoint;
   startX?: number;
   startY?: number;
   endX?: number;
   endY?: number;
-  text?: string;
-  style?: DrawingStyle;
-  points?: DrawingPoint[];
-  timestamp?: number;
-  metadata?: DrawingMetadata;
-  // TradingView-style time+price coordinates for persistent anchoring
-  time?: number;        // Single timestamp for horizontal/vertical lines
-  price?: number;       // Single price for horizontal/vertical lines
-  time1?: number;       // Start timestamp for two-point drawings
-  price1?: number;      // Start price for two-point drawings
-  time2?: number;       // End timestamp for two-point drawings
-  price2?: number;      // End price for two-point drawings
-  // Legacy data coordinate fields for backward compatibility
+  time?: number;
+  price1?: number;
+  time1?: number;
+  price2?: number;
+  time2?: number;
   startDataPoint?: DataPoint;
   endDataPoint?: DataPoint;
   dataPoints?: DataPoint[];
+  absoluteScreenY?: number;
+  clickX?: number;
+  clickY?: number;
 }
 
 // TradingView Professional Timeframes with extensive historical data
@@ -246,98 +335,480 @@ const INDICATORS = [
   { label: 'ATR', value: 'atr', category: 'volatility' }
 ];
 
-// TradingView Drawing Tools - Complete Implementation with Functionality
-const DRAWING_TOOLS = {
-  'Line Tools': [
-    { label: 'Trend Line', value: 'trend_line', icon: '⟍', description: '', functional: true },
-    { label: 'Horizontal Line', value: 'horizontal_line', icon: '━', description: '', functional: true },
-    { label: 'Vertical Line', value: 'vertical_line', icon: '┃', description: '', functional: true },
-    { label: 'Horizontal Ray', value: 'ray', icon: '━▷', description: '', functional: true }
-  ],
-  'FIB Tools': [
-    { label: 'Fibonacci Retracement', value: 'fib_retracement', icon: '◇', description: '', functional: true },
-    { label: 'Fibonacci Extension', value: 'fib_extension', icon: '◈', description: '', functional: true },
-    { label: 'Fibonacci Fan', value: 'fib_fan', icon: '◢', description: '', functional: true },
-    { label: 'Fibonacci Arc', value: 'fib_arc', icon: '◐', description: '', functional: true },
-    { label: 'Fibonacci Time Zone', value: 'fib_timezone', icon: '⫸', description: '', functional: true },
-    { label: 'Fibonacci Channel', value: 'fib_channel', icon: '⧄', description: '', functional: true },
-    { label: 'Fibonacci Speed Fan', value: 'fib_speed_fan', icon: '◣', description: '', functional: true }
-  ],
-  'Shapes': [
-    { label: 'Rectangle', value: 'rectangle', icon: '▭', description: '', functional: true },
-    { label: 'Ellipse', value: 'ellipse', icon: '○', description: '', functional: true },
-    { label: 'Triangle', value: 'triangle', icon: '△', description: '', functional: true },
-    { label: 'Circle', value: 'circle', icon: '◯', description: '', functional: true },
-    { label: 'Arc', value: 'arc', icon: '◠', description: '', functional: true },
-    { label: 'Polyline', value: 'polyline', icon: '⟲', description: '', functional: true },
-    { label: 'Polygon', value: 'polygon', icon: '⬟', description: '', functional: true }
-  ],
-  'Gann': [
-    { label: 'Gann Line', value: 'gann_line', icon: '∠', description: '', functional: true },
-    { label: 'Gann Fan', value: 'gann_fan', icon: '✦', description: '', functional: true },
-    { label: 'Gann Box', value: 'gann_box', icon: '□', description: '', functional: true },
-    { label: 'Gann Square', value: 'gann_square', icon: '◻', description: '', functional: true }
-  ],
-  'Elliott': [
-    { label: 'Elliott Wave', value: 'elliott_wave', icon: '~', description: '', functional: true },
-    { label: 'Elliott Impulse', value: 'elliott_impulse', icon: '↗', description: '', functional: true },
-    { label: 'Elliott Correction', value: 'elliott_correction', icon: '↩', description: '', functional: true },
-    { label: 'Elliott Triple Combo', value: 'elliott_triple', icon: '≈', description: '', functional: true }
-  ],
-  'Prediction': [
-    { label: 'Pitchfork', value: 'pitchfork', icon: '⟡', description: '', functional: true },
-    { label: 'Schiff Pitchfork', value: 'schiff_pitchfork', icon: '✧', description: '', functional: true },
-    { label: 'Inside Pitchfork', value: 'inside_pitchfork', icon: '⧨', description: '', functional: true },
-    { label: 'Regression Trend', value: 'regression', icon: '↘', description: '', functional: true },
-    { label: 'Forecast', value: 'forecast', icon: '⤳', description: '', functional: true }
-  ],
-  'Measure': [
-    { label: 'Ruler', value: 'ruler', icon: '━', description: '', functional: true },
-    { label: 'Price Range', value: 'price_range', icon: '┃', description: '', functional: true },
-    { label: 'Date Range', value: 'date_range', icon: '┳', description: '', functional: true },
-    { label: 'Date & Price Range', value: 'date_price_range', icon: '╂', description: '', functional: true },
-    { label: 'Projection', value: 'projection', icon: '⤻', description: '', functional: true }
-  ],
-  'Notes': [
-    { label: 'Text', value: 'text', icon: 'T', description: '', functional: true },
-    { label: 'Note', value: 'note', icon: 'N', description: '', functional: true },
-    { label: 'Callout', value: 'callout', icon: 'C', description: '', functional: true },
-    { label: 'Price Label', value: 'price_label', icon: 'P', description: '', functional: true },
-    { label: 'Flag', value: 'flag', icon: 'F', description: '', functional: true },
-    { label: 'Anchored Text', value: 'anchored_text', icon: 'A', description: '', functional: true }
-  ],
-  'Volume': [
-    { label: 'Volume Profile', value: 'volume_profile', icon: '▬', description: '', functional: true },
-    { label: 'Fixed Range VP', value: 'fixed_range_vp', icon: '⊞', description: '', functional: true },
-    { label: 'Anchored VWAP', value: 'anchored_vwap', icon: '⚓', description: '', functional: true },
-    { label: 'Session Volume', value: 'session_volume', icon: '⧗', description: '', functional: true }
-  ],
-  'Patterns': [
-    { label: 'Head & Shoulders', value: 'head_shoulders', icon: 'H', description: '', functional: true },
-    { label: 'Triangle Pattern', value: 'triangle_pattern', icon: '▲', description: '', functional: true },
-    { label: 'Flag Pattern', value: 'flag_pattern', icon: '⚑', description: '', functional: true },
-    { label: 'Wedge Pattern', value: 'wedge_pattern', icon: '◆', description: '', functional: true },
-    { label: 'ABCD Pattern', value: 'abcd_pattern', icon: 'ᴀʙᴄᴅ', description: '', functional: true }
-  ],
-  'Harmonic': [
-    { label: 'Bat Pattern', value: 'bat_pattern', icon: 'B', description: '', functional: true },
-    { label: 'Butterfly Pattern', value: 'butterfly_pattern', icon: 'ʙ', description: '', functional: true },
-    { label: 'Gartley Pattern', value: 'gartley_pattern', icon: 'G', description: '', functional: true },
-    { label: 'Crab Pattern', value: 'crab_pattern', icon: 'C', description: '', functional: true },
-    { label: 'Shark Pattern', value: 'shark_pattern', icon: 'S', description: '', functional: true },
-    { label: 'Cypher Pattern', value: 'cypher_pattern', icon: 'Ɔ', description: '', functional: true }
-  ],
-  'Cycles': [
-    { label: 'Cycle Lines', value: 'cycle_lines', icon: '○', description: '', functional: true },
-    { label: 'Sine Line', value: 'sine_line', icon: '∼', description: '', functional: true },
-    { label: 'Time Cycles', value: 'time_cycles', icon: '⊙', description: '', functional: true }
-  ],
-  'Orders': [
-    { label: 'Long Position', value: 'long_position', icon: '↗', description: '', functional: true },
-    { label: 'Short Position', value: 'short_position', icon: '↘', description: '', functional: true },
-    { label: 'Risk & Reward', value: 'risk_reward', icon: '⚖', description: '', functional: true },
-    { label: 'Price Alert', value: 'price_alert', icon: '!', description: '', functional: true }
-  ]
+// ✨ TradingView-Style Drawing Properties Panel Component
+interface DrawingPropertiesPanelProps {
+  selectedDrawing: Drawing | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onUpdate: (updatedDrawing: Partial<Drawing>) => void;
+  position: { x: number; y: number };
+}
+
+const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
+  selectedDrawing,
+  isOpen,
+  onClose,
+  onUpdate,
+  position
+}) => {
+  const [activeTab, setActiveTab] = useState<'style' | 'text' | 'coordinates'>('style');
+  
+  if (!isOpen || !selectedDrawing) return null;
+
+  const updateStyle = (styleUpdates: Partial<Drawing['style']>) => {
+    const currentStyle = selectedDrawing.style || {
+      color: '#FFFF00',
+      lineWidth: 2,
+      lineStyle: 'solid' as const
+    };
+    onUpdate({
+      style: {
+        ...currentStyle,
+        color: currentStyle.color || '#FFFF00',
+        lineWidth: currentStyle.lineWidth || 2,
+        lineStyle: currentStyle.lineStyle || 'solid',
+        ...styleUpdates
+      } as Drawing['style']
+    });
+  };
+
+  const updateText = (textUpdates: Partial<Drawing['richText']>) => {
+    onUpdate({
+      richText: {
+        ...selectedDrawing.richText,
+        ...textUpdates
+      } as Drawing['richText']
+    });
+  };
+
+  return (
+    <div 
+      className="fixed z-[9999] bg-[#131722] border border-[#2a2e39] rounded-lg shadow-2xl min-w-[300px] max-w-[400px]"
+      style={{ 
+        left: Math.min(position.x, window.innerWidth - 320), 
+        top: Math.min(position.y, window.innerHeight - 400),
+        maxHeight: '400px'
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between p-3 border-b border-[#2a2e39]">
+        <h3 className="text-white text-sm font-medium">Drawing Properties</h3>
+        <button 
+          onClick={onClose}
+          className="text-[#868993] hover:text-white text-lg leading-none"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-[#2a2e39]">
+        {[
+          { id: 'style', label: 'Style', icon: '🎨' },
+          { id: 'text', label: 'Text', icon: 'T' },
+          { id: 'coordinates', label: 'Position', icon: '📍' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+              activeTab === tab.id 
+                ? 'text-[#2962ff] border-b-2 border-[#2962ff] bg-[#1e222d]' 
+                : 'text-[#868993] hover:text-white'
+            }`}
+          >
+            <span className="mr-1">{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="p-3 max-h-[300px] overflow-y-auto">
+        {activeTab === 'style' && (
+          <div className="space-y-4">
+            {/* Color Picker */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Line Color</label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="color"
+                  value={selectedDrawing.style?.color || '#00ff88'}
+                  onChange={(e) => updateStyle({ color: e.target.value })}
+                  className="w-8 h-8 rounded border border-[#2a2e39] bg-transparent cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={selectedDrawing.style?.color || '#00ff88'}
+                  onChange={(e) => updateStyle({ color: e.target.value })}
+                  className="flex-1 px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+                  placeholder="#00ff88"
+                />
+              </div>
+            </div>
+
+            {/* Line Width */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Line Width</label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={selectedDrawing.style?.lineWidth || 2}
+                  onChange={(e) => updateStyle({ lineWidth: parseInt(e.target.value) })}
+                  className="flex-1"
+                />
+                <span className="text-xs text-white w-6 text-center">
+                  {selectedDrawing.style?.lineWidth || 2}
+                </span>
+              </div>
+            </div>
+
+            {/* Line Style */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Line Style</label>
+              <select
+                value={selectedDrawing.style?.lineStyle || 'solid'}
+                onChange={(e) => updateStyle({ lineStyle: e.target.value as any })}
+                className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+              >
+                <option value="solid">Solid</option>
+                <option value="dashed">Dashed</option>
+                <option value="dotted">Dotted</option>
+              </select>
+            </div>
+
+            {/* Fill Options */}
+            {['rectangle', 'circle', 'ellipse'].includes(selectedDrawing.type) && (
+              <>
+                <div>
+                  <label className="block text-xs text-[#868993] mb-2">Fill Color</label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="color"
+                      value={selectedDrawing.style?.fillColor || '#00ff8844'}
+                      onChange={(e) => updateStyle({ fillColor: e.target.value })}
+                      className="w-8 h-8 rounded border border-[#2a2e39] bg-transparent cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={selectedDrawing.style?.fillColor || '#00ff8844'}
+                      onChange={(e) => updateStyle({ fillColor: e.target.value })}
+                      className="flex-1 px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+                      placeholder="#00ff8844"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-[#868993] mb-2">Fill Opacity</label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={selectedDrawing.style?.fillOpacity || 0.1}
+                      onChange={(e) => updateStyle({ fillOpacity: parseFloat(e.target.value) })}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-white w-8 text-center">
+                      {Math.round((selectedDrawing.style?.fillOpacity || 0.1) * 100)}%
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Extensions for lines */}
+            {['trend_line', 'horizontal_line'].includes(selectedDrawing.type) && (
+              <div className="space-y-2">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedDrawing.style?.extendLeft || false}
+                    onChange={(e) => updateStyle({ extendLeft: e.target.checked })}
+                    className="rounded"
+                  />
+                  <span className="text-xs text-white">Extend Left</span>
+                </label>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedDrawing.style?.extendRight || false}
+                    onChange={(e) => updateStyle({ extendRight: e.target.checked })}
+                    className="rounded"
+                  />
+                  <span className="text-xs text-white">Extend Right</span>
+                </label>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedDrawing.style?.showPriceLabels || false}
+                    onChange={(e) => updateStyle({ showPriceLabels: e.target.checked })}
+                    className="rounded"
+                  />
+                  <span className="text-xs text-white">Show Price Labels</span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'text' && (
+          <div className="space-y-4">
+            {/* Text Content */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Text</label>
+              <textarea
+                value={selectedDrawing.text || selectedDrawing.richText?.content || ''}
+                onChange={(e) => {
+                  onUpdate({ text: e.target.value });
+                  updateText({ content: e.target.value });
+                }}
+                className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white resize-none"
+                rows={3}
+                placeholder="Enter text..."
+              />
+            </div>
+
+            {/* Font Size */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Font Size</label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="range"
+                  min="8"
+                  max="32"
+                  value={selectedDrawing.richText?.fontSize || selectedDrawing.style?.fontSize || 12}
+                  onChange={(e) => {
+                    const size = parseInt(e.target.value);
+                    updateText({ fontSize: size });
+                    updateStyle({ fontSize: size });
+                  }}
+                  className="flex-1"
+                />
+                <span className="text-xs text-white w-6 text-center">
+                  {selectedDrawing.richText?.fontSize || selectedDrawing.style?.fontSize || 12}
+                </span>
+              </div>
+            </div>
+
+            {/* Font Family */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Font</label>
+              <select
+                value={selectedDrawing.richText?.fontFamily || selectedDrawing.style?.fontFamily || 'Arial'}
+                onChange={(e) => {
+                  updateText({ fontFamily: e.target.value });
+                  updateStyle({ fontFamily: e.target.value });
+                }}
+                className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+              >
+                <option value="Arial">Arial</option>
+                <option value="Helvetica">Helvetica</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Courier New">Courier New</option>
+                <option value="Georgia">Georgia</option>
+              </select>
+            </div>
+
+            {/* Font Style */}
+            <div className="flex space-x-2">
+              <label className="flex items-center space-x-1">
+                <input
+                  type="checkbox"
+                  checked={selectedDrawing.richText?.fontWeight === 'bold' || selectedDrawing.style?.bold || false}
+                  onChange={(e) => {
+                    updateText({ fontWeight: e.target.checked ? 'bold' : 'normal' });
+                    updateStyle({ bold: e.target.checked });
+                  }}
+                  className="rounded"
+                />
+                <span className="text-xs text-white font-bold">B</span>
+              </label>
+              <label className="flex items-center space-x-1">
+                <input
+                  type="checkbox"
+                  checked={selectedDrawing.richText?.fontStyle === 'italic' || selectedDrawing.style?.italic || false}
+                  onChange={(e) => {
+                    updateText({ fontStyle: e.target.checked ? 'italic' : 'normal' });
+                    updateStyle({ italic: e.target.checked });
+                  }}
+                  className="rounded"
+                />
+                <span className="text-xs text-white italic">I</span>
+              </label>
+            </div>
+
+            {/* Text Color */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Text Color</label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="color"
+                  value={selectedDrawing.richText?.backgroundColor || selectedDrawing.style?.textColor || '#ffffff'}
+                  onChange={(e) => {
+                    updateText({ backgroundColor: e.target.value });
+                    updateStyle({ textColor: e.target.value });
+                  }}
+                  className="w-8 h-8 rounded border border-[#2a2e39] bg-transparent cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={selectedDrawing.richText?.backgroundColor || selectedDrawing.style?.textColor || '#ffffff'}
+                  onChange={(e) => {
+                    updateText({ backgroundColor: e.target.value });
+                    updateStyle({ textColor: e.target.value });
+                  }}
+                  className="flex-1 px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+                  placeholder="#ffffff"
+                />
+              </div>
+            </div>
+
+            {/* Text Alignment */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Text Alignment</label>
+              <div className="flex space-x-1">
+                {[
+                  { value: 'left', icon: '⬅️' },
+                  { value: 'center', icon: '↔️' },
+                  { value: 'right', icon: '➡️' }
+                ].map(align => (
+                  <button
+                    key={align.value}
+                    onClick={() => updateText({ textAlign: align.value as any })}
+                    className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                      (selectedDrawing.richText?.textAlign || 'left') === align.value
+                        ? 'bg-[#2962ff] text-white'
+                        : 'bg-[#1e222d] text-[#868993] hover:text-white'
+                    }`}
+                  >
+                    {align.icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'coordinates' && (
+          <div className="space-y-4">
+            {/* Time/Price Coordinates */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-[#868993] mb-1">Start Time</label>
+                <input
+                  type="datetime-local"
+                  value={selectedDrawing.startTimestamp ? new Date(selectedDrawing.startTimestamp).toISOString().slice(0, 16) : ''}
+                  onChange={(e) => onUpdate({ startTimestamp: new Date(e.target.value).getTime() })}
+                  className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#868993] mb-1">Start Price</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={selectedDrawing.startPrice || ''}
+                  onChange={(e) => onUpdate({ startPrice: parseFloat(e.target.value) })}
+                  className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+                />
+              </div>
+              {selectedDrawing.endTimestamp !== undefined && (
+                <>
+                  <div>
+                    <label className="block text-xs text-[#868993] mb-1">End Time</label>
+                    <input
+                      type="datetime-local"
+                      value={selectedDrawing.endTimestamp ? new Date(selectedDrawing.endTimestamp).toISOString().slice(0, 16) : ''}
+                      onChange={(e) => onUpdate({ endTimestamp: new Date(e.target.value).getTime() })}
+                      className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#868993] mb-1">End Price</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={selectedDrawing.endPrice || ''}
+                      onChange={(e) => onUpdate({ endPrice: parseFloat(e.target.value) })}
+                      className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Lock/Unlock Drawing */}
+            <div>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={selectedDrawing.isLocked || false}
+                  onChange={(e) => onUpdate({ isLocked: e.target.checked })}
+                  className="rounded"
+                />
+                <span className="text-xs text-white">🔒 Lock Drawing</span>
+              </label>
+              <p className="text-xs text-[#868993] mt-1">
+                Locked drawings cannot be moved or edited
+              </p>
+            </div>
+
+            {/* Layer Management */}
+            <div>
+              <label className="block text-xs text-[#868993] mb-2">Layer Order</label>
+              <div className="flex space-x-1">
+                <button
+                  onClick={() => updateStyle({ zIndex: (selectedDrawing.style?.zIndex || 0) + 1 })}
+                  className="flex-1 px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white hover:bg-[#2a2e39] transition-colors"
+                >
+                  Bring Forward
+                </button>
+                <button
+                  onClick={() => updateStyle({ zIndex: Math.max(0, (selectedDrawing.style?.zIndex || 0) - 1) })}
+                  className="flex-1 px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white hover:bg-[#2a2e39] transition-colors"
+                >
+                  Send Back
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex space-x-2 p-3 border-t border-[#2a2e39]">
+        <button
+          onClick={() => {
+            // Duplicate drawing
+            const duplicated = {
+              ...selectedDrawing,
+              id: `drawing_${Date.now()}`,
+              startTimestamp: (selectedDrawing.startTimestamp || 0) + 86400000, // +1 day
+              endTimestamp: selectedDrawing.endTimestamp ? selectedDrawing.endTimestamp + 86400000 : undefined
+            };
+            onUpdate(duplicated);
+          }}
+          className="flex-1 px-3 py-1.5 text-xs bg-[#2962ff] text-white rounded hover:bg-[#1e53e5] transition-colors"
+        >
+          Duplicate
+        </button>
+        <button
+          onClick={() => {
+            // Delete drawing - this would need to be handled by parent
+            onUpdate({ isDeleted: true } as any);
+          }}
+          className="flex-1 px-3 py-1.5 text-xs bg-[#f23645] text-white rounded hover:bg-[#cc2c3b] transition-colors"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
 };
 
 interface TradingViewChartProps {
@@ -346,6 +817,7 @@ interface TradingViewChartProps {
   height?: number;
   onSymbolChange?: (symbol: string) => void;
   onTimeframeChange?: (timeframe: string) => void;
+  onAIButtonClick?: () => void;
 }
 
 export default function TradingViewChart({
@@ -353,7 +825,8 @@ export default function TradingViewChart({
   initialTimeframe = '1d',
   height = 600,
   onSymbolChange,
-  onTimeframeChange
+  onTimeframeChange,
+  onAIButtonClick
 }: TradingViewChartProps) {
   // Canvas refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -363,37 +836,7 @@ export default function TradingViewChart({
   // Dropdown button refs for positioning
   const indicatorsButtonRef = useRef<HTMLButtonElement>(null);
   const timeframeButtonRef = useRef<HTMLButtonElement>(null);
-  const toolsButtonRef = useRef<HTMLButtonElement>(null);
-  const lineToolsButtonRef = useRef<HTMLButtonElement>(null);
-  const fibButtonRef = useRef<HTMLButtonElement>(null);
-  const shapesButtonRef = useRef<HTMLButtonElement>(null);
-  const gannButtonRef = useRef<HTMLButtonElement>(null);
-  const elliottButtonRef = useRef<HTMLButtonElement>(null);
-  const predictionButtonRef = useRef<HTMLButtonElement>(null);
-  const measureButtonRef = useRef<HTMLButtonElement>(null);
-  const notesButtonRef = useRef<HTMLButtonElement>(null);
   const volumeButtonRef = useRef<HTMLButtonElement>(null);
-  const patternsButtonRef = useRef<HTMLButtonElement>(null);
-  const harmonicButtonRef = useRef<HTMLButtonElement>(null);
-  const cyclesButtonRef = useRef<HTMLButtonElement>(null);
-  const ordersButtonRef = useRef<HTMLButtonElement>(null);
-
-  // Dynamic refs storage for drawing tool categories
-  const drawingToolRefs = useRef<{[key: string]: React.RefObject<HTMLButtonElement | null>}>({
-    linetools: lineToolsButtonRef,
-    fibtools: fibButtonRef,
-    shapes: shapesButtonRef,
-    gann: gannButtonRef,
-    elliott: elliottButtonRef,
-    prediction: predictionButtonRef,
-    measure: measureButtonRef,
-    notes: notesButtonRef,
-    volume: volumeButtonRef,
-    patterns: patternsButtonRef,
-    harmonic: harmonicButtonRef,
-    cycles: cyclesButtonRef,
-    orders: ordersButtonRef
-  });
 
   // Chart state
   const [config, setConfig] = useState<ChartConfig>({
@@ -444,37 +887,15 @@ export default function TradingViewChart({
   const [dropdownPositions, setDropdownPositions] = useState({
     indicators: { x: 0, y: 0, width: 0 },
     timeframe: { x: 0, y: 0, width: 0 },
-    tools: { x: 0, y: 0, width: 0 },
-    lineTools: { x: 0, y: 0, width: 0 },
-    fib: { x: 0, y: 0, width: 0 },
-    shapes: { x: 0, y: 0, width: 0 },
-    gann: { x: 0, y: 0, width: 0 },
-    elliott: { x: 0, y: 0, width: 0 },
-    prediction: { x: 0, y: 0, width: 0 },
-    measure: { x: 0, y: 0, width: 0 },
-    notes: { x: 0, y: 0, width: 0 },
-    volume: { x: 0, y: 0, width: 0 },
-    patterns: { x: 0, y: 0, width: 0 },
-    harmonic: { x: 0, y: 0, width: 0 },
-    cycles: { x: 0, y: 0, width: 0 },
-    orders: { x: 0, y: 0, width: 0 }
+    volume: { x: 0, y: 0, width: 0 }
   });
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
 
-  // Favorites drawing tools state - Default classic tools
-  const [favoriteDrawingTools, setFavoriteDrawingTools] = useState<string[]>([
-    'fib_retracement',      // Classic Fibonacci Retracement
-    'ray',                  // Horizontal Ray
-    'vertical_line',        // Vertical Line
-    'trend_line',          // Trend Line
-    'elliott_correction',   // Elliott Wave ABC
-    'elliott_impulse',      // Elliott Wave 12345
-    'date_price_range',     // Measure Price Range
-    'text'                 // Text Note
-  ]);
+  // Lock state for drawing tools - when locked, tools stay active after placing a drawing
+  const [isDrawingLocked, setIsDrawingLocked] = useState<boolean>(false);
 
   // Professional crosshair information state
   const [crosshairInfo, setCrosshairInfo] = useState<{
@@ -483,12 +904,21 @@ export default function TradingViewChart({
     time: string;
     visible: boolean;
     volume?: number;
+    ohlc?: {
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+      change?: number;
+      changePercent?: number;
+    };
   }>({
     price: '',
     date: '',
     time: '',
     visible: false,
-    volume: 0
+    volume: 0,
+    ohlc: undefined
   });
 
   // Sidebar panel state
@@ -790,89 +1220,157 @@ export default function TradingViewChart({
     loadMarketRegimeData();
   }, []); // Empty dependency array to run only once on mount
 
-  // Drawing Tools State - Enhanced for All TradingView Tools
+  // Essential drawing state (keep minimal set for existing functionality)
   const [showToolsDropdown, setShowToolsDropdown] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [selectedDrawing, setSelectedDrawing] = useState<any | null>(null);
   
-  // Bulletproof drawing persistence using useRef + useState
+  // Drawing persistence
   const drawingsRef = useRef<Drawing[]>([]);
   const [drawings, setDrawingsState] = useState<Drawing[]>([]);
   
-  // Custom setDrawings that updates both ref and state
-  const setDrawings = useCallback((updater: Drawing[] | ((prev: Drawing[]) => Drawing[])) => {
-    const newValue = typeof updater === 'function' ? updater(drawingsRef.current) : updater;
-    const prevLength = drawingsRef.current.length;
-    drawingsRef.current = newValue;
-    setDrawingsState(newValue);
-    
-    if (newValue.length > prevLength) {
-      console.log('✅ [STATE] Drawing ADDED:', newValue.length, 'total (was', prevLength + ')');
-      console.log('🆕 [STATE] Latest drawing:', newValue[newValue.length - 1]);
-    } else if (newValue.length < prevLength) {
-      console.log('❌ [STATE] Drawing REMOVED:', newValue.length, 'total (was', prevLength + ')');
-    } else {
-      console.log('🔄 [STATE] Drawing UPDATED:', newValue.length, 'total');
-    }
-  }, []);
-  
-  // Debug: Monitor drawings state changes
-  useEffect(() => {
-    console.log('🔍 Drawings state changed:', drawings.length, drawings);
-    console.log('🔍 Latest drawing:', drawings[drawings.length - 1]);
-  }, [drawings]);
-
-  // Debug: Monitor activeTool state changes
-  useEffect(() => {
-    console.log('🔧 activeTool changed to:', activeTool);
-    console.log('🔧 activeTool type:', typeof activeTool);
-    console.log('🔧 activeTool is truthy:', !!activeTool);
-  }, [activeTool]);
-
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [drawingStartPoint, setDrawingStartPoint] = useState<{ x: number; y: number } | null>(null);
+  // Multi-point drawing state
   const [multiPointDrawing, setMultiPointDrawing] = useState<{ x: number; y: number }[]>([]);
-  const [currentDrawingPhase, setCurrentDrawingPhase] = useState(0); // For multi-step tools
-  const [drawingText, setDrawingText] = useState('');
+  const [currentDrawingPhase, setCurrentDrawingPhase] = useState(0);
+  
+  // Drawing interaction state
+  const [drawingStartPoint, setDrawingStartPoint] = useState<{ x: number; y: number; timestamp?: number; price?: number } | null>(null);
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInputPosition, setTextInputPosition] = useState<{ x: number; y: number } | null>(null);
-
-  // Drawing selection and editing states
-  const [selectedDrawing, setSelectedDrawing] = useState<any | null>(null);
+  
+  // Drawing editor and selection state
   const [isDraggingDrawing, setIsDraggingDrawing] = useState(false);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
   const [dragStartPosition, setDragStartPosition] = useState<{ x: number; y: number } | null>(null);
-  const [originalDrawing, setOriginalDrawing] = useState<any | null>(null); // Store original drawing state before dragging
-  const [dragPreviewOffset, setDragPreviewOffset] = useState<{ x: number; y: number } | null>(null); // Preview offset during drag
-  const [showDrawingEditor, setShowDrawingEditor] = useState(false);
-  const [editorPosition, setEditorPosition] = useState({ x: 0, y: 0 });
-  const [hoveredDrawing, setHoveredDrawing] = useState<any | null>(null);
+  const [originalDrawing, setOriginalDrawing] = useState<any | null>(null);
+  // Drawing editor removed - drawing tools were removed as requested
   
-  // Double-click detection
+  // Properties panel state
+  const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
+  const [propertiesPanelPosition, setPropertiesPanelPosition] = useState({ x: 0, y: 0 });
+  
+  // Context menu state
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
+  const [contextMenuDrawing, setContextMenuDrawing] = useState<Drawing | null>(null);
+  
+  // Multi-selection support
+  const [selectedDrawings, setSelectedDrawings] = useState<Drawing[]>([]);
+  
+  // Advanced drawing features
+  const [magnetMode, setMagnetMode] = useState(false);
+  const [showDrawingHandles, setShowDrawingHandles] = useState(true);
+  
+  // Click detection
   const [lastClickTime, setLastClickTime] = useState(0);
   const [lastClickDrawing, setLastClickDrawing] = useState<any | null>(null);
-
-  // Fibonacci levels configuration
-  const fibonacciLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-  const fibonacciExtensionLevels = [0, 0.618, 1, 1.272, 1.414, 1.618, 2, 2.618];
   
-  // Gann angles (1x1, 2x1, 3x1, 4x1, 8x1, 1x2, 1x3, 1x4, 1x8)
-  const gannAngles = [45, 63.75, 71.25, 75, 82.5, 26.25, 18.75, 15, 7.5];
-
-  // Pattern recognition data
-  const [patternPoints, setPatternPoints] = useState<{ x: number; y: number }[]>([]);
-  const [elliottWaveCount, setElliottWaveCount] = useState(1);
-  const [harmonicRatios, setHarmonicRatios] = useState<{ [key: string]: number }>({});
-
-  // Drawing style configuration
+  // Additional drawing state
+  const [drawingText, setDrawingText] = useState('');
+  const [dragPreviewOffset, setDragPreviewOffset] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredDrawing, setHoveredDrawing] = useState<any | null>(null);
+  const [drawingClipboard, setDrawingClipboard] = useState<Drawing[]>([]);
+  
+  // Drawing style
   const [drawingStyle, setDrawingStyle] = useState({
     color: '#00ff88',
     lineWidth: 2,
+    lineStyle: 'solid' as const,
     lineDash: [],
     fillOpacity: 0.1,
     textSize: 12,
     showLabels: true,
     showLevels: true
   });
+
+  // setDrawings function
+  const setDrawings = useCallback((updater: Drawing[] | ((prev: Drawing[]) => Drawing[])) => {
+    const newValue = typeof updater === 'function' ? updater(drawingsRef.current) : updater;
+    drawingsRef.current = newValue;
+    setDrawingsState(newValue);
+  }, []);
+
+  // Essential drawing functions
+  const handleDrawingSelection = useCallback((drawing: Drawing, multiSelect = false) => {
+    setSelectedDrawing(drawing);
+    setSelectedDrawings([drawing]);
+  }, []);
+
+  const updateDrawing = useCallback((drawingId: string | number, updates: Partial<Drawing>) => {
+    setDrawings(prevDrawings => 
+      prevDrawings.map(drawing => 
+        drawing.id === drawingId ? { ...drawing, ...updates } : drawing
+      )
+    );
+  }, []);
+
+  const handleDrawingPropertiesUpdate = useCallback((updates: Partial<Drawing & { isDeleted?: boolean }>) => {
+    if (!selectedDrawing) return;
+    if (updates.isDeleted) {
+      setDrawings(prev => prev.filter(d => d.id !== selectedDrawing.id));
+      setSelectedDrawing(null);
+      setShowPropertiesPanel(false);
+      return;
+    }
+    updateDrawing(selectedDrawing.id, updates);
+  }, [selectedDrawing, updateDrawing]);
+
+  const handleCopyDrawing = useCallback((drawing?: Drawing) => {
+    const targetDrawing = drawing || selectedDrawing;
+    if (!targetDrawing) return;
+    setDrawingClipboard([{ ...targetDrawing, id: `copy_${Date.now()}` }]);
+  }, [selectedDrawing]);
+
+  const handlePasteDrawing = useCallback(() => {
+    if (drawingClipboard.length === 0) return;
+    drawingClipboard.forEach(drawingTemplate => {
+      const newDrawing: Drawing = {
+        ...drawingTemplate,
+        id: `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      };
+      setDrawings(prev => [...prev, newDrawing]);
+    });
+  }, [drawingClipboard]);
+
+  const handleDuplicateDrawing = useCallback((drawing?: Drawing) => {
+    const targetDrawing = drawing || selectedDrawing;
+    if (!targetDrawing) return;
+    const duplicated: Drawing = {
+      ...targetDrawing,
+      id: `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    };
+    setDrawings(prev => [...prev, duplicated]);
+    setSelectedDrawing(duplicated);
+  }, [selectedDrawing]);
+
+  const handleDeleteDrawing = useCallback((drawing?: Drawing) => {
+    const targetDrawing = drawing || selectedDrawing;
+    if (!targetDrawing) return;
+    setDrawings(prev => prev.filter(d => d.id !== targetDrawing.id));
+    if (selectedDrawing && selectedDrawing.id === targetDrawing.id) {
+      setSelectedDrawing(null);
+      setShowPropertiesPanel(false);
+    }
+  }, [selectedDrawing]);
+
+  const bringDrawingToFront = useCallback((drawing?: Drawing) => {
+    const targetDrawing = drawing || selectedDrawing;
+    if (!targetDrawing) return;
+    const maxZIndex = Math.max(...drawings.map(d => d.style?.zIndex || 0));
+    updateDrawing(targetDrawing.id, {
+      style: { ...targetDrawing.style, zIndex: maxZIndex + 1 }
+    });
+  }, [selectedDrawing, drawings, updateDrawing]);
+
+  const sendDrawingToBack = useCallback((drawing?: Drawing) => {
+    const targetDrawing = drawing || selectedDrawing;
+    if (!targetDrawing) return;
+    const minZIndex = Math.min(...drawings.map(d => d.style?.zIndex || 0));
+    updateDrawing(targetDrawing.id, {
+      style: { ...targetDrawing.style, zIndex: Math.max(0, minZIndex - 1) }
+    });
+  }, [selectedDrawing, drawings, updateDrawing]);
 
   // Data state - SIMPLE
   const [data, setData] = useState<ChartDataPoint[]>([]);
@@ -883,6 +1381,21 @@ export default function TradingViewChart({
   const [isDragging, setIsDragging] = useState(false);
   const [crosshairPosition, setCrosshairPosition] = useState({ x: 0, y: 0 });
   const [priceRange, setPriceRange] = useState({ min: 0, max: 0 });
+  
+  // Y-Axis Dynamic Scaling State
+  const [isAutoScale, setIsAutoScale] = useState(true);
+  const [manualPriceRange, setManualPriceRange] = useState<{ min: number; max: number } | null>(null);
+  const [isDraggingYAxis, setIsDraggingYAxis] = useState(false);
+  const [yAxisDragStart, setYAxisDragStart] = useState<{ y: number; priceRange: { min: number; max: number } } | null>(null);
+  const [boxZoomStart, setBoxZoomStart] = useState<{ x: number; y: number } | null>(null);
+  const [boxZoomEnd, setBoxZoomEnd] = useState<{ x: number; y: number } | null>(null);
+  const [isBoxZooming, setIsBoxZooming] = useState(false);
+  
+  // Momentum Scrolling State
+  const [lastMouseTimestamp, setLastMouseTimestamp] = useState(0);
+  const [lastMousePosition, setLastMousePosition] = useState({ x: 0, y: 0 });
+  const [velocity, setVelocity] = useState({ x: 0, y: 0 });
+  const [momentumAnimationId, setMomentumAnimationId] = useState<number | null>(null);
   
   // TradingView-style navigation state
   const [scrollOffset, setScrollOffset] = useState(0); // Index of first visible candle
@@ -896,7 +1409,7 @@ export default function TradingViewChart({
   // Chart dimensions
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const chartHeight = dimensions.height; // Use full height since volume is now integrated
-  const volumeAreaHeight = 80; // Fixed height for volume area above X-axis
+  const volumeAreaHeight = 60; // Reduced height for volume area above X-axis
 
   // Dedicated overlay rendering for drawings
   useEffect(() => {
@@ -931,6 +1444,91 @@ export default function TradingViewChart({
     border: config.theme === 'dark' ? '#333333' : '#e1e4e8',
     header: config.theme === 'dark' ? '#111111' : '#f8f9fa'
   };
+
+  // Y-Axis Dynamic Scaling Utility Functions
+  const calculateAutoPriceRange = useCallback((visibleData: ChartDataPoint[]) => {
+    if (visibleData.length === 0) return { min: 0, max: 100 };
+    
+    const prices = visibleData.flatMap(d => [d.high, d.low]);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const padding = (maxPrice - minPrice) * 0.1;
+    
+    return {
+      min: minPrice - padding,
+      max: maxPrice + padding
+    };
+  }, []);
+
+  const getCurrentPriceRange = useCallback((visibleData: ChartDataPoint[]) => {
+    if (!isAutoScale && manualPriceRange) {
+      return manualPriceRange;
+    }
+    return calculateAutoPriceRange(visibleData);
+  }, [isAutoScale, manualPriceRange, calculateAutoPriceRange]);
+
+  const setManualPriceRangeAndDisableAuto = useCallback((newRange: { min: number; max: number }) => {
+    setManualPriceRange(newRange);
+    setIsAutoScale(false);
+  }, []);
+
+  const resetToAutoScale = useCallback(() => {
+    setIsAutoScale(true);
+    setManualPriceRange(null);
+  }, []);
+
+  const isInYAxisArea = useCallback((x: number, canvasWidth: number) => {
+    return x > canvasWidth - 80; // Y-axis area is rightmost 80px
+  }, []);
+
+  // Momentum Scrolling Utility Functions
+  const startMomentumAnimation = useCallback(() => {
+    if (momentumAnimationId) {
+      cancelAnimationFrame(momentumAnimationId);
+    }
+    
+    const animate = () => {
+      setVelocity(prevVelocity => {
+        const friction = 0.95; // Damping factor
+        const threshold = 0.1; // Stop when velocity is very low
+        
+        const newVelocityX = Math.abs(prevVelocity.x) > threshold ? prevVelocity.x * friction : 0;
+        const newVelocityY = Math.abs(prevVelocity.y) > threshold ? prevVelocity.y * friction : 0;
+        
+        // Apply velocity to scroll offset (horizontal momentum)
+        if (Math.abs(newVelocityX) > threshold) {
+          setScrollOffset(prevOffset => {
+            const futurePeriods = getFuturePeriods(config.timeframe);
+            const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
+            const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
+            const deltaOffset = -newVelocityX / 20; // Convert pixel velocity to candle offset
+            return Math.max(0, Math.min(maxScrollOffset, prevOffset + deltaOffset));
+          });
+        }
+        
+        // Continue animation if there's still velocity
+        if (Math.abs(newVelocityX) > threshold || Math.abs(newVelocityY) > threshold) {
+          const id = requestAnimationFrame(animate);
+          setMomentumAnimationId(id);
+          return { x: newVelocityX, y: newVelocityY };
+        } else {
+          setMomentumAnimationId(null);
+          return { x: 0, y: 0 };
+        }
+      });
+    };
+    
+    const id = requestAnimationFrame(animate);
+    setMomentumAnimationId(id);
+  }, [momentumAnimationId, visibleCandleCount, data.length, config.timeframe]);
+
+  const stopMomentumAnimation = useCallback(() => {
+    if (momentumAnimationId) {
+      cancelAnimationFrame(momentumAnimationId);
+      setMomentumAnimationId(null);
+    }
+    setVelocity({ x: 0, y: 0 });
+  }, [momentumAnimationId]);
 
   // Fetch real-time price for current price display
   const fetchRealTimePrice = useCallback(async (sym: string) => {
@@ -1031,7 +1629,7 @@ export default function TradingViewChart({
           daysBack = 365; // 1 year of 4-hour data (was 3 years)
           break;
         case '1d':
-          daysBack = 1095; // 3 years of daily data (was 15 years)
+          daysBack = 7124; // 19.5 years of daily data (19.5 * 365.25 days)
           break;
         case '1w':
           daysBack = 2190; // 6 years of weekly data (was 20 years)
@@ -1293,6 +1891,7 @@ export default function TradingViewChart({
     };
 
     document.addEventListener('mousedown', handleClickOutside);
+    
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
@@ -1315,6 +1914,12 @@ export default function TradingViewChart({
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     ctx.scale(dpr, dpr);
+
+    // Enable crisp rendering for sharp lines and shapes
+    ctx.imageSmoothingEnabled = false;
+    (ctx as any).webkitImageSmoothingEnabled = false;
+    (ctx as any).mozImageSmoothingEnabled = false;
+    (ctx as any).msImageSmoothingEnabled = false;
 
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
@@ -1387,8 +1992,8 @@ export default function TradingViewChart({
         ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748';
         ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568';
         ctx.lineWidth = 1;
-        ctx.fillRect(labelX - dateTextWidth/2, height - 41, dateTextWidth, 32); // Larger background
-        ctx.strokeRect(labelX - dateTextWidth/2, height - 41, dateTextWidth, 32);
+        ctx.fillRect(labelX - dateTextWidth/2, height - 35, dateTextWidth, 28); // Reduced background size
+        ctx.strokeRect(labelX - dateTextWidth/2, height - 35, dateTextWidth, 28);
         
         // CRISP WHITE DATE TEXT with enhanced shadow for maximum clarity
         ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
@@ -1397,16 +2002,140 @@ export default function TradingViewChart({
         ctx.shadowOffsetY = 1;
         ctx.fillStyle = '#FFFFFF';
         ctx.textAlign = 'center';
-        ctx.fillText(dateText, labelX, height - 25); // Adjusted position for larger background
+        ctx.fillText(dateText, labelX, height - 21); // Moved up to match reduced background
         
         // Reset shadow
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
+        
+        // Enhanced OHLC Info Panel (top-left corner)
+        if (crosshairInfo.ohlc) {
+          const ohlc = crosshairInfo.ohlc;
+          const panelX = 20;
+          const panelY = 20;
+          const panelWidth = 220;
+          const panelHeight = 100;
+          
+          // Panel background - solid black with border
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+          ctx.strokeStyle = '#333333';
+          ctx.lineWidth = 1;
+          ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+          ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+          
+          // Panel content with larger text
+          ctx.font = 'bold 13px "Segoe UI", system-ui, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          
+          const lineHeight = 20;
+          let currentY = panelY + 12;
+          
+          // OHLC values in a clean grid layout
+          // First row: Open and High
+          ctx.fillStyle = '#888888';
+          ctx.fillText('O:', panelX + 12, currentY);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(`$${ohlc.open.toFixed(2)}`, panelX + 35, currentY);
+          
+          ctx.fillStyle = '#888888';
+          ctx.fillText('H:', panelX + 120, currentY);
+          ctx.fillStyle = '#00ff88'; // Bright green for high
+          ctx.fillText(`$${ohlc.high.toFixed(2)}`, panelX + 143, currentY);
+          currentY += lineHeight;
+          
+          // Second row: Low and Close
+          ctx.fillStyle = '#888888';
+          ctx.fillText('L:', panelX + 12, currentY);
+          ctx.fillStyle = '#ff4444'; // Bright red for low
+          ctx.fillText(`$${ohlc.low.toFixed(2)}`, panelX + 35, currentY);
+          
+          ctx.fillStyle = '#888888';
+          ctx.fillText('C:', panelX + 120, currentY);
+          const closeColor = (ohlc.change !== undefined && ohlc.change >= 0) ? '#00ff88' : '#ff4444';
+          ctx.fillStyle = closeColor;
+          ctx.fillText(`$${ohlc.close.toFixed(2)}`, panelX + 143, currentY);
+          currentY += lineHeight;
+          
+          // Change and percentage in one line
+          if (ohlc.change !== undefined && ohlc.changePercent !== undefined) {
+            const changeText = ohlc.change >= 0 ? `+$${ohlc.change.toFixed(2)}` : `-$${Math.abs(ohlc.change).toFixed(2)}`;
+            const percentText = ohlc.changePercent >= 0 ? `+${ohlc.changePercent.toFixed(2)}%` : `${ohlc.changePercent.toFixed(2)}%`;
+            
+            ctx.fillStyle = closeColor;
+            ctx.font = 'bold 12px "Segoe UI", system-ui, sans-serif';
+            ctx.fillText(`${changeText} (${percentText})`, panelX + 12, currentY);
+            currentY += lineHeight - 2;
+          }
+          
+          // Volume
+          if (crosshairInfo.volume) {
+            ctx.fillStyle = '#888888';
+            ctx.font = '12px "Segoe UI", system-ui, sans-serif';
+            const volumeText = crosshairInfo.volume >= 1000000 
+              ? `${(crosshairInfo.volume / 1000000).toFixed(1)}M`
+              : crosshairInfo.volume >= 1000
+              ? `${(crosshairInfo.volume / 1000).toFixed(1)}K`
+              : crosshairInfo.volume.toString();
+            ctx.fillText(`Vol: ${volumeText}`, panelX + 12, currentY);
+          }
+        }
       }
     }
-  }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo]);
+    
+    // Draw box zoom selection
+    if (isBoxZooming && boxZoomStart && boxZoomEnd) {
+      const startX = Math.min(boxZoomStart.x, boxZoomEnd.x);
+      const endX = Math.max(boxZoomStart.x, boxZoomEnd.x);
+      const startY = Math.min(boxZoomStart.y, boxZoomEnd.y);
+      const endY = Math.max(boxZoomStart.y, boxZoomEnd.y);
+      
+      // Box zoom selection overlay
+      ctx.fillStyle = 'rgba(41, 98, 255, 0.1)'; // Blue with transparency
+      ctx.strokeStyle = '#2962ff'; // Blue border
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      
+      // Fill the selection area
+      ctx.fillRect(startX, startY, endX - startX, endY - startY);
+      
+      // Stroke the border
+      ctx.strokeRect(startX, startY, endX - startX, endY - startY);
+      
+      // Reset line dash
+      ctx.setLineDash([]);
+      
+      // Add corner handles
+      const handleSize = 6;
+      ctx.fillStyle = '#2962ff';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      
+      // Four corner handles
+      const corners = [
+        { x: startX, y: startY },
+        { x: endX, y: startY },
+        { x: startX, y: endY },
+        { x: endX, y: endY }
+      ];
+      
+      corners.forEach(corner => {
+        ctx.fillRect(corner.x - handleSize/2, corner.y - handleSize/2, handleSize, handleSize);
+        ctx.strokeRect(corner.x - handleSize/2, corner.y - handleSize/2, handleSize, handleSize);
+      });
+      
+      // Add text instruction
+      ctx.font = '12px "Segoe UI", system-ui, sans-serif';
+      ctx.fillStyle = '#2962ff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const centerX = (startX + endX) / 2;
+      const centerY = (startY + endY) / 2;
+      ctx.fillText('Release to zoom', centerX, centerY);
+    }
+  }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd]);
 
   // Update overlay when interactions change
   useEffect(() => {
@@ -1482,7 +2211,7 @@ export default function TradingViewChart({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [data.length, scrollOffset, visibleCandleCount]);
 
-  // Wheel event handler for zoom and scroll - with proper passive handling
+  // Wheel event handler for zoom and scroll - with Y-axis scaling support
   useEffect(() => {
     const handleWheelEvent = (e: WheelEvent) => {
       // Check if the event is on our canvas elements
@@ -1499,52 +2228,85 @@ export default function TradingViewChart({
       
       e.preventDefault();
       
-      // Determine scroll direction and amount
-      const delta = e.deltaY;
-      const scrollSensitivity = 3; // Candles to scroll per wheel tick
+      // Get mouse position relative to canvas
+      const rect = overlayCanvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const canvasWidth = overlayCanvas.width / window.devicePixelRatio;
       
-      if (Math.abs(delta) > Math.abs(e.deltaX)) {
-        // Vertical scroll - zoom in/out
-        const zoomDirection = delta > 0 ? 1 : -1; // 1 = zoom out, -1 = zoom in
-        const zoomFactor = 0.1;
+      // Check if mouse is over Y-axis area (right side)
+      const isOverYAxis = isInYAxisArea(mouseX, canvasWidth);
+      
+      if (isOverYAxis) {
+        // Y-axis scaling when wheel over Y-axis area
+        const delta = e.deltaY;
+        const scaleFactor = delta > 0 ? 1.1 : 0.9; // Scale up or down
         
-        // Calculate new candle count
-        const currentCount = visibleCandleCount;
-        const maxCandles = Math.min(data.length, 300);
-        const minCandles = 20;
+        // Get current visible data for price range calculation
+        const startIndex = Math.max(0, Math.floor(scrollOffset));
+        const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+        const visibleData = data.slice(startIndex, endIndex);
         
-        let newCount;
-        if (zoomDirection === 1) {
-          // Zoom out - show more candles
-          newCount = Math.min(maxCandles, Math.round(currentCount * (1 + zoomFactor)));
-        } else {
-          // Zoom in - show fewer candles
-          newCount = Math.max(minCandles, Math.round(currentCount * (1 - zoomFactor)));
+        if (visibleData.length > 0) {
+          const currentRange = getCurrentPriceRange(visibleData);
+          const center = (currentRange.min + currentRange.max) / 2;
+          const currentHeight = currentRange.max - currentRange.min;
+          const newHeight = currentHeight * scaleFactor;
+          
+          const newRange = {
+            min: center - newHeight / 2,
+            max: center + newHeight / 2
+          };
+          
+          setManualPriceRangeAndDisableAuto(newRange);
         }
-        
-        // Adjust scroll offset to keep the center of the view relatively stable
-        const centerRatio = 0.5;
-        const oldCenterIndex = scrollOffset + (currentCount * centerRatio);
-        const futurePeriods = getFuturePeriods(config.timeframe);
-        const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(newCount * 0.2));
-        const newOffset = Math.max(0, Math.min(
-          data.length - newCount + maxFuturePeriods,
-          Math.round(oldCenterIndex - (newCount * centerRatio))
-        ));
-        
-        setVisibleCandleCount(newCount);
-        setScrollOffset(newOffset);
       } else {
-        // Horizontal scroll - pan left/right - allow extending beyond data for future view
-        const scrollDirection = delta > 0 ? 1 : -1;
-        const futurePeriods = getFuturePeriods(config.timeframe);
-        const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
-        const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
-        const newOffset = Math.max(0, Math.min(
-          maxScrollOffset,
-          scrollOffset + (scrollDirection * scrollSensitivity)
-        ));
-        setScrollOffset(newOffset);
+        // Regular zoom/pan when not over Y-axis
+        const delta = e.deltaY;
+        const scrollSensitivity = 1.5; // Reduced from 3 to 1.5 for slower horizontal scrolling
+        
+        if (Math.abs(delta) > Math.abs(e.deltaX)) {
+          // Vertical scroll - zoom in/out
+          const zoomDirection = delta > 0 ? 1 : -1; // 1 = zoom out, -1 = zoom in
+          const zoomFactor = 0.1;
+          
+          // Calculate new candle count
+          const currentCount = visibleCandleCount;
+          const maxCandles = Math.min(data.length, 300);
+          const minCandles = 20;
+          
+          let newCount;
+          if (zoomDirection === 1) {
+            // Zoom out - show more candles
+            newCount = Math.min(maxCandles, Math.round(currentCount * (1 + zoomFactor)));
+          } else {
+            // Zoom in - show fewer candles
+            newCount = Math.max(minCandles, Math.round(currentCount * (1 - zoomFactor)));
+          }
+          
+          // Adjust scroll offset to keep the center of the view relatively stable
+          const centerRatio = 0.5;
+          const oldCenterIndex = scrollOffset + (currentCount * centerRatio);
+          const futurePeriods = getFuturePeriods(config.timeframe);
+          const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(newCount * 0.2));
+          const newOffset = Math.max(0, Math.min(
+            data.length - newCount + maxFuturePeriods,
+            Math.round(oldCenterIndex - (newCount * centerRatio))
+          ));
+          
+          setVisibleCandleCount(newCount);
+          setScrollOffset(newOffset);
+        } else {
+          // Horizontal scroll - pan left/right - allow extending beyond data for future view
+          const scrollDirection = delta > 0 ? 1 : -1;
+          const futurePeriods = getFuturePeriods(config.timeframe);
+          const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
+          const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
+          const newOffset = Math.max(0, Math.min(
+            maxScrollOffset,
+            scrollOffset + (scrollDirection * scrollSensitivity)
+          ));
+          setScrollOffset(newOffset);
+        }
       }
     };
 
@@ -1567,7 +2329,7 @@ export default function TradingViewChart({
         chartCanvas.removeEventListener('wheel', handleWheelEvent);
       }
     };
-  }, [data.length, scrollOffset, visibleCandleCount]);
+  }, [data.length, scrollOffset, visibleCandleCount, isInYAxisArea, getCurrentPriceRange, setManualPriceRangeAndDisableAuto]);
 
   // Helper function to determine if a timestamp is during market hours
   const isMarketHours = (timestamp: number): boolean => {
@@ -1639,6 +2401,12 @@ export default function TradingViewChart({
     canvas.style.height = `${height}px`;
     ctx.scale(dpr, dpr);
 
+    // Enable crisp rendering for sharp lines and shapes
+    ctx.imageSmoothingEnabled = false;
+    (ctx as any).webkitImageSmoothingEnabled = false;
+    (ctx as any).mozImageSmoothingEnabled = false;
+    (ctx as any).msImageSmoothingEnabled = false;
+
     console.log(`🎨 Rendering integrated chart: ${width}x${height}, theme: ${config.theme}, background: ${colors.background}`);
 
     // Clear canvas with theme-appropriate background
@@ -1646,7 +2414,7 @@ export default function TradingViewChart({
     ctx.fillRect(0, 0, width, height);
 
     // Calculate chart areas - reserve space for volume, indicators, and time axis
-    const timeAxisHeight = 30;
+    const timeAxisHeight = 25;
     const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
     const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
     
@@ -1703,13 +2471,10 @@ export default function TradingViewChart({
     // Draw market hours background shading
     drawMarketHoursBackground(ctx, width, priceChartHeight, visibleData, chartWidth, visibleCandleCount);
 
-    // Calculate price range for visible data
-    const prices = visibleData.flatMap(d => [d.high, d.low]);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const padding = (maxPrice - minPrice) * 0.1;
-    const adjustedMin = minPrice - padding;
-    const adjustedMax = maxPrice + padding;
+    // Calculate price range for visible data using shared function
+    const currentPriceRange = getCurrentChartPriceRange();
+    const adjustedMin = currentPriceRange.min;
+    const adjustedMax = currentPriceRange.max;
 
     console.log(`💰 Price range: $${adjustedMin.toFixed(2)} - $${adjustedMax.toFixed(2)}`);
 
@@ -1753,8 +2518,8 @@ export default function TradingViewChart({
     } else {
       // Draw candlesticks/bars/area/hollow candles
       visibleData.forEach((candle, index) => {
-        const x = 40 + (index * candleSpacing) + (candleSpacing - candleWidth) / 2;
-        drawCandle(ctx, candle, x, candleWidth, priceChartHeight, adjustedMin, adjustedMax);
+        const x = Math.round(40 + (index * candleSpacing) + (candleSpacing - candleWidth) / 2);
+        drawCandle(ctx, candle, x, Math.round(candleWidth), priceChartHeight, adjustedMin, adjustedMax);
       });
     }
 
@@ -1765,12 +2530,12 @@ export default function TradingViewChart({
       const barSpacing = chartWidth / visibleData.length;
 
       visibleData.forEach((candle, index) => {
-        const x = 40 + (index * barSpacing) + (barSpacing - barWidth) / 2;
-        const barHeight = (candle.volume / maxVolume) * (volumeAreaHeight - 10);
+        const x = Math.round(40 + (index * barSpacing) + (barSpacing - barWidth) / 2);
+        const barHeight = Math.round((candle.volume / maxVolume) * (volumeAreaHeight - 10));
         const isGreen = candle.close > candle.open;
         
-        ctx.fillStyle = isGreen ? colors.bullish + '40' : colors.bearish + '40';
-        ctx.fillRect(x, volumeEndY - barHeight, barWidth, barHeight);
+        ctx.fillStyle = isGreen ? config.colors.volume.bullish : config.colors.volume.bearish;
+        ctx.fillRect(x, volumeEndY - barHeight, Math.round(barWidth), barHeight);
       });
 
       // Draw volume scale on the right side
@@ -2377,8 +3142,8 @@ export default function TradingViewChart({
     // Convert prices to canvas coordinates
     const priceToY = (price: number) => {
       const ratio = (price - minPrice) / (maxPrice - minPrice);
-      const chartArea = height - 30; // Reserve 30px at bottom for time labels
-      return chartArea - (ratio * (chartArea - 20)) - 10; // Leave margins top and adjust for reserved space
+      const chartArea = height - 25; // Reserve 25px at bottom for time labels
+      return Math.round(chartArea - (ratio * (chartArea - 20)) - 10); // Round to crisp pixels
     };
 
     const openY = priceToY(open);
@@ -2386,28 +3151,32 @@ export default function TradingViewChart({
     const highY = priceToY(high);
     const lowY = priceToY(low);
 
+    // Round x position for crisp rendering
+    const crispX = Math.round(x);
+    const crispWidth = Math.max(1, Math.round(width));
+
     // Draw wick (high-low line)
     ctx.strokeStyle = candleColors.wick;
-    ctx.lineWidth = Math.max(1, width * 0.1);
+    ctx.lineWidth = Math.max(1, Math.round(width * 0.05)); // Reduced from 0.1 to 0.05 for thinner wicks
     ctx.beginPath();
-    ctx.moveTo(x + width / 2, highY);
-    ctx.lineTo(x + width / 2, lowY);
+    ctx.moveTo(crispX + crispWidth / 2, highY);
+    ctx.lineTo(crispX + crispWidth / 2, lowY);
     ctx.stroke();
 
     // Draw body (open-close rectangle)
     if (config.chartType === 'candlestick') {
-      const bodyHeight = Math.abs(closeY - openY);
+      const bodyHeight = Math.max(1, Math.abs(closeY - openY));
       const bodyY = Math.min(openY, closeY);
-      const bodyWidth = Math.max(2, width - 2);
+      const bodyWidth = Math.max(2, crispWidth - 2);
       
       // Fill the body
       ctx.fillStyle = candleColors.body;
-      ctx.fillRect(x + 1, bodyY, bodyWidth, Math.max(1, bodyHeight));
+      ctx.fillRect(crispX + 1, bodyY, bodyWidth, bodyHeight);
       
       // Draw body border
       ctx.strokeStyle = candleColors.border;
       ctx.lineWidth = 1;
-      ctx.strokeRect(x + 1, bodyY, bodyWidth, Math.max(1, bodyHeight));
+      ctx.strokeRect(crispX + 1, bodyY, bodyWidth, bodyHeight);
     }
   };
 
@@ -2423,7 +3192,7 @@ export default function TradingViewChart({
     ctx.font = `${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     ctx.textAlign = 'left';
 
-    const chartArea = height - 30; // Reserve 30px at bottom for time labels
+    const chartArea = height - 25; // Reserve 25px at bottom for time labels
     const steps = 10;
     
     // DEBUG LOG
@@ -2450,6 +3219,11 @@ export default function TradingViewChart({
       ctx.lineTo(width - 70, y);
       ctx.stroke();
     }
+
+    // Reset styles after drawing Y-axis
+    ctx.fillStyle = config.axisStyle.yAxis.textColor;
+    ctx.font = `${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+    ctx.textAlign = 'left';
   };
 
   // Draw time axis at the bottom
@@ -2610,14 +3384,14 @@ export default function TradingViewChart({
         ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor;
         
         // Draw the label
-        ctx.fillText(text, x, height - 8);
+        ctx.fillText(text, x, height - 5);
         
         // Draw tick mark
         ctx.strokeStyle = isFuture ? 'rgba(255, 255, 255, 0.3)' : colors.grid;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(x, height - 20);
-        ctx.lineTo(x, height - 15);
+        ctx.moveTo(x, height - 17);
+        ctx.lineTo(x, height - 12);
         ctx.stroke();
       }
     };
@@ -2710,277 +3484,377 @@ export default function TradingViewChart({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    console.log('🖱️ Unified mouse down at:', { x, y, activeTool, buttonPressed: e.button });
-    console.log('🎯 Current active tool state:', activeTool);
-    console.log('� Tool value type:', typeof activeTool);
-    console.log('🔧 Tool is truthy:', !!activeTool);
-    console.log('�📊 Canvas dimensions:', { width: canvas.width, height: canvas.height });
-    console.log('📐 Click position:', { clientX: e.clientX, clientY: e.clientY, rectLeft: rect.left, rectTop: rect.top });
+    console.log('🖱️ Mouse down at:', { x, y });
 
-    // Define tool categories within the function scope
-    const textTools = ['text', 'note', 'callout', 'price_label', 'anchored_text'];
-    const singleClickTools = [
-      'horizontal_line', 'vertical_line', 'cross_line', 'flag', 
-      'long_position', 'short_position', 'price_alert', 'ray'
-    ];
-    const twoPointTools = [
-      'trend_line', 'fib_retracement', 'fib_extension', 'fib_fan', 'fib_arc',
-      'fib_timezone', 'fib_channel', 'fib_speed_fan', 'rectangle', 'ellipse',
-      'triangle', 'circle', 'arc', 'gann_line', 'gann_fan', 'gann_box',
-      'gann_square', 'regression', 'forecast', 'ruler', 'price_range',
-      'date_range', 'date_price_range', 'projection'
-    ];
-    const multiPointTools = [
-      'pitchfork', 'schiff_pitchfork', 'inside_pitchfork', 'elliott_wave', 
-      'elliott_impulse', 'elliott_correction', 'polyline', 'polygon',
-      'head_shoulders', 'triangle_pattern', 'abcd_pattern', 'bat_pattern',
-      'butterfly_pattern', 'gartley_pattern', 'crab_pattern', 'shark_pattern',
-      'cypher_pattern', 'cycle_lines'
-    ];
-
-    // If we have an active drawing tool, handle the drawing
-    if (activeTool) {
-      console.log('🎨 Processing drawing tool:', activeTool);
-      
-      // Handle text input tools
-      if (textTools.includes(activeTool)) {
-        setTextInputPosition({ x, y });
-        setShowTextInput(true);
-        return;
-      }
-
-      // Handle single-click tools
-      if (singleClickTools.includes(activeTool)) {
-        console.log('🖱️ Single-click tool activated:', activeTool, 'at:', { x, y });
-        
-        // Convert screen coordinates to TradingView time+price coordinates
-        const priceChartHeight = dimensions.height * 0.7;
-        const ratio = y / priceChartHeight;
-        const price = priceRange.max - (ratio * (priceRange.max - priceRange.min));
-        
-        const canvasWidth = dimensions.width - 80; // Chart width minus margins
-        const pointsPerPixel = (data.length - 1) / canvasWidth;
-        const dataIndex = Math.round((x + scrollOffset) * pointsPerPixel);
-        const boundedIndex = Math.max(0, Math.min(dataIndex, data.length - 1));
-        const time = data[boundedIndex]?.timestamp || Date.now();
-        
-        console.log('🎯 TradingView coordinates:', { time, price, screenX: x, screenY: y });
-        
-        let newDrawing;
-        
-        if (activeTool === 'ray') {
-          // TradingView-style horizontal ray: only needs start point
-          newDrawing = {
-            id: Date.now(),
-            type: 'ray',
-            startPoint: { x, y }, // Legacy coordinates for compatibility
-            time: time,           // TradingView time coordinate
-            price: price,         // TradingView price coordinate
-            timestamp: Date.now(),
-            style: drawingStyle
-          };
-        } else if (activeTool === 'vertical_line') {
-          newDrawing = {
-            id: Date.now(),
-            type: 'vertical_line',
-            startPoint: { x, y }, // Legacy coordinates for compatibility
-            time: time,           // TradingView time coordinate
-            price: price,         // TradingView price coordinate
-            timestamp: Date.now(),
-            style: drawingStyle
-          };
-        } else {
-          // Other single-click tools
-          newDrawing = {
-            id: Date.now(),
-            type: activeTool || 'unknown',
-            startPoint: { x, y }, // Legacy coordinates for compatibility
-            endPoint: { x, y },   // Legacy coordinates for compatibility
-            time: time,           // TradingView time coordinate
-            price: price,         // TradingView price coordinate
-            timestamp: Date.now(),
-            style: drawingStyle
-          };
-        }
-        
-        console.log('✅ Creating new single-click drawing:', newDrawing);
-        setDrawings(prev => {
-          const updated = [...prev, newDrawing];
-          console.log('📊 Updated drawings array:', updated.length, 'drawings');
-          return updated;
-        });
-        // Don't clear activeTool - keep it active for multiple drawings like TradingView  
-        // setActiveTool(null); // Removed - keep tool active
-        return;
-      }
-
-      // Handle two-point tools (most common drawing tools) 
-      if (twoPointTools.includes(activeTool)) {
-        if (!isDrawing) {
-          // Start drawing
-          console.log('🎯 Starting two-point tool:', activeTool);
-          setIsDrawing(true);
-          setDrawingStartPoint({ x, y });
-        } else {
-          // Complete drawing
-          if (drawingStartPoint) {
-            console.log('✅ Completing two-point tool:', activeTool);
-            
-            // Convert screen coordinates to TradingView time+price coordinates
-            const priceChartHeight = dimensions.height * 0.7;
-            const canvasWidth = dimensions.width - 80; // Chart width minus margins
-            const pointsPerPixel = (data.length - 1) / canvasWidth;
-            
-            // Start point conversion
-            const startRatio = drawingStartPoint.y / priceChartHeight;
-            const startPrice = priceRange.max - (startRatio * (priceRange.max - priceRange.min));
-            const startDataIndex = Math.round((drawingStartPoint.x + scrollOffset) * pointsPerPixel);
-            const startBoundedIndex = Math.max(0, Math.min(startDataIndex, data.length - 1));
-            const startTime = data[startBoundedIndex]?.timestamp || Date.now();
-            
-            // End point conversion
-            const endRatio = y / priceChartHeight;
-            const endPrice = priceRange.max - (endRatio * (priceRange.max - priceRange.min));
-            const endDataIndex = Math.round((x + scrollOffset) * pointsPerPixel);
-            const endBoundedIndex = Math.max(0, Math.min(endDataIndex, data.length - 1));
-            const endTime = data[endBoundedIndex]?.timestamp || Date.now();
-            
-            console.log('🎯 TradingView two-point coordinates:', { 
-              start: { time: startTime, price: startPrice }, 
-              end: { time: endTime, price: endPrice } 
-            });
-            
-            const newDrawing: Drawing = {
-              id: Date.now(),
-              type: activeTool || 'unknown',
-              startPoint: drawingStartPoint, // Legacy coordinates for compatibility
-              endPoint: { x, y },           // Legacy coordinates for compatibility
-              time1: startTime,             // TradingView start time coordinate
-              price1: startPrice,           // TradingView start price coordinate
-              time2: endTime,               // TradingView end time coordinate
-              price2: endPrice,             // TradingView end price coordinate
-              timestamp: Date.now(),
-              style: drawingStyle
-            };
-            
-            console.log('✅ Adding new two-point drawing:', newDrawing);
-            setDrawings(prev => {
-              const newDrawings = [...prev, newDrawing];
-              console.log('📊 Updated drawings count:', newDrawings.length);
-              return newDrawings;
-            });
-            setIsDrawing(false);
-            setDrawingStartPoint(null);
-            // Don't clear activeTool - keep it active for multiple drawings like TradingView
-            // setActiveTool(null); // Removed - keep tool active
-          }
-        }
-        return;
-      }
-
-      // Handle multi-point tools
-      if (multiPointTools.includes(activeTool)) {
-        // Convert screen coordinates to TradingView time+price coordinates
-        const priceChartHeight = dimensions.height * 0.7;
-        const ratio = y / priceChartHeight;
-        const price = priceRange.max - (ratio * (priceRange.max - priceRange.min));
-        
-        const canvasWidth = dimensions.width - 80; // Chart width minus margins
-        const pointsPerPixel = (data.length - 1) / canvasWidth;
-        const dataIndex = Math.round((x + scrollOffset) * pointsPerPixel);
-        const boundedIndex = Math.max(0, Math.min(dataIndex, data.length - 1));
-        const time = data[boundedIndex]?.timestamp || Date.now();
-        
-        const newPoint = { x, y, time, price }; // Include TradingView coordinates
-        const updatedPoints = [...multiPointDrawing, newPoint];
-        setMultiPointDrawing(updatedPoints);
-        
-        // Determine if we have enough points to complete the tool
-        let requiredPoints = 2; // Default
-        switch (activeTool) {
-          case 'elliott_impulse':
-            requiredPoints = 5;
-            break;
-          case 'elliott_correction':
-            requiredPoints = 3;
-            break;
-          case 'pitchfork':
-          case 'schiff_pitchfork':
-          case 'inside_pitchfork':
-            requiredPoints = 3;
-            break;
-        }
-        
-        if (updatedPoints.length >= requiredPoints) {
-          // Complete the multi-point drawing
-          const newDrawing = {
-            id: Date.now(),
-            type: activeTool || 'unknown',
-            points: updatedPoints, // Now includes TradingView coordinates
-            timestamp: Date.now(),
-            style: drawingStyle
-          };
-          
-          console.log('✅ Creating multi-point drawing:', newDrawing);
-          setDrawings(prev => [...prev, newDrawing]);
-          setMultiPointDrawing([]);
-          setCurrentDrawingPhase(0);
-          // Don't clear activeTool - keep it active for multiple drawings like TradingView
-          // setActiveTool(null); // Removed - keep tool active
-        } else {
-          // Continue to next phase
-          setCurrentDrawingPhase(prev => prev + 1);
-        }
-        return;
-      }
-      
-      return;
-    }
-
-    // Check for drawing selection when no tool is active
-    if (!activeTool) {
-      // Simple hit detection for rays
-      const clickedDrawing = drawings.find((drawing: any) => {
-        if (drawing.type === 'ray') {
-          const priceChartHeight = dimensions.height * 0.7;
-          const ratio = (priceRange.max - drawing.price) / (priceRange.max - priceRange.min);
-          const drawingY = ratio * priceChartHeight;
-          return x >= drawing.x && Math.abs(y - drawingY) < 10;
-        }
-        return false;
-      });
-
-      if (clickedDrawing) {
-        setSelectedDrawing(clickedDrawing);
-        setIsDraggingDrawing(true);
-        console.log('🎯 Selected drawing:', clickedDrawing);
-        return;
-      }
-    }
-
-    // Chart panning fallback
+    // Drawing tools have been removed as requested
+    // Only core chart functionality remains - enable chart panning
     setIsDragging(true);
     setLastMouseX(x);
     setDragStartX(x);
     setDragStartOffset(scrollOffset);
-    
-    e.preventDefault();
-  }, [activeTool, drawings, dimensions, priceRange, scrollOffset, isDrawing, drawingStartPoint, multiPointDrawing, drawingStyle]);
+  }, [scrollOffset]);
 
-  // Mouse handlers for TradingView-style navigation
+  // ✨ NEW: Advanced Hit Detection System
+  const getDrawingHandles = useCallback((drawing: Drawing): Array<{x: number, y: number, type: string, cursor: string}> => {
+    if (!drawing.startTimestamp || !drawing.startPrice) return [];
+    
+    const startCoords = timePriceToScreenCoordinates(drawing.startTimestamp, drawing.startPrice);
+    const handles = [
+      { x: startCoords.x, y: startCoords.y, type: 'start', cursor: 'grab' }
+    ];
+    
+    if (drawing.endTimestamp && drawing.endPrice) {
+      const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
+      handles.push({ x: endCoords.x, y: endCoords.y, type: 'end', cursor: 'grab' });
+      
+      // Add corner handles for rectangles
+      if (['rectangle', 'ellipse'].includes(drawing.type)) {
+        handles.push(
+          { x: startCoords.x, y: endCoords.y, type: 'corner1', cursor: 'nw-resize' },
+          { x: endCoords.x, y: startCoords.y, type: 'corner2', cursor: 'ne-resize' }
+        );
+      }
+      
+      // Add midpoint handles for lines
+      if (['trend_line', 'extended_line', 'arrow'].includes(drawing.type)) {
+        const midX = (startCoords.x + endCoords.x) / 2;
+        const midY = (startCoords.y + endCoords.y) / 2;
+        handles.push({ x: midX, y: midY, type: 'midpoint', cursor: 'grab' });
+      }
+    }
+    
+    return handles;
+  }, []);
+
+  const detectDrawingHit = useCallback((x: number, y: number, drawing: Drawing): {hit: boolean, type: string, handle?: any} => {
+    const HANDLE_SIZE = 8;
+    const LINE_TOLERANCE = 10;
+    
+    // Check handles first
+    if (showDrawingHandles && drawing.isSelected) {
+      const handles = getDrawingHandles(drawing);
+      for (const handle of handles) {
+        const distance = Math.sqrt(Math.pow(x - handle.x, 2) + Math.pow(y - handle.y, 2));
+        if (distance <= HANDLE_SIZE) {
+          return { hit: true, type: 'handle', handle };
+        }
+      }
+    }
+    
+    // Check drawing body
+    if (!drawing.startTimestamp || !drawing.startPrice) return { hit: false, type: 'none' };
+    
+    const startCoords = timePriceToScreenCoordinates(drawing.startTimestamp, drawing.startPrice);
+    
+    switch (drawing.type) {
+      case 'trend_line':
+      case 'extended_line':
+      case 'arrow':
+        if (drawing.endTimestamp && drawing.endPrice) {
+          const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
+          const distance = distanceToLine(x, y, startCoords.x, startCoords.y, endCoords.x, endCoords.y);
+          if (distance <= LINE_TOLERANCE) {
+            return { hit: true, type: 'body' };
+          }
+        }
+        break;
+        
+      case 'horizontal_line':
+        if (Math.abs(y - startCoords.y) <= LINE_TOLERANCE) {
+          return { hit: true, type: 'body' };
+        }
+        break;
+        
+      case 'vertical_line':
+        if (Math.abs(x - startCoords.x) <= LINE_TOLERANCE) {
+          return { hit: true, type: 'body' };
+        }
+        break;
+        
+      case 'rectangle':
+      case 'ellipse':
+        if (drawing.endTimestamp && drawing.endPrice) {
+          const endCoords = timePriceToScreenCoordinates(drawing.endTimestamp, drawing.endPrice);
+          const minX = Math.min(startCoords.x, endCoords.x);
+          const maxX = Math.max(startCoords.x, endCoords.x);
+          const minY = Math.min(startCoords.y, endCoords.y);
+          const maxY = Math.max(startCoords.y, endCoords.y);
+          
+          if (drawing.type === 'rectangle') {
+            // Rectangle border hit test
+            const onBorder = (
+              (x >= minX && x <= maxX && (Math.abs(y - minY) <= LINE_TOLERANCE || Math.abs(y - maxY) <= LINE_TOLERANCE)) ||
+              (y >= minY && y <= maxY && (Math.abs(x - minX) <= LINE_TOLERANCE || Math.abs(x - maxX) <= LINE_TOLERANCE))
+            );
+            
+            // Interior hit test (if filled)
+            const interior = x >= minX && x <= maxX && y >= minY && y <= maxY;
+            
+            if (onBorder || (interior && drawing.style?.fillOpacity && drawing.style.fillOpacity > 0)) {
+              return { hit: true, type: 'body' };
+            }
+          } else if (drawing.type === 'ellipse') {
+            // Ellipse hit test
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            const radiusX = (maxX - minX) / 2;
+            const radiusY = (maxY - minY) / 2;
+            
+            const normalizedX = (x - centerX) / radiusX;
+            const normalizedY = (y - centerY) / radiusY;
+            const distance = Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY);
+            
+            if (distance <= 1.1 && distance >= 0.9) { // Border tolerance
+              return { hit: true, type: 'body' };
+            }
+          }
+        }
+        break;
+        
+      case 'text':
+      case 'note':
+        // Text hit test (approximate)
+        const textWidth = (drawing.text?.length || 0) * 8;
+        const textHeight = drawing.style?.fontSize || 12;
+        if (x >= startCoords.x && x <= startCoords.x + textWidth && 
+            y >= startCoords.y - textHeight && y <= startCoords.y) {
+          return { hit: true, type: 'body' };
+        }
+        break;
+    }
+    
+    return { hit: false, type: 'none' };
+  }, [showDrawingHandles, getDrawingHandles]);
+
+  // Helper function for line distance calculation
+  const distanceToLine = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+    
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    
+    if (lenSq === 0) return Math.sqrt(A * A + B * B);
+    
+    let param = dot / lenSq;
+    param = Math.max(0, Math.min(1, param));
+    
+    const xx = x1 + param * C;
+    const yy = y1 + param * D;
+    
+    const dx = px - xx;
+    const dy = py - yy;
+    
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  // ✨ NEW: Magnet Mode for OHLC Snapping
+  const snapToOHLC = useCallback((timestamp: number, price: number): {timestamp: number, price: number} => {
+    if (!magnetMode || !data.length) return { timestamp, price };
+    
+    // Find nearest candle
+    const candleIndex = data.findIndex(candle => candle.timestamp >= timestamp);
+    if (candleIndex === -1) return { timestamp, price };
+    
+    const candle = data[candleIndex];
+    const ohlcValues = [candle.open, candle.high, candle.low, candle.close];
+    
+    // Find closest OHLC value
+    let closestPrice = price;
+    let minDistance = Infinity;
+    
+    ohlcValues.forEach(ohlcPrice => {
+      const distance = Math.abs(price - ohlcPrice);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPrice = ohlcPrice;
+      }
+    });
+    
+    // Only snap if within reasonable distance
+    const priceRange = Math.abs(candle.high - candle.low);
+    if (minDistance < priceRange * 0.1) { // Within 10% of candle range
+      return { timestamp: candle.timestamp, price: closestPrice };
+    }
+    
+    return { timestamp, price };
+  }, [magnetMode, data]);
+
+  // ✨ NEW: Enhanced Drawing Handle Rendering
+  const renderDrawingHandles = useCallback((ctx: CanvasRenderingContext2D, drawing: Drawing) => {
+    if (!drawing.isSelected || !showDrawingHandles) return;
+    
+    const handles = getDrawingHandles(drawing);
+    
+    handles.forEach(handle => {
+      // Handle appearance
+      ctx.fillStyle = '#2962ff';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      
+      // Draw handle based on type
+      if (handle.type === 'start' || handle.type === 'end') {
+        // Circle handles for start/end points
+        ctx.beginPath();
+        ctx.arc(handle.x, handle.y, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      } else if (handle.type.startsWith('corner')) {
+        // Square handles for corners
+        ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
+        ctx.strokeRect(handle.x - 4, handle.y - 4, 8, 8);
+      } else if (handle.type === 'midpoint') {
+        // Diamond handle for midpoint
+        ctx.save();
+        ctx.translate(handle.x, handle.y);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillRect(-4, -4, 8, 8);
+        ctx.strokeRect(-4, -4, 8, 8);
+        ctx.restore();
+      }
+    });
+  }, [showDrawingHandles, getDrawingHandles]);
+
+  // ✨ ENHANCED: Mouse handlers with advanced hit detection
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Only left mouse button
+    if (e.button === 2) { // Right click
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      // Check if right-clicking on a drawing
+      const hitDrawing = drawings.find(drawing => {
+        const hitResult = detectDrawingHit(x, y, drawing);
+        return hitResult.hit;
+      });
+      
+      if (hitDrawing) {
+        setContextMenuDrawing(hitDrawing);
+        setSelectedDrawing(hitDrawing);
+        setContextMenuPosition({ x: e.clientX, y: e.clientY });
+        setShowContextMenu(true);
+      } else {
+        setShowContextMenu(false);
+      }
+      return;
+    }
+    
+    if (e.button !== 0) return; // Only left mouse button for other actions
     
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     
+    // Close any open menus
+    setShowContextMenu(false);
+    setShowPropertiesPanel(false);
+    
+    // Check for box zoom mode (Shift key held)
+    if (e.shiftKey && !activeTool) {
+      setIsBoxZooming(true);
+      setBoxZoomStart({ x, y });
+      setBoxZoomEnd({ x, y });
+      return;
+    }
+    
+    // Check for drawing interaction first
+    let hitDrawing: Drawing | null = null;
+    let hitResult: {hit: boolean, type: string, handle?: any} = { hit: false, type: 'none' };
+    
+    // Check drawings in reverse order (front to back)
+    for (let i = drawings.length - 1; i >= 0; i--) {
+      const drawing = drawings[i];
+      if (drawing.isLocked) continue; // Skip locked drawings
+      
+      const result = detectDrawingHit(x, y, drawing);
+      if (result.hit) {
+        hitDrawing = drawing;
+        hitResult = result;
+        break;
+      }
+    }
+    
+    if (hitDrawing) {
+      // Multi-select with Ctrl/Cmd
+      const isMultiSelect = e.ctrlKey || e.metaKey;
+      handleDrawingSelection(hitDrawing, isMultiSelect);
+      
+      if (hitResult.type === 'handle' && hitResult.handle) {
+        // Start handle dragging
+        setIsDraggingDrawing(true);
+        setSelectedDrawing(hitDrawing);
+        setOriginalDrawing({ ...hitDrawing });
+        // Store which handle is being dragged
+        setDragOffset({ x: hitResult.handle.x - x, y: hitResult.handle.y - y });
+      } else if (hitResult.type === 'body') {
+        // Start drawing dragging
+        setIsDraggingDrawing(true);
+        setSelectedDrawing(hitDrawing);
+        setOriginalDrawing({ ...hitDrawing });
+        
+        // Calculate offset from drawing start point to click point
+        if (hitDrawing.startTimestamp && hitDrawing.startPrice) {
+          const startCoords = timePriceToScreenCoordinates(hitDrawing.startTimestamp, hitDrawing.startPrice);
+          setDragOffset({ x: startCoords.x - x, y: startCoords.y - y });
+        }
+      }
+      
+      // Double-click detection for properties panel
+      const now = Date.now();
+      if (lastClickDrawing?.id === hitDrawing.id && now - lastClickTime < 500) {
+        setShowPropertiesPanel(true);
+        setPropertiesPanelPosition({ x: e.clientX, y: e.clientY });
+      }
+      setLastClickDrawing(hitDrawing);
+      setLastClickTime(now);
+      
+      return; // Don't proceed with chart dragging
+    }
+    
+    // No drawing hit, proceed with chart navigation
+    setSelectedDrawing(null);
+    setSelectedDrawings([]);
+    
+    // Check if mouse is over Y-axis area for Y-axis dragging
+    const canvas = e.currentTarget as HTMLCanvasElement;
+    const canvasWidth = canvas.width / window.devicePixelRatio;
+    const isOverYAxis = isInYAxisArea(x, canvasWidth);
+    
+    // Stop any ongoing momentum animation when starting new interaction
+    stopMomentumAnimation();
+    
+    // Initialize velocity tracking
+    const now = Date.now();
+    setLastMouseTimestamp(now);
+    setLastMousePosition({ x, y });
+    
+    // Start full chart panning (both X and Y axes) - Tradytics style
     setIsDragging(true);
+    setIsDraggingYAxis(true); // Enable Y-axis dragging for all chart areas
     setLastMouseX(x);
     setDragStartX(x);
     setDragStartOffset(scrollOffset);
     
-    e.preventDefault();
-  }, [scrollOffset]);
+    // Get current visible data for price range calculation
+    const startIndex = Math.max(0, Math.floor(scrollOffset));
+    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+    const visibleData = data.slice(startIndex, endIndex);
+    
+    if (visibleData.length > 0) {
+      // Use current displayed price range for dragging (no auto-scale switching)
+      let currentRange;
+      if (manualPriceRange) {
+        currentRange = manualPriceRange;
+      } else {
+        currentRange = getCurrentPriceRange(visibleData);
+      }
+      setYAxisDragStart({ y, priceRange: currentRange });
+    }
+    
+  }, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -2990,11 +3864,36 @@ export default function TradingViewChart({
     // ALWAYS update crosshair position first
     setCrosshairPosition({ x, y });
 
+    // Track velocity for momentum scrolling (only when dragging)
+    if (isDragging || isDraggingYAxis) {
+      const now = Date.now();
+      const deltaTime = now - lastMouseTimestamp;
+      
+      if (deltaTime > 0) {
+        const deltaX = x - lastMousePosition.x;
+        const deltaY = y - lastMousePosition.y;
+        
+        // Calculate velocity (pixels per millisecond)
+        const velocityX = deltaX / deltaTime * 16; // Convert to 60fps frame rate
+        const velocityY = deltaY / deltaTime * 16;
+        
+        setVelocity({ x: velocityX, y: velocityY });
+        setLastMouseTimestamp(now);
+        setLastMousePosition({ x, y });
+      }
+    }
+
+    // Handle box zoom dragging
+    if (isBoxZooming && boxZoomStart) {
+      setBoxZoomEnd({ x, y });
+      return;
+    }
+
     // Handle drawing dragging
     if (isDraggingDrawing && selectedDrawing) {
       // Convert Y to price using the same calculation as chart rendering
-      const volumeAreaHeight = 80;
-      const timeAxisHeight = 30;
+      const volumeAreaHeight = 60;
+      const timeAxisHeight = 25;
       const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
       const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
       const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
@@ -3023,12 +3922,101 @@ export default function TradingViewChart({
       return;
     }
 
-    // Handle chart panning
+    // Handle full chart panning (both X and Y axes simultaneously)
+    if ((isDragging || isDraggingYAxis) && yAxisDragStart) {
+      // Handle Y-axis dragging (vertical movement)
+      const deltaY = y - yAxisDragStart.y;
+      const volumeAreaHeight = 60;
+      const timeAxisHeight = 25;
+      const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+      const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
+      const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
+      
+      // Calculate price change based on drag distance
+      const originalRange = yAxisDragStart.priceRange;
+      const priceHeight = originalRange.max - originalRange.min;
+      const pricePerPixel = priceHeight / priceChartHeight;
+      const priceShift = deltaY * pricePerPixel;
+      
+      // Apply the shift to create new price range
+      const newRange = {
+        min: originalRange.min + priceShift,
+        max: originalRange.max + priceShift
+      };
+      
+      setManualPriceRangeAndDisableAuto(newRange);
+      
+      // Handle X-axis dragging (horizontal movement)
+      const deltaX = x - lastMouseX;
+      const currentOffset = scrollOffset;
+      
+      // Allow extending beyond data for future view
+      const futurePeriods = getFuturePeriods(config.timeframe);
+      const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
+      const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
+      const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - Math.floor(deltaX / 5)));
+      
+      if (newOffset !== currentOffset) {
+        setScrollOffset(newOffset);
+      }
+      
+      setLastMouseX(x);
+      return;
+    }
+
+    // Alternative Y-axis dragging when yAxisDragStart is not set but we're in manual mode
+    if ((isDragging || isDraggingYAxis) && !isAutoScale) {
+      // Handle Y-axis dragging using current manual price range
+      const deltaY = y - (lastMousePosition.y || y);
+      const volumeAreaHeight = 60;
+      const timeAxisHeight = 25;
+      const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+      const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
+      const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
+      
+      // Get current manual price range
+      if (manualPriceRange) {
+        const priceHeight = manualPriceRange.max - manualPriceRange.min;
+        const pricePerPixel = priceHeight / priceChartHeight;
+        const priceShift = deltaY * pricePerPixel;
+        
+        // Apply the shift to create new price range
+        const newRange = {
+          min: manualPriceRange.min + priceShift,
+          max: manualPriceRange.max + priceShift
+        };
+        
+        setManualPriceRangeAndDisableAuto(newRange);
+      }
+      
+      // Handle X-axis dragging (horizontal movement)
+      const deltaX = x - lastMouseX;
+      const currentOffset = scrollOffset;
+      
+      // Allow extending beyond data for future view
+      const futurePeriods = getFuturePeriods(config.timeframe);
+      const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
+      const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
+      const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - Math.floor(deltaX / 5)));
+      
+      if (newOffset !== currentOffset) {
+        setScrollOffset(newOffset);
+      }
+      
+      setLastMouseX(x);
+      return;
+    }
+
+    // Fallback: Handle horizontal dragging only (if Y-axis drag start wasn't set)
     if (isDragging) {
       const deltaX = x - lastMouseX;
       const currentOffset = scrollOffset;
-      const maxOffset = Math.max(0, data.length - visibleCandleCount);
-      const newOffset = Math.max(0, Math.min(maxOffset, currentOffset - Math.floor(deltaX / 5)));
+      
+      // Allow extending beyond data for future view
+      const futurePeriods = getFuturePeriods(config.timeframe);
+      const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
+      const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
+      const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - Math.floor(deltaX / 5)));
       
       if (newOffset !== currentOffset) {
         setScrollOffset(newOffset);
@@ -3041,8 +4029,8 @@ export default function TradingViewChart({
     // Update crosshair info
     if (data.length > 0 && config.crosshair) {
       // Calculate correct chart dimensions (matching renderChart function)
-      const volumeAreaHeight = 80;
-      const timeAxisHeight = 30;
+      const volumeAreaHeight = 60;
+      const timeAxisHeight = 25;
       const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
       const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
       const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
@@ -3075,18 +4063,36 @@ export default function TradingViewChart({
           
           if (candleIndex >= 0 && candleIndex < data.length) {
             const candle = data[candleIndex];
-            const candleDate = new Date(candle?.timestamp || Date.now());
-            setCrosshairInfo({
-              visible: true,
-              price: `$${price.toFixed(2)}`,
-              date: candleDate.toLocaleDateString(),
-              time: candleDate.toLocaleTimeString('en-US', { 
-                hour: '2-digit', 
-                minute: '2-digit',
-                hour12: false 
-              }),
-              volume: candle?.volume || 0
-            });
+            
+            // Check if candle exists and has required properties
+            if (candle && typeof candle.open !== 'undefined') {
+              const candleDate = new Date(candle?.timestamp || Date.now());
+              
+              // Calculate change from previous candle
+              const prevCandle = candleIndex > 0 ? data[candleIndex - 1] : null;
+              const change = prevCandle ? candle.close - prevCandle.close : 0;
+              const changePercent = prevCandle ? ((change / prevCandle.close) * 100) : 0;
+              
+              setCrosshairInfo({
+                visible: true,
+                price: `$${price.toFixed(2)}`,
+                date: candleDate.toLocaleDateString(),
+                time: candleDate.toLocaleTimeString('en-US', { 
+                  hour: '2-digit', 
+                  minute: '2-digit',
+                  hour12: false 
+                }),
+                volume: candle?.volume || 0,
+                ohlc: {
+                  open: candle.open,
+                  high: candle.high,
+                  low: candle.low,
+                  close: candle.close,
+                  change: change,
+                  changePercent: changePercent
+                }
+              });
+            }
           }
         } else {
           // Mouse is outside price chart area, hide crosshair info
@@ -3100,64 +4106,83 @@ export default function TradingViewChart({
         }
       }
     }
-  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair]);
+  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, config.indicators]);
 
   const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-    setIsDraggingDrawing(false);
-    setSelectedDrawing(null);
-  }, []);
-
-  // Simple drawing rendering effect - DISABLED to prevent conflicts with main TradingView drawing system
-  useEffect(() => {
-    console.log('🔄 [CONFLICT] Simple drawing effect triggered - SKIPPING to avoid conflicts');
-    // Commented out to prevent conflicts with main drawStoredDrawings function
-    // const overlayCanvas = overlayCanvasRef.current;
-    // if (!overlayCanvas || drawings.length === 0) return;
-    
-    const overlayCanvas = overlayCanvasRef.current;
-    if (!overlayCanvas || drawings.length === 0) return;
-
-    const ctx = overlayCanvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear overlay
-    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-    // Render all drawings
-    drawings.forEach((drawing: any) => {
-      ctx.strokeStyle = '#FFD700';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([]);
-
-      ctx.beginPath();
+    // Handle box zoom completion
+    if (isBoxZooming && boxZoomStart && boxZoomEnd) {
+      const startX = Math.min(boxZoomStart.x, boxZoomEnd.x);
+      const endX = Math.max(boxZoomStart.x, boxZoomEnd.x);
+      const startY = Math.min(boxZoomStart.y, boxZoomEnd.y);
+      const endY = Math.max(boxZoomStart.y, boxZoomEnd.y);
       
-      if (drawing.type === 'ray') {
-        // Horizontal ray from start point to right edge
-        const startY = drawing.y || drawing.startY;
-        const startX = drawing.x || drawing.startX || 100;
+      // Only proceed if the box is large enough (minimum 20x20 pixels)
+      if (Math.abs(endX - startX) > 20 && Math.abs(endY - startY) > 20) {
+        // Convert screen coordinates to chart data coordinates
+        const chartWidth = dimensions.width - 100; // Account for margins
+        const candleWidth = chartWidth / visibleCandleCount;
         
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(overlayCanvas.width, startY);
+        // Calculate new time range (X-axis)
+        const startCandleIndex = Math.floor((startX - 40) / candleWidth);
+        const endCandleIndex = Math.floor((endX - 40) / candleWidth);
+        const newVisibleCount = Math.max(20, Math.min(300, endCandleIndex - startCandleIndex));
+        const newScrollOffset = Math.max(0, Math.min(
+          data.length - newVisibleCount,
+          scrollOffset + startCandleIndex
+        ));
         
-        // Draw start point marker
-        ctx.fillStyle = '#FFD700';
-        ctx.beginPath();
-        ctx.arc(startX, startY, 4, 0, 2 * Math.PI);
-        ctx.fill();
+        // Calculate new price range (Y-axis)
+        const volumeAreaHeight = 60;
+        const timeAxisHeight = 25;
+        const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
+        const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
+        const priceChartHeight = dimensions.height - volumeAreaHeight - indicatorPanelHeight - timeAxisHeight;
         
-        // Draw line
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(overlayCanvas.width, startY);
-      } else if (drawing.type === 'trend_line') {
-        // Regular line from start to end
-        ctx.moveTo(drawing.startX || 0, drawing.startY || 0);
-        ctx.lineTo(drawing.endX || 100, drawing.endY || 100);
+        // Get current price range for conversion
+        const startIndex = Math.max(0, Math.floor(scrollOffset));
+        const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+        const visibleData = data.slice(startIndex, endIndex);
+        const currentRange = getCurrentPriceRange(visibleData);
+        
+        // Convert Y coordinates to prices
+        const maxPrice = currentRange.max - ((startY / priceChartHeight) * (currentRange.max - currentRange.min));
+        const minPrice = currentRange.max - ((endY / priceChartHeight) * (currentRange.max - currentRange.min));
+        
+        // Apply zoom
+        setVisibleCandleCount(newVisibleCount);
+        setScrollOffset(newScrollOffset);
+        setManualPriceRangeAndDisableAuto({ min: minPrice, max: maxPrice });
       }
       
-      ctx.stroke();
-    });
+      // Reset box zoom state
+      setIsBoxZooming(false);
+      setBoxZoomStart(null);
+      setBoxZoomEnd(null);
+      return;
+    }
+    
+    // If we were dragging and have significant velocity, start momentum animation
+    if ((isDragging || isDraggingYAxis) && (Math.abs(velocity.x) > 1 || Math.abs(velocity.y) > 1)) {
+      startMomentumAnimation();
+    }
+    
+    setIsDragging(false);
+    setIsDraggingDrawing(false);
+    setIsDraggingYAxis(false);
+    setYAxisDragStart(null);
+    setIsBoxZooming(false);
+    setBoxZoomStart(null);
+    setBoxZoomEnd(null);
+    // DON'T clear selectedDrawing here - it closes the Property Editor!
+    // setSelectedDrawing(null);
+  }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, config.indicators, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, isDraggingYAxis, velocity, startMomentumAnimation]);
+
+  // Simple drawing rendering effect - COMPLETELY DISABLED to prevent conflicts with main TradingView drawing system
+  useEffect(() => {
+    console.log('🔄 [CONFLICT] Simple drawing effect triggered - COMPLETELY DISABLED to avoid conflicts');
+    // This system is completely disabled because it conflicts with the main comprehensive drawing system
+    // The main drawing system is in the drawStoredDrawings function
+    return;
   }, [drawings]);
 
   const handleMouseLeave = useCallback(() => {
@@ -3165,11 +4190,52 @@ export default function TradingViewChart({
     setCrosshairInfo(prev => ({ ...prev, visible: false }));
   }, []);
 
-  const handleDoubleClick = useCallback(() => {
-    // Reset to fit all data
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    console.log('🚀 DOUBLE CLICK EVENT FIRED!');
+    
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Check if double-clicking on Y-axis area for auto-fit
+    const canvasWidth = canvas.width / window.devicePixelRatio;
+    const isOverYAxis = isInYAxisArea(x, canvasWidth);
+    
+    if (isOverYAxis) {
+      // Double-click on Y-axis: reset to auto-scale
+      resetToAutoScale();
+      console.log('🔧 Y-axis double-click: Reset to auto-scale');
+      return;
+    }
+    
+    // Check if we're double-clicking on a drawing
+    if (!activeTool) {
+      const clickedDrawing = findDrawingAtPoint({ x, y });
+      console.log('🔧 Double-click found drawing:', clickedDrawing);
+      
+      if (clickedDrawing) {
+        // Open property editor on double-click on drawing
+        setSelectedDrawing(clickedDrawing);
+        
+        // Property editor removed - drawing tools were removed as requested
+        
+        console.log('🔧 Property editor removed - drawing tools were removed');
+        
+        // PREVENT the editor from being closed immediately
+        // Add a flag to prevent auto-closing for a few seconds
+        setTimeout(() => {
+          console.log('✅ Property editor protection timeout ended');
+        }, 3000);
+        
+        return;
+      }
+    }
+    
+    // If no drawing was clicked, reset chart view
     setVisibleCandleCount(Math.min(200, data.length));
     setScrollOffset(Math.max(0, data.length - Math.min(200, data.length)));
-  }, [data.length]);
+  }, [data.length, activeTool, isInYAxisArea, resetToAutoScale]);
 
   // Handle timeframe change - SIMPLE DIRECT FETCH (no broken cache)
   const handleTimeframeChange = (timeframe: string) => {
@@ -3198,23 +4264,10 @@ export default function TradingViewChart({
   };
 
   // Update dropdown positions based on button positions
-  const updateDropdownPosition = (type: 'indicators' | 'timeframe' | 'tools' | 'lineTools' | 'fib' | 'shapes' | 'gann' | 'elliott' | 'prediction' | 'measure' | 'notes' | 'volume' | 'patterns' | 'harmonic' | 'cycles' | 'orders') => {
+  const updateDropdownPosition = (type: 'indicators' | 'timeframe' | 'volume') => {
     const buttonRef = type === 'indicators' ? indicatorsButtonRef : 
                      type === 'timeframe' ? timeframeButtonRef : 
-                     type === 'tools' ? toolsButtonRef :
-                     type === 'lineTools' ? lineToolsButtonRef :
-                     type === 'fib' ? fibButtonRef :
-                     type === 'shapes' ? shapesButtonRef :
-                     type === 'gann' ? gannButtonRef :
-                     type === 'elliott' ? elliottButtonRef :
-                     type === 'prediction' ? predictionButtonRef :
-                     type === 'measure' ? measureButtonRef :
-                     type === 'notes' ? notesButtonRef :
-                     type === 'volume' ? volumeButtonRef :
-                     type === 'patterns' ? patternsButtonRef :
-                     type === 'harmonic' ? harmonicButtonRef :
-                     type === 'cycles' ? cyclesButtonRef :
-                     ordersButtonRef;
+                     volumeButtonRef;
     
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
@@ -3254,28 +4307,6 @@ export default function TradingViewChart({
     setConfig(prev => ({ ...prev, drawings: [] }));
   };
 
-  // Favorites functions
-  const toggleFavoriteDrawingTool = (toolValue: string) => {
-    console.log('🌟 Toggling favorite for tool:', toolValue);
-    setFavoriteDrawingTools(prev => {
-      const newFavorites = prev.includes(toolValue)
-        ? prev.filter(fav => fav !== toolValue)
-        : [...prev, toolValue];
-      console.log('🌟 Updated favorites:', newFavorites);
-      return newFavorites;
-    });
-  };
-
-  const getFavoriteTools = () => {
-    const allTools: any[] = [];
-    Object.entries(DRAWING_TOOLS).forEach(([category, tools]) => {
-      allTools.push(...tools);
-    });
-    const favorites = allTools.filter(tool => favoriteDrawingTools.includes(tool.value));
-    console.log('🌟 Getting favorite tools. Current favorites:', favoriteDrawingTools, 'Found tools:', favorites);
-    return favorites;
-  };
-
   // Helper functions for coordinate conversion
   const canvasToPrice = (canvasY: number, minPrice: number, maxPrice: number, chartHeight: number): number => {
     const padding = (maxPrice - minPrice) * 0.1;
@@ -3305,495 +4336,155 @@ export default function TradingViewChart({
 
   // Enhanced Canvas Drawing Interaction Handlers
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    console.log('🔥 handleCanvasMouseDown called with activeTool:', activeTool);
+    console.log('🔥 handleCanvasMouseDown called');
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
-    // Use crosshair position if available, otherwise fall back to mouse position
-    const x = crosshairPosition.x || (e.clientX - rect.left);
-    const y = crosshairPosition.y || (e.clientY - rect.top);
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
 
-    console.log('🖱️ Mouse down at:', { x, y, activeTool, crosshairPosition });
+    console.log('🖱️ Mouse down at:', { x, y });
 
-    // If no active tool, handle drawing selection and movement
-    if (!activeTool) {
-      const clickedDrawing = findDrawingAtPoint({ x, y });
-      console.log('🎯 Clicked drawing:', clickedDrawing);
-      
-      if (clickedDrawing) {
-        // Double-click detection
-        const currentTime = Date.now();
-        const isDoubleClick = 
-          lastClickDrawing && 
-          lastClickDrawing.id === clickedDrawing.id && 
-          currentTime - lastClickTime < 500;
-
-        console.log('⏰ Double-click check:', { isDoubleClick, timeDiff: currentTime - lastClickTime });
-
-        setLastClickTime(currentTime);
-        setLastClickDrawing(clickedDrawing);
-
-        // Select the drawing
-        setSelectedDrawing(clickedDrawing);
-        
-        if (isDoubleClick) {
-          // Open property editor on double-click
-          console.log('🔧 Opening property editor');
-          // Position the editor near the clicked drawing
-          const canvas = e.currentTarget;
-          const rect = canvas.getBoundingClientRect();
-          const editorX = Math.min(x + rect.left + 20, window.innerWidth - 300);
-          const editorY = Math.min(y + rect.top, window.innerHeight - 400);
-          
-          setEditorPosition({ x: editorX, y: editorY });
-          setShowDrawingEditor(true);
-        } else {
-          // Single click - prepare for dragging
-          console.log('🤏 Starting drag');
-          setIsDraggingDrawing(true);
-          setDragStartPosition({ x, y });
-          
-          // Calculate offset based on drawing type
-          let offsetX = 0, offsetY = 0;
-          if (clickedDrawing.startPoint) {
-            offsetX = x - clickedDrawing.startPoint.x;
-            offsetY = y - clickedDrawing.startPoint.y;
-          } else if (clickedDrawing.startX !== undefined && clickedDrawing.startY !== undefined) {
-            offsetX = x - clickedDrawing.startX;
-            offsetY = y - clickedDrawing.startY;
-          }
-          
-          // Also update editor position for potential future opening
-          const canvas = e.currentTarget;
-          const rect = canvas.getBoundingClientRect();
-          const editorX = Math.min(x + rect.left + 20, window.innerWidth - 300);
-          const editorY = Math.min(y + rect.top, window.innerHeight - 400);
-          setEditorPosition({ x: editorX, y: editorY });
-          
-          setDragOffset({ x: offsetX, y: offsetY });
-        }
-      } else {
-        // Deselect if clicking empty area
-        console.log('🚫 Deselecting drawing');
-        setSelectedDrawing(null);
-        setShowDrawingEditor(false);
-        setLastClickDrawing(null);
-      }
-      return;
-    }
-    
-    // Multi-point tools that require multiple clicks (for Fibonacci, Elliott waves, complex patterns)
-    const multiPointTools = [
-      'pitchfork', 'schiff_pitchfork', 'inside_pitchfork', 'elliott_wave', 
-      'elliott_impulse', 'elliott_correction', 'polyline', 'polygon',
-      'head_shoulders', 'triangle_pattern', 'abcd_pattern', 'bat_pattern',
-      'butterfly_pattern', 'gartley_pattern', 'crab_pattern', 'shark_pattern',
-      'cypher_pattern', 'cycle_lines'
-    ];
-    
-    // Text input tools
-    const textTools = ['text', 'note', 'callout', 'price_label', 'anchored_text'];
-    
-    // Single-click tools (create immediately on first click)
-    const singleClickTools = [
-      'horizontal_line', 'vertical_line', 'cross_line', 'flag', 
-      'long_position', 'short_position', 'price_alert', 'ray'
-    ];
-    
-    // Two-point tools (start on first click, complete on second click)
-    const twoPointTools = [
-      'trend_line', 'fib_retracement', 'fib_extension', 'fib_fan', 'fib_arc',
-      'fib_timezone', 'fib_channel', 'fib_speed_fan', 'rectangle', 'ellipse',
-      'triangle', 'circle', 'arc', 'gann_line', 'gann_fan', 'gann_box',
-      'gann_square', 'regression', 'forecast', 'ruler', 'price_range',
-      'date_range', 'date_price_range', 'projection'
-    ];
-
-    if (textTools.includes(activeTool)) {
-      // Handle text input tools
-      setTextInputPosition({ x, y });
-      setShowTextInput(true);
-      return;
-    }
-
-    if (singleClickTools.includes(activeTool)) {
-      // Handle single-click tools with TradingView-style coordinates
-      console.log('🖱️ Single-click tool activated:', activeTool, 'at:', { x, y });
-      const dataCoords = screenToDataCoordinates(x, y);
-      
-      // Convert candle index to timestamp
-      const timestamp = data[Math.min(dataCoords.candleIndex, data.length - 1)]?.timestamp || Date.now();
-      
-      let newDrawing;
-      
-      if (activeTool === 'ray') {
-        // TradingView-style horizontal ray: uses time+price anchoring
-        newDrawing = {
-          id: Date.now(),
-          type: 'ray',
-          startPoint: { x, y },
-          // TradingView coordinates for persistent anchoring
-          time: timestamp,
-          price: dataCoords.price,
-          // Legacy coordinates for backward compatibility
-          startDataPoint: dataCoords,
-          timestamp: Date.now(),
-          style: drawingStyle
-        };
-      } else {
-        // Other single-click tools
-        newDrawing = {
-          id: Date.now(),
-          type: activeTool || 'unknown',
-          startPoint: { x, y },
-          endPoint: { x, y },
-          // TradingView coordinates for persistent anchoring
-          time: timestamp,
-          price: dataCoords.price,
-          // Legacy coordinates for backward compatibility
-          startDataPoint: dataCoords,
-          endDataPoint: dataCoords,
-          timestamp: Date.now(),
-          style: drawingStyle,
-          text: activeTool === 'price_alert' ? `Alert: $${getPriceAtY(y).toFixed(2)}` : ''
-        };
-      }
-      
-      console.log('✅ Creating new TradingView-style drawing:', newDrawing);
-      setDrawings(prev => {
-        const updated = [...prev, newDrawing];
-        console.log('📊 Updated drawings array:', updated.length, 'drawings');
-        console.log('📊 All drawings:', updated);
-        return updated;
-      });
-      setIsDrawing(false);
-      setDrawingStartPoint(null);
-      // Don't clear activeTool - keep it active for multiple drawings like TradingView
-      // setActiveTool(null); // Removed - keep tool active
-      return;
-    }
-
-    if (multiPointTools.includes(activeTool)) {
-      // Handle multi-point tools
-      const newPoint = { x, y };
-      const updatedPoints = [...multiPointDrawing, newPoint];
-      setMultiPointDrawing(updatedPoints);
-      
-      // Determine if we have enough points to complete the tool
-      let requiredPoints = 2; // Default
-      switch (activeTool) {
-        case 'pitchfork':
-        case 'schiff_pitchfork':
-        case 'inside_pitchfork':
-          requiredPoints = 3;
-          break;
-        case 'elliott_wave':
-          requiredPoints = 8; // 5 impulse + 3 correction
-          break;
-        case 'elliott_impulse':
-          requiredPoints = 5;
-          break;
-        case 'elliott_correction':
-          requiredPoints = 3;
-          break;
-        case 'head_shoulders':
-          requiredPoints = 5; // Left shoulder, head, right shoulder, neckline points
-          break;
-        case 'abcd_pattern':
-          requiredPoints = 4;
-          break;
-        case 'bat_pattern':
-        case 'butterfly_pattern':
-        case 'gartley_pattern':
-        case 'crab_pattern':
-        case 'shark_pattern':
-        case 'cypher_pattern':
-          requiredPoints = 4; // X, A, B, C points
-          break;
-      }
-      
-      if (updatedPoints.length >= requiredPoints) {
-        // Complete the multi-point drawing
-        const dataPoints = updatedPoints.map(point => screenToDataCoordinates(point.x, point.y));
-        const newDrawing = {
-          id: Date.now(),
-          type: activeTool || 'unknown',
-          points: updatedPoints,
-          dataPoints: dataPoints,
-          timestamp: Date.now(),
-          style: drawingStyle,
-          metadata: getToolMetadata(activeTool || 'unknown', updatedPoints)
-        };
-        
-        setDrawings(prev => [...prev, newDrawing]);
-        setMultiPointDrawing([]);
-        setCurrentDrawingPhase(0);
-        // Don't clear activeTool - keep it active for multiple drawings like TradingView
-        // setActiveTool(null); // Removed - keep tool active
-      } else {
-        // Continue to next phase
-        setCurrentDrawingPhase(prev => prev + 1);
-      }
-      return;
-    }
-
-    // Handle two-point tools (most common drawing tools) 
-    if (twoPointTools.includes(activeTool)) {
-      if (!isDrawing) {
-        // Start drawing
-        console.log('🎯 Starting two-point tool:', activeTool);
-        setIsDrawing(true);
-        setDrawingStartPoint({ x, y });
-      } else {
-        // Complete drawing
-        if (drawingStartPoint) {
-          console.log('✅ Completing two-point tool:', activeTool);
-          const startDataPoint = screenToDataCoordinates(drawingStartPoint.x, drawingStartPoint.y);
-          const endDataPoint = screenToDataCoordinates(x, y);
-          
-          // Convert candle indices to timestamps for TradingView-style anchoring
-          const startTimestamp = data[Math.min(startDataPoint.candleIndex, data.length - 1)]?.timestamp || Date.now();
-          const endTimestamp = data[Math.min(endDataPoint.candleIndex, data.length - 1)]?.timestamp || Date.now();
-          
-          const newDrawing: Drawing = {
-            id: Date.now(),
-            type: activeTool || 'unknown',
-            startPoint: drawingStartPoint,
-            endPoint: { x, y },
-            // TradingView coordinates for persistent anchoring
-            time1: startTimestamp,
-            price1: startDataPoint.price,
-            time2: endTimestamp,
-            price2: endDataPoint.price,
-            // Legacy coordinates for backward compatibility
-            startDataPoint: startDataPoint,
-            endDataPoint: endDataPoint,
-            timestamp: Date.now(),
-            style: drawingStyle,
-            metadata: calculateDrawingMetadata(activeTool || 'unknown', drawingStartPoint, { x, y })
-          };
-
-          // Handle special tool types that need additional properties
-          switch (activeTool) {
-            case 'fib_retracement':
-            case 'fib_extension':
-              newDrawing.metadata = {
-                ...newDrawing.metadata,
-                levels: activeTool === 'fib_retracement' ? fibonacciLevels : fibonacciExtensionLevels,
-                priceRange: Math.abs(getPriceAtY(y) - getPriceAtY(drawingStartPoint.y))
-              };
-              break;
-          }
-          
-          console.log('✅ Adding new two-point drawing:', newDrawing);
-          setDrawings(prev => {
-            const newDrawings = [...prev, newDrawing];
-            console.log('📊 Updated drawings count:', newDrawings.length);
-            return newDrawings;
-          });
-          setIsDrawing(false);
-          setDrawingStartPoint(null);
-          // Don't clear activeTool - keep it active for multiple drawings like TradingView
-          // setActiveTool(null); // Removed - keep tool active
-        }
-      }
-      return;
-    }
-
-    // Handle standard two-point tools and specialized tools
-    if (!isDrawing) {
-      // Start drawing
-      setIsDrawing(true);
-      setDrawingStartPoint({ x, y });
-    } else {
-      // Complete drawing
-      if (drawingStartPoint) {
-        const startDataPoint = screenToDataCoordinates(drawingStartPoint.x, drawingStartPoint.y);
-        const endDataPoint = screenToDataCoordinates(x, y);
-        
-        // Convert candle indices to timestamps for TradingView-style anchoring
-        const startTimestamp = data[Math.min(startDataPoint.candleIndex, data.length - 1)]?.timestamp || Date.now();
-        const endTimestamp = data[Math.min(endDataPoint.candleIndex, data.length - 1)]?.timestamp || Date.now();
-        
-        const newDrawing: Drawing = {
-          id: Date.now(),
-          type: activeTool || 'unknown',
-          startPoint: drawingStartPoint,
-          endPoint: { x, y },
-          // TradingView coordinates for persistent anchoring
-          time1: startTimestamp,
-          price1: startDataPoint.price,
-          time2: endTimestamp,
-          price2: endDataPoint.price,
-          // Legacy coordinates for backward compatibility
-          startDataPoint: startDataPoint,
-          endDataPoint: endDataPoint,
-          timestamp: Date.now(),
-          style: drawingStyle,
-          metadata: calculateDrawingMetadata(activeTool || 'unknown', drawingStartPoint, { x, y })
-        };
-
-        // Handle special tool types that need additional properties
-        switch (activeTool) {
-          case 'fib_retracement':
-          case 'fib_extension':
-            newDrawing.metadata = {
-              ...newDrawing.metadata,
-              levels: activeTool === 'fib_retracement' ? fibonacciLevels : fibonacciExtensionLevels,
-              priceRange: Math.abs(getPriceAtY(y) - getPriceAtY(drawingStartPoint.y))
-            };
-            break;
-          
-          case 'fib_fan':
-          case 'fib_arc':
-          case 'fib_timezone':
-          case 'fib_channel':
-          case 'fib_speed_fan':
-            newDrawing.metadata = {
-              ...newDrawing.metadata,
-              levels: fibonacciLevels,
-              centerPoint: drawingStartPoint,
-              radius: Math.sqrt((x - drawingStartPoint.x) ** 2 + (y - drawingStartPoint.y) ** 2)
-            };
-            break;
-            
-          case 'gann_line':
-          case 'gann_fan':
-            newDrawing.metadata = {
-              ...newDrawing.metadata,
-              angle: Math.atan2(y - drawingStartPoint.y, x - drawingStartPoint.x) * 180 / Math.PI,
-              angles: gannAngles
-            };
-            break;
-            
-          case 'gann_box':
-          case 'gann_square':
-            newDrawing.metadata = {
-              ...newDrawing.metadata,
-              size: Math.max(Math.abs(x - drawingStartPoint.x), Math.abs(y - drawingStartPoint.y))
-            };
-            break;
-            
-          case 'regression':
-            newDrawing.metadata = {
-              ...newDrawing.metadata,
-              slope: (y - drawingStartPoint.y) / (x - drawingStartPoint.x),
-              correlation: 0.85 // Mock value - would calculate from actual data
-            };
-            break;
-            
-          case 'forecast':
-            newDrawing.metadata = {
-              ...newDrawing.metadata,
-              projectionLength: Math.abs(x - drawingStartPoint.x),
-              confidence: 0.75 // Mock confidence level
-            };
-            break;
-            
-          case 'volume_profile':
-          case 'fixed_range_vp':
-            newDrawing.metadata = {
-              ...newDrawing.metadata,
-              priceRange: Math.abs(getPriceAtY(y) - getPriceAtY(drawingStartPoint.y)),
-              volumeNodes: [] // Would be populated with actual volume data
-            };
-            break;
-        }
-        
-        console.log('✅ Adding new drawing:', newDrawing);
-        console.log('📊 Current drawings before add:', drawings.length);
-        console.log('🎯 Active tool:', activeTool);
-        console.log('📍 Drawing points:', { startPoint: drawingStartPoint, endPoint: { x, y } });
-        setDrawings(prev => {
-          const newDrawings = [...prev, newDrawing];
-          console.log('📊 New drawings array:', newDrawings.length, newDrawings);
-          console.log('🆔 New drawing ID:', newDrawing.id);
-          return newDrawings;
-        });
-        
-        // Reset drawing state but keep tool active
-        setIsDrawing(false);
-        setDrawingStartPoint(null);
-        // Don't clear activeTool - keep it active for multiple drawings
-        // setActiveTool(null); // Removed - keep tool active
-      }
-    }
+    // Drawing tools have been removed as requested
+    // Only core chart functionality remains
+    return;
   };
 
   // Helper functions to convert between screen and data coordinates
-  const getPriceAtY = (y: number): number => {
-    return screenToDataCoordinates(0, y).price;
-  };
-  const screenToDataCoordinates = (screenX: number, screenY: number): { candleIndex: number; price: number } => {
+  // TradingView-style coordinate conversion: Screen → Time/Price
+  const screenToTimePriceCoordinates = (screenX: number, screenY: number): { timestamp: number; price: number } => {
     const canvas = overlayCanvasRef.current;
-    if (!canvas || !data.length) return { candleIndex: 0, price: 0 };
+    if (!canvas || !data.length) return { timestamp: Date.now(), price: 0 };
     
     const rect = canvas.getBoundingClientRect();
     const chartWidth = rect.width - 80; // Account for margins
     const candleWidth = chartWidth / visibleCandleCount;
     
-    // Convert screen X to candle index
+    // Convert screen X to actual timestamp
     const relativeX = Math.max(0, screenX - 40); // Account for left margin
     const visibleCandleIndex = Math.floor(relativeX / candleWidth);
-    const candleIndex = scrollOffset + visibleCandleIndex;
+    const absoluteCandleIndex = scrollOffset + visibleCandleIndex;
+    const boundedIndex = Math.max(0, Math.min(absoluteCandleIndex, data.length - 1));
+    const timestamp = data[boundedIndex]?.timestamp || Date.now();
     
-    // For TradingView-style behavior, we need ABSOLUTE price coordinates
-    // Use GLOBAL price range (entire dataset) so drawings don't shift with zoom/scroll
-    const globalPrices = data.flatMap(d => [d.high, d.low]);
-    const globalMinPrice = Math.min(...globalPrices);
-    const globalMaxPrice = Math.max(...globalPrices);
-    const globalPadding = (globalMaxPrice - globalMinPrice) * 0.1;
-    const globalAdjustedMin = globalMinPrice - globalPadding;
-    const globalAdjustedMax = globalMaxPrice + globalPadding;
-    
-    // Convert screen Y to ABSOLUTE price (doesn't change with zoom)
+    // Convert screen Y to actual price using STABLE price range (for drawing creation)
     const priceChartHeight = rect.height * 0.7;
     const relativeY = screenY / priceChartHeight;
-    const price = globalAdjustedMax - ((globalAdjustedMax - globalAdjustedMin) * relativeY);
+    const stablePriceRange = getStablePriceRange();
+    const price = stablePriceRange.max - ((stablePriceRange.max - stablePriceRange.min) * relativeY);
     
-    const result = { candleIndex: Math.max(0, Math.min(data.length - 1, candleIndex)), price };
+    console.log('🎯 FIXED Screen to Time/Price:', { 
+      screenX, 
+      screenY, 
+      timestamp, 
+      price, 
+      candleIndex: boundedIndex,
+      visibleIndex: visibleCandleIndex,
+      priceRange: priceRange
+    });
     
-    return result;
+    return { timestamp, price };
   };
 
-  const dataToScreenCoordinates = (candleIndex: number, price: number): { x: number; y: number } => {
+  // Helper function to get STABLE chart price range (for drawings - doesn't change with scrolling)
+  const getStablePriceRange = (): { min: number; max: number } => {
+    if (!data || data.length === 0) return { min: 0, max: 100 };
+    
+    // Use ALL data to create a stable price range, not just visible data
+    const allPrices = data.flatMap(d => [d.high, d.low]);
+    const minPrice = Math.min(...allPrices);
+    const maxPrice = Math.max(...allPrices);
+    const padding = (maxPrice - minPrice) * 0.2; // More padding for stability
+    const adjustedMin = minPrice - padding;
+    const adjustedMax = maxPrice + padding;
+    
+    return { min: adjustedMin, max: adjustedMax };
+  };
+
+  // Helper function to get current chart price range (for chart rendering - changes with scrolling)
+  const getCurrentChartPriceRange = (): { min: number; max: number } => {
+    if (!data || data.length === 0) return { min: 0, max: 100 };
+    
+    // Get visible data range
+    const startIndex = Math.max(0, scrollOffset);
+    const endIndex = Math.min(data.length, scrollOffset + visibleCandleCount);
+    const visibleData = data.slice(startIndex, endIndex);
+    
+    if (visibleData.length === 0) return { min: 0, max: 100 };
+    
+    // Use the new Y-axis scaling logic
+    return getCurrentPriceRange(visibleData);
+  };
+
+  // TradingView-style coordinate conversion: Time/Price → Screen
+  const timePriceToScreenCoordinates = (timestamp: number, price: number, useStableRange: boolean = false): { x: number; y: number } => {
     const canvas = overlayCanvasRef.current;
     if (!canvas || !data.length) return { x: 0, y: 0 };
     
     const rect = canvas.getBoundingClientRect();
     const chartWidth = rect.width - 80; // Account for margins
+    
+    // Find the candle index for this timestamp
+    let candleIndex = data.findIndex(candle => candle.timestamp >= timestamp);
+    if (candleIndex === -1) candleIndex = data.length - 1; // If not found, use last candle
+    
+    // MATCH the timeToScreenX logic exactly for consistency
     const candleWidth = chartWidth / visibleCandleCount;
+    const visibleStartIndex = scrollOffset;
+    const visibleEndIndex = scrollOffset + visibleCandleCount;
     
-    // Convert candle index to screen X (this part is correct)
-    const visibleCandleIndex = candleIndex - scrollOffset;
-    const x = 40 + (visibleCandleIndex * candleWidth) + (candleWidth / 2);
+    let x: number;
+    if (candleIndex < visibleStartIndex || candleIndex >= visibleEndIndex) {
+      // Drawing is outside visible range - position it off-screen but proportionally
+      const relativePosition = candleIndex - scrollOffset;
+      x = relativePosition * candleWidth + candleWidth / 2 + 40;
+    } else {
+      // Drawing is in visible range - position it correctly
+      const positionInVisibleRange = candleIndex - visibleStartIndex;
+      x = positionInVisibleRange * candleWidth + candleWidth / 2 + 40;
+    }
     
-    // CRITICAL: Drawing coordinates are stored in ABSOLUTE coordinates (global price range)
-    // But chart rendering uses RELATIVE coordinates (visible price range)
-    // We need to transform from absolute to the current visible range
-    
-    // Get CURRENT visible data range (what the chart is actually using for rendering)
-    const startIndex = Math.max(0, scrollOffset);
-    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-    const visibleData = data.slice(startIndex, endIndex);
-    
-    if (!visibleData.length) return { x, y: 0 };
-    
-    // Chart's CURRENT visible price range (changes with zoom/scroll)
-    const visiblePrices = visibleData.flatMap(d => [d.high, d.low]);
-    const visibleMinPrice = Math.min(...visiblePrices);
-    const visibleMaxPrice = Math.max(...visiblePrices);
-    const visiblePadding = (visibleMaxPrice - visibleMinPrice) * 0.1;
-    const visibleAdjustedMin = visibleMinPrice - visiblePadding;
-    const visibleAdjustedMax = visibleMaxPrice + visiblePadding;
-    
-    // Convert ABSOLUTE price to screen Y using CURRENT visible range
+    // Convert price to screen Y - use current range for all drawings to match chart
+    // For horizontal rays, we'll handle absolute positioning differently
     const priceChartHeight = rect.height * 0.7;
-    const relativePrice = (price - visibleAdjustedMin) / (visibleAdjustedMax - visibleAdjustedMin);
+    const currentPriceRange = getCurrentChartPriceRange();
+    const relativePrice = (price - currentPriceRange.min) / (currentPriceRange.max - currentPriceRange.min);
     const y = priceChartHeight - (relativePrice * priceChartHeight);
     
-    const result = { x, y };
+    console.log('🎯 TimePriceToScreen (CURRENT RANGE):', { 
+      timestamp, 
+      price, 
+      useStableRange,
+      candleIndex, 
+      scrollOffset, 
+      visibleRange: `${visibleStartIndex} to ${visibleEndIndex}`,
+      x, 
+      y,
+      currentPriceRange,
+      rangeType: 'CURRENT'
+    });
     
-    return result;
+    return { x, y };
+  };
+
+  // Legacy helper functions for backward compatibility
+  const getPriceAtY = (y: number): number => {
+    return screenToTimePriceCoordinates(0, y).price;
+  };
+
+  const screenToDataCoordinates = (screenX: number, screenY: number): { candleIndex: number; price: number } => {
+    const timePrice = screenToTimePriceCoordinates(screenX, screenY);
+    // Find candle index for the timestamp
+    const candleIndex = data.findIndex(candle => candle.timestamp >= timePrice.timestamp);
+    return { 
+      candleIndex: candleIndex === -1 ? data.length - 1 : candleIndex, 
+      price: timePrice.price 
+    };
+  };
+
+  const dataToScreenCoordinates = (candleIndex: number, price: number): { x: number; y: number } => {
+    if (candleIndex >= data.length) return { x: 0, y: 0 };
+    const timestamp = data[candleIndex]?.timestamp || Date.now();
+    return timePriceToScreenCoordinates(timestamp, price);
   };
 
   // Helper function to calculate drawing metadata
@@ -3801,14 +4492,6 @@ export default function TradingViewChart({
     const metadata: DrawingMetadata = {};
     
     switch (toolType) {
-      case 'fib_retracement':
-      case 'fib_extension':
-        metadata.levels = toolType === 'fib_retracement' ? fibonacciLevels : fibonacciExtensionLevels;
-        metadata.priceRange = Math.abs(getPriceAtY(end.y) - getPriceAtY(start.y));
-        break;
-      case 'gann_line':
-        metadata.angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
-        break;
       case 'ruler':
         metadata.distance = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
         metadata.angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
@@ -3827,25 +4510,7 @@ export default function TradingViewChart({
     const metadata: DrawingMetadata = {};
     
     switch (toolType) {
-      case 'elliott_wave':
-        metadata.waveLabels = ['1', '2', '3', '4', '5', 'A', 'B', 'C'];
-        metadata.waveTypes = ['impulse', 'correction'];
-        break;
-      case 'pitchfork':
-        if (points.length >= 3) {
-          const [p1, p2, p3] = points;
-          metadata.medianLine = { start: p1, end: { x: (p2.x + p3.x) / 2, y: (p2.y + p3.y) / 2 } };
-        }
-        break;
-      case 'bat_pattern':
-        metadata.ratios = { XA_AB: 0.382, AB_BC: 0.382, BC_CD: 1.272, XA_AD: 0.886 };
-        break;
-      case 'gartley_pattern':
-        metadata.ratios = { XA_AB: 0.618, AB_BC: 0.382, BC_CD: 1.272, XA_AD: 0.786 };
-        break;
-      case 'butterfly_pattern':
-        metadata.ratios = { XA_AB: 0.786, AB_BC: 0.382, BC_CD: 1.618, XA_AD: 1.27 };
-        break;
+      // Pattern-specific metadata removed
     }
     
     return metadata;
@@ -3902,14 +4567,6 @@ export default function TradingViewChart({
         return startPoint && endPoint ? 
           isPointNearLine(x, y, startPoint, endPoint, tolerance) : false;
       
-      case 'ray':
-        // TradingView-style horizontal ray: check if point is near horizontal line extending to the right
-        if (startPoint) {
-          const rayEndPoint = { x: 9999, y: startPoint.y }; // Virtual end point far to the right
-          return x >= startPoint.x && Math.abs(y - startPoint.y) <= tolerance;
-        }
-        return false;
-      
       case 'horizontal_line':
         return startPoint ? Math.abs(y - startPoint.y) <= tolerance : false;
       
@@ -3924,11 +4581,6 @@ export default function TradingViewChart({
       case 'circle':
         return startPoint && endPoint ? 
           isPointNearEllipse(x, y, startPoint, endPoint, tolerance) : false;
-      
-      case 'fib_retracement':
-      case 'fib_extension':
-        return startPoint && endPoint ? 
-          isPointNearLine(x, y, startPoint, endPoint, tolerance) : false;
       
       case 'text':
       case 'note':
@@ -4149,37 +4801,6 @@ export default function TradingViewChart({
     ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
   };
 
-  // Helper function to draw pitchfork
-  const drawPitchfork = (ctx: CanvasRenderingContext2D, p1: {x: number, y: number}, p2: {x: number, y: number}, p3: {x: number, y: number}, type: string) => {
-    // Calculate median line
-    const midX = (p2.x + p3.x) / 2;
-    const midY = (p2.y + p3.y) / 2;
-    
-    // Draw median line
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(midX, midY);
-    
-    // Calculate parallel lines
-    const dx = midX - p1.x;
-    const dy = midY - p1.y;
-    
-    // Upper parallel line
-    ctx.moveTo(p2.x, p2.y);
-    ctx.lineTo(p2.x + dx, p2.y + dy);
-    
-    // Lower parallel line  
-    ctx.moveTo(p3.x, p3.y);
-    ctx.lineTo(p3.x + dx, p3.y + dy);
-    
-    if (type === 'schiff_pitchfork') {
-      // Schiff modification - start from midpoint of first two points
-      const schiffMidX = (p1.x + p2.x) / 2;
-      const schiffMidY = (p1.y + p2.y) / 2;
-      ctx.moveTo(schiffMidX, schiffMidY);
-      ctx.lineTo(p3.x, p3.y);
-    }
-  };
-
   // TradingView-style drawing renderer: converts time+price coordinates to screen position
   const drawStoredDrawings = (ctx: CanvasRenderingContext2D) => {
     const currentDrawings = drawingsRef.current;
@@ -4199,23 +4820,46 @@ export default function TradingViewChart({
       const candleIndex = data.findIndex((candle: any) => candle.timestamp >= timestamp);
       if (candleIndex === -1) return ctx.canvas.width; // Future timestamp, draw at right edge
       
-      // Convert candle index to screen x using current scroll offset
+      // CRITICAL INSIGHT: The drawing should stay at the SAME TIMESTAMP position
+      // When we scroll, we see different timestamps, so the drawing should move accordingly
       const canvas = overlayCanvasRef.current;
       if (!canvas) return 0;
       
       const rect = canvas.getBoundingClientRect();
       const chartWidth = rect.width - 80; // Account for margins
       const candleWidth = chartWidth / visibleCandleCount;
-      const x = (candleIndex - scrollOffset) * candleWidth + candleWidth / 2 + 40; // Add left margin
       
-      return Math.max(0, Math.min(ctx.canvas.width, x));
+      // Calculate where this timestamp appears on the current screen
+      // If the timestamp is outside the visible range, it should be off-screen
+      const visibleStartIndex = scrollOffset;
+      const visibleEndIndex = scrollOffset + visibleCandleCount;
+      
+      if (candleIndex < visibleStartIndex || candleIndex >= visibleEndIndex) {
+        // Drawing is outside visible range - position it off-screen but proportionally
+        const relativePosition = candleIndex - scrollOffset;
+        return relativePosition * candleWidth + candleWidth / 2 + 40;
+      }
+      
+      // Drawing is in visible range - position it correctly
+      const positionInVisibleRange = candleIndex - visibleStartIndex;
+      const x = positionInVisibleRange * candleWidth + candleWidth / 2 + 40;
+      
+      console.log('🎯 FINAL FIX timeToScreenX:', { 
+        timestamp, 
+        candleIndex, 
+        scrollOffset, 
+        visibleRange: `${visibleStartIndex} to ${visibleEndIndex}`,
+        positionInVisibleRange,
+        x
+      });
+      
+      return x;
     };
 
     const priceToScreenY = (price: number): number => {
-      if (!priceRange) return ctx.canvas.height / 2;
-      
-      // Use current visible price range for screen positioning
-      const { min: low, max: high } = priceRange;
+      // Use STABLE price range for drawing positioning (doesn't change with scrolling)
+      const stablePriceRange = getStablePriceRange();
+      const { min: low, max: high } = stablePriceRange;
       const priceHeight = high - low;
       if (priceHeight === 0) return ctx.canvas.height / 2;
       
@@ -4235,704 +4879,116 @@ export default function TradingViewChart({
       let endPoint: DrawingPoint | null = null;
       let points: DrawingPoint[] | null = null;
 
-      // Convert TradingView time+price coordinates to screen coordinates
+      console.log('🔄 Converting TradingView coordinates to screen:', drawing);
+
+      // PRIORITY 1: New TradingView time/price coordinate system
+      // Single point drawings (ray, vertical_line, horizontal_line)
       if (drawing.time && drawing.price !== undefined) {
-        startPoint = {
-          x: timeToScreenX(drawing.time),
-          y: priceToScreenY(drawing.price)
-        };
+        console.log('🎯 Converting single TIME/PRICE coordinates:', { time: drawing.time, price: drawing.price });
+        console.log('🔍 DEBUGGING - Drawing object:', { 
+          type: drawing.type, 
+          id: drawing.id, 
+          hasAbsoluteScreenY: drawing.absoluteScreenY !== undefined,
+          absoluteScreenY: drawing.absoluteScreenY,
+          price: drawing.price
+        });
+        
+        // For rays: use the exact stored pixel coordinates - NO CALCULATIONS
+        if ((drawing.type === 'ray' || drawing.type === 'horizontal_line') && drawing.absoluteScreenY !== undefined) {
+          // SIMPLE: Use exact stored click coordinates
+          const xCoord = drawing.clickX || 40; // Use stored X or default
+          const yCoord = drawing.absoluteScreenY; // Use exact stored Y pixel
+          
+          startPoint = {
+            x: xCoord,
+            y: yCoord
+          };
+          
+          console.log('🎯 RAY USING EXACT STORED PIXELS:', { 
+            storedX: drawing.clickX,
+            storedY: drawing.absoluteScreenY,
+            finalPoint: startPoint,
+            drawingId: drawing.id 
+          });
+        } else {
+          // Normal coordinate conversion for other drawings
+          startPoint = timePriceToScreenCoordinates(drawing.time, drawing.price);
+          console.log('📍 USING CALCULATED COORDINATES:', startPoint);
+        }
       }
       
+      // Two point drawings (trend_line, etc.)
       if (drawing.time1 && drawing.price1 !== undefined) {
-        startPoint = {
-          x: timeToScreenX(drawing.time1),
-          y: priceToScreenY(drawing.price1)
-        };
+        console.log('🎯 Converting START TIME/PRICE coordinates:', { time: drawing.time1, price: drawing.price1 });
+        // Use current range for trend lines to match chart scaling
+        const useStableRange = false; // Trend lines should follow chart scaling
+        startPoint = timePriceToScreenCoordinates(drawing.time1, drawing.price1, useStableRange);
+        console.log('📍 Start point screen coordinates:', startPoint);
       }
       
       if (drawing.time2 && drawing.price2 !== undefined) {
-        endPoint = {
-          x: timeToScreenX(drawing.time2),
-          y: priceToScreenY(drawing.price2)
-        };
+        console.log('🎯 Converting END TIME/PRICE coordinates:', { time: drawing.time2, price: drawing.price2 });
+        // Use current range for trend lines to match chart scaling
+        const useStableRange = false; // Trend lines should follow chart scaling
+        endPoint = timePriceToScreenCoordinates(drawing.time2, drawing.price2, useStableRange);
+        console.log('📍 End point screen coordinates:', endPoint);
       }
 
-      // Fallback to legacy coordinates if TradingView coordinates not available
+      // Multi-point drawings (general patterns, etc.)
+      if (drawing.points && drawing.points.length > 0 && drawing.points[0].timestamp && drawing.points[0].price !== undefined) {
+        console.log('🎯 Converting MULTI TIME/PRICE coordinates:', drawing.points.length, 'points');
+        points = drawing.points.map((point, index) => {
+          const screenCoords = timePriceToScreenCoordinates(point.timestamp!, point.price!);
+          console.log(`📍 Point ${index + 1} screen coordinates:`, screenCoords);
+          return screenCoords;
+        });
+      }
+
+      // FALLBACK 1: Legacy coordinate handling - already in correct format above
+
+      // FALLBACK 2: Legacy TradingView coordinate system (no changes needed - handled above)
+
+      // FALLBACK 2: Data coordinate system (legacy)
       if (!startPoint && drawing.startDataPoint) {
+        console.log('🔄 Fallback to data coordinates for start point');
         const screenCoords = dataToScreenCoordinates(drawing.startDataPoint.candleIndex, drawing.startDataPoint.price);
         startPoint = screenCoords;
       }
       if (!endPoint && drawing.endDataPoint) {
+        console.log('🔄 Fallback to data coordinates for end point');
         const screenCoords = dataToScreenCoordinates(drawing.endDataPoint.candleIndex, drawing.endDataPoint.price);
         endPoint = screenCoords;
       }
       if (!points && drawing.dataPoints && drawing.dataPoints.length > 0) {
+        console.log('🔄 Fallback to data coordinates for multi points');
         points = drawing.dataPoints.map(dataPoint => 
           dataToScreenCoordinates(dataPoint.candleIndex, dataPoint.price)
         );
       }
 
-      // Final fallback to screen coordinates
+      // FALLBACK 3: Raw screen coordinates (legacy - will move with chart!)
       if (!startPoint && drawing.startPoint) {
+        console.log('⚠️ Using raw screen coordinates for start point (WILL MOVE WITH CHART!)');
         startPoint = drawing.startPoint;
       }
       if (!endPoint && drawing.endPoint) {
+        console.log('⚠️ Using raw screen coordinates for end point (WILL MOVE WITH CHART!)');
         endPoint = drawing.endPoint;
       }
       if (!points && drawing.points) {
+        console.log('⚠️ Using raw screen coordinates for multi points (WILL MOVE WITH CHART!)');
         points = drawing.points;
       }
 
+      console.log('✅ Final screen coordinates:', { startPoint, endPoint, points });
       return { startPoint, endPoint, points };
     };
     
-    // Render each drawing using TradingView coordinate system
-    currentDrawings.forEach((drawing, index) => {
-      console.log(`🖌️ Rendering TradingView drawing ${index + 1}:`, drawing.type, drawing.id);
-      
-      // Get current screen coordinates (converted from time+price coordinates)
-      let { startPoint, endPoint, points } = getScreenCoordinates(drawing);
-      
-      // Apply drag preview offset if this drawing is being dragged
-      if (isDraggingDrawing && selectedDrawing && selectedDrawing.id === drawing.id && dragPreviewOffset) {
-        console.log('👻 Applying drag preview offset:', dragPreviewOffset);
-        if (startPoint) {
-          startPoint = { x: startPoint.x + dragPreviewOffset.x, y: startPoint.y + dragPreviewOffset.y };
-        }
-        if (endPoint) {
-          endPoint = { x: endPoint.x + dragPreviewOffset.x, y: endPoint.y + dragPreviewOffset.y };
-        }
-        if (points) {
-          points = points.map(point => ({ x: point.x + dragPreviewOffset.x, y: point.y + dragPreviewOffset.y }));
-        }
-      }
-      
-      // Safety check to prevent crashes from undefined points
-      if (drawing.type !== 'note' && drawing.type !== 'text' && drawing.type !== 'ray' && 
-          (!startPoint || (!endPoint && 
-           ['trend_line', 'extended_line', 'arrow', 'parallel_channel', 'rectangle', 'ellipse'].includes(drawing.type)))) {
-        console.warn(`⚠️ Skipping drawing ${drawing.id} due to missing required points`);
-        return;
-      }
-      
-      // Special check for ray - only needs startPoint
-      if (drawing.type === 'ray' && !startPoint) {
-        console.warn(`⚠️ Skipping ray ${drawing.id} due to missing start point`);
-        return;
-      }
-      
-      const isSelected = selectedDrawing && selectedDrawing.id === drawing.id;
-      const isHovered = hoveredDrawing && hoveredDrawing.id === drawing.id;
-      
-      // Apply selection or hover styling
-      const baseColor = drawing.style?.color || '#00ff88';
-      const highlightColor = isSelected ? '#00aaff' : isHovered ? '#ffaa00' : baseColor;
-      const lineWidth = (drawing.style?.lineWidth || 2) + (isSelected ? 2 : isHovered ? 1 : 0);
-      
-      ctx.strokeStyle = highlightColor;
-      ctx.lineWidth = lineWidth;
-      ctx.setLineDash(drawing.style?.lineDash || []);
-      ctx.fillStyle = `${highlightColor}${Math.floor((drawing.style?.fillOpacity || 0.1) * 255).toString(16).padStart(2, '0')}`;
-      ctx.font = `${drawing.style?.textSize || 12}px Arial`;
-      
-      // Add glow effect for selected drawings
-      if (isSelected) {
-        ctx.shadowColor = '#00aaff';
-        ctx.shadowBlur = 10;
-      } else {
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-      }
-      
-      ctx.beginPath();
-      
-      // TypeScript suppression for drawing rendering - points are validated above
-      switch (drawing.type) {
-        // Line Tools
-        case 'trend_line':
-        case 'extended_line':
-          if (startPoint && endPoint) {
-            ctx.moveTo(startPoint.x, startPoint.y);
-            ctx.lineTo(endPoint.x, endPoint.y);
-          }
-          break;
-          
-        case 'ray':
-          // TradingView-style horizontal ray: start point + infinite line to the right
-          console.log('🌟 Rendering ray at:', startPoint);
-          if (startPoint) {
-            // Draw horizontal line extending to the right edge of the canvas
-            ctx.moveTo(startPoint.x, startPoint.y);
-            ctx.lineTo(ctx.canvas.width, startPoint.y);
-            console.log('✅ Ray line drawn from', startPoint.x, startPoint.y, 'to', ctx.canvas.width, startPoint.y);
-          }
-          break;
-          
-        case 'horizontal_line':
-          if (startPoint) {
-            ctx.moveTo(0, startPoint.y);
-            ctx.lineTo(ctx.canvas.width, startPoint.y);
-          }
-          break;
-          
-        case 'vertical_line':
-          if (startPoint) {
-            ctx.moveTo(startPoint.x, 0);
-            ctx.lineTo(startPoint.x, ctx.canvas.height);
-          }
-          break;
-          
-        case 'cross_line':
-          if (startPoint) {
-            ctx.moveTo(0, startPoint.y);
-            ctx.lineTo(ctx.canvas.width, startPoint.y);
-            ctx.moveTo(startPoint.x, 0);
-            ctx.lineTo(startPoint.x, ctx.canvas.height);
-          }
-          break;
-          
-        case 'arrow':
-          if (startPoint && endPoint) {
-            ctx.moveTo(startPoint.x, startPoint.y);
-            ctx.lineTo(endPoint.x, endPoint.y);
-            ctx.stroke();
-            drawArrowHead(ctx, startPoint.x, startPoint.y, endPoint.x, endPoint.y);
-            ctx.beginPath();
-          }
-          break;
-          
-        case 'parallel_channel':
-          if (startPoint && endPoint) {
-            const dx = endPoint.x - startPoint.x;
-            const dy = endPoint.y - startPoint.y;
-            const channelWidth = 50;
-            const perpX = -dy / Math.sqrt(dx * dx + dy * dy) * channelWidth;
-            const perpY = dx / Math.sqrt(dx * dx + dy * dy) * channelWidth;
-            
-            ctx.moveTo(startPoint.x, startPoint.y);
-            ctx.lineTo(endPoint.x, endPoint.y);
-            ctx.moveTo(startPoint.x + perpX, startPoint.y + perpY);
-            ctx.lineTo(endPoint.x + perpX, endPoint.y + perpY);
-          }
-          break;
-
-        // Geometric Shapes
-        case 'rectangle':
-          if (startPoint && endPoint) {
-            ctx.rect(
-              startPoint.x,
-              startPoint.y,
-              endPoint.x - startPoint.x,
-              endPoint.y - startPoint.y
-            );
-          }
-          break;
-          
-        case 'ellipse':
-        case 'circle':
-          if (startPoint && endPoint) {
-            const centerX = (startPoint.x + endPoint.x) / 2;
-            const centerY = (startPoint.y + endPoint.y) / 2;
-            const radiusX = Math.abs(endPoint.x - startPoint.x) / 2;
-            const radiusY = drawing.type === 'circle' ? radiusX : Math.abs(endPoint.y - startPoint.y) / 2;
-            ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-          }
-          break;
-          
-        case 'triangle':
-          if (startPoint && endPoint) {
-            const midX = (startPoint.x + endPoint.x) / 2;
-            ctx.moveTo(midX, startPoint.y);
-            ctx.lineTo(startPoint.x, endPoint.y);
-            ctx.lineTo(endPoint.x, endPoint.y);
-            ctx.closePath();
-          }
-          break;
-
-        // Fibonacci Tools
-        case 'fib_retracement':
-          if (startPoint && endPoint) {
-            ctx.moveTo(startPoint.x, startPoint.y);
-            ctx.lineTo(endPoint.x, endPoint.y);
-            ctx.stroke();
-            
-            // Draw fibonacci levels
-            fibonacciLevels.forEach((level, index) => {
-              if (startPoint && endPoint) {
-                const levelY = startPoint.y + (endPoint.y - startPoint.y) * level;
-                ctx.beginPath();
-                ctx.setLineDash([2, 2]);
-                ctx.moveTo(Math.min(startPoint.x, endPoint.x), levelY);
-                ctx.lineTo(Math.max(startPoint.x, endPoint.x), levelY);
-                ctx.stroke();
-                
-                if (drawing.style?.showLabels) {
-                  ctx.fillText(`${(level * 100).toFixed(1)}%`, Math.max(startPoint.x, endPoint.x) + 5, levelY + 3);
-                }
-              }
-            });
-            ctx.setLineDash([]);
-            ctx.beginPath();
-          }
-          break;
-          
-        case 'fib_extension':
-          if (startPoint && endPoint) {
-            ctx.moveTo(startPoint.x, startPoint.y);
-            ctx.lineTo(endPoint.x, endPoint.y);
-            ctx.stroke();
-          
-            fibonacciExtensionLevels.forEach((level, index) => {
-              if (startPoint && endPoint) {
-                const levelY = startPoint.y + (endPoint.y - startPoint.y) * level;
-                ctx.beginPath();
-                ctx.setLineDash([2, 2]);
-                ctx.moveTo(Math.min(startPoint.x, endPoint.x), levelY);
-                ctx.lineTo(Math.max(startPoint.x, endPoint.x), levelY);
-                ctx.stroke();
-                
-                if (drawing.style?.showLabels) {
-                  ctx.fillText(`${(level * 100).toFixed(1)}%`, Math.max(startPoint.x, endPoint.x) + 5, levelY + 3);
-                }
-              }
-            });
-            ctx.setLineDash([]);
-            ctx.beginPath();
-          }
-          break;
-          
-        case 'fib_fan':
-          if (startPoint && endPoint) {
-            const baseLength = Math.sqrt((endPoint.x - startPoint.x) ** 2 + (endPoint.y - startPoint.y) ** 2);
-            fibonacciLevels.forEach(level => {
-              if (startPoint && endPoint) {
-                const fanLength = baseLength * level;
-                const angle = Math.atan2(endPoint.y - startPoint.y, endPoint.x - startPoint.x);
-                const fanX = startPoint.x + fanLength * Math.cos(angle);
-                const fanY = startPoint.y + fanLength * Math.sin(angle);
-                ctx.moveTo(startPoint.x, startPoint.y);
-                ctx.lineTo(fanX, fanY);
-              }
-            });
-          }
-          break;
-
-        // Gann Tools
-        case 'gann_fan':
-          if (startPoint) {
-            gannAngles.forEach(angle => {
-              if (startPoint) {
-                const radians = (angle * Math.PI) / 180;
-                const length = 200;
-                const gannX = startPoint.x + length * Math.cos(radians);
-                const gannY = startPoint.y - length * Math.sin(radians);
-                ctx.moveTo(startPoint.x, startPoint.y);
-                ctx.lineTo(gannX, gannY);
-              }
-            });
-          }
-          break;
-          
-        case 'gann_box':
-          if (startPoint && endPoint) {
-            const boxSize = Math.max(Math.abs(endPoint.x - startPoint.x), Math.abs(endPoint.y - startPoint.y));
-            ctx.rect(startPoint.x, startPoint.y, boxSize, boxSize);
-            ctx.stroke();
-            
-            // Draw internal divisions
-            for (let i = 1; i < 8; i++) {
-              const div = (boxSize / 8) * i;
-              ctx.beginPath();
-              ctx.moveTo(startPoint.x + div, startPoint.y);
-              ctx.lineTo(startPoint.x + div, startPoint.y + boxSize);
-              ctx.moveTo(startPoint.x, startPoint.y + div);
-              ctx.lineTo(startPoint.x + boxSize, startPoint.y + div);
-              ctx.stroke();
-            }
-            ctx.beginPath();
-          }
-          break;
-
-        // Multi-point tools
-        case 'pitchfork':
-        case 'schiff_pitchfork':
-        case 'inside_pitchfork':
-          if (points && points.length >= 3) {
-            drawPitchfork(ctx, points[0], points[1], points[2], drawing.type);
-          }
-          break;
-          
-        case 'elliott_wave':
-          if (points && points.length > 1) {
-            points.forEach((point: DrawingPoint, index: number) => {
-              if (index > 0 && points) {
-                ctx.moveTo(points[index - 1].x, points[index - 1].y);
-                ctx.lineTo(point.x, point.y);
-              }
-              
-              if (drawing.style?.showLabels && drawing.metadata?.waveLabels) {
-                const waveMetadata = drawing.metadata as WaveDrawingMetadata;
-                ctx.fillText(waveMetadata.waveLabels[index], point.x + 5, point.y - 5);
-              }
-            });
-          }
-          break;
-
-        // Pattern Recognition
-        case 'head_shoulders':
-        case 'triangle_pattern':
-        case 'flag_pattern':
-        case 'wedge_pattern':
-          if (points && points.length > 1) {
-            points.forEach((point: DrawingPoint, index: number) => {
-              if (index > 0 && points) {
-                ctx.moveTo(points[index - 1].x, points[index - 1].y);
-                ctx.lineTo(point.x, point.y);
-              }
-            });
-          }
-          break;
-
-        // Harmonic Patterns
-        case 'bat_pattern':
-        case 'butterfly_pattern':
-        case 'gartley_pattern':
-        case 'crab_pattern':
-        case 'shark_pattern':
-        case 'cypher_pattern':
-          if (points && points.length >= 4) {
-            const [X, A, B, C] = points;
-            ctx.moveTo(X.x, X.y);
-            ctx.lineTo(A.x, A.y);
-            ctx.lineTo(B.x, B.y);
-            ctx.lineTo(C.x, C.y);
-            ctx.lineTo(X.x, X.y); // Close pattern
-            
-            if (drawing.style?.showLabels) {
-              ctx.fillText('X', X.x - 10, X.y - 10);
-              ctx.fillText('A', A.x - 10, A.y - 10);
-              ctx.fillText('B', B.x - 10, B.y - 10);
-              ctx.fillText('C', C.x - 10, C.y - 10);
-            }
-          }
-          break;
-
-        // Measurement Tools
-        case 'ruler':
-          if (startPoint && endPoint) {
-            ctx.moveTo(startPoint.x, startPoint.y);
-            ctx.lineTo(endPoint.x, endPoint.y);
-            ctx.stroke();
-            
-            if (drawing.metadata && drawing.style?.showLabels) {
-              const measureMetadata = drawing.metadata as MeasureDrawingMetadata;
-              const midX = (startPoint.x + endPoint.x) / 2;
-              const midY = (startPoint.y + endPoint.y) / 2;
-              ctx.fillText(
-                `${measureMetadata.distance.toFixed(1)}px, ${measureMetadata.angle.toFixed(1)}°`,
-                midX, midY - 10
-              );
-              ctx.fillText(
-                `$${measureMetadata.priceDistance.toFixed(2)}`,
-                midX, midY + 10
-              );
-            }
-          }
-          break;
-          
-        case 'price_range':
-          if (startPoint && endPoint) {
-            ctx.rect(0, Math.min(startPoint.y, endPoint.y),
-                    ctx.canvas.width, Math.abs(endPoint.y - startPoint.y));
-            ctx.fill();
-          }
-          break;
-          
-        case 'date_range':
-          if (startPoint && endPoint) {
-            ctx.rect(Math.min(startPoint.x, endPoint.x), 0, 
-                    Math.abs(endPoint.x - startPoint.x), ctx.canvas.height);
-            ctx.fill();
-          }
-          break;
-          
-        // Volume Analysis
-        case 'volume_profile':
-          if (startPoint && endPoint) {
-            ctx.rect(Math.min(startPoint.x, endPoint.x), 
-                    Math.min(startPoint.y, endPoint.y),
-                    Math.abs(endPoint.x - startPoint.x), 
-                    Math.abs(endPoint.y - startPoint.y));
-            ctx.stroke();
-            
-            // Draw volume bars
-            const barCount = 10;
-            const barHeight = Math.abs(endPoint.y - startPoint.y) / barCount;
-            for (let i = 0; i < barCount; i++) {
-              const barY = Math.min(startPoint.y, endPoint.y) + i * barHeight;
-              const barWidth = Math.random() * Math.abs(endPoint.x - startPoint.x) * 0.8;
-              ctx.fillRect(Math.min(startPoint.x, endPoint.x), barY, barWidth, barHeight * 0.8);
-            }
-          }
-          break;
-
-        // Text and Annotation Tools
-        case 'text':
-        case 'note':
-        case 'callout':
-        case 'price_label':
-        case 'anchored_text':
-        case 'flag':
-          if (drawing.text && startPoint) {
-            ctx.fillText(drawing.text, startPoint.x, startPoint.y);
-          }
-          break;
-
-        // Trading Position Markers
-        case 'long_position':
-          if (startPoint) {
-            ctx.beginPath();
-            ctx.arc(startPoint.x, startPoint.y, 8, 0, 2 * Math.PI);
-            ctx.fillStyle = '#00ff88';
-            ctx.fill();
-            ctx.fillStyle = '#000000';
-            ctx.fillText('L', startPoint.x - 3, startPoint.y + 3);
-          }
-          break;
-          
-        case 'short_position':
-          if (startPoint) {
-            ctx.beginPath();
-            ctx.arc(startPoint.x, startPoint.y, 8, 0, 2 * Math.PI);
-            ctx.fillStyle = '#ff4444';
-            ctx.fill();
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText('S', startPoint.x - 3, startPoint.y + 3);
-          }
-          break;
-          
-        case 'price_alert':
-          if (startPoint) {
-            ctx.beginPath();
-            ctx.arc(startPoint.x, startPoint.y, 6, 0, 2 * Math.PI);
-            ctx.fillStyle = '#ffaa00';
-            ctx.fill();
-            if (drawing.text) {
-              ctx.fillStyle = drawing.style?.color || '#ffaa00';
-              ctx.fillText(drawing.text, startPoint.x + 10, startPoint.y);
-            }
-          }
-          break;
-
-        default:
-          // Default line drawing for unknown tools
-          if (startPoint && endPoint) {
-            ctx.moveTo(startPoint.x, startPoint.y);
-            ctx.lineTo(endPoint.x, endPoint.y);
-          }
-          break;
-      }
-      
-      ctx.stroke();
-      ctx.setLineDash([]); // Reset line dash
-      
-      // TradingView-style ray enhancements: Add start point marker and price label
-      if (drawing.type === 'ray' && startPoint) {
-        // Draw start point marker (small circle)
-        ctx.fillStyle = highlightColor;
-        ctx.beginPath();
-        ctx.arc(startPoint.x, startPoint.y, 4, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        // Draw price label on Y-axis (right side) using TradingView time+price data
-        if (drawing.time && drawing.price !== undefined) {
-          const price = drawing.price;
-          const priceText = price.toFixed(2);
-          
-          // Position the label on the right edge of the chart
-          const labelX = ctx.canvas.width - 60;
-          const labelY = startPoint.y;
-          
-          // Draw background rectangle for price label
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-          const textWidth = ctx.measureText(priceText).width + 8;
-          ctx.fillRect(labelX - 4, labelY - 10, textWidth, 16);
-          
-          // Draw price text
-          ctx.fillStyle = highlightColor;
-          ctx.font = '12px Arial';
-          ctx.fillText(priceText, labelX, labelY + 3);
-        } else if (drawing.startDataPoint) {
-          // Fallback to legacy data point
-          const price = drawing.startDataPoint.price;
-          const priceText = price.toFixed(2);
-          
-          // Position the label on the right edge of the chart
-          const labelX = ctx.canvas.width - 60;
-          const labelY = startPoint.y;
-          
-          // Draw background rectangle for price label
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-          const textWidth = ctx.measureText(priceText).width + 8;
-          ctx.fillRect(labelX - 4, labelY - 10, textWidth, 16);
-          
-          // Draw price text
-          ctx.fillStyle = highlightColor;
-          ctx.font = '12px Arial';
-          ctx.fillText(priceText, labelX, labelY + 3);
-        }
-      }
-    });
+    // Drawing rendering has been removed as requested
+    // Only core chart functionality remains
   };
 
-  // Property Editor Component for Selected Drawings
-  // TEST COMMENT
-  const PropertyEditor = () => {
-    if (!showDrawingEditor || !selectedDrawing) return null;
-
-    const currentStyle = selectedDrawing.style || {};
-
-    const updateDrawingStyle = (updates: Partial<DrawingStyle>) => {
-      setDrawings((prev: Drawing[]) => prev.map(d => 
-        d.id === selectedDrawing.id 
-          ? { ...d, style: { ...d.style, ...updates } }
-          : d
-      ));
-      setSelectedDrawing((prev: Drawing | null) => prev ? { ...prev, style: { ...prev.style, ...updates } } : null);
-    };
-
-    return (
-      <div 
-        className="fixed bg-[#1a1a1a] border border-gray-600 rounded-lg p-4 z-50 min-w-[250px] shadow-lg"
-        style={{
-          left: `${editorPosition.x}px`,
-          top: `${editorPosition.y}px`
-        }}
-      >
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-white text-sm font-medium">
-            {selectedDrawing.type.charAt(0).toUpperCase() + selectedDrawing.type.slice(1)} Properties
-          </h3>
-          <button 
-            onClick={() => setShowDrawingEditor(false)}
-            className="text-gray-400 hover:text-white text-lg leading-none"
-          >
-            ×
-          </button>
-        </div>
-        
-        {/* Color Picker */}
-        <div className="mb-3">
-          <label className="block text-gray-300 text-xs mb-1">Color</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={currentStyle.color || '#00ff88'}
-              onChange={(e) => updateDrawingStyle({ color: e.target.value })}
-              className="w-8 h-8 rounded border border-gray-600"
-            />
-            <span className="text-gray-300 text-xs">{currentStyle.color || '#00ff88'}</span>
-          </div>
-        </div>
-
-        {/* Line Width */}
-        <div className="mb-3">
-          <label className="block text-gray-300 text-xs mb-1">
-            Line Width: {currentStyle.lineWidth || 2}px
-          </label>
-          <input
-            type="range"
-            min="1"
-            max="10"
-            value={currentStyle.lineWidth || 2}
-            onChange={(e) => updateDrawingStyle({ lineWidth: parseInt(e.target.value) })}
-            className="w-full"
-          />
-        </div>
-
-        {/* Line Style */}
-        <div className="mb-3">
-          <label className="block text-gray-300 text-xs mb-1">Line Style</label>
-          <select
-            value={JSON.stringify(currentStyle.lineDash || [])}
-            onChange={(e) => updateDrawingStyle({ lineDash: JSON.parse(e.target.value) })}
-            className="w-full bg-[#2a2a2a] border border-gray-600 rounded px-2 py-1 text-white text-xs"
-          >
-            <option value="[]">Solid</option>
-            <option value="[5,5]">Dashed</option>
-            <option value="[2,2]">Dotted</option>
-            <option value="[10,5,2,5]">Dash-Dot</option>
-          </select>
-        </div>
-
-        {/* Text-specific options */}
-        {selectedDrawing.type === 'text' && (
-          <>
-            <div className="mb-3">
-              <label className="block text-gray-300 text-xs mb-1">
-                Text Size: {currentStyle.textSize || 12}px
-              </label>
-              <input
-                type="range"
-                min="8"
-                max="32"
-                value={currentStyle.textSize || 12}
-                onChange={(e) => updateDrawingStyle({ textSize: parseInt(e.target.value) })}
-                className="w-full"
-              />
-            </div>
-            <div className="mb-3">
-              <label className="block text-gray-300 text-xs mb-1">Text Content</label>
-              <input
-                type="text"
-                value={selectedDrawing.text || ''}
-                onChange={(e) => {
-                  setDrawings((prev: Drawing[]) => prev.map(d => 
-                    d.id === selectedDrawing.id 
-                      ? { ...d, text: e.target.value }
-                      : d
-                  ));
-                  setSelectedDrawing((prev: Drawing | null) => prev ? { ...prev, text: e.target.value } : null);
-                }}
-                className="w-full bg-[#2a2a2a] border border-gray-600 rounded px-2 py-1 text-white text-xs"
-                placeholder="Enter text..."
-              />
-            </div>
-          </>
-        )}
-
-        {/* Fill options for shapes */}
-        {['rectangle', 'ellipse', 'circle'].includes(selectedDrawing.type) && (
-          <div className="mb-3">
-            <label className="block text-gray-300 text-xs mb-1">
-              Fill Opacity: {Math.round((currentStyle.fillOpacity || 0.1) * 100)}%
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={currentStyle.fillOpacity || 0.1}
-              onChange={(e) => updateDrawingStyle({ fillOpacity: parseFloat(e.target.value) })}
-              className="w-full"
-            />
-          </div>
-        )}
-
-        {/* Delete button */}
-        <button
-          onClick={() => {
-            setDrawings(prev => prev.filter(d => d.id !== selectedDrawing.id));
-            setSelectedDrawing(null);
-            setShowDrawingEditor(false);
-          }}
-          className="w-full bg-red-600 hover:bg-red-700 text-white text-xs py-2 rounded mt-2"
-        >
-          Delete Drawing
-        </button>
-      </div>
-    );
-  };
+  // Property Editor has been removed - drawing tools were removed as requested
 
   // Handle sidebar button clicks
   const handleSidebarClick = (id: string) => {
@@ -5173,7 +5229,7 @@ export default function TradingViewChart({
                 
                 if (isLoading) {
                   return (
-                    <React.Fragment key={symbol}>
+                    <div key={symbol}>
                       {separatorRows}
                       <div className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-800 hover:to-gray-900 transition-all duration-300 mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800">
                         <div className="p-3 border-r border-gray-800 font-mono font-bold text-white text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
@@ -5198,7 +5254,7 @@ export default function TradingViewChart({
                           <span className="drop-shadow-md">--</span>
                         </div>
                       </div>
-                    </React.Fragment>
+                    </div>
                   );
                 }
                 
@@ -5212,7 +5268,7 @@ export default function TradingViewChart({
                 const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
                 
                 return (
-                  <React.Fragment key={symbol}>
+                  <div key={symbol}>
                     {separatorRows}
                     <div 
                       className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 hover:shadow-xl transition-all duration-300 cursor-pointer mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800 hover:border-gray-600"
@@ -5272,7 +5328,7 @@ export default function TradingViewChart({
                         </span>
                       </div>
                     </div>
-                  </React.Fragment>
+                  </div>
                 );
               })}
             </div>
@@ -5417,7 +5473,7 @@ export default function TradingViewChart({
                     transform: activeTab === tab ? 'translateY(-1px)' : 'translateY(0)',
                     letterSpacing: '0.1em'
                   }}
-                  onMouseEnter={(e) => {
+                  onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
                     if (activeTab !== tab) {
                       e.currentTarget.style.background = 'linear-gradient(145deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)';
                       e.currentTarget.style.color = '#cccccc';
@@ -5425,7 +5481,7 @@ export default function TradingViewChart({
                       e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0, 0, 0, 0.7), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 10px rgba(0, 0, 0, 0.6)';
                     }
                   }}
-                  onMouseLeave={(e) => {
+                  onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
                     if (activeTab !== tab) {
                       e.currentTarget.style.background = 'linear-gradient(145deg, #000000 0%, #0a0a0a 50%, #000000 100%)';
                       e.currentTarget.style.color = '#666666';
@@ -5522,7 +5578,7 @@ export default function TradingViewChart({
                                 <div 
                                   key={stock.symbol} 
                                   className="flex justify-between items-center bg-gray-900 bg-opacity-50 px-3 py-2 rounded cursor-pointer hover:bg-gray-800 hover:bg-opacity-60 transition-all duration-200"
-                                  onClick={(e) => {
+                                  onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                                     e.stopPropagation();
                                     console.log(`📊 Switching chart to ${stock.symbol} from bullish industry`);
                                     if (onSymbolChange) {
@@ -5578,7 +5634,7 @@ export default function TradingViewChart({
                                 <div 
                                   key={stock.symbol} 
                                   className="flex justify-between items-center bg-gray-900 bg-opacity-50 px-3 py-2 rounded cursor-pointer hover:bg-gray-800 hover:bg-opacity-60 transition-all duration-200"
-                                  onClick={(e) => {
+                                  onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                                     e.stopPropagation();
                                     console.log(`📊 Switching chart to ${stock.symbol} from bearish industry`);
                                     if (onSymbolChange) {
@@ -5897,7 +5953,7 @@ export default function TradingViewChart({
                 <input
                   type="text"
                   value={searchQuery || symbol}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                   onKeyPress={handleSearchKeyPress}
                   className="bg-transparent border-0 outline-none w-28 text-lg font-bold"
                   style={{
@@ -6101,47 +6157,6 @@ export default function TradingViewChart({
             boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
             borderRadius: '2px'
           }}></div>
-
-          {/* Favorites Drawing Tools Bar */}
-          {favoriteDrawingTools.length > 0 && (
-            <div className="flex items-center space-x-1 px-3 py-2 rounded-md" style={{
-              background: 'linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
-              border: '2px solid rgba(59, 130, 246, 0.6)',
-              boxShadow: 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(0, 0, 0, 0.5), 0 0 8px rgba(59, 130, 246, 0.3)',
-              height: '44px'
-            }}>
-              <span className="text-xs font-semibold text-blue-400 mr-2">★</span>
-              {getFavoriteTools().map((tool, index) => (
-                <button
-                  key={tool.value}
-                  onClick={() => {
-                    console.log('🌟 Favorite tool clicked:', tool.value);
-                    console.log('🔧 Tool details:', tool);
-                    console.log('🎯 Current activeTool before:', activeTool);
-                    selectDrawingTool(tool.value);
-                    console.log('🎯 Current activeTool after:', activeTool);
-                    
-                    // Add delayed check to see if state was updated
-                    setTimeout(() => {
-                      console.log('🕐 activeTool after timeout:', activeTool);
-                    }, 100);
-                  }}
-                  className={`btn-3d-carved relative group ${activeTool === tool.value ? 'active' : 'text-white'}`}
-                  style={{
-                    padding: '10px 12px',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    borderRadius: '3px',
-                    height: '36px',
-                    minWidth: '36px'
-                  }}
-                  title={tool.label}
-                >
-                  {tool.icon}
-                </button>
-              ))}
-            </div>
-          )}
           </div>
 
           {/* Spacer to push remaining items to the right */}
@@ -6254,7 +6269,7 @@ export default function TradingViewChart({
                 transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 position: 'relative'
               }}
-              onMouseEnter={(e) => {
+              onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
                 e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
                 e.currentTarget.style.textShadow = `
                   0 0 8px rgba(255, 215, 0, 1),
@@ -6270,7 +6285,7 @@ export default function TradingViewChart({
                   0 0 35px rgba(255, 215, 0, 0.2)
                 `;
               }}
-              onMouseLeave={(e) => {
+              onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
                 e.currentTarget.style.transform = 'translateY(0) scale(1)';
                 e.currentTarget.style.textShadow = `
                   0 0 5px rgba(255, 215, 0, 0.8),
@@ -6311,6 +6326,15 @@ export default function TradingViewChart({
             {/* AI Button - Futuristic Silver/Chrome Design */}
             <button 
               className="relative group overflow-hidden"
+              onClick={() => {
+                console.log('AI button clicked in TradingViewChart!');
+                console.log('onAIButtonClick prop:', onAIButtonClick);
+                if (onAIButtonClick) {
+                  onAIButtonClick();
+                } else {
+                  console.log('onAIButtonClick prop is undefined!');
+                }
+              }}
               style={{
                 padding: '12px 20px',
                 borderRadius: '10px',
@@ -6339,7 +6363,7 @@ export default function TradingViewChart({
                 transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 position: 'relative'
               }}
-              onMouseEnter={(e) => {
+              onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
                 e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
                 e.currentTarget.style.color = '#FFFFFF';
                 e.currentTarget.style.textShadow = `
@@ -6356,7 +6380,7 @@ export default function TradingViewChart({
                   0 0 35px rgba(192, 192, 192, 0.2)
                 `;
               }}
-              onMouseLeave={(e) => {
+              onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
                 e.currentTarget.style.transform = 'translateY(0) scale(1)';
                 e.currentTarget.style.color = '#E8E8E8';
                 e.currentTarget.style.textShadow = `
@@ -6448,7 +6472,7 @@ export default function TradingViewChart({
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               position: 'relative'
             }}
-            onMouseEnter={(e) => {
+            onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
               if (!showSettings) {
                 e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
                 e.currentTarget.style.color = '#FFB84D';
@@ -6467,7 +6491,7 @@ export default function TradingViewChart({
                 `;
               }
             }}
-            onMouseLeave={(e) => {
+            onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
               if (!showSettings) {
                 e.currentTarget.style.transform = 'translateY(0) scale(1)';
                 e.currentTarget.style.color = '#FFA500';
@@ -6550,7 +6574,7 @@ export default function TradingViewChart({
                   min="8"
                   max="20"
                   value={config.axisStyle.yAxis.textSize}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     axisStyle: {
                       ...prev.axisStyle,
@@ -6567,7 +6591,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.axisStyle.yAxis.textColor}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     axisStyle: {
                       ...prev.axisStyle,
@@ -6591,7 +6615,7 @@ export default function TradingViewChart({
                   min="8"
                   max="20"
                   value={config.axisStyle.xAxis.textSize}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     axisStyle: {
                       ...prev.axisStyle,
@@ -6608,7 +6632,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.axisStyle.xAxis.textColor}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     axisStyle: {
                       ...prev.axisStyle,
@@ -6657,7 +6681,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.colors.bullish.body}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     colors: {
                       ...prev.colors,
@@ -6673,7 +6697,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.colors.bearish.body}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     colors: {
                       ...prev.colors,
@@ -6695,7 +6719,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.colors.bullish.border}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     colors: {
                       ...prev.colors,
@@ -6711,7 +6735,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.colors.bearish.border}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     colors: {
                       ...prev.colors,
@@ -6733,7 +6757,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.colors.bullish.wick}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     colors: {
                       ...prev.colors,
@@ -6749,7 +6773,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.colors.bearish.wick}
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     colors: {
                       ...prev.colors,
@@ -6771,7 +6795,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.colors.volume.bullish.replace(/[0-9a-f]{2}$/i, '')} // Remove alpha
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     colors: {
                       ...prev.colors,
@@ -6787,7 +6811,7 @@ export default function TradingViewChart({
                 <input
                   type="color"
                   value={config.colors.volume.bearish.replace(/[0-9a-f]{2}$/i, '')} // Remove alpha
-                  onChange={(e) => setConfig(prev => ({
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
                     ...prev,
                     colors: {
                       ...prev.colors,
@@ -6895,7 +6919,8 @@ export default function TradingViewChart({
                 emerald: 'text-emerald-400 group-hover:text-emerald-300',
                 amber: 'text-amber-400 group-hover:text-amber-300',
                 red: 'text-red-400 group-hover:text-red-300',
-                violet: 'text-violet-400 group-hover:text-violet-300'
+                violet: 'text-violet-400 group-hover:text-violet-300',
+                cyan: 'text-cyan-400 group-hover:text-cyan-300'
               };
               return (
               <div key={item.id} className="flex flex-col items-center mb-3">
@@ -6972,6 +6997,32 @@ export default function TradingViewChart({
           </div>
         )}
 
+        {/* Y-Axis Auto-Scale Toggle Button */}
+        <div className="absolute top-4 right-4 z-30">
+          <button
+            onClick={() => {
+              if (isAutoScale) {
+                // When switching from auto to manual, preserve current range
+                const startIndex = Math.max(0, Math.floor(scrollOffset));
+                const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+                const visibleData = data.slice(startIndex, endIndex);
+                const currentRange = calculateAutoPriceRange(visibleData);
+                setManualPriceRangeAndDisableAuto(currentRange);
+              } else {
+                resetToAutoScale();
+              }
+            }}
+            className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-all duration-200 ${
+              isAutoScale 
+                ? 'bg-[#2962ff] text-white shadow-lg' 
+                : 'bg-[#1e222d] text-[#868993] border border-[#2a2e39] hover:text-white hover:border-[#868993]'
+            }`}
+            title={isAutoScale ? "Auto-scale enabled (double-click Y-axis to reset)" : "Manual scale (click to enable auto-scale)"}
+          >
+            📏 {isAutoScale ? 'AUTO' : 'MANUAL'}
+          </button>
+        </div>
+
         {/* Main Chart Canvas with Integrated Volume */}
         <canvas
           ref={chartCanvasRef}
@@ -6988,7 +7039,7 @@ export default function TradingViewChart({
             transition: 'cursor 0.1s ease'
           }}
           onMouseDown={handleUnifiedMouseDown}
-        onContextMenu={(e) => {
+        onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
           e.preventDefault();
           const x = e.nativeEvent.offsetX;
           const y = e.nativeEvent.offsetY;
@@ -7001,23 +7052,72 @@ export default function TradingViewChart({
             if (startPoint && endPoint && isPointNearLine(x, y, startPoint, endPoint, 10)) {
               setSelectedDrawing(drawing);
               
-              // Position editor near right-click location
-              const canvas = e.currentTarget;
-              const rect = canvas.getBoundingClientRect();
-              const editorX = Math.min(x + rect.left + 20, window.innerWidth - 300);
-              const editorY = Math.min(y + rect.top, window.innerHeight - 400);
-              setEditorPosition({ x: editorX, y: editorY });
-              setShowDrawingEditor(true);
+              // Drawing editor removed - drawing tools were removed as requested
+              console.log('Drawing editor removed - drawing tools were removed');
               break;
             }
           }
         }}
           onMouseMove={activeTool ? handleCanvasMouseMove : handleMouseMove}
           onMouseUp={handleMouseUp}
-          onMouseLeave={(e) => {
+          onMouseLeave={(e: React.MouseEvent<HTMLCanvasElement>) => {
             handleMouseUp();
             handleMouseLeave();
           }}
+          // Touch Events for Mobile Support
+          onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            if (!touch) return;
+            
+            const rect = e.currentTarget.getBoundingClientRect();
+            const mouseEvent = {
+              currentTarget: e.currentTarget,
+              button: 0,
+              clientX: touch.clientX,
+              clientY: touch.clientY,
+              ctrlKey: false,
+              metaKey: false,
+              preventDefault: () => e.preventDefault()
+            } as unknown as React.MouseEvent<HTMLCanvasElement>;
+            
+            handleUnifiedMouseDown(mouseEvent);
+          }}
+          onTouchMove={(e: React.TouchEvent<HTMLCanvasElement>) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            if (!touch) return;
+            
+            const rect = e.currentTarget.getBoundingClientRect();
+            const mouseEvent = {
+              currentTarget: e.currentTarget,
+              clientX: touch.clientX,
+              clientY: touch.clientY
+            } as unknown as React.MouseEvent<HTMLCanvasElement>;
+            
+            if (activeTool) {
+              handleCanvasMouseMove(mouseEvent);
+            } else {
+              handleMouseMove(mouseEvent);
+            }
+          }}
+          onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
+            e.preventDefault();
+            handleMouseUp();
+          }}
+          // Pinch-to-zoom support
+          onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {
+            if (e.ctrlKey) {
+              // Pinch-to-zoom gesture (Ctrl + wheel)
+              e.preventDefault();
+              const delta = e.deltaY;
+              const scaleFactor = delta > 0 ? 1.1 : 0.9;
+              
+              const newCount = Math.max(20, Math.min(300, Math.round(visibleCandleCount * scaleFactor)));
+              setVisibleCandleCount(newCount);
+            }
+          }}
+          onClick={(e) => console.log('👆 SINGLE CLICK DETECTED on canvas!')}
           onDoubleClick={handleDoubleClick}
         />
       </div>
@@ -7043,8 +7143,8 @@ export default function TradingViewChart({
             <input
               type="text"
               value={drawingText}
-              onChange={(e) => setDrawingText(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleTextSubmit()}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrawingText(e.target.value)}
+              onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleTextSubmit()}
               className="w-full px-3 py-2 bg-[#131722] border border-[#3a3e47] rounded text-white text-sm focus:outline-none focus:border-[#2962ff]"
               placeholder="Enter text..."
               autoFocus
@@ -7072,72 +7172,12 @@ export default function TradingViewChart({
         </div>
       )}
 
-      {/* Multi-point Drawing Instructions */}
-      {activeTool && multiPointDrawing.length > 0 && (
-        <div 
-          className="absolute top-20 left-6 z-[9999] bg-[#1e222d] bg-opacity-90 border border-[#2a2e39] rounded-lg p-3 backdrop-blur-sm"
-        >
-          <div className="text-white text-sm">
-            <div className="font-medium mb-1">
-              {Object.values(DRAWING_TOOLS).flat().find(tool => tool.value === activeTool)?.label}
-            </div>
-            <div className="text-[#787b86] text-xs">
-              Point {multiPointDrawing.length + 1} of {
-                activeTool === 'pitchfork' || activeTool === 'schiff_pitchfork' ? '3' :
-                activeTool === 'elliott_wave' ? '8' :
-                activeTool === 'elliott_impulse' ? '5' :
-                activeTool === 'elliott_correction' ? '3' :
-                activeTool === 'head_shoulders' ? '5' :
-                'multiple'
-              }
-            </div>
-            {multiPointDrawing.length > 0 && (
-              <button
-                onClick={() => {
-                  setMultiPointDrawing([]);
-                  setCurrentDrawingPhase(0);
-                  setActiveTool(null);
-                }}
-                className="mt-2 px-2 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded text-xs hover:bg-red-600/30 transition-colors"
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Active Tool Indicator */}
-      {activeTool && (
-        <div 
-          className="absolute top-20 right-6 z-[9999] bg-[#1e222d] bg-opacity-90 border border-[#2a2e39] rounded-lg p-3 backdrop-blur-sm"
-        >
-          <div className="text-white text-sm flex items-center space-x-2">
-            <span className="text-lg">
-              {Object.values(DRAWING_TOOLS).flat().find(tool => tool.value === activeTool)?.icon}
-            </span>
-            <div>
-              <div className="font-medium">
-                {Object.values(DRAWING_TOOLS).flat().find(tool => tool.value === activeTool)?.label}
-              </div>
-            </div>
-            <button
-              onClick={() => setActiveTool(null)}
-              className="ml-2 text-[#787b86] hover:text-white transition-colors"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Property Editor for Selected Drawings */}
-      <PropertyEditor />
+      {/* Property Editor removed - drawing tools were removed as requested */}
       </div>
 
       {/* Sidebar Panels */}
       {activeSidebarPanel && (
-        <div className="fixed top-40 bottom-0 left-16 w-[720px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out">
+        <div className="fixed top-40 bottom-0 left-16 w-[1000px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out">
           {/* Panel Header */}
           <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
             <h3 className="text-white font-medium capitalize">{activeSidebarPanel}</h3>
@@ -7276,13 +7316,13 @@ export default function TradingViewChart({
                   : '0 1px 1px rgba(0, 0, 0, 0.8)',
                 borderRadius: index === 0 ? '10px 10px 0 0' : index === 3 ? '0 0 10px 10px' : '0'
               }}
-              onMouseEnter={(e) => {
+              onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
                 if (config.timeframe !== tf.toLowerCase()) {
                   e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%)';
                   e.currentTarget.style.color = '#ffffff';
                 }
               }}
-              onMouseLeave={(e) => {
+              onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
                 if (config.timeframe !== tf.toLowerCase()) {
                   e.currentTarget.style.background = 'transparent';
                   e.currentTarget.style.color = '#d1d5db';
@@ -7296,7 +7336,179 @@ export default function TradingViewChart({
         document.body
       )}
 
+      {/* ✨ NEW: Drawing Properties Panel */}
+      <DrawingPropertiesPanel
+        selectedDrawing={selectedDrawing}
+        isOpen={showPropertiesPanel}
+        onClose={() => setShowPropertiesPanel(false)}
+        onUpdate={handleDrawingPropertiesUpdate}
+        position={propertiesPanelPosition}
+      />
 
+      {/* ✨ NEW: Right-Click Context Menu */}
+      {showContextMenu && contextMenuDrawing && createPortal(
+        <div 
+          className="fixed z-[9999] bg-[#131722] border border-[#2a2e39] rounded-lg shadow-2xl min-w-[200px]"
+          style={{ 
+            left: Math.min(contextMenuPosition.x, window.innerWidth - 220), 
+            top: Math.min(contextMenuPosition.y, window.innerHeight - 300)
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="py-1">
+            {/* Properties */}
+            <button
+              onClick={() => {
+                setShowPropertiesPanel(true);
+                setPropertiesPanelPosition(contextMenuPosition);
+                setShowContextMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+            >
+              <span className="mr-3">⚙️</span>
+              Properties...
+            </button>
+            
+            <div className="border-t border-[#2a2e39] my-1"></div>
+            
+            {/* Copy/Paste/Duplicate */}
+            <button
+              onClick={() => {
+                handleCopyDrawing(contextMenuDrawing);
+                setShowContextMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+            >
+              <span className="mr-3">📋</span>
+              Copy
+            </button>
+            
+            {drawingClipboard.length > 0 && (
+              <button
+                onClick={() => {
+                  handlePasteDrawing();
+                  setShowContextMenu(false);
+                }}
+                className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+              >
+                <span className="mr-3">📌</span>
+                Paste
+              </button>
+            )}
+            
+            <button
+              onClick={() => {
+                handleDuplicateDrawing(contextMenuDrawing);
+                setShowContextMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+            >
+              <span className="mr-3">✨</span>
+              Duplicate
+            </button>
+            
+            <div className="border-t border-[#2a2e39] my-1"></div>
+            
+            {/* Layer Management */}
+            <button
+              onClick={() => {
+                bringDrawingToFront(contextMenuDrawing);
+                setShowContextMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+            >
+              <span className="mr-3">⬆️</span>
+              Bring to Front
+            </button>
+            
+            <button
+              onClick={() => {
+                sendDrawingToBack(contextMenuDrawing);
+                setShowContextMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+            >
+              <span className="mr-3">⬇️</span>
+              Send to Back
+            </button>
+            
+            <div className="border-t border-[#2a2e39] my-1"></div>
+            
+            {/* Lock/Unlock */}
+            <button
+              onClick={() => {
+                updateDrawing(contextMenuDrawing.id, { isLocked: !contextMenuDrawing.isLocked });
+                setShowContextMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#2a2e39] transition-colors flex items-center"
+            >
+              <span className="mr-3">{contextMenuDrawing.isLocked ? '🔓' : '🔒'}</span>
+              {contextMenuDrawing.isLocked ? 'Unlock' : 'Lock'}
+            </button>
+            
+            <div className="border-t border-[#2a2e39] my-1"></div>
+            
+            {/* Delete */}
+            <button
+              onClick={() => {
+                handleDeleteDrawing(contextMenuDrawing);
+                setShowContextMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-[#f23645] hover:bg-[#2a2e39] transition-colors flex items-center"
+            >
+              <span className="mr-3">🗑️</span>
+              Delete
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ✨ NEW: Drawing Toolbar Enhancement with Magnet Mode */}
+      {(activeTool || selectedDrawing) && (
+        <div className="fixed top-4 right-4 z-[9998] flex items-center space-x-2 bg-[#131722] border border-[#2a2e39] rounded-lg p-2">
+          {/* Magnet Mode Toggle */}
+          <button
+            onClick={() => setMagnetMode(!magnetMode)}
+            className={`px-3 py-1.5 text-xs rounded transition-colors ${
+              magnetMode 
+                ? 'bg-[#2962ff] text-white' 
+                : 'bg-[#1e222d] text-[#868993] hover:text-white'
+            }`}
+            title="Magnet Mode - Snap to OHLC values"
+          >
+            🧲 Magnet
+          </button>
+          
+          {/* Show Handles Toggle */}
+          <button
+            onClick={() => setShowDrawingHandles(!showDrawingHandles)}
+            className={`px-3 py-1.5 text-xs rounded transition-colors ${
+              showDrawingHandles 
+                ? 'bg-[#2962ff] text-white' 
+                : 'bg-[#1e222d] text-[#868993] hover:text-white'
+            }`}
+            title="Show/Hide Drawing Handles"
+          >
+            ⚙️ Handles
+          </button>
+          
+          {/* Clear All Drawings */}
+          <button
+            onClick={() => {
+              if (confirm('Delete all drawings?')) {
+                setDrawings([]);
+                setSelectedDrawing(null);
+                setSelectedDrawings([]);
+              }
+            }}
+            className="px-3 py-1.5 text-xs bg-[#f23645] text-white rounded hover:bg-[#cc2c3b] transition-colors"
+            title="Clear All Drawings"
+          >
+            🗑️ Clear
+          </button>
+        </div>
+      )}
     </>
   );
 }

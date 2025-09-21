@@ -56,11 +56,11 @@ function getMaxDataPointsForTimeframe(timeframe: string): number {
     case '4h':
       return 600;   // ~100 days of 4-hour data
     case '1d':
-      return 500;   // ~2 years of daily data
+      return 7124;  // ~19.5 years of daily data (19.5 * 365.25)
     case '1w':
-      return 300;   // ~6 years of weekly data
+      return 1000;  // ~19 years of weekly data
     case '1M':
-      return 200;   // ~16 years of monthly data
+      return 234;   // ~19.5 years of monthly data (19.5 * 12)
     default:
       return 1000;  // Default limit
   }

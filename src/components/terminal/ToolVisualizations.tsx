@@ -31,23 +31,23 @@ export function SeasonalityVisualization() {
   );
 }
 
-export function OptionsFlowVisualization() {
+export function DataFlowVisualization() {
   return (
     <div className="flow-3d-container">
       {/* Falling Text Animation */}
       <div className="falling-text-container">
         <div className="falling-text" style={{ left: '8%', animationDelay: '0s' }}>News</div>
-        <div className="falling-text" style={{ left: '23%', animationDelay: '2.5s' }}>Insiders</div>
-        <div className="falling-text" style={{ left: '42%', animationDelay: '4.8s' }}>Speculators</div>
-        <div className="falling-text" style={{ left: '67%', animationDelay: '1.2s' }}>Gamblers</div>
-        <div className="falling-text" style={{ left: '85%', animationDelay: '3.1s' }}>Leverage</div>
-        <div className="falling-text" style={{ left: '15%', animationDelay: '6.7s' }}>News</div>
-        <div className="falling-text" style={{ left: '58%', animationDelay: '8.3s' }}>Insiders</div>
-        <div className="falling-text" style={{ left: '32%', animationDelay: '10.1s' }}>Speculators</div>
-        <div className="falling-text" style={{ left: '78%', animationDelay: '5.5s' }}>Gamblers</div>
-        <div className="falling-text" style={{ left: '12%', animationDelay: '9.8s' }}>Leverage</div>
-        <div className="falling-text" style={{ left: '48%', animationDelay: '7.2s' }}>News</div>
-        <div className="falling-text" style={{ left: '72%', animationDelay: '11.4s' }}>Insiders</div>
+        <div className="falling-text" style={{ left: '23%', animationDelay: '2.5s' }}>Earnings</div>
+        <div className="falling-text" style={{ left: '42%', animationDelay: '4.8s' }}>Analysts</div>
+        <div className="falling-text" style={{ left: '67%', animationDelay: '1.2s' }}>Traders</div>
+        <div className="falling-text" style={{ left: '85%', animationDelay: '3.1s' }}>Volume</div>
+        <div className="falling-text" style={{ left: '15%', animationDelay: '6.7s' }}>Signals</div>
+        <div className="falling-text" style={{ left: '58%', animationDelay: '8.3s' }}>Momentum</div>
+        <div className="falling-text" style={{ left: '32%', animationDelay: '10.1s' }}>Trends</div>
+        <div className="falling-text" style={{ left: '78%', animationDelay: '5.5s' }}>Patterns</div>
+        <div className="falling-text" style={{ left: '12%', animationDelay: '9.8s' }}>Data</div>
+        <div className="falling-text" style={{ left: '48%', animationDelay: '7.2s' }}>Flows</div>
+        <div className="falling-text" style={{ left: '72%', animationDelay: '11.4s' }}>Alerts</div>
       </div>
 
       {/* PC Ratio Speedometer */}
@@ -113,11 +113,11 @@ export function OptionsFlowVisualization() {
       
       <div className="flow-metrics">
         <div className="metric-stream">
-          <div className="stream-data">CALL SWEEP</div>
+          <div className="stream-data">BUY FLOW</div>
           <div className="stream-value">$4.2M</div>
         </div>
         <div className="metric-stream">
-          <div className="stream-data">PUT BLOCK</div>
+          <div className="stream-data">SELL FLOW</div>
           <div className="stream-value">$2.8M</div>
         </div>
       </div>
@@ -284,7 +284,7 @@ export function ScreenerVisualization() {
 }
 
 export function NeuralAlertVisualization() {
-  const alerts = ['OPTIONS SURGE', 'BREAKOUT DETECTED', 'REGIME SHIFT'];
+  const alerts = ['VOLUME SURGE', 'BREAKOUT DETECTED', 'REGIME SHIFT'];
 
   return (
     <div className="neural-alert">

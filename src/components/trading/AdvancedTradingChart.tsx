@@ -124,7 +124,7 @@ const TIMEFRAME_CONFIGS = {
   '4h': { label: '4h', lookbackDays: 240 },    // 240 days for 4hour
   '6h': { label: '6h', lookbackDays: 360 },    // 360 days for 6hour
   '12h': { label: '12h', lookbackDays: 720 },  // 720 days for 12hour
-  '1d': { label: '1D', lookbackDays: 365 },    // 1 year for daily
+  '1d': { label: '1D', lookbackDays: 7124 },   // 19.5 years for daily (19.5 * 365.25)
   '3d': { label: '3D', lookbackDays: 1095 },   // 3 years for 3day
   '1W': { label: '1W', lookbackDays: 1825 },   // 5 years for weekly
   '1M': { label: '1M', lookbackDays: 3650 },   // 10 years for monthly
