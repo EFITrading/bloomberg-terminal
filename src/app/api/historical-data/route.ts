@@ -42,27 +42,28 @@ const cleanupCache = () => {
 
 // Smart data point limits based on timeframe to prioritize recent data
 function getMaxDataPointsForTimeframe(timeframe: string): number {
+  // OPTIMIZED for FAST LOADING - prioritize speed over historical depth
   switch (timeframe) {
     case '1m':
       return 500;   // ~8 hours of minute data
     case '5m':
-      return 2000;  // ~7 days of 5-minute data
+      return 1000;  // ~3.5 days of 5-minute data (reduced from 2000)
     case '15m':
-      return 1500;  // ~15 days of 15-minute data
+      return 800;   // ~8 days of 15-minute data (reduced from 1500)
     case '30m':
-      return 1000;  // ~20 days of 30-minute data
+      return 600;   // ~12 days of 30-minute data (reduced from 1000)
     case '1h':
-      return 800;   // ~33 days of hourly data
+      return 500;   // ~20 days of hourly data (reduced from 800)
     case '4h':
-      return 600;   // ~100 days of 4-hour data
+      return 400;   // ~66 days of 4-hour data (reduced from 600)
     case '1d':
-      return 7124;  // ~19.5 years of daily data (19.5 * 365.25)
+      return 2500;  // ~7 years of daily data (reduced from 7124 for MUCH faster loading)
     case '1w':
-      return 1000;  // ~19 years of weekly data
+      return 500;   // ~9.5 years of weekly data (reduced from 1000)
     case '1M':
-      return 234;   // ~19.5 years of monthly data (19.5 * 12)
+      return 120;   // ~10 years of monthly data (reduced from 234)
     default:
-      return 1000;  // Default limit
+      return 500;   // Default limit (reduced from 1000)
   }
 }
 
@@ -139,8 +140,8 @@ export async function GET(request: NextRequest) {
         'Cache-Control': 'no-cache',
         'User-Agent': 'Bloomberg-Terminal/1.0'
       },
-      // PROFESSIONAL TIMEOUT - Allow more time for large datasets
-      signal: AbortSignal.timeout(15000), // 15 second timeout for large data
+      // FASTER TIMEOUT for quick ticker switching - fail fast if slow
+      signal: AbortSignal.timeout(8000), // 8 second timeout (reduced from 15s)
     });
 
     if (!response.ok) {
