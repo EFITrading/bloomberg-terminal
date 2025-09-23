@@ -19,15 +19,6 @@ interface GEXChartProps {
   showNegativeGamma: boolean;
   setShowPositiveGamma: (show: boolean) => void;
   setShowNegativeGamma: (show: boolean) => void;
-  // Shared chart synchronization props
-  sharedCrosshairX?: number | null;
-  sharedCrosshairY?: number | null;
-  sharedStrike?: number | null;
-  sharedZoomTransform?: any;
-  isHoveringAnyChart?: boolean;
-  onCrosshairChange?: (x: number | null, y: number | null, strike: number | null) => void;
-  onZoomChange?: (transform: any) => void;
-  onHoverChange?: (isHovering: boolean) => void;
 }
 
 export default function GEXChart({ 
@@ -38,16 +29,7 @@ export default function GEXChart({
   showPositiveGamma,
   showNegativeGamma,
   setShowPositiveGamma,
-  setShowNegativeGamma,
-  // Shared chart synchronization props
-  sharedCrosshairX,
-  sharedCrosshairY,
-  sharedStrike,
-  sharedZoomTransform,
-  isHoveringAnyChart,
-  onCrosshairChange,
-  onZoomChange,
-  onHoverChange
+  setShowNegativeGamma
 }: GEXChartProps) {
   const [data, setData] = useState<GEXData[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -57,16 +39,6 @@ export default function GEXChart({
   const [showNetGamma, setShowNetGamma] = useState<boolean>(true); // Default to NET view
   const [showGEX, setShowGEX] = useState<boolean>(true); // Toggle between GEX and DEX
   const svgRef = useRef<SVGSVGElement>(null);
-
-  // Debug: Log when props change
-  useEffect(() => {
-    console.log('🎯 GEX Chart props received:', { 
-      sharedCrosshairX, 
-      sharedCrosshairY, 
-      isHoveringAnyChart,
-      hasOnCrosshairChange: !!onCrosshairChange 
-    });
-  }, [sharedCrosshairX, sharedCrosshairY, isHoveringAnyChart]);
 
   /**
    * Calculate real Gamma using Black-Scholes formula
@@ -111,15 +83,15 @@ export default function GEXChart({
     // FILTER OUT FAKE GAMMA VALUES
     const absGamma = Math.abs(polygonGamma);
     
-    // Realistic gamma bounds: SPY options typically have gamma between 0.001 and 0.05
-    // Any gamma above 0.1 is likely fake/corrupted data
-    if (absGamma > 0.1) {
+    // Realistic gamma bounds: SPY options actually have gamma between 0.00001 and 0.1
+    // Any gamma above 1.0 is likely fake/corrupted data
+    if (absGamma > 1.0) {
       console.warn(`� FILTERING FAKE GAMMA: ${absGamma} for ${contractType} (too high)`);
       return 0;
     }
     
-    // Also filter extremely low but non-zero values that might be noise
-    if (absGamma < 0.0001) {
+    // Filter only extremely low values that are likely zero/noise
+    if (absGamma < 0.000001) {
       return 0;
     }
     
@@ -757,17 +729,65 @@ export default function GEXChart({
         // We're hovering over this specific bar, so use its strike
         const hoveredStrike = d.strike;
         
-        // Notify parent of crosshair position
-        if (onCrosshairChange) {
-          onCrosshairChange(mouseX, mouseY, hoveredStrike);
-        }
-        if (onHoverChange) {
-          onHoverChange(true);
-        }
-        
-        // Note: No local crosshair - only shared crosshair will be displayed
-        // Remove any existing local crosshairs
+        // Add local crosshair for this chart only
         container.selectAll('.crosshair').remove();
+        container.selectAll('.strike-label').remove();
+        
+        // Add vertical crosshair line
+        container
+          .append('line')
+          .attr('class', 'crosshair')
+          .attr('x1', mouseX)
+          .attr('x2', mouseX)
+          .attr('y1', 0)
+          .attr('y2', height)
+          .style('stroke', '#ff9900')  // Orange color for GEX chart
+          .style('stroke-width', 1)
+          .style('stroke-dasharray', '3,3')
+          .style('pointer-events', 'none');
+        
+        // Add horizontal crosshair line
+        container
+          .append('line')
+          .attr('class', 'crosshair')
+          .attr('x1', 0)
+          .attr('x2', width)
+          .attr('y1', mouseY)
+          .attr('y2', mouseY)
+          .style('stroke', '#ff9900')
+          .style('stroke-width', 1)
+          .style('stroke-dasharray', '3,3')
+          .style('pointer-events', 'none');
+        
+        // Add strike price label with background
+        // First add background rectangle
+        container
+          .append('rect')
+          .attr('class', 'strike-label')
+          .attr('x', mouseX - 30) // Center the background around the crosshair
+          .attr('y', height + 5)
+          .attr('width', 60)
+          .attr('height', 28)
+          .style('fill', '#000000')
+          .style('stroke', '#ff9900')
+          .style('stroke-width', 2)
+          .style('rx', 4) // Rounded corners
+          .style('ry', 4)
+          .style('pointer-events', 'none');
+        
+        // Add text on top of background
+        container
+          .append('text')
+          .attr('class', 'strike-label')
+          .attr('x', mouseX)
+          .attr('y', height + 24) // Position text in center of background
+          .attr('text-anchor', 'middle')
+          .style('fill', '#ff9900')
+          .style('font-family', '"SF Mono", Consolas, monospace')
+          .style('font-size', '16px')
+          .style('font-weight', 'bold')
+          .style('pointer-events', 'none')
+          .text(`$${hoveredStrike}`);
       })
       .on('mouseout', function() {
         d3.select(this)
@@ -775,16 +795,9 @@ export default function GEXChart({
           .style('stroke-width', 1);
         d3.selectAll('.gex-tooltip').remove();
         
-        // Notify parent that hover ended
-        if (onCrosshairChange) {
-          onCrosshairChange(null, null, null);
-        }
-        if (onHoverChange) {
-          onHoverChange(false);
-        }
-        
-        // Remove crosshair on mouseout
+        // Remove local crosshair on mouseout
         container.selectAll('.crosshair').remove();
+        container.selectAll('.strike-label').remove();
       });
 
     // Add current price vertical line (same logic as OpenInterest chart)
@@ -1018,31 +1031,72 @@ export default function GEXChart({
           }
         });
         
-        // Update shared crosshair state via callback
-        if (onCrosshairChange) {
-          onCrosshairChange(mouseX, mouseY, hoveredStrike);
-        }
-        if (onHoverChange) {
-          onHoverChange(true);
-        }
-        
-        // Note: No local crosshair - only shared crosshair will be displayed
-        // Remove any existing local crosshairs
+        // Add local crosshair for zoom overlay mousemove
         container.selectAll('.crosshair').remove();
         container.selectAll('.strike-label').remove();
+        
+        // Add vertical crosshair line
+        container
+          .append('line')
+          .attr('class', 'crosshair')
+          .attr('x1', mouseX)
+          .attr('x2', mouseX)
+          .attr('y1', 0)
+          .attr('y2', height)
+          .style('stroke', '#ff9900')
+          .style('stroke-width', 1)
+          .style('stroke-dasharray', '3,3')
+          .style('pointer-events', 'none');
+        
+        // Add horizontal crosshair line
+        container
+          .append('line')
+          .attr('class', 'crosshair')
+          .attr('x1', 0)
+          .attr('x2', width)
+          .attr('y1', mouseY)
+          .attr('y2', mouseY)
+          .style('stroke', '#ff9900')
+          .style('stroke-width', 1)
+          .style('stroke-dasharray', '3,3')
+          .style('pointer-events', 'none');
+        
+        // Add strike price label if hovering over a specific strike
+        if (hoveredStrike) {
+          // Add background rectangle for the price label
+          container
+            .append('rect')
+            .attr('class', 'strike-label')
+            .attr('x', mouseX - 30) // Center the background around the crosshair
+            .attr('y', height + 5)
+            .attr('width', 60)
+            .attr('height', 28)
+            .style('fill', '#000000')
+            .style('stroke', '#ff9900')
+            .style('stroke-width', 2)
+            .style('rx', 4) // Rounded corners
+            .style('ry', 4)
+            .style('pointer-events', 'none');
+          
+          // Add text on top of background
+          container
+            .append('text')
+            .attr('class', 'strike-label')
+            .attr('x', mouseX)
+            .attr('y', height + 24) // Position text in center of background
+            .attr('text-anchor', 'middle')
+            .style('fill', '#ff9900')
+            .style('font-family', '"SF Mono", Consolas, monospace')
+            .style('font-size', '16px')
+            .style('font-weight', 'bold')
+            .style('pointer-events', 'none')
+            .text(`$${hoveredStrike}`);
+        }
       })
       .on('mouseleave', function() {
         console.log('🚪 Mouse left GEX Chart zoom overlay');
         
-        // Clear shared crosshair state via callback
-        if (onCrosshairChange) {
-          onCrosshairChange(null, null, null);
-        }
-        if (onHoverChange) {
-          onHoverChange(false);
-        }
-        
-        // Remove crosshair, labels and reset bar opacity
+        // Remove local crosshair and labels
         container.selectAll('.crosshair').remove();
         container.selectAll('.strike-label').remove();
       });
@@ -1056,108 +1110,6 @@ export default function GEXChart({
     }
 
   }, [data, showPositiveGamma, showNegativeGamma, showGEX]);
-
-  // Handle shared crosshair from Open Interest chart
-  useEffect(() => {
-    console.log('GEX Chart - Shared crosshair effect:', { sharedCrosshairX, sharedCrosshairY, hasRef: !!svgRef.current });
-    
-    if (!svgRef.current) {
-      console.log('GEX Chart - No SVG ref');
-      return;
-    }
-    
-    if (sharedCrosshairX === null || sharedCrosshairY === null || 
-        typeof sharedCrosshairX !== 'number' || typeof sharedCrosshairY !== 'number') {
-      console.log('GEX Chart - No valid shared coordinates');
-      return;
-    }
-
-    const svg = d3.select(svgRef.current);
-    const container = svg.select('g');
-    
-    if (container.empty()) {
-      console.log('GEX Chart - No container found');
-      return;
-    }
-
-    console.log('GEX Chart - Adding shared crosshair at mouse position:', sharedCrosshairX, sharedCrosshairY);
-
-    // Remove existing shared crosshair and reset bar opacity
-    container.selectAll('.shared-crosshair').remove();
-    container.selectAll('.shared-strike-label').remove();
-
-    const width = 1500 - 100 - 180; // total - left margin - right margin
-    const height = 600 - 60 - 80;   // total - top margin - bottom margin
-
-    // Use exact mouse coordinates for crosshair positioning
-    const crosshairX = sharedCrosshairX;
-    const crosshairY = sharedCrosshairY;
-
-    // Add shared vertical crosshair line at exact mouse position
-    container
-      .append('line')
-      .attr('class', 'shared-crosshair')
-      .attr('x1', crosshairX)
-      .attr('x2', crosshairX)
-      .attr('y1', 0)
-      .attr('y2', height)
-      .style('stroke', '#64B5F6')  // Nice blue color to match OpenInterest chart
-      .style('stroke-width', 2)
-      .style('stroke-dasharray', '4,4')
-      .style('opacity', 0.9);
-    
-    // Add horizontal crosshair line at exact mouse position
-    container
-      .append('line')
-      .attr('class', 'shared-crosshair')
-      .attr('x1', 0)
-      .attr('x2', width)
-      .attr('y1', crosshairY)
-      .attr('y2', crosshairY)
-      .style('stroke', '#64B5F6')
-      .style('stroke-width', 2)
-      .style('stroke-dasharray', '4,4')
-      .style('opacity', 0.9);
-    
-    // Add shared strike price label if we have the strike info
-    if (sharedStrike) {
-      // Add background rectangle first
-      container
-        .append('rect')
-        .attr('class', 'shared-strike-label')
-        .attr('x', crosshairX - 25) // Center the background around the crosshair
-        .attr('y', height + 10)
-        .attr('width', 50)
-        .attr('height', 25)
-        .style('fill', '#000')
-        .style('stroke', '#64B5F6')  // Match crosshair color
-        .style('stroke-width', 2)
-        .style('rx', 3); // Rounded corners
-      
-      // Add text on top of background
-      container
-        .append('text')
-        .attr('class', 'shared-strike-label')
-        .attr('x', crosshairX)
-        .attr('y', height + 28) // Position text in center of background
-        .style('fill', '#64B5F6')  // Match crosshair color
-        .style('font-size', '18px')
-        .style('font-weight', 'bold')
-        .style('text-anchor', 'middle')
-        .text(`$${sharedStrike}`);
-    }
-
-  }, [sharedCrosshairX, sharedCrosshairY, sharedStrike, data]);
-
-  // Clean up shared crosshair when not hovering
-  useEffect(() => {
-    if (!isHoveringAnyChart && svgRef.current) {
-      const svg = d3.select(svgRef.current);
-      const container = svg.select('g');
-      container.selectAll('.shared-crosshair').remove();
-      container.selectAll('.shared-strike-label').remove();
-    }
-  }, [isHoveringAnyChart]);
 
   return (
     <div style={{ marginTop: '32px' }}>

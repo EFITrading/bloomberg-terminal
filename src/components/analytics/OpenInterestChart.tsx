@@ -32,18 +32,6 @@ export default function OpenInterestChart({
   const [zoomTransform, setZoomTransform] = useState<any>(null);
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   
-  // Shared state for synchronized charts
-  const [sharedCrosshairX, setSharedCrosshairX] = useState<number | null>(null);
-  const [sharedCrosshairY, setSharedCrosshairY] = useState<number | null>(null);
-  const [sharedStrike, setSharedStrike] = useState<number | null>(null);
-  const [sharedZoomTransform, setSharedZoomTransform] = useState<any>(null);
-  const [isHoveringAnyChart, setIsHoveringAnyChart] = useState<boolean>(false);
-  
-  // Debug: Log when shared state changes
-  useEffect(() => {
-    console.log('🔄 Shared state changed:', { sharedCrosshairX, sharedCrosshairY, isHoveringAnyChart });
-  }, [sharedCrosshairX, sharedCrosshairY, isHoveringAnyChart]);
-  
   // Sync with prop changes and notify parent
   useEffect(() => {
     if (propTicker && propTicker !== selectedTicker) {
@@ -740,27 +728,72 @@ export default function OpenInterestChart({
           }
         });
         
-        // Update shared crosshair state
-        setSharedCrosshairX(mouseX);
-        setSharedCrosshairY(mouseY);
-        setSharedStrike(hoveredStrike);
-        setIsHoveringAnyChart(true);
-        
-        // Note: No local crosshair - only shared crosshair will be displayed
-        // Remove any existing local crosshairs
+        // Add local crosshair
         container.selectAll('.crosshair').remove();
         container.selectAll('.strike-label').remove();
+        
+        // Add vertical crosshair line
+        container
+          .append('line')
+          .attr('class', 'crosshair')
+          .attr('x1', mouseX)
+          .attr('x2', mouseX)
+          .attr('y1', 0)
+          .attr('y2', height)
+          .style('stroke', '#00bcd4')
+          .style('stroke-width', 1)
+          .style('stroke-dasharray', '3,3')
+          .style('pointer-events', 'none');
+        
+        // Add horizontal crosshair line
+        container
+          .append('line')
+          .attr('class', 'crosshair')
+          .attr('x1', 0)
+          .attr('x2', width)
+          .attr('y1', mouseY)
+          .attr('y2', mouseY)
+          .style('stroke', '#00bcd4')
+          .style('stroke-width', 1)
+          .style('stroke-dasharray', '3,3')
+          .style('pointer-events', 'none');
+        
+        // Add strike price label if hovering over a specific strike
+        if (hoveredStrike) {
+          // Add background rectangle for the price label
+          container
+            .append('rect')
+            .attr('class', 'strike-label')
+            .attr('x', mouseX - 30) // Center the background around the crosshair
+            .attr('y', height + 5)
+            .attr('width', 60)
+            .attr('height', 28)
+            .style('fill', '#000000')
+            .style('stroke', '#00bcd4')
+            .style('stroke-width', 2)
+            .style('rx', 4) // Rounded corners
+            .style('ry', 4)
+            .style('pointer-events', 'none');
+          
+          // Add text on top of background
+          container
+            .append('text')
+            .attr('class', 'strike-label')
+            .attr('x', mouseX)
+            .attr('y', height + 24) // Position text in center of background
+            .attr('text-anchor', 'middle')
+            .style('fill', '#00bcd4')
+            .style('font-family', '"SF Mono", Consolas, monospace')
+            .style('font-size', '16px')
+            .style('font-weight', 'bold')
+            .style('pointer-events', 'none')
+            .text(`$${hoveredStrike}`);
+        }
       })
       .on('mouseleave', function() {
         console.log('🚪 Mouse left zoom overlay');
         
-        // Clear shared crosshair state
-        setSharedCrosshairX(null);
-        setSharedCrosshairY(null);
-        setSharedStrike(null);
-        setIsHoveringAnyChart(false);
-        
-        // Remove crosshair, labels and reset bar opacity
+        // Remove crosshair and labels
         container.selectAll('.crosshair').remove();
         container.selectAll('.strike-label').remove();
       });
@@ -778,92 +811,6 @@ export default function OpenInterestChart({
     console.log('✅ Chart creation complete. Total bars created:', actualBarsCreated);
 
   }, [data, showCalls, showPuts, currentPrice]);
-
-  // Handle shared crosshair from GEX chart
-  useEffect(() => {
-    if (!svgRef.current || sharedCrosshairX === null || sharedCrosshairY === null) return;
-
-    const svg = d3.select(svgRef.current);
-    const margin = { top: 60, right: 180, bottom: 80, left: 80 };
-    const container = svg.select('g');
-    const width = 1500 - margin.left - margin.right;
-    const height = 750 - margin.top - margin.bottom;
-    
-    if (container.empty()) return;
-
-    // Remove existing shared crosshair
-    container.selectAll('.shared-crosshair').remove();
-    container.selectAll('.shared-strike-label').remove();
-
-    // Use the exact mouse coordinates for crosshair positioning
-    const crosshairX = sharedCrosshairX;
-    const crosshairY = sharedCrosshairY;
-
-    // Add shared vertical crosshair line at exact mouse position
-    container
-      .append('line')
-      .attr('class', 'shared-crosshair')
-      .attr('x1', crosshairX)
-      .attr('x2', crosshairX)
-      .attr('y1', 0)
-      .attr('y2', height)
-      .style('stroke', '#64B5F6')  // Nice blue color
-      .style('stroke-width', 2)
-      .style('stroke-dasharray', '4,4')
-      .style('opacity', 0.9);
-    
-    // Add horizontal crosshair line at exact mouse position
-    container
-      .append('line')
-      .attr('class', 'shared-crosshair')
-      .attr('x1', 0)
-      .attr('x2', width)
-      .attr('y1', crosshairY)
-      .attr('y2', crosshairY)
-      .style('stroke', '#64B5F6')
-      .style('stroke-width', 2)
-      .style('stroke-dasharray', '4,4')
-      .style('opacity', 0.9);
-    
-    // Add shared strike price label if we have the strike info
-    if (sharedStrike) {
-      // Add background rectangle first
-      container
-        .append('rect')
-        .attr('class', 'shared-strike-label')
-        .attr('x', crosshairX - 25) // Center the background around the crosshair
-        .attr('y', height + 10)
-        .attr('width', 50)
-        .attr('height', 25)
-        .style('fill', '#000')
-        .style('stroke', '#64B5F6')  // Match crosshair color
-        .style('stroke-width', 2)
-        .style('rx', 3); // Rounded corners
-      
-      // Add text on top of background
-      container
-        .append('text')
-        .attr('class', 'shared-strike-label')
-        .attr('x', crosshairX)
-        .attr('y', height + 28) // Position text in center of background
-        .style('fill', '#64B5F6')  // Match crosshair color
-        .style('font-size', '18px')
-        .style('font-weight', 'bold')
-        .style('text-anchor', 'middle')
-        .text(`$${sharedStrike}`);
-    }
-
-  }, [sharedCrosshairX, sharedCrosshairY, sharedStrike, data]);
-
-  // Clean up shared crosshair when not hovering
-  useEffect(() => {
-    if (!isHoveringAnyChart && svgRef.current) {
-      const svg = d3.select(svgRef.current);
-      const container = svg.select('g');
-      container.selectAll('.shared-crosshair').remove();
-      container.selectAll('.shared-strike-label').remove();
-    }
-  }, [isHoveringAnyChart]);
 
   return (
     <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace' }}>
@@ -1385,19 +1332,6 @@ export default function OpenInterestChart({
         showNegativeGamma={showNegativeGamma}
         setShowPositiveGamma={setShowPositiveGamma}
         setShowNegativeGamma={setShowNegativeGamma}
-        // Shared chart synchronization props
-        sharedCrosshairX={sharedCrosshairX}
-        sharedCrosshairY={sharedCrosshairY}
-        sharedStrike={sharedStrike}
-        sharedZoomTransform={sharedZoomTransform}
-        isHoveringAnyChart={isHoveringAnyChart}
-        onCrosshairChange={(x: number | null, y: number | null, strike: number | null) => {
-          setSharedCrosshairX(x);
-          setSharedCrosshairY(y);
-          setSharedStrike(strike);
-        }}
-        onZoomChange={setSharedZoomTransform}
-        onHoverChange={setIsHoveringAnyChart}
       />
     </div>
   );
