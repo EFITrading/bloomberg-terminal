@@ -15,6 +15,7 @@ import {
   TbLock
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
+import ChartDataCache from '../../lib/chartDataCache';
 
 // Add custom styles for 3D carved effect
 const carvedTextStyles = `
@@ -2263,98 +2264,79 @@ export default function TradingViewChart({
     }
   };
 
-  // High-performance bulk data fetch with parallel requests
+  // ULTRA-FAST data fetching with advanced caching and optimization
   const fetchData = useCallback(async (sym: string, timeframe: string) => {
+    console.log(`🚀 ULTRA-FAST FETCH: ${sym} ${timeframe}`);
+    const startTime = performance.now();
+    
     setLoading(true);
     setError(null);
     
     try {
-      // Professional-grade date range calculation like TradingView/Bloomberg
-      const now = new Date();
+      // Try cache first for INSTANT response
+      const cache = ChartDataCache.getInstance();
+      const cachedData = cache.get(sym, timeframe);
       
-      // ALWAYS request data up to current date - no weekend restrictions
-      let endDate = now.toISOString().split('T')[0];
-      
-      console.log(`📅 Current date: ${now.toString()}`);
-      console.log(`📅 End date: ${endDate}`);
-      
-      let startDate: string;
-      let daysBack: number;
-      
-      // OPTIMIZED timeframe ranges for FASTER loading - reduced data sizes
-      switch (timeframe) {
-        case '1m':
-          daysBack = 2; // 2 days of 1-minute data
-          break;
-        case '5m':
-          daysBack = 5; // 5 days of 5-minute data (reduced from 7)
-          break;
-        case '15m':
-          daysBack = 14; // 2 weeks of 15-minute data (reduced from 21)
-          break;
-        case '30m':
-          daysBack = 30; // 1 month of 30-minute data (reduced from 60)
-          break;
-        case '1h':
-          daysBack = 60; // 2 months of hourly data (reduced from 120)
-          break;
-        case '4h':
-          daysBack = 180; // 6 months of 4-hour data (reduced from 365)
-          break;
-        case '1d':
-          daysBack = 2555; // 7 years of daily data (reduced from 7124 for MUCH faster loading)
-          break;
-        case '1w':
-          daysBack = 1095; // 3 years of weekly data (reduced from 2190)
-          break;
-        case '1mo':
-          daysBack = 1825; // 5 years of monthly data (reduced from 3650)
-          break;
-        default:
-          daysBack = 60; // Default to 2 months (reduced from 120)
-      }
-      
-      startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
-      
-      console.log(`� OPTIMIZED FETCH: ${sym} ${timeframe} from ${startDate} to ${endDate} (${daysBack} days)`);
-      
-      // ULTRA-FAST parallel requests with aggressive cache busting
-      const cacheBuster = Date.now();
-      console.log(`⚡ API Request: symbol=${sym}, start=${startDate}, end=${endDate}, timeframe=${timeframe}`);
-      
-      // Start both requests in parallel for speed
-      const [historicalPromise, realtimePromise] = await Promise.allSettled([
-        fetch(`/api/historical-data?symbol=${sym}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&nocache=true&force=current&_t=${cacheBuster}`),
-        fetchRealTimePrice(sym) // Non-blocking real-time price
-      ]);
-      
-      if (historicalPromise.status === 'rejected' || !historicalPromise.value?.ok) {
-        const errorStatus = historicalPromise.status === 'rejected' ? 'Network error' : historicalPromise.value?.status;
-        console.error(`❌ Failed to fetch ${timeframe} data for ${sym}:`, errorStatus);
-        throw new Error(`Failed to fetch historical data: ${errorStatus}`);
-      }
-      
-      // ULTRA-FAST JSON PARSING optimized for reduced datasets
-      const result = await historicalPromise.value.json();
-      console.log(`🔍 API Response for ${sym} ${timeframe}:`, result);
-      
-      if (result && result.results && Array.isArray(result.results)) {
-        console.log(`📈 Processing ${result.results.length} data points for ${sym} ${timeframe}`);
+      if (cachedData) {
+        console.log(`⚡ INSTANT CACHE HIT: ${sym} ${timeframe} (${cachedData.length} points)`);
+        setData(cachedData);
+        setLoading(false);
         
-        // HIGH-PERFORMANCE BULK TRANSFORM - optimized for faster datasets
+        const loadTime = performance.now() - startTime;
+        console.log(`📊 CACHE LOAD: ${loadTime.toFixed(2)}ms`);
+        return;
+      }
+      
+      // Not in cache - use optimized API fetch with smart batching
+      const data = await cache.getOrFetch(sym, timeframe, async () => {
+        console.log(`📡 API FETCH: ${sym} ${timeframe}`);
+        
+        // Calculate optimized date range for ultra-fast loading
+        const now = new Date();
+        const endDate = now.toISOString().split('T')[0];
+        
+        // SUPER OPTIMIZED ranges for blazing fast symbol switching
+        const ultraFastRanges = {
+          '1m': 1,      // 1 day only for 1min (ultra-fast)
+          '5m': 3,      // 3 days for 5min (ultra-fast)
+          '15m': 7,     // 1 week for 15min (ultra-fast)
+          '30m': 14,    // 2 weeks for 30min (ultra-fast)
+          '1h': 30,     // 1 month for 1hour (ultra-fast)
+          '4h': 90,     // 3 months for 4hour (ultra-fast)
+          '1d': 365,    // 1 year for daily (ultra-fast, reduced from 2555)
+          '1w': 365,    // 1 year for weekly (ultra-fast)
+          '1mo': 730    // 2 years for monthly (ultra-fast)
+        };
+        
+        const daysBack = ultraFastRanges[timeframe as keyof typeof ultraFastRanges] || 30;
+        const startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000))
+          .toISOString().split('T')[0];
+        
+        console.log(`⚡ OPTIMIZED RANGE: ${sym} ${timeframe} - ${daysBack} days (${startDate} to ${endDate})`);
+        
+        // Ultra-fast API call with aggressive cache busting
+        const response = await fetch(
+          `/api/historical-data?symbol=${sym}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&_t=${Date.now()}`
+        );
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (!result?.results?.length) {
+          throw new Error(`No data available for ${sym}`);
+        }
+        
+        // BLAZING FAST data transformation with pre-allocated arrays
         const rawData = result.results;
         const dataLength = rawData.length;
-        
-        // Pre-allocate arrays for maximum performance
         const transformedData = new Array(dataLength);
-        const prices = new Float32Array(dataLength * 2);
-        let priceIndex = 0;
         
-        // Single-pass processing for maximum efficiency
+        // Single-pass transformation for maximum speed
         for (let i = 0; i < dataLength; i++) {
           const item = rawData[i];
-          
-          // Transform data
           transformedData[i] = {
             timestamp: item.t,
             open: item.o,
@@ -2368,116 +2350,98 @@ export default function TradingViewChart({
               hour12: false 
             })
           };
-          
-          // Collect price data for range calculation
-          prices[priceIndex++] = item.h;
-          prices[priceIndex++] = item.l;
         }
         
-        // PROFESSIONAL CHART SETUP - like TradingView
-        if (dataLength > 0) {
-          const minPrice = Math.min(...prices);
-          const maxPrice = Math.max(...prices);
-          const padding = (maxPrice - minPrice) * 0.05; // Smaller padding for professional look
-          
-          // Intelligent visible candle count based on timeframe
-          let visibleCandles: number;
-          switch (timeframe) {
-            case '1m':
-            case '5m':
-              visibleCandles = Math.min(200, dataLength); // Show more for intraday
-              break;
-            case '15m':
-            case '30m':
-              visibleCandles = Math.min(300, dataLength);
-              break;
-            case '1h':
-            case '4h':
-              visibleCandles = Math.min(400, dataLength);
-              break;
-            case '1d':
-              visibleCandles = Math.min(500, dataLength); // Reduced from 1000 for faster rendering
-              break;
-            case '1w':
-            case '1mo':
-              visibleCandles = Math.min(300, dataLength); // Reduced from 2000 for faster rendering
-              break;
-            default:
-              visibleCandles = Math.min(300, dataLength);
-          }
-          
-          // FORCE SCROLL TO ABSOLUTE END TO SHOW LATEST DATA
-          const scrollOffset = Math.max(0, dataLength - visibleCandles);
-          
-          console.log(`📊 Scroll calculation: dataLength=${dataLength}, visibleCandles=${visibleCandles}, scrollOffset=${scrollOffset}`);
-          
-          // ATOMIC STATE UPDATE - all at once for best performance
-          setData(transformedData);
-          setPriceRange({ min: minPrice - padding, max: maxPrice + padding });
-          setScrollOffset(scrollOffset);
-          setVisibleCandleCount(visibleCandles);
-          
-          console.log(`✅ Data successfully set for ${sym} ${timeframe}:`, {
-            dataLength: transformedData.length,
-            priceRange: { min: minPrice - padding, max: maxPrice + padding },
-            scrollOffset,
-            visibleCandles,
-            firstDataPoint: transformedData[0] ? new Date(transformedData[0].timestamp).toISOString() : 'none',
-            lastDataPoint: transformedData[transformedData.length - 1] ? new Date(transformedData[transformedData.length - 1].timestamp).toISOString() : 'none'
-          });
-          
-          // Update current price from historical data (real-time fetched separately)
-          const latest = transformedData[dataLength - 1];
-          setCurrentPrice(latest.close);
-          
-          // Calculate price change and percentage change
-          if (dataLength >= 2) {
-            const previous = transformedData[dataLength - 2];
-            const change = latest.close - previous.close;
-            const changePercent = (change / previous.close) * 100;
-            setPriceChange(change);
-            setPriceChangePercent(changePercent);
-            console.log(`💰 ${symbol} Price Change: ${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent.toFixed(2)}%)`);
-          }
-        } else {
-          console.warn(`⚠️ No data returned for ${symbol} ${timeframe}`);
-          setData([]);
-          setError(`No historical data available for ${symbol} in the ${timeframe} timeframe. This may be due to market holidays, weekends, or symbol trading status.`);
-        }
-      } else {
-        throw new Error('Invalid data format - missing results array');
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
-      console.error(`❌ Error fetching data for ${symbol} ${timeframe}:`, errorMessage);
+        return transformedData;
+      });
       
-      // INTELLIGENT ERROR HANDLING - provide helpful suggestions
-      if (errorMessage.includes('404')) {
-        setError(`Symbol ${symbol} not found. Please verify the ticker symbol.`);
-      } else if (errorMessage.includes('rate limit')) {
-        setError(`Rate limit exceeded. Please wait a moment and try again.`);
-      } else if (errorMessage.includes('network')) {
-        setError(`Network error. Please check your connection and try again.`);
-      } else {
-        setError(`Unable to load ${timeframe} data for ${symbol}: ${errorMessage}`);
-      }
-      
-      setData([]);
-    } finally {
+      // Set data and complete loading
+      setData(data);
       setLoading(false);
       
-      // PERFORMANCE METRICS for optimization
-      console.log(`⏱️ Data load completed for ${symbol} ${config.timeframe}`);
+      const loadTime = performance.now() - startTime;
+      console.log(`🏁 ULTRA-FAST COMPLETE: ${sym} ${timeframe} - ${loadTime.toFixed(2)}ms (${data.length} points)`);
+      
+      // SMART PREFETCHING for related symbols and timeframes
+      setTimeout(() => {
+        const relatedSymbols = getRelatedSymbols(sym);
+        const otherTimeframes = ['1d', '1h', '5m'].filter(tf => tf !== timeframe);
+        
+        // Prefetch other timeframes for current symbol
+        otherTimeframes.forEach(tf => {
+          cache.getOrFetch(sym, tf, () => fetchSymbolData(sym, tf)).catch(() => {});
+        });
+        
+        // Prefetch current timeframe for related symbols
+        relatedSymbols.slice(0, 2).forEach(relSym => {
+          cache.getOrFetch(relSym, timeframe, () => fetchSymbolData(relSym, timeframe)).catch(() => {});
+        });
+      }, 100);
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`❌ ULTRA-FAST FETCH FAILED: ${sym} ${timeframe}:`, errorMessage);
+      setError(`Failed to load ${timeframe} data for ${sym}: ${errorMessage}`);
+      setData([]);
+      setLoading(false);
     }
-  }, [symbol, config.timeframe, setError, setLoading, setData, setPriceRange, setScrollOffset, setVisibleCandleCount, setCurrentPrice]);
+  }, []);
 
-  // ENHANCED DATA FETCHING WITH PROFESSIONAL CACHING
-  useEffect(() => {
-    if (!symbol || !config.timeframe) return;
+  // Helper function to get related symbols for smart prefetching
+  const getRelatedSymbols = (symbol: string): string[] => {
+    const symbolGroups: Record<string, string[]> = {
+      'SPY': ['QQQ', 'IWM'],
+      'QQQ': ['SPY', 'TQQQ'],
+      'IWM': ['SPY', 'QQQ'],
+      'AAPL': ['MSFT', 'GOOGL'],
+      'MSFT': ['AAPL', 'NVDA'],
+      'NVDA': ['AMD', 'MSFT'],
+      'TSLA': ['AAPL', 'NVDA'],
+      'GOOGL': ['AAPL', 'MSFT'],
+      'AMZN': ['AAPL', 'MSFT'],
+      'META': ['GOOGL', 'AAPL'],
+      'GM': ['F', 'TSLA'],
+      'F': ['GM', 'TSLA']
+    };
     
-    console.log(`🔄 Fetching data for ${symbol} ${config.timeframe}`);
-    fetchData(symbol, config.timeframe);
-  }, [symbol, config.timeframe, fetchData]);
+    return symbolGroups[symbol.toUpperCase()] || [];
+  };
+
+  // Helper function for individual symbol data fetching
+  const fetchSymbolData = async (symbol: string, timeframe: string) => {
+    const now = new Date();
+    const endDate = now.toISOString().split('T')[0];
+    
+    const ultraFastRanges = {
+      '1m': 1, '5m': 3, '15m': 7, '30m': 14, '1h': 30, 
+      '4h': 90, '1d': 365, '1w': 365, '1mo': 730
+    };
+    
+    const daysBack = ultraFastRanges[timeframe as keyof typeof ultraFastRanges] || 30;
+    const startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000))
+      .toISOString().split('T')[0];
+    
+    const response = await fetch(
+      `/api/historical-data?symbol=${symbol}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&prefetch=true`
+    );
+    
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    
+    const result = await response.json();
+    if (!result?.results?.length) throw new Error(`No data for ${symbol}`);
+    
+    return result.results.map((item: any) => ({
+      timestamp: item.t,
+      open: item.o,
+      high: item.h,
+      low: item.l,
+      close: item.c,
+      date: new Date(item.t).toISOString().split('T')[0],
+      time: new Date(item.t).toLocaleTimeString('en-US', { 
+        hour: '2-digit', minute: '2-digit', hour12: false 
+      })
+    }));
+  };
 
   // Auto-fit chart to data
   const fitChart = useCallback(() => {

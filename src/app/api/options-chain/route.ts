@@ -25,11 +25,33 @@ export async function GET(request: NextRequest) {
     if (specificExpiration) {
       console.log(`📅 Fetching data for specific expiration: ${specificExpiration}`);
       
-      const snapUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?expiration_date=${specificExpiration}&limit=250&apikey=${apiKey}`;
-      const snapRes = await fetch(snapUrl);
-      const snapData = await snapRes.json();
+      // Use a higher limit and make multiple requests if needed
+      let allContracts: any[] = [];
+      let nextUrl: string | null = `https://api.polygon.io/v3/snapshot/options/${ticker}?expiration_date=${specificExpiration}&limit=250&apikey=${apiKey}`;
+      
+      while (nextUrl && allContracts.length < 5000) { // Safety limit
+        console.log(`🔄 Fetching: ${nextUrl}`);
+        const response: Response = await fetch(nextUrl);
+        const data: any = await response.json();
+        
+        if (data.status !== 'OK') {
+          console.error(`❌ API Error: ${data.status} - ${data.error}`);
+          break;
+        }
+        
+        if (data.results && data.results.length > 0) {
+          allContracts.push(...data.results);
+          console.log(`📈 Got ${data.results.length} contracts, total: ${allContracts.length}`);
+        }
+        
+        // Check for pagination
+        nextUrl = data.next_url || null;
+        if (nextUrl && !nextUrl.includes(apiKey)) {
+          nextUrl += `&apikey=${apiKey}`;
+        }
+      }
 
-      if (snapData.status !== 'OK' || !snapData.results || snapData.results.length === 0) {
+      if (allContracts.length === 0) {
         return NextResponse.json({
           success: false,
           error: `No options data found for ${ticker} expiration ${specificExpiration}`,
@@ -38,11 +60,11 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // Process contracts for this specific expiration
+      // Process all contracts
       const calls: Record<string, any> = {};
       const puts: Record<string, any> = {};
 
-      snapData.results.forEach((contract: any) => {
+      allContracts.forEach((contract: any) => {
         const strike = contract.details?.strike_price?.toString();
         const contractType = contract.details?.contract_type?.toLowerCase();
         
@@ -77,9 +99,10 @@ export async function GET(request: NextRequest) {
         },
         currentPrice,
         debug: {
-          totalContracts: snapData.results.length,
+          totalContracts: allContracts.length,
           callStrikes: Object.keys(calls).length,
-          putStrikes: Object.keys(puts).length
+          putStrikes: Object.keys(puts).length,
+          requests: 'paginated'
         }
       });
     }

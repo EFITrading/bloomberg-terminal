@@ -1,0 +1,1527 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+
+export default function OptionsFlowPage() {
+  const [flowData, setFlowData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const fetchFlowData = async () => {
+    try {
+      setError('');
+      const response = await fetch('/api/options-flow?minPremium=50000&symbols=SPY,QQQ,AAPL');
+      const result = await response.json();
+
+      if (result.success) {
+        setFlowData(result.data);
+      } else {
+        setError(result.error || 'Failed to fetch data');
+      }
+    } catch (err) {
+      setError('Network error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFlowData();
+  }, []);
+
+  return (
+    <div className="p-6 bg-black text-white min-h-screen">
+      <div className="border-b border-green-500 pb-4 mb-6">
+        <h1 className="text-3xl font-bold text-green-400">🚀 OPTIONS FLOW SCANNER</h1>
+        <p className="text-gray-300 mt-2">Real-time institutional options activity powered by Polygon</p>
+      </div>
+
+      <div className="bg-gray-900 border border-gray-700 rounded">
+        <div className="p-4 border-b border-gray-700">
+          <h2 className="text-xl font-bold text-green-400">📊 Live Options Flow</h2>
+          <button 
+            onClick={fetchFlowData} 
+            disabled={loading}
+            className="mt-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white disabled:opacity-50"
+          >
+            {loading ? '⟳ Loading...' : '🔄 Refresh'}
+          </button>
+        </div>
+        
+        <div className="p-4">
+          {error && (
+            <div className="bg-red-900 border border-red-700 p-4 rounded mb-4">
+              <div className="text-red-300">⚠️ {error}</div>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="text-green-400 text-xl">⟳ Loading real options flow data...</div>
+            </div>
+          ) : flowData.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-gray-400">No options flow found</div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left p-2 text-gray-300">Symbol</th>
+                    <th className="text-left p-2 text-gray-300">Strike</th>
+                    <th className="text-left p-2 text-gray-300">Type</th>
+                    <th className="text-right p-2 text-gray-300">Volume</th>
+                    <th className="text-right p-2 text-gray-300">Premium</th>
+                    <th className="text-center p-2 text-gray-300">Flow</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flowData.map((contract, index) => (
+                    <tr key={index} className="border-b border-gray-800 hover:bg-gray-800">
+                      <td className="p-2 font-bold text-white">{contract.underlying_ticker}</td>
+                      <td className="p-2 text-gray-300">${contract.strike}</td>
+                      <td className="p-2">
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          contract.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                        }`}>
+                          {contract.type?.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="p-2 text-right text-white font-mono">
+                        {contract.volume?.toLocaleString()}
+                        {contract.unusual_activity && <span className="text-yellow-400 ml-1">🔥</span>}
+                      </td>
+                      <td className="p-2 text-right text-green-400 font-bold">
+                        {contract.premium ? `$${(contract.premium / 1000).toFixed(0)}K` : '-'}
+                      </td>
+                      <td className="p-2 text-center">
+                        <div className="flex gap-1 justify-center">
+                          {contract.sweep_detected && (
+                            <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">SWEEP</span>
+                          )}
+                          <span className={`px-2 py-1 text-xs rounded ${
+                            contract.flow_type === 'bullish' ? 'bg-green-700 text-white' : 
+                            contract.flow_type === 'bearish' ? 'bg-red-700 text-white' : 
+                            'bg-gray-700 text-white'
+                          }`}>
+                            {contract.flow_type?.toUpperCase()}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+  volume_oi_ratio?: number;
+
+  return (
+
+    <div className="p-6 bg-black text-white min-h-screen">  flow_type?: 'bullish' | 'bearish' | 'neutral';  underlying_ticker: string;import { Button } from '@/components/ui/button';import { Button } from '@/components/ui/button';
+
+      <div className="border-b border-green-500 pb-4 mb-6">
+
+        <h1 className="text-3xl font-bold text-green-400">🚀 OPTIONS FLOW SCANNER</h1>  unusual_activity?: boolean;
+
+        <p className="text-gray-300 mt-2">Real-time institutional options activity powered by Polygon</p>
+
+      </div>  sweep_detected?: boolean;  strike: number;
+
+
+
+      <div className="bg-gray-900 border border-gray-700 rounded">}
+
+        <div className="p-4 border-b border-gray-700">
+
+          <h2 className="text-xl font-bold text-green-400">📊 Live Options Flow</h2>  expiry: string;import { Badge } from '@/components/ui/badge';
+
+          <button 
+
+            onClick={fetchFlowData} interface FlowSummary {
+
+            disabled={loading}
+
+            className="mt-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white disabled:opacity-50"  total_contracts: number;  type: 'call' | 'put';
+
+          >
+
+            {loading ? '⟳ Loading...' : '🔄 Refresh'}  total_premium: number;
+
+          </button>
+
+        </div>  bullish_flow: number;  volume?: number;interface OptionsContract {
+
+        
+
+        <div className="p-4">  bearish_flow: number;
+
+          {error && (
+
+            <div className="bg-red-900 border border-red-700 p-4 rounded mb-4">  unusual_activity: number;  premium?: number;
+
+              <div className="text-red-300">⚠️ {error}</div>
+
+            </div>  sweeps_detected: number;
+
+          )}
+
+}  vwap?: number;  ticker: string;interface OptionsContract {
+
+          {loading ? (
+
+            <div className="text-center py-8">
+
+              <div className="text-green-400 text-xl">⟳ Loading real options flow data...</div>
+
+            </div>export default function OptionsFlowPage() {  iv?: number;
+
+          ) : flowData.length === 0 ? (
+
+            <div className="text-center py-8">  const [flowData, setFlowData] = useState<OptionsContract[]>([]);
+
+              <div className="text-gray-400">No options flow found</div>
+
+            </div>  const [summary, setSummary] = useState<FlowSummary | null>(null);  oi?: number;  underlying_ticker: string;  ticker: string;
+
+          ) : (
+
+            <div className="overflow-x-auto">  const [loading, setLoading] = useState(true);
+
+              <table className="w-full text-sm">
+
+                <thead>  const [error, setError] = useState<string>('');  volume_oi_ratio?: number;
+
+                  <tr className="border-b border-gray-700">
+
+                    <th className="text-left p-2 text-gray-300">Symbol</th>
+
+                    <th className="text-left p-2 text-gray-300">Strike</th>
+
+                    <th className="text-left p-2 text-gray-300">Type</th>  const fetchFlowData = async () => {  last_trade?: {  strike: number;  underlying_ticker: string;
+
+                    <th className="text-right p-2 text-gray-300">Volume</th>
+
+                    <th className="text-right p-2 text-gray-300">Premium</th>    try {
+
+                    <th className="text-center p-2 text-gray-300">Flow</th>
+
+                  </tr>      setError('');    price: number;
+
+                </thead>
+
+                <tbody>      const response = await fetch('/api/options-flow?minPremium=50000&symbols=SPY,QQQ,AAPL');
+
+                  {flowData.map((contract, index) => (
+
+                    <tr key={index} className="border-b border-gray-800 hover:bg-gray-800">      const result = await response.json();    size: number;  expiry: string;  strike: number;
+
+                      <td className="p-2 font-bold text-white">{contract.underlying_ticker}</td>
+
+                      <td className="p-2 text-gray-300">${contract.strike}</td>
+
+                      <td className="p-2">
+
+                        <span className={`px-2 py-1 rounded text-xs ${      if (result.success) {    exchange: number;
+
+                          contract.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+
+                        }`}>        setFlowData(result.data);
+
+                          {contract.type?.toUpperCase()}
+
+                        </span>        setSummary(result.summary);  };  type: 'call' | 'put';  expiry: string;
+
+                      </td>
+
+                      <td className="p-2 text-right text-white font-mono">      } else {
+
+                        {contract.volume?.toLocaleString()}
+
+                        {contract.unusual_activity && <span className="text-yellow-400 ml-1">🔥</span>}        setError(result.error || 'Failed to fetch data');  last_quote?: {
+
+                      </td>
+
+                      <td className="p-2 text-right text-green-400 font-bold">      }
+
+                        {contract.premium ? `$${(contract.premium / 1000).toFixed(0)}K` : '-'}
+
+                      </td>    } catch (err) {    bid: number;  volume?: number;  type: 'call' | 'put';
+
+                      <td className="p-2 text-center">
+
+                        <div className="flex gap-1 justify-center">      setError('Network error occurred');
+
+                          {contract.sweep_detected && (
+
+                            <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">SWEEP</span>    } finally {    ask: number;
+
+                          )}
+
+                          <span className={`px-2 py-1 text-xs rounded ${      setLoading(false);
+
+                            contract.flow_type === 'bullish' ? 'bg-green-700 text-white' : 
+
+                            contract.flow_type === 'bearish' ? 'bg-red-700 text-white' :     }    bid_size: number;  premium?: number;  volume?: number;
+
+                            'bg-gray-700 text-white'
+
+                          }`}>  };
+
+                            {contract.flow_type?.toUpperCase()}
+
+                          </span>    ask_size: number;
+
+                        </div>
+
+                      </td>  useEffect(() => {
+
+                    </tr>
+
+                  ))}    fetchFlowData();  };  vwap?: number;  premium?: number;
+
+                </tbody>
+
+              </table>  }, []);
+
+            </div>
+
+          )}  flow_type?: 'bullish' | 'bearish' | 'neutral';
+
+        </div>
+
+      </div>  const formatPremium = (premium: number) => {
+
+    </div>
+
+  );    if (premium >= 1000000) {  unusual_activity?: boolean;  iv?: number;  vwap?: number;
+
+}
+      return `$${(premium / 1000000).toFixed(1)}M`;
+
+    }  sweep_detected?: boolean;
+
+    return `$${(premium / 1000).toFixed(0)}K`;
+
+  };}  oi?: number;  iv?: number;
+
+
+
+  return (
+
+    <div className="p-6 bg-black text-white min-h-screen">
+
+      <div className="border-b border-green-500 pb-4 mb-6">interface FlowSummary {  volume_oi_ratio?: number;  oi?: number;
+
+        <h1 className="text-3xl font-bold text-green-400">🚀 OPTIONS FLOW SCANNER</h1>
+
+        <p className="text-gray-300 mt-2">Real-time institutional options activity powered by Polygon</p>  total_contracts: number;
+
+      </div>
+
+  total_premium: number;  last_trade?: {  volume_oi_ratio?: number;
+
+      {/* Summary */}
+
+      {summary && (  bullish_flow: number;
+
+        <div className="grid grid-cols-6 gap-4 mb-6">
+
+          <div className="bg-gray-900 p-4 rounded border border-gray-700">  bearish_flow: number;    price: number;  last_trade?: {
+
+            <div className="text-2xl font-bold text-green-400">{summary.total_contracts}</div>
+
+            <div className="text-sm text-gray-400">Total Flows</div>  unusual_activity: number;
+
+          </div>
+
+          <div className="bg-gray-900 p-4 rounded border border-gray-700">  sweeps_detected: number;    size: number;    price: number;
+
+            <div className="text-2xl font-bold text-green-400">{formatPremium(summary.total_premium)}</div>
+
+            <div className="text-sm text-gray-400">Total Premium</div>}
+
+          </div>
+
+          <div className="bg-gray-900 p-4 rounded border border-gray-700">    exchange: number;    size: number;
+
+            <div className="text-2xl font-bold text-green-500">{summary.bullish_flow}</div>
+
+            <div className="text-sm text-gray-400">Bullish</div>const Badge = ({ children, className }: { children: React.ReactNode; className?: string }) => (
+
+          </div>
+
+          <div className="bg-gray-900 p-4 rounded border border-gray-700">  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${className}`}>  };    exchange: number;
+
+            <div className="text-2xl font-bold text-red-500">{summary.bearish_flow}</div>
+
+            <div className="text-sm text-gray-400">Bearish</div>    {children}
+
+          </div>
+
+          <div className="bg-gray-900 p-4 rounded border border-gray-700">  </span>  last_quote?: {  };
+
+            <div className="text-2xl font-bold text-yellow-500">{summary.unusual_activity}</div>
+
+            <div className="text-sm text-gray-400">Unusual</div>);
+
+          </div>
+
+          <div className="bg-gray-900 p-4 rounded border border-gray-700">    bid: number;  last_quote?: {
+
+            <div className="text-2xl font-bold text-purple-500">{summary.sweeps_detected}</div>
+
+            <div className="text-sm text-gray-400">Sweeps</div>export default function OptionsFlowPage() {
+
+          </div>
+
+        </div>  const [flowData, setFlowData] = useState<OptionsContract[]>([]);    ask: number;    bid: number;
+
+      )}
+
+  const [summary, setSummary] = useState<FlowSummary | null>(null);
+
+      {/* Error Display */}
+
+      {error && (  const [loading, setLoading] = useState(true);    bid_size: number;    ask: number;
+
+        <div className="bg-red-900 border border-red-700 p-4 rounded mb-6">
+
+          <div className="text-red-300">⚠️ {error}</div>  const [lastUpdate, setLastUpdate] = useState<string>('');
+
+        </div>
+
+      )}  const [error, setError] = useState<string>('');    ask_size: number;    bid_size: number;
+
+
+
+      {/* Flow Data */}  
+
+      <div className="bg-gray-900 border border-gray-700 rounded">
+
+        <div className="p-4 border-b border-gray-700">  // Filters  };    ask_size: number;
+
+          <h2 className="text-xl font-bold text-green-400">📊 Live Options Flow</h2>
+
+          <button   const [minPremium, setMinPremium] = useState(50000);
+
+            onClick={fetchFlowData} 
+
+            disabled={loading}  const [symbols, setSymbols] = useState('SPY,QQQ,AAPL,TSLA,NVDA,MSFT,GOOGL,AMZN');  flow_type?: 'bullish' | 'bearish' | 'neutral';  };
+
+            className="mt-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white disabled:opacity-50"
+
+          >  const [callsOnly, setCallsOnly] = useState(false);
+
+            {loading ? '⟳ Loading...' : '🔄 Refresh'}
+
+          </button>  const [putsOnly, setPutsOnly] = useState(false);  unusual_activity?: boolean;  flow_type?: 'bullish' | 'bearish' | 'neutral';
+
+        </div>
+
+          const [unusualOnly, setUnusualOnly] = useState(false);
+
+        <div className="p-4">
+
+          {loading ? (  const [sweepsOnly, setSweepsOnly] = useState(false);  sweep_detected?: boolean;  unusual_activity?: boolean;
+
+            <div className="text-center py-8">
+
+              <div className="text-green-400 text-xl">⟳ Loading real options flow data...</div>
+
+            </div>
+
+          ) : flowData.length === 0 ? (  const fetchFlowData = async () => {}  sweep_detected?: boolean;
+
+            <div className="text-center py-8">
+
+              <div className="text-gray-400">No options flow found</div>    try {
+
+            </div>
+
+          ) : (      setError('');}
+
+            <div className="overflow-x-auto">
+
+              <table className="w-full text-sm">      const params = new URLSearchParams({
+
+                <thead>
+
+                  <tr className="border-b border-gray-700">        minPremium: minPremium.toString(),interface FlowSummary {
+
+                    <th className="text-left p-2 text-gray-300">Symbol</th>
+
+                    <th className="text-left p-2 text-gray-300">Strike</th>        symbols: symbols,
+
+                    <th className="text-left p-2 text-gray-300">Type</th>
+
+                    <th className="text-right p-2 text-gray-300">Volume</th>        callsOnly: callsOnly.toString(),  total_contracts: number;interface FlowSummary {
+
+                    <th className="text-right p-2 text-gray-300">Premium</th>
+
+                    <th className="text-center p-2 text-gray-300">Flow</th>        putsOnly: putsOnly.toString(),
+
+                  </tr>
+
+                </thead>        unusualOnly: unusualOnly.toString(),  total_premium: number;  total_contracts: number;
+
+                <tbody>
+
+                  {flowData.map((contract, index) => (        sweepsOnly: sweepsOnly.toString()
+
+                    <tr key={index} className="border-b border-gray-800 hover:bg-gray-800">
+
+                      <td className="p-2 font-bold text-white">{contract.underlying_ticker}</td>      });  bullish_flow: number;  total_premium: number;
+
+                      <td className="p-2 text-gray-300">${contract.strike}</td>
+
+                      <td className="p-2">
+
+                        <span className={`px-2 py-1 rounded text-xs ${
+
+                          contract.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'      const response = await fetch(`/api/options-flow?${params}`);  bearish_flow: number;  bullish_flow: number;
+
+                        }`}>
+
+                          {contract.type?.toUpperCase()}      const result = await response.json();
+
+                        </span>
+
+                      </td>  unusual_activity: number;  bearish_flow: number;
+
+                      <td className="p-2 text-right text-white font-mono">
+
+                        {contract.volume?.toLocaleString()}      if (result.success) {
+
+                        {contract.unusual_activity && <span className="text-yellow-400 ml-1">🔥</span>}
+
+                      </td>        setFlowData(result.data);  sweeps_detected: number;  unusual_activity: number;
+
+                      <td className="p-2 text-right text-green-400 font-bold">
+
+                        {contract.premium ? formatPremium(contract.premium) : '-'}        setSummary(result.summary);
+
+                      </td>
+
+                      <td className="p-2 text-center">        setLastUpdate(new Date(result.timestamp).toLocaleTimeString());}  sweeps_detected: number;
+
+                        <div className="flex gap-1 justify-center">
+
+                          {contract.sweep_detected && (      } else {
+
+                            <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">SWEEP</span>
+
+                          )}        setError(result.error || 'Failed to fetch data');}
+
+                          <span className={`px-2 py-1 text-xs rounded ${
+
+                            contract.flow_type === 'bullish' ? 'bg-green-700 text-white' :       }
+
+                            contract.flow_type === 'bearish' ? 'bg-red-700 text-white' : 
+
+                            'bg-gray-700 text-white'    } catch (err) {const Badge = ({ children, className }: { children: React.ReactNode; className?: string }) => (
+
+                          }`}>
+
+                            {contract.flow_type?.toUpperCase()}      setError('Network error occurred');
+
+                          </span>
+
+                        </div>      console.error('Flow data fetch error:', err);  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${className}`}>export default function OptionsFlowPage() {
+
+                      </td>
+
+                    </tr>    } finally {
+
+                  ))}
+
+                </tbody>      setLoading(false);    {children}  const [flowData, setFlowData] = useState<OptionsContract[]>([]);
+
+              </table>
+
+            </div>    }
+
+          )}
+
+        </div>  };  </span>  const [summary, setSummary] = useState<FlowSummary | null>(null);
+
+      </div>
+
+    </div>
+
+  );
+
+}  useEffect(() => {);  const [loading, setLoading] = useState(true);
+
+    fetchFlowData();
+
+  }, []);  const [lastUpdate, setLastUpdate] = useState<string>('');
+
+
+
+  const formatPremium = (premium: number) => {export default function OptionsFlowPage() {  const [error, setError] = useState<string>('');
+
+    if (premium >= 1000000) {
+
+      return `$${(premium / 1000000).toFixed(1)}M`;  const [flowData, setFlowData] = useState<OptionsContract[]>([]);  
+
+    }
+
+    return `$${(premium / 1000).toFixed(0)}K`;  const [summary, setSummary] = useState<FlowSummary | null>(null);  // Filters
+
+  };
+
+  const [loading, setLoading] = useState(true);  const [minPremium, setMinPremium] = useState(50000);
+
+  const formatDate = (dateStr: string) => {
+
+    const date = new Date(dateStr);  const [lastUpdate, setLastUpdate] = useState<string>('');  const [maxPremium, setMaxPremium] = useState(5000000);
+
+    const today = new Date();
+
+    const diffTime = date.getTime() - today.getTime();  const [error, setError] = useState<string>('');  const [minVolume, setMinVolume] = useState(100);
+
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        const [symbols, setSymbols] = useState('SPY,QQQ,AAPL,TSLA,NVDA,MSFT,GOOGL,AMZN');
+
+    if (diffDays === 0) return 'Today';
+
+    if (diffDays === 1) return '1d';  // Filters  const [callsOnly, setCallsOnly] = useState(false);
+
+    if (diffDays <= 7) return `${diffDays}d`;
+
+    return `${Math.floor(diffDays/7)}w`;  const [minPremium, setMinPremium] = useState(50000);  const [putsOnly, setPutsOnly] = useState(false);
+
+  };
+
+  const [maxPremium, setMaxPremium] = useState(5000000);  const [unusualOnly, setUnusualOnly] = useState(false);
+
+  return (
+
+    <div className="p-6 space-y-6 bg-black text-white min-h-screen">  const [minVolume, setMinVolume] = useState(100);  const [sweepsOnly, setSweepsOnly] = useState(false);
+
+      <div className="border-b border-green-500 pb-4">
+
+        <h1 className="text-3xl font-bold text-green-400">🚀 OPTIONS FLOW SCANNER</h1>  const [symbols, setSymbols] = useState('SPY,QQQ,AAPL,TSLA,NVDA,MSFT,GOOGL,AMZN');
+
+        <p className="text-gray-300 mt-2">Real-time institutional options activity powered by Polygon</p>
+
+      </div>  const [callsOnly, setCallsOnly] = useState(false);  const fetchFlowData = async () => {
+
+
+
+      {/* Summary Cards */}  const [putsOnly, setPutsOnly] = useState(false);    try {
+
+      {summary && (
+
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">  const [unusualOnly, setUnusualOnly] = useState(false);      setError('');
+
+          <Card className="bg-gray-900 border-gray-700">
+
+            <CardContent className="p-4">  const [sweepsOnly, setSweepsOnly] = useState(false);      const params = new URLSearchParams({
+
+              <div className="text-2xl font-bold text-green-400">{summary.total_contracts}</div>
+
+              <div className="text-sm text-gray-400">Total Flows</div>        minPremium: minPremium.toString(),
+
+            </CardContent>
+
+          </Card>  const fetchFlowData = async () => {        maxPremium: maxPremium.toString(),
+
+          <Card className="bg-gray-900 border-gray-700">
+
+            <CardContent className="p-4">    try {        minVolume: minVolume.toString(),
+
+              <div className="text-2xl font-bold text-green-400">{formatPremium(summary.total_premium)}</div>
+
+              <div className="text-sm text-gray-400">Total Premium</div>      setError('');        symbols: symbols,
+
+            </CardContent>
+
+          </Card>      const params = new URLSearchParams({        callsOnly: callsOnly.toString(),
+
+          <Card className="bg-gray-900 border-gray-700">
+
+            <CardContent className="p-4">        minPremium: minPremium.toString(),        putsOnly: putsOnly.toString(),
+
+              <div className="text-2xl font-bold text-green-500">{summary.bullish_flow}</div>
+
+              <div className="text-sm text-gray-400">Bullish</div>        maxPremium: maxPremium.toString(),        unusualOnly: unusualOnly.toString(),
+
+            </CardContent>
+
+          </Card>        minVolume: minVolume.toString(),        sweepsOnly: sweepsOnly.toString()
+
+          <Card className="bg-gray-900 border-gray-700">
+
+            <CardContent className="p-4">        symbols: symbols,      });
+
+              <div className="text-2xl font-bold text-red-500">{summary.bearish_flow}</div>
+
+              <div className="text-sm text-gray-400">Bearish</div>        callsOnly: callsOnly.toString(),
+
+            </CardContent>
+
+          </Card>        putsOnly: putsOnly.toString(),      const response = await fetch(`/api/options-flow?${params}`);
+
+          <Card className="bg-gray-900 border-gray-700">
+
+            <CardContent className="p-4">        unusualOnly: unusualOnly.toString(),      const result = await response.json();
+
+              <div className="text-2xl font-bold text-yellow-500">{summary.unusual_activity}</div>
+
+              <div className="text-sm text-gray-400">Unusual</div>        sweepsOnly: sweepsOnly.toString()
+
+            </CardContent>
+
+          </Card>      });      if (result.success) {
+
+          <Card className="bg-gray-900 border-gray-700">
+
+            <CardContent className="p-4">        setFlowData(result.data);
+
+              <div className="text-2xl font-bold text-purple-500">{summary.sweeps_detected}</div>
+
+              <div className="text-sm text-gray-400">Sweeps</div>      const response = await fetch(`/api/options-flow?${params}`);        setSummary(result.summary);
+
+            </CardContent>
+
+          </Card>      const result = await response.json();        setLastUpdate(new Date(result.timestamp).toLocaleTimeString());
+
+        </div>
+
+      )}      } else {
+
+
+
+      {/* Filters */}      if (result.success) {        setError(result.error || 'Failed to fetch data');
+
+      <Card className="bg-gray-900 border-gray-700">
+
+        <CardHeader>        setFlowData(result.data);      }
+
+          <CardTitle className="text-green-400 flex items-center justify-between">
+
+            <span>🎯 Filters</span>        setSummary(result.summary);    } catch (err) {
+
+            <div className="flex gap-2">
+
+              <Button         setLastUpdate(new Date(result.timestamp).toLocaleTimeString());      setError('Network error occurred');
+
+                onClick={fetchFlowData} 
+
+                disabled={loading}      } else {      console.error('Flow data fetch error:', err);
+
+                className="bg-green-600 hover:bg-green-700"
+
+                size="sm"        setError(result.error || 'Failed to fetch data');    } finally {
+
+              >
+
+                {loading ? '⟳' : '🔄'} Refresh      }      setLoading(false);
+
+              </Button>
+
+              {lastUpdate && (    } catch (err) {    }
+
+                <span className="text-sm text-gray-400">Updated: {lastUpdate}</span>
+
+              )}      setError('Network error occurred');  };
+
+            </div>
+
+          </CardTitle>      console.error('Flow data fetch error:', err);
+
+        </CardHeader>
+
+        <CardContent>    } finally {  useEffect(() => {
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+            <div>      setLoading(false);    fetchFlowData();
+
+              <label className="block text-sm font-medium text-gray-300 mb-1">Min Premium</label>
+
+              <select     }  }, []);
+
+                value={minPremium} 
+
+                onChange={(e) => setMinPremium(parseInt(e.target.value))}  };
+
+                className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white"
+
+              >  const formatPremium = (premium: number) => {
+
+                <option value={10000}>$10K+</option>
+
+                <option value={50000}>$50K+</option>  useEffect(() => {    if (premium >= 1000000) {
+
+                <option value={100000}>$100K+</option>
+
+                <option value={500000}>$500K+</option>    fetchFlowData();      return `$${(premium / 1000000).toFixed(1)}M`;
+
+                <option value={1000000}>$1M+</option>
+
+              </select>  }, []);    }
+
+            </div>
+
+            <div>    return `$${(premium / 1000).toFixed(0)}K`;
+
+              <label className="block text-sm font-medium text-gray-300 mb-1">Symbols</label>
+
+              <input  const formatPremium = (premium: number) => {  };
+
+                type="text"
+
+                value={symbols}    if (premium >= 1000000) {
+
+                onChange={(e) => setSymbols(e.target.value)}
+
+                placeholder="SPY,QQQ,AAPL"      return `$${(premium / 1000000).toFixed(1)}M`;  const formatDate = (dateStr: string) => {
+
+                className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white"
+
+              />    }    const date = new Date(dateStr);
+
+            </div>
+
+            <div className="space-y-2">    return `$${(premium / 1000).toFixed(0)}K`;    const today = new Date();
+
+              <label className="block text-sm font-medium text-gray-300">Type Filters</label>
+
+              <div className="grid grid-cols-2 gap-2">  };    const diffTime = date.getTime() - today.getTime();
+
+                <label className="flex items-center text-sm">
+
+                  <input    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                    type="checkbox"
+
+                    checked={callsOnly}  const formatDate = (dateStr: string) => {    
+
+                    onChange={(e) => setCallsOnly(e.target.checked)}
+
+                    className="mr-1"    const date = new Date(dateStr);    if (diffDays === 0) return 'Today';
+
+                  />
+
+                  Calls Only    const today = new Date();    if (diffDays === 1) return '1d';
+
+                </label>
+
+                <label className="flex items-center text-sm">    const diffTime = date.getTime() - today.getTime();    if (diffDays <= 7) return `${diffDays}d`;
+
+                  <input
+
+                    type="checkbox"    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));    return `${Math.floor(diffDays/7)}w`;
+
+                    checked={putsOnly}
+
+                    onChange={(e) => setPutsOnly(e.target.checked)}      };
+
+                    className="mr-1"
+
+                  />    if (diffDays === 0) return 'Today';
+
+                  Puts Only
+
+                </label>    if (diffDays === 1) return '1d';  const getFlowColor = (flowType: string, sweepDetected: boolean) => {
+
+                <label className="flex items-center text-sm">
+
+                  <input    if (diffDays <= 7) return `${diffDays}d`;    if (sweepDetected) return 'bg-purple-100 text-purple-800';
+
+                    type="checkbox"
+
+                    checked={unusualOnly}    return `${Math.floor(diffDays/7)}w`;    if (flowType === 'bullish') return 'bg-green-100 text-green-800';
+
+                    onChange={(e) => setUnusualOnly(e.target.checked)}
+
+                    className="mr-1"  };    if (flowType === 'bearish') return 'bg-red-100 text-red-800';
+
+                  />
+
+                  Unusual Only    return 'bg-gray-100 text-gray-800';
+
+                </label>
+
+                <label className="flex items-center text-sm">  const getFlowColor = (flowType: string, sweepDetected: boolean) => {  };
+
+                  <input
+
+                    type="checkbox"    if (sweepDetected) return 'bg-purple-100 text-purple-800';
+
+                    checked={sweepsOnly}
+
+                    onChange={(e) => setSweepsOnly(e.target.checked)}    if (flowType === 'bullish') return 'bg-green-100 text-green-800';  return (
+
+                    className="mr-1"
+
+                  />    if (flowType === 'bearish') return 'bg-red-100 text-red-800';    <div className="p-6 space-y-6 bg-black text-white min-h-screen">
+
+                  Sweeps Only
+
+                </label>    return 'bg-gray-100 text-gray-800';      <div className="border-b border-green-500 pb-4">
+
+              </div>
+
+            </div>  };        <h1 className="text-3xl font-bold text-green-400">🚀 OPTIONS FLOW SCANNER</h1>
+
+          </div>
+
+        </CardContent>        <p className="text-gray-300 mt-2">Real-time institutional options activity powered by Polygon</p>
+
+      </Card>
+
+  return (      </div>
+
+      {/* Error Display */}
+
+      {error && (    <div className="p-6 space-y-6 bg-black text-white min-h-screen">
+
+        <Card className="bg-red-900 border-red-700">
+
+          <CardContent className="p-4">      <div className="border-b border-green-500 pb-4">      {/* Summary Cards */}
+
+            <div className="text-red-300">⚠️ {error}</div>
+
+          </CardContent>        <h1 className="text-3xl font-bold text-green-400">🚀 OPTIONS FLOW SCANNER</h1>      {summary && (
+
+        </Card>
+
+      )}        <p className="text-gray-300 mt-2">Real-time institutional options activity powered by Polygon</p>        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+
+
+
+      {/* Flow Data Table */}      </div>          <Card className="bg-gray-900 border-gray-700">
+
+      <Card className="bg-gray-900 border-gray-700">
+
+        <CardHeader>            <CardContent className="p-4">
+
+          <CardTitle className="text-green-400">📊 Live Options Flow</CardTitle>
+
+        </CardHeader>      {/* Summary Cards */}              <div className="text-2xl font-bold text-green-400">{summary.total_contracts}</div>
+
+        <CardContent>
+
+          {loading ? (      {summary && (              <div className="text-sm text-gray-400">Total Flows</div>
+
+            <div className="text-center py-8">
+
+              <div className="text-green-400 text-xl">⟳ Loading real options flow data...</div>        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">            </CardContent>
+
+            </div>
+
+          ) : flowData.length === 0 ? (          <Card className="bg-gray-900 border-gray-700">          </Card>
+
+            <div className="text-center py-8">
+
+              <div className="text-gray-400">No options flow found matching current filters</div>            <CardContent className="p-4">          <Card className="bg-gray-900 border-gray-700">
+
+            </div>
+
+          ) : (              <div className="text-2xl font-bold text-green-400">{summary.total_contracts}</div>            <CardContent className="p-4">
+
+            <div className="overflow-x-auto">
+
+              <table className="w-full text-sm">              <div className="text-sm text-gray-400">Total Flows</div>              <div className="text-2xl font-bold text-green-400">{formatPremium(summary.total_premium)}</div>
+
+                <thead>
+
+                  <tr className="border-b border-gray-700">            </CardContent>              <div className="text-sm text-gray-400">Total Premium</div>
+
+                    <th className="text-left p-2 text-gray-300">Symbol</th>
+
+                    <th className="text-left p-2 text-gray-300">Strike</th>          </Card>            </CardContent>
+
+                    <th className="text-left p-2 text-gray-300">Type</th>
+
+                    <th className="text-left p-2 text-gray-300">Exp</th>          <Card className="bg-gray-900 border-gray-700">          </Card>
+
+                    <th className="text-right p-2 text-gray-300">Volume</th>
+
+                    <th className="text-right p-2 text-gray-300">Premium</th>            <CardContent className="p-4">          <Card className="bg-gray-900 border-gray-700">
+
+                    <th className="text-right p-2 text-gray-300">Price</th>
+
+                    <th className="text-right p-2 text-gray-300">IV</th>              <div className="text-2xl font-bold text-green-400">{formatPremium(summary.total_premium)}</div>            <CardContent className="p-4">
+
+                    <th className="text-center p-2 text-gray-300">Flow</th>
+
+                  </tr>              <div className="text-sm text-gray-400">Total Premium</div>              <div className="text-2xl font-bold text-green-500">{summary.bullish_flow}</div>
+
+                </thead>
+
+                <tbody>            </CardContent>              <div className="text-sm text-gray-400">Bullish</div>
+
+                  {flowData.map((contract, index) => (
+
+                    <tr key={index} className="border-b border-gray-800 hover:bg-gray-800">          </Card>            </CardContent>
+
+                      <td className="p-2 font-bold text-white">{contract.underlying_ticker}</td>
+
+                      <td className="p-2 text-gray-300">${contract.strike}</td>          <Card className="bg-gray-900 border-gray-700">          </Card>
+
+                      <td className="p-2">
+
+                        <Badge className={contract.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}>            <CardContent className="p-4">          <Card className="bg-gray-900 border-gray-700">
+
+                          {contract.type?.toUpperCase()}
+
+                        </Badge>              <div className="text-2xl font-bold text-green-500">{summary.bullish_flow}</div>            <CardContent className="p-4">
+
+                      </td>
+
+                      <td className="p-2 text-gray-300">{formatDate(contract.expiry)}</td>              <div className="text-sm text-gray-400">Bullish</div>              <div className="text-2xl font-bold text-red-500">{summary.bearish_flow}</div>
+
+                      <td className="p-2 text-right text-white font-mono">
+
+                        {contract.volume?.toLocaleString()}            </CardContent>              <div className="text-sm text-gray-400">Bearish</div>
+
+                        {contract.volume_oi_ratio && contract.volume_oi_ratio > 2 && (
+
+                          <span className="text-yellow-400 ml-1">🔥</span>          </Card>            </CardContent>
+
+                        )}
+
+                      </td>          <Card className="bg-gray-900 border-gray-700">          </Card>
+
+                      <td className="p-2 text-right text-green-400 font-bold">
+
+                        {contract.premium ? formatPremium(contract.premium) : '-'}            <CardContent className="p-4">          <Card className="bg-gray-900 border-gray-700">
+
+                      </td>
+
+                      <td className="p-2 text-right text-white font-mono">              <div className="text-2xl font-bold text-red-500">{summary.bearish_flow}</div>            <CardContent className="p-4">
+
+                        ${contract.last_trade?.price?.toFixed(2) || contract.vwap?.toFixed(2) || '-'}
+
+                      </td>              <div className="text-sm text-gray-400">Bearish</div>              <div className="text-2xl font-bold text-yellow-500">{summary.unusual_activity}</div>
+
+                      <td className="p-2 text-right text-blue-400">
+
+                        {contract.iv ? `${(contract.iv * 100).toFixed(0)}%` : '-'}            </CardContent>              <div className="text-sm text-gray-400">Unusual</div>
+
+                      </td>
+
+                      <td className="p-2 text-center">          </Card>            </CardContent>
+
+                        <div className="flex gap-1 justify-center flex-wrap">
+
+                          {contract.sweep_detected && (          <Card className="bg-gray-900 border-gray-700">          </Card>
+
+                            <Badge className="bg-purple-600 text-white text-xs">SWEEP</Badge>
+
+                          )}            <CardContent className="p-4">          <Card className="bg-gray-900 border-gray-700">
+
+                          {contract.unusual_activity && (
+
+                            <Badge className="bg-yellow-600 text-white text-xs">UNUSUAL</Badge>              <div className="text-2xl font-bold text-yellow-500">{summary.unusual_activity}</div>            <CardContent className="p-4">
+
+                          )}
+
+                          <Badge className={`text-xs ${              <div className="text-sm text-gray-400">Unusual</div>              <div className="text-2xl font-bold text-purple-500">{summary.sweeps_detected}</div>
+
+                            contract.flow_type === 'bullish' ? 'bg-green-700 text-white' : 
+
+                            contract.flow_type === 'bearish' ? 'bg-red-700 text-white' :             </CardContent>              <div className="text-sm text-gray-400">Sweeps</div>
+
+                            'bg-gray-700 text-white'
+
+                          }`}>          </Card>            </CardContent>
+
+                            {contract.flow_type?.toUpperCase()}
+
+                          </Badge>          <Card className="bg-gray-900 border-gray-700">          </Card>
+
+                        </div>
+
+                      </td>            <CardContent className="p-4">        </div>
+
+                    </tr>
+
+                  ))}              <div className="text-2xl font-bold text-purple-500">{summary.sweeps_detected}</div>      )}
+
+                </tbody>
+
+              </table>              <div className="text-sm text-gray-400">Sweeps</div>
+
+            </div>
+
+          )}            </CardContent>      {/* Filters */}
+
+        </CardContent>
+
+      </Card>          </Card>      <Card className="bg-gray-900 border-gray-700">
+
+    </div>
+
+  );        </div>        <CardHeader>
+
+}
+      )}          <CardTitle className="text-green-400 flex items-center justify-between">
+
+            <span>🎯 Filters</span>
+
+      {/* Filters */}            <div className="flex gap-2">
+
+      <Card className="bg-gray-900 border-gray-700">              <Button 
+
+        <CardHeader>                onClick={fetchFlowData} 
+
+          <CardTitle className="text-green-400 flex items-center justify-between">                disabled={loading}
+
+            <span>🎯 Filters</span>                className="bg-green-600 hover:bg-green-700"
+
+            <div className="flex gap-2">                size="sm"
+
+              <Button               >
+
+                onClick={fetchFlowData}                 {loading ? '⟳' : '🔄'} Refresh
+
+                disabled={loading}              </Button>
+
+                className="bg-green-600 hover:bg-green-700"              {lastUpdate && (
+
+                size="sm"                <span className="text-sm text-gray-400">Updated: {lastUpdate}</span>
+
+              >              )}
+
+                {loading ? '⟳' : '🔄'} Refresh            </div>
+
+              </Button>          </CardTitle>
+
+              {lastUpdate && (        </CardHeader>
+
+                <span className="text-sm text-gray-400">Updated: {lastUpdate}</span>        <CardContent>
+
+              )}          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+
+            </div>            <div>
+
+          </CardTitle>              <label className="block text-sm font-medium text-gray-300 mb-1">Min Premium</label>
+
+        </CardHeader>              <select 
+
+        <CardContent>                value={minPremium} 
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">                onChange={(e) => setMinPremium(parseInt(e.target.value))}
+
+            <div>                className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white"
+
+              <label className="block text-sm font-medium text-gray-300 mb-1">Min Premium</label>              >
+
+              <select                 <option value={10000}>$10K+</option>
+
+                value={minPremium}                 <option value={50000}>$50K+</option>
+
+                onChange={(e) => setMinPremium(parseInt(e.target.value))}                <option value={100000}>$100K+</option>
+
+                className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white"                <option value={500000}>$500K+</option>
+
+              >                <option value={1000000}>$1M+</option>
+
+                <option value={10000}>$10K+</option>              </select>
+
+                <option value={50000}>$50K+</option>            </div>
+
+                <option value={100000}>$100K+</option>            <div>
+
+                <option value={500000}>$500K+</option>              <label className="block text-sm font-medium text-gray-300 mb-1">Min Volume</label>
+
+                <option value={1000000}>$1M+</option>              <select 
+
+              </select>                value={minVolume} 
+
+            </div>                onChange={(e) => setMinVolume(parseInt(e.target.value))}
+
+            <div>                className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white"
+
+              <label className="block text-sm font-medium text-gray-300 mb-1">Min Volume</label>              >
+
+              <select                 <option value={50}>50+</option>
+
+                value={minVolume}                 <option value={100}>100+</option>
+
+                onChange={(e) => setMinVolume(parseInt(e.target.value))}                <option value={500}>500+</option>
+
+                className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white"                <option value={1000}>1000+</option>
+
+              >              </select>
+
+                <option value={50}>50+</option>            </div>
+
+                <option value={100}>100+</option>            <div>
+
+                <option value={500}>500+</option>              <label className="block text-sm font-medium text-gray-300 mb-1">Symbols</label>
+
+                <option value={1000}>1000+</option>              <input
+
+              </select>                type="text"
+
+            </div>                value={symbols}
+
+            <div>                onChange={(e) => setSymbols(e.target.value)}
+
+              <label className="block text-sm font-medium text-gray-300 mb-1">Symbols</label>                placeholder="SPY,QQQ,AAPL"
+
+              <input                className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white"
+
+                type="text"              />
+
+                value={symbols}            </div>
+
+                onChange={(e) => setSymbols(e.target.value)}            <div className="space-y-2">
+
+                placeholder="SPY,QQQ,AAPL"              <label className="block text-sm font-medium text-gray-300">Type Filters</label>
+
+                className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white"              <div className="flex flex-wrap gap-2">
+
+              />                <label className="flex items-center text-sm">
+
+            </div>                  <input
+
+            <div className="space-y-2">                    type="checkbox"
+
+              <label className="block text-sm font-medium text-gray-300">Type Filters</label>                    checked={callsOnly}
+
+              <div className="flex flex-wrap gap-2">                    onChange={(e) => setCallsOnly(e.target.checked)}
+
+                <label className="flex items-center text-sm">                    className="mr-1"
+
+                  <input                  />
+
+                    type="checkbox"                  Calls Only
+
+                    checked={callsOnly}                </label>
+
+                    onChange={(e) => setCallsOnly(e.target.checked)}                <label className="flex items-center text-sm">
+
+                    className="mr-1"                  <input
+
+                  />                    type="checkbox"
+
+                  Calls Only                    checked={putsOnly}
+
+                </label>                    onChange={(e) => setPutsOnly(e.target.checked)}
+
+                <label className="flex items-center text-sm">                    className="mr-1"
+
+                  <input                  />
+
+                    type="checkbox"                  Puts Only
+
+                    checked={putsOnly}                </label>
+
+                    onChange={(e) => setPutsOnly(e.target.checked)}                <label className="flex items-center text-sm">
+
+                    className="mr-1"                  <input
+
+                  />                    type="checkbox"
+
+                  Puts Only                    checked={unusualOnly}
+
+                </label>                    onChange={(e) => setUnusualOnly(e.target.checked)}
+
+                <label className="flex items-center text-sm">                    className="mr-1"
+
+                  <input                  />
+
+                    type="checkbox"                  Unusual Only
+
+                    checked={unusualOnly}                </label>
+
+                    onChange={(e) => setUnusualOnly(e.target.checked)}                <label className="flex items-center text-sm">
+
+                    className="mr-1"                  <input
+
+                  />                    type="checkbox"
+
+                  Unusual Only                    checked={sweepsOnly}
+
+                </label>                    onChange={(e) => setSweepsOnly(e.target.checked)}
+
+                <label className="flex items-center text-sm">                    className="mr-1"
+
+                  <input                  />
+
+                    type="checkbox"                  Sweeps Only
+
+                    checked={sweepsOnly}                </label>
+
+                    onChange={(e) => setSweepsOnly(e.target.checked)}              </div>
+
+                    className="mr-1"            </div>
+
+                  />          </div>
+
+                  Sweeps Only        </CardContent>
+
+                </label>      </Card>
+
+              </div>
+
+            </div>      {/* Error Display */}
+
+          </div>      {error && (
+
+        </CardContent>        <Card className="bg-red-900 border-red-700">
+
+      </Card>          <CardContent className="p-4">
+
+            <div className="text-red-300">⚠️ {error}</div>
+
+      {/* Error Display */}          </CardContent>
+
+      {error && (        </Card>
+
+        <Card className="bg-red-900 border-red-700">      )}
+
+          <CardContent className="p-4">
+
+            <div className="text-red-300">⚠️ {error}</div>      {/* Flow Data Table */}
+
+          </CardContent>      <Card className="bg-gray-900 border-gray-700">
+
+        </Card>        <CardHeader>
+
+      )}          <CardTitle className="text-green-400">📊 Live Options Flow</CardTitle>
+
+        </CardHeader>
+
+      {/* Flow Data Table */}        <CardContent>
+
+      <Card className="bg-gray-900 border-gray-700">          {loading ? (
+
+        <CardHeader>            <div className="text-center py-8">
+
+          <CardTitle className="text-green-400">📊 Live Options Flow</CardTitle>              <div className="text-green-400 text-xl">⟳ Loading real options flow data...</div>
+
+        </CardHeader>            </div>
+
+        <CardContent>          ) : flowData.length === 0 ? (
+
+          {loading ? (            <div className="text-center py-8">
+
+            <div className="text-center py-8">              <div className="text-gray-400">No options flow found matching current filters</div>
+
+              <div className="text-green-400 text-xl">⟳ Loading real options flow data...</div>            </div>
+
+            </div>          ) : (
+
+          ) : flowData.length === 0 ? (            <div className="overflow-x-auto">
+
+            <div className="text-center py-8">              <table className="w-full text-sm">
+
+              <div className="text-gray-400">No options flow found matching current filters</div>                <thead>
+
+            </div>                  <tr className="border-b border-gray-700">
+
+          ) : (                    <th className="text-left p-2 text-gray-300">Symbol</th>
+
+            <div className="overflow-x-auto">                    <th className="text-left p-2 text-gray-300">Strike</th>
+
+              <table className="w-full text-sm">                    <th className="text-left p-2 text-gray-300">Type</th>
+
+                <thead>                    <th className="text-left p-2 text-gray-300">Exp</th>
+
+                  <tr className="border-b border-gray-700">                    <th className="text-right p-2 text-gray-300">Volume</th>
+
+                    <th className="text-left p-2 text-gray-300">Symbol</th>                    <th className="text-right p-2 text-gray-300">Premium</th>
+
+                    <th className="text-left p-2 text-gray-300">Strike</th>                    <th className="text-right p-2 text-gray-300">Price</th>
+
+                    <th className="text-left p-2 text-gray-300">Type</th>                    <th className="text-right p-2 text-gray-300">IV</th>
+
+                    <th className="text-left p-2 text-gray-300">Exp</th>                    <th className="text-center p-2 text-gray-300">Flow</th>
+
+                    <th className="text-right p-2 text-gray-300">Volume</th>                  </tr>
+
+                    <th className="text-right p-2 text-gray-300">Premium</th>                </thead>
+
+                    <th className="text-right p-2 text-gray-300">Price</th>                <tbody>
+
+                    <th className="text-right p-2 text-gray-300">IV</th>                  {flowData.map((contract, index) => (
+
+                    <th className="text-center p-2 text-gray-300">Flow</th>                    <tr key={index} className="border-b border-gray-800 hover:bg-gray-800">
+
+                  </tr>                      <td className="p-2 font-bold text-white">{contract.underlying_ticker}</td>
+
+                </thead>                      <td className="p-2 text-gray-300">${contract.strike}</td>
+
+                <tbody>                      <td className="p-2">
+
+                  {flowData.map((contract, index) => (                        <Badge className={contract.type === 'call' ? 'bg-green-600' : 'bg-red-600'}>
+
+                    <tr key={index} className="border-b border-gray-800 hover:bg-gray-800">                          {contract.type?.toUpperCase()}
+
+                      <td className="p-2 font-bold text-white">{contract.underlying_ticker}</td>                        </Badge>
+
+                      <td className="p-2 text-gray-300">${contract.strike}</td>                      </td>
+
+                      <td className="p-2">                      <td className="p-2 text-gray-300">{formatDate(contract.expiry)}</td>
+
+                        <Badge className={contract.type === 'call' ? 'bg-green-600' : 'bg-red-600'}>                      <td className="p-2 text-right text-white font-mono">
+
+                          {contract.type?.toUpperCase()}                        {contract.volume?.toLocaleString()}
+
+                        </Badge>                        {contract.volume_oi_ratio && contract.volume_oi_ratio > 2 && (
+
+                      </td>                          <span className="text-yellow-400 ml-1">🔥</span>
+
+                      <td className="p-2 text-gray-300">{formatDate(contract.expiry)}</td>                        )}
+
+                      <td className="p-2 text-right text-white font-mono">                      </td>
+
+                        {contract.volume?.toLocaleString()}                      <td className="p-2 text-right text-green-400 font-bold">
+
+                        {contract.volume_oi_ratio && contract.volume_oi_ratio > 2 && (                        {contract.premium ? formatPremium(contract.premium) : '-'}
+
+                          <span className="text-yellow-400 ml-1">🔥</span>                      </td>
+
+                        )}                      <td className="p-2 text-right text-white font-mono">
+
+                      </td>                        ${contract.last_trade?.price?.toFixed(2) || contract.vwap?.toFixed(2) || '-'}
+
+                      <td className="p-2 text-right text-green-400 font-bold">                      </td>
+
+                        {contract.premium ? formatPremium(contract.premium) : '-'}                      <td className="p-2 text-right text-blue-400">
+
+                      </td>                        {contract.iv ? `${(contract.iv * 100).toFixed(0)}%` : '-'}
+
+                      <td className="p-2 text-right text-white font-mono">                      </td>
+
+                        ${contract.last_trade?.price?.toFixed(2) || contract.vwap?.toFixed(2) || '-'}                      <td className="p-2 text-center">
+
+                      </td>                        <div className="flex gap-1 justify-center">
+
+                      <td className="p-2 text-right text-blue-400">                          {contract.sweep_detected && (
+
+                        {contract.iv ? `${(contract.iv * 100).toFixed(0)}%` : '-'}                            <Badge className="bg-purple-600 text-xs">SWEEP</Badge>
+
+                      </td>                          )}
+
+                      <td className="p-2 text-center">                          {contract.unusual_activity && (
+
+                        <div className="flex gap-1 justify-center">                            <Badge className="bg-yellow-600 text-xs">UNUSUAL</Badge>
+
+                          {contract.sweep_detected && (                          )}
+
+                            <Badge className="bg-purple-600 text-xs">SWEEP</Badge>                          <Badge className={`text-xs ${getFlowColor(contract.flow_type || 'neutral', contract.sweep_detected || false)}`}>
+
+                          )}                            {contract.flow_type?.toUpperCase()}
+
+                          {contract.unusual_activity && (                          </Badge>
+
+                            <Badge className="bg-yellow-600 text-xs">UNUSUAL</Badge>                        </div>
+
+                          )}                      </td>
+
+                          <Badge className={`text-xs ${getFlowColor(contract.flow_type || 'neutral', contract.sweep_detected || false)}`}>                    </tr>
+
+                            {contract.flow_type?.toUpperCase()}                  ))}
+
+                          </Badge>                </tbody>
+
+                        </div>              </table>
+
+                      </td>            </div>
+
+                    </tr>          )}
+
+                  ))}        </CardContent>
+
+                </tbody>      </Card>
+
+              </table>    </div>
+
+            </div>  );
+
+          )}}
+
+        </CardContent>            }}>
+
+      </Card>              <div style={{ 
+
+    </div>                padding: '30px',
+
+  );                background: 'rgba(0, 0, 0, 0.8)',
+
+}                border: '2px solid rgba(255, 102, 0, 0.3)',
+                borderRadius: '12px',
+                backdropFilter: 'blur(8px)'
+              }}>
+                <h3 style={{ color: '#FF6600', marginBottom: '15px', fontSize: '20px' }}>
+                  Options Flow Scanner
+                </h3>
+                <p style={{ lineHeight: '1.6', opacity: '0.8' }}>
+                  Real-time options order flow analysis with institutional block detection
+                </p>
+              </div>
+              
+              <div style={{ 
+                padding: '30px',
+                background: 'rgba(0, 0, 0, 0.8)',
+                border: '2px solid rgba(255, 102, 0, 0.3)',
+                borderRadius: '12px',
+                backdropFilter: 'blur(8px)'
+              }}>
+                <h3 style={{ color: '#FF6600', marginBottom: '15px', fontSize: '20px' }}>
+                  Crypto Analytics
+                </h3>
+                <p style={{ lineHeight: '1.6', opacity: '0.8' }}>
+                  Advanced cryptocurrency analysis tools with DeFi integration
+                </p>
+              </div>
+              
+              <div style={{ 
+                padding: '30px',
+                background: 'rgba(0, 0, 0, 0.8)',
+                border: '2px solid rgba(255, 102, 0, 0.3)',
+                borderRadius: '12px',
+                backdropFilter: 'blur(8px)'
+              }}>
+                <h3 style={{ color: '#FF6600', marginBottom: '15px', fontSize: '20px' }}>
+                  Global Markets
+                </h3>
+                <p style={{ lineHeight: '1.6', opacity: '0.8' }}>
+                  International market coverage with forex and commodities
+                </p>
+              </div>
+            </div>
+            
+            <div style={{ 
+              marginTop: '60px',
+              padding: '25px',
+              background: 'rgba(255, 102, 0, 0.1)',
+              border: '2px solid #FF6600',
+              borderRadius: '10px',
+              maxWidth: '600px',
+              margin: '60px auto 0'
+            }}>
+              <p style={{ 
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#FF6600',
+                margin: '0'
+              }}>
+                Stay tuned for these exciting updates coming to the Bloomberg Terminal
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <Footer />
+    </>
+  );
+}
