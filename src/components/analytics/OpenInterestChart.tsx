@@ -12,9 +12,15 @@ interface OptionsData {
 
 interface OpenInterestChartProps {
   selectedTicker?: string;
+  onTickerChange?: (ticker: string) => void;
+  onExpirationChange?: (expiration: string) => void;
 }
 
-export default function OpenInterestChart({ selectedTicker: propTicker }: OpenInterestChartProps) {
+export default function OpenInterestChart({ 
+  selectedTicker: propTicker, 
+  onTickerChange, 
+  onExpirationChange 
+}: OpenInterestChartProps) {
   const [selectedTicker, setSelectedTicker] = useState<string>(propTicker || 'SPY');
   const [tickerInput, setTickerInput] = useState<string>(propTicker || 'SPY');
   const [selectedExpiration, setSelectedExpiration] = useState<string>('');
@@ -26,13 +32,39 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
   const [zoomTransform, setZoomTransform] = useState<any>(null);
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   
-  // Sync with prop changes
+  // Shared state for synchronized charts
+  const [sharedCrosshairX, setSharedCrosshairX] = useState<number | null>(null);
+  const [sharedCrosshairY, setSharedCrosshairY] = useState<number | null>(null);
+  const [sharedStrike, setSharedStrike] = useState<number | null>(null);
+  const [sharedZoomTransform, setSharedZoomTransform] = useState<any>(null);
+  const [isHoveringAnyChart, setIsHoveringAnyChart] = useState<boolean>(false);
+  
+  // Debug: Log when shared state changes
+  useEffect(() => {
+    console.log('🔄 Shared state changed:', { sharedCrosshairX, sharedCrosshairY, isHoveringAnyChart });
+  }, [sharedCrosshairX, sharedCrosshairY, isHoveringAnyChart]);
+  
+  // Sync with prop changes and notify parent
   useEffect(() => {
     if (propTicker && propTicker !== selectedTicker) {
       setSelectedTicker(propTicker);
       setTickerInput(propTicker);
     }
   }, [propTicker]);
+
+  // Notify parent when ticker changes
+  useEffect(() => {
+    if (onTickerChange && selectedTicker) {
+      onTickerChange(selectedTicker);
+    }
+  }, [selectedTicker, onTickerChange]);
+
+  // Notify parent when expiration changes
+  useEffect(() => {
+    if (onExpirationChange && selectedExpiration) {
+      onExpirationChange(selectedExpiration);
+    }
+  }, [selectedExpiration, onExpirationChange]);
   
   // Toggle states for chart visibility
   const [showCalls, setShowCalls] = useState<boolean>(true);
@@ -66,7 +98,7 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
           }
           
           if (dates.length > 0) {
-            console.log('FORCING selectedExpiration to:', dates[0]);
+            console.log('Setting selectedExpiration to first available:', dates[0]);
             // Use setTimeout to ensure state update happens
             setTimeout(() => {
               setSelectedExpiration(dates[0]);
@@ -112,7 +144,7 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
           const combinedStrikeMap = new Map<number, { call?: number; put?: number }>();
           
           for (const expDate of expirationDates) {
-            const response = await fetch(`/api/options-chain?ticker=${selectedTicker}`);
+            const response = await fetch(`/api/options-chain?ticker=${selectedTicker}&expiration=${expDate}`);
             const result = await response.json();
             
             if (result.success && result.data && result.data[expDate]) {
@@ -177,33 +209,20 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
           
           setData(chartData.sort((a, b) => a.strike - b.strike || (a.type === 'call' ? -1 : 1)));
         } else {
-          // Fetch data for single expiration date
-          const response = await fetch(`/api/options-chain?ticker=${selectedTicker}`);
+          // Fetch data for single expiration date using the FIXED endpoint with full strike coverage
+          const response = await fetch(`/api/options-chain?ticker=${selectedTicker}&expiration=${selectedExpiration}`);
           const result = await response.json();
           
-          if (result.success && result.data) {
+          if (result.success && result.data && result.data[selectedExpiration]) {
             console.log('API Response received, processing...');
-            console.log('Available expirations:', Object.keys(result.data));
             console.log('Selected expiration:', selectedExpiration);
             
-            // Use first available expiration if selected one doesn't exist
-            const availableExpirations = Object.keys(result.data);
-            const expirationToUse = availableExpirations.includes(selectedExpiration) 
-              ? selectedExpiration 
-              : availableExpirations[0];
-              
-            console.log('Using expiration:', expirationToUse);
+            // Extract current price from API response
+            if (result.currentPrice) {
+              setCurrentPrice(result.currentPrice);
+            }
             
-            if (expirationToUse && result.data[expirationToUse]) {
-              console.log('Processing data for expiration:', expirationToUse);
-              console.log('Expiration data:', result.data[expirationToUse]);
-              
-              // Extract current price from API response
-              if (result.currentPrice) {
-                setCurrentPrice(result.currentPrice);
-              }
-              
-              const expirationData = result.data[expirationToUse];
+            const expirationData = result.data[selectedExpiration];
             const chartData: OptionsData[] = [];
             const strikeMap = new Map<number, { call?: number; put?: number }>();
             
@@ -254,13 +273,9 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
             setData(chartData.sort((a, b) => a.strike - b.strike || (a.type === 'call' ? -1 : 1)));
             console.log('Chart data set:', chartData.length, 'items');
           } else {
-            console.log('No data found for expiration:', expirationToUse);
+            console.log('No data found for selected expiration');
             setError('No options data available for this expiration');
           }
-        } else {
-          console.log('API call failed or no data');
-          setError('Failed to fetch options data');
-        }
         }
       } catch (err) {
         setError('Failed to fetch options data');
@@ -275,7 +290,16 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
 
   // D3 Chart rendering
   useEffect(() => {
-    if (!data.length || !svgRef.current) return;
+    console.log('🚀 OpenInterestChart main useEffect triggered');
+    console.log('📊 Data length:', data.length);
+    console.log('📏 SVG ref exists:', !!svgRef.current);
+    
+    if (!data.length || !svgRef.current) {
+      console.log('❌ Early return - data length:', data.length, 'svgRef:', !!svgRef.current);
+      return;
+    }
+
+    console.log('✅ Starting chart creation process...');
 
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
@@ -322,6 +346,8 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
       .on('zoom', (event) => {
         const { transform } = event;
         setZoomTransform(transform);
+        
+        console.log('🔍 Open Interest Chart zoom:', { k: transform.k, x: transform.x, y: transform.y });
         
         // Create new X scale with zoom applied
         const newXScale = transform.rescaleX(d3.scaleLinear().domain([0, uniqueStrikes.length - 1]).range([0, width]));
@@ -441,7 +467,9 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
     });
 
     // Bars
-    container
+    console.log('📊 Creating bars with filtered data:', filteredData.length, 'items');
+    
+    const bars = container
       .selectAll('.bar')
       .data(filteredData)
       .enter()
@@ -456,38 +484,7 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
       .attr('width', xSubScale.bandwidth())
       .attr('height', d => height - yScale(d.openInterest))
       .attr('fill', d => colorScale(d.type))
-      .attr('opacity', 1)
-      .on('mouseover', function(event, d) {
-        d3.select(this).attr('opacity', 1);
-        
-        // Tooltip
-        const tooltip = d3.select('body')
-          .append('div')
-          .style('position', 'absolute')
-          .style('background', '#000')
-          .style('color', '#ff9900')
-          .style('padding', '12px')
-          .style('border-radius', '0px')
-          .style('border', '1px solid #ff9900')
-          .style('font-size', '14px')
-          .style('font-weight', 'bold')
-          .style('pointer-events', 'none')
-          .style('z-index', '1000');
-
-        tooltip.html(`
-          <div><strong>STRIKE:</strong> $${d.strike}</div>
-          <div><strong>TYPE:</strong> ${d.type.toUpperCase()}</div>
-          <div><strong>OPEN INTEREST:</strong> ${d.openInterest.toLocaleString()}</div>
-        `)
-        .style('left', (event.pageX + 10) + 'px')
-        .style('top', (event.pageY - 10) + 'px');
-      })
-      .on('mouseout', function() {
-        d3.select(this).attr('opacity', 1);
-        d3.selectAll('body > div').filter(function() {
-          return d3.select(this).style('position') === 'absolute';
-        }).remove();
-      });
+      .attr('opacity', 1);
 
     // X-axis with intelligent tick filtering
     const maxLabels = 15; // Maximum number of labels to show
@@ -698,7 +695,75 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
       .attr('height', height)
       .style('fill', 'none')  // Invisible overlay
       .style('pointer-events', 'all')
-      .style('cursor', 'grab');
+      .style('cursor', 'grab')
+      .on('mousemove', function(event) {
+        const [mouseX, mouseY] = d3.pointer(event, container.node());
+        
+        console.log('🎯 Zoom overlay mousemove detected:', { mouseX, mouseY });
+        
+        // Calculate which strike we're hovering over
+        const xScale = d3.scaleBand()
+          .domain(uniqueStrikes.map(s => s.toString()))
+          .range([0, width])
+          .padding(0.1);
+        
+        // Apply zoom transform to the scale if it exists
+        let currentXScale = xScale;
+        if (zoomTransform) {
+          // Create a linear scale for zoom transformation
+          const linearScale = d3.scaleLinear()
+            .domain([0, uniqueStrikes.length - 1])
+            .range([0, width]);
+          
+          // Apply zoom transform to get the current view
+          const zoomedScale = zoomTransform.rescaleX(linearScale);
+          
+          // Get visible strike range
+          const startIndex = Math.max(0, Math.floor(zoomedScale.invert(0)));
+          const endIndex = Math.min(uniqueStrikes.length - 1, Math.ceil(zoomedScale.invert(width)));
+          
+          // Create new band scale for visible strikes only
+          const visibleStrikes = uniqueStrikes.slice(startIndex, endIndex + 1);
+          currentXScale = d3.scaleBand()
+            .domain(visibleStrikes.map(s => s.toString()))
+            .range([0, width])
+            .padding(0.1);
+        }
+        
+        let hoveredStrike = null;
+        const currentDomain = currentXScale.domain().map(d => parseFloat(d));
+        currentDomain.forEach(strike => {
+          const strikeX = currentXScale(strike.toString()) || 0;
+          const strikeWidth = currentXScale.bandwidth();
+          if (mouseX >= strikeX && mouseX <= strikeX + strikeWidth) {
+            hoveredStrike = strike;
+          }
+        });
+        
+        // Update shared crosshair state
+        setSharedCrosshairX(mouseX);
+        setSharedCrosshairY(mouseY);
+        setSharedStrike(hoveredStrike);
+        setIsHoveringAnyChart(true);
+        
+        // Note: No local crosshair - only shared crosshair will be displayed
+        // Remove any existing local crosshairs
+        container.selectAll('.crosshair').remove();
+        container.selectAll('.strike-label').remove();
+      })
+      .on('mouseleave', function() {
+        console.log('🚪 Mouse left zoom overlay');
+        
+        // Clear shared crosshair state
+        setSharedCrosshairX(null);
+        setSharedCrosshairY(null);
+        setSharedStrike(null);
+        setIsHoveringAnyChart(false);
+        
+        // Remove crosshair, labels and reset bar opacity
+        container.selectAll('.crosshair').remove();
+        container.selectAll('.strike-label').remove();
+      });
     
     // Apply zoom behavior to the entire SVG
     svg.call(zoom as any);
@@ -707,8 +772,98 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
     if (zoomTransform) {
       svg.call(zoom.transform as any, zoomTransform);
     }
+    
+    // Debug: Check how many bars were actually created
+    const actualBarsCreated = container.selectAll('.bar').size();
+    console.log('✅ Chart creation complete. Total bars created:', actualBarsCreated);
 
   }, [data, showCalls, showPuts, currentPrice]);
+
+  // Handle shared crosshair from GEX chart
+  useEffect(() => {
+    if (!svgRef.current || sharedCrosshairX === null || sharedCrosshairY === null) return;
+
+    const svg = d3.select(svgRef.current);
+    const margin = { top: 60, right: 180, bottom: 80, left: 80 };
+    const container = svg.select('g');
+    const width = 1500 - margin.left - margin.right;
+    const height = 750 - margin.top - margin.bottom;
+    
+    if (container.empty()) return;
+
+    // Remove existing shared crosshair
+    container.selectAll('.shared-crosshair').remove();
+    container.selectAll('.shared-strike-label').remove();
+
+    // Use the exact mouse coordinates for crosshair positioning
+    const crosshairX = sharedCrosshairX;
+    const crosshairY = sharedCrosshairY;
+
+    // Add shared vertical crosshair line at exact mouse position
+    container
+      .append('line')
+      .attr('class', 'shared-crosshair')
+      .attr('x1', crosshairX)
+      .attr('x2', crosshairX)
+      .attr('y1', 0)
+      .attr('y2', height)
+      .style('stroke', '#64B5F6')  // Nice blue color
+      .style('stroke-width', 2)
+      .style('stroke-dasharray', '4,4')
+      .style('opacity', 0.9);
+    
+    // Add horizontal crosshair line at exact mouse position
+    container
+      .append('line')
+      .attr('class', 'shared-crosshair')
+      .attr('x1', 0)
+      .attr('x2', width)
+      .attr('y1', crosshairY)
+      .attr('y2', crosshairY)
+      .style('stroke', '#64B5F6')
+      .style('stroke-width', 2)
+      .style('stroke-dasharray', '4,4')
+      .style('opacity', 0.9);
+    
+    // Add shared strike price label if we have the strike info
+    if (sharedStrike) {
+      // Add background rectangle first
+      container
+        .append('rect')
+        .attr('class', 'shared-strike-label')
+        .attr('x', crosshairX - 25) // Center the background around the crosshair
+        .attr('y', height + 10)
+        .attr('width', 50)
+        .attr('height', 25)
+        .style('fill', '#000')
+        .style('stroke', '#64B5F6')  // Match crosshair color
+        .style('stroke-width', 2)
+        .style('rx', 3); // Rounded corners
+      
+      // Add text on top of background
+      container
+        .append('text')
+        .attr('class', 'shared-strike-label')
+        .attr('x', crosshairX)
+        .attr('y', height + 28) // Position text in center of background
+        .style('fill', '#64B5F6')  // Match crosshair color
+        .style('font-size', '18px')
+        .style('font-weight', 'bold')
+        .style('text-anchor', 'middle')
+        .text(`$${sharedStrike}`);
+    }
+
+  }, [sharedCrosshairX, sharedCrosshairY, sharedStrike, data]);
+
+  // Clean up shared crosshair when not hovering
+  useEffect(() => {
+    if (!isHoveringAnyChart && svgRef.current) {
+      const svg = d3.select(svgRef.current);
+      const container = svg.select('g');
+      container.selectAll('.shared-crosshair').remove();
+      container.selectAll('.shared-strike-label').remove();
+    }
+  }, [isHoveringAnyChart]);
 
   return (
     <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace' }}>
@@ -1230,6 +1385,19 @@ export default function OpenInterestChart({ selectedTicker: propTicker }: OpenIn
         showNegativeGamma={showNegativeGamma}
         setShowPositiveGamma={setShowPositiveGamma}
         setShowNegativeGamma={setShowNegativeGamma}
+        // Shared chart synchronization props
+        sharedCrosshairX={sharedCrosshairX}
+        sharedCrosshairY={sharedCrosshairY}
+        sharedStrike={sharedStrike}
+        sharedZoomTransform={sharedZoomTransform}
+        isHoveringAnyChart={isHoveringAnyChart}
+        onCrosshairChange={(x: number | null, y: number | null, strike: number | null) => {
+          setSharedCrosshairX(x);
+          setSharedCrosshairY(y);
+          setSharedStrike(strike);
+        }}
+        onZoomChange={setSharedZoomTransform}
+        onHoverChange={setIsHoveringAnyChart}
       />
     </div>
   );

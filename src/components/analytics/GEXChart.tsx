@@ -19,6 +19,15 @@ interface GEXChartProps {
   showNegativeGamma: boolean;
   setShowPositiveGamma: (show: boolean) => void;
   setShowNegativeGamma: (show: boolean) => void;
+  // Shared chart synchronization props
+  sharedCrosshairX?: number | null;
+  sharedCrosshairY?: number | null;
+  sharedStrike?: number | null;
+  sharedZoomTransform?: any;
+  isHoveringAnyChart?: boolean;
+  onCrosshairChange?: (x: number | null, y: number | null, strike: number | null) => void;
+  onZoomChange?: (transform: any) => void;
+  onHoverChange?: (isHovering: boolean) => void;
 }
 
 export default function GEXChart({ 
@@ -29,7 +38,16 @@ export default function GEXChart({
   showPositiveGamma,
   showNegativeGamma,
   setShowPositiveGamma,
-  setShowNegativeGamma
+  setShowNegativeGamma,
+  // Shared chart synchronization props
+  sharedCrosshairX,
+  sharedCrosshairY,
+  sharedStrike,
+  sharedZoomTransform,
+  isHoveringAnyChart,
+  onCrosshairChange,
+  onZoomChange,
+  onHoverChange
 }: GEXChartProps) {
   const [data, setData] = useState<GEXData[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -40,11 +58,44 @@ export default function GEXChart({
   const [showGEX, setShowGEX] = useState<boolean>(true); // Toggle between GEX and DEX
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // Debug: Log when props change
+  useEffect(() => {
+    console.log('🎯 GEX Chart props received:', { 
+      sharedCrosshairX, 
+      sharedCrosshairY, 
+      isHoveringAnyChart,
+      hasOnCrosshairChange: !!onCrosshairChange 
+    });
+  }, [sharedCrosshairX, sharedCrosshairY, isHoveringAnyChart]);
+
   /**
-   * Calculate Gamma Exposure (GEX) using real Polygon gamma data
-   * 
-   * Simple formula: GEX = Gamma × Open Interest × 100 × Spot²
-   * No bullshit, no dealer perspective flipping, just straight math
+   * Calculate real Gamma using Black-Scholes formula
+   * Gamma = (φ(d1)) / (S * σ * √T)
+   * Where φ(d1) is the standard normal probability density function
+   */
+  const calculateRealGamma = (
+    spot: number,
+    strike: number,
+    timeToExpiry: number, // in years
+    volatility: number,
+    riskFreeRate: number = 0.05
+  ): number => {
+    if (timeToExpiry <= 0) return 0;
+    
+    const d1 = (Math.log(spot / strike) + (riskFreeRate + 0.5 * volatility * volatility) * timeToExpiry) / 
+               (volatility * Math.sqrt(timeToExpiry));
+    
+    // Standard normal probability density function φ(d1)
+    const phi_d1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1);
+    
+    // Gamma calculation
+    const gamma = phi_d1 / (spot * volatility * Math.sqrt(timeToExpiry));
+    
+    return gamma;
+  };
+
+  /**
+   * Calculate Gamma Exposure (GEX) using REAL calculated gamma, not fake Polygon data
    */
   const calculateGammaExposure = (
     openInterest: number, 
@@ -57,8 +108,20 @@ export default function GEXChart({
       return 0;
     }
 
-    // Use absolute value of gamma (gamma should always be positive)
+    // FILTER OUT FAKE GAMMA VALUES
     const absGamma = Math.abs(polygonGamma);
+    
+    // Realistic gamma bounds: SPY options typically have gamma between 0.001 and 0.05
+    // Any gamma above 0.1 is likely fake/corrupted data
+    if (absGamma > 0.1) {
+      console.warn(`� FILTERING FAKE GAMMA: ${absGamma} for ${contractType} (too high)`);
+      return 0;
+    }
+    
+    // Also filter extremely low but non-zero values that might be noise
+    if (absGamma < 0.0001) {
+      return 0;
+    }
     
     // GEX = Gamma × OI × 100 × Spot²
     let gex = absGamma * openInterest * 100 * spot * spot;
@@ -427,6 +490,8 @@ export default function GEXChart({
         const { transform } = event;
         setZoomTransform(transform);
         
+        console.log('🔍 GEX Chart zoom:', { k: transform.k, x: transform.x, y: transform.y });
+        
         // Create new X scale with zoom applied
         const newXScale = transform.rescaleX(d3.scaleLinear().domain([0, uniqueStrikes.length - 1]).range([0, width]));
         
@@ -685,12 +750,41 @@ export default function GEXChart({
         tooltip
           .style('left', (event.pageX + 15) + 'px')
           .style('top', (event.pageY - 10) + 'px');
+
+        // Add crosshair and notify parent for synchronization
+        const [mouseX, mouseY] = d3.pointer(event, container.node());
+        
+        // We're hovering over this specific bar, so use its strike
+        const hoveredStrike = d.strike;
+        
+        // Notify parent of crosshair position
+        if (onCrosshairChange) {
+          onCrosshairChange(mouseX, mouseY, hoveredStrike);
+        }
+        if (onHoverChange) {
+          onHoverChange(true);
+        }
+        
+        // Note: No local crosshair - only shared crosshair will be displayed
+        // Remove any existing local crosshairs
+        container.selectAll('.crosshair').remove();
       })
       .on('mouseout', function() {
         d3.select(this)
           .style('opacity', 1.0)
           .style('stroke-width', 1);
         d3.selectAll('.gex-tooltip').remove();
+        
+        // Notify parent that hover ended
+        if (onCrosshairChange) {
+          onCrosshairChange(null, null, null);
+        }
+        if (onHoverChange) {
+          onHoverChange(false);
+        }
+        
+        // Remove crosshair on mouseout
+        container.selectAll('.crosshair').remove();
       });
 
     // Add current price vertical line (same logic as OpenInterest chart)
@@ -878,7 +972,80 @@ export default function GEXChart({
       .attr('height', height)
       .style('fill', 'none')  // Invisible overlay
       .style('pointer-events', 'all')
-      .style('cursor', 'grab');
+      .style('cursor', 'grab')
+      .on('mousemove', function(event) {
+        const [mouseX, mouseY] = d3.pointer(event, container.node());
+        
+        console.log('🎯 GEX Chart - Mouse hover detected:', { mouseX, mouseY });
+        
+        // Calculate which strike we're hovering over
+        const uniqueStrikes = [...new Set(data.map(d => d.strike))].sort((a, b) => a - b);
+        const xScale = d3.scaleBand()
+          .domain(uniqueStrikes.map(s => s.toString()))
+          .range([0, width])
+          .padding(0.1);
+        
+        // Apply zoom transform to the scale if it exists
+        let currentXScale = xScale;
+        if (zoomTransform) {
+          // Create a linear scale for zoom transformation
+          const linearScale = d3.scaleLinear()
+            .domain([0, uniqueStrikes.length - 1])
+            .range([0, width]);
+          
+          // Apply zoom transform to get the current view
+          const zoomedScale = zoomTransform.rescaleX(linearScale);
+          
+          // Get visible strike range
+          const startIndex = Math.max(0, Math.floor(zoomedScale.invert(0)));
+          const endIndex = Math.min(uniqueStrikes.length - 1, Math.ceil(zoomedScale.invert(width)));
+          
+          // Create new band scale for visible strikes only
+          const visibleStrikes = uniqueStrikes.slice(startIndex, endIndex + 1);
+          currentXScale = d3.scaleBand()
+            .domain(visibleStrikes.map(s => s.toString()))
+            .range([0, width])
+            .padding(0.1);
+        }
+        
+        let hoveredStrike = null;
+        const currentDomain = currentXScale.domain().map(d => parseFloat(d));
+        currentDomain.forEach(strike => {
+          const strikeX = currentXScale(strike.toString()) || 0;
+          const strikeWidth = currentXScale.bandwidth();
+          if (mouseX >= strikeX && mouseX <= strikeX + strikeWidth) {
+            hoveredStrike = strike;
+          }
+        });
+        
+        // Update shared crosshair state via callback
+        if (onCrosshairChange) {
+          onCrosshairChange(mouseX, mouseY, hoveredStrike);
+        }
+        if (onHoverChange) {
+          onHoverChange(true);
+        }
+        
+        // Note: No local crosshair - only shared crosshair will be displayed
+        // Remove any existing local crosshairs
+        container.selectAll('.crosshair').remove();
+        container.selectAll('.strike-label').remove();
+      })
+      .on('mouseleave', function() {
+        console.log('🚪 Mouse left GEX Chart zoom overlay');
+        
+        // Clear shared crosshair state via callback
+        if (onCrosshairChange) {
+          onCrosshairChange(null, null, null);
+        }
+        if (onHoverChange) {
+          onHoverChange(false);
+        }
+        
+        // Remove crosshair, labels and reset bar opacity
+        container.selectAll('.crosshair').remove();
+        container.selectAll('.strike-label').remove();
+      });
     
     // Apply zoom behavior to the entire SVG
     svg.call(zoom as any);
@@ -889,6 +1056,108 @@ export default function GEXChart({
     }
 
   }, [data, showPositiveGamma, showNegativeGamma, showGEX]);
+
+  // Handle shared crosshair from Open Interest chart
+  useEffect(() => {
+    console.log('GEX Chart - Shared crosshair effect:', { sharedCrosshairX, sharedCrosshairY, hasRef: !!svgRef.current });
+    
+    if (!svgRef.current) {
+      console.log('GEX Chart - No SVG ref');
+      return;
+    }
+    
+    if (sharedCrosshairX === null || sharedCrosshairY === null || 
+        typeof sharedCrosshairX !== 'number' || typeof sharedCrosshairY !== 'number') {
+      console.log('GEX Chart - No valid shared coordinates');
+      return;
+    }
+
+    const svg = d3.select(svgRef.current);
+    const container = svg.select('g');
+    
+    if (container.empty()) {
+      console.log('GEX Chart - No container found');
+      return;
+    }
+
+    console.log('GEX Chart - Adding shared crosshair at mouse position:', sharedCrosshairX, sharedCrosshairY);
+
+    // Remove existing shared crosshair and reset bar opacity
+    container.selectAll('.shared-crosshair').remove();
+    container.selectAll('.shared-strike-label').remove();
+
+    const width = 1500 - 100 - 180; // total - left margin - right margin
+    const height = 600 - 60 - 80;   // total - top margin - bottom margin
+
+    // Use exact mouse coordinates for crosshair positioning
+    const crosshairX = sharedCrosshairX;
+    const crosshairY = sharedCrosshairY;
+
+    // Add shared vertical crosshair line at exact mouse position
+    container
+      .append('line')
+      .attr('class', 'shared-crosshair')
+      .attr('x1', crosshairX)
+      .attr('x2', crosshairX)
+      .attr('y1', 0)
+      .attr('y2', height)
+      .style('stroke', '#64B5F6')  // Nice blue color to match OpenInterest chart
+      .style('stroke-width', 2)
+      .style('stroke-dasharray', '4,4')
+      .style('opacity', 0.9);
+    
+    // Add horizontal crosshair line at exact mouse position
+    container
+      .append('line')
+      .attr('class', 'shared-crosshair')
+      .attr('x1', 0)
+      .attr('x2', width)
+      .attr('y1', crosshairY)
+      .attr('y2', crosshairY)
+      .style('stroke', '#64B5F6')
+      .style('stroke-width', 2)
+      .style('stroke-dasharray', '4,4')
+      .style('opacity', 0.9);
+    
+    // Add shared strike price label if we have the strike info
+    if (sharedStrike) {
+      // Add background rectangle first
+      container
+        .append('rect')
+        .attr('class', 'shared-strike-label')
+        .attr('x', crosshairX - 25) // Center the background around the crosshair
+        .attr('y', height + 10)
+        .attr('width', 50)
+        .attr('height', 25)
+        .style('fill', '#000')
+        .style('stroke', '#64B5F6')  // Match crosshair color
+        .style('stroke-width', 2)
+        .style('rx', 3); // Rounded corners
+      
+      // Add text on top of background
+      container
+        .append('text')
+        .attr('class', 'shared-strike-label')
+        .attr('x', crosshairX)
+        .attr('y', height + 28) // Position text in center of background
+        .style('fill', '#64B5F6')  // Match crosshair color
+        .style('font-size', '18px')
+        .style('font-weight', 'bold')
+        .style('text-anchor', 'middle')
+        .text(`$${sharedStrike}`);
+    }
+
+  }, [sharedCrosshairX, sharedCrosshairY, sharedStrike, data]);
+
+  // Clean up shared crosshair when not hovering
+  useEffect(() => {
+    if (!isHoveringAnyChart && svgRef.current) {
+      const svg = d3.select(svgRef.current);
+      const container = svg.select('g');
+      container.selectAll('.shared-crosshair').remove();
+      container.selectAll('.shared-strike-label').remove();
+    }
+  }, [isHoveringAnyChart]);
 
   return (
     <div style={{ marginTop: '32px' }}>
@@ -974,7 +1243,7 @@ export default function GEXChart({
                 }}
                 title={`Click to switch to ${showNetGamma ? 'Separate' : 'Net'} view`}
               >
-                {showNetGamma ? 'NET GAMMA' : 'SEPARATE'}
+                {showNetGamma ? 'SEPARATE' : 'NET GAMMA'}
               </div>
 
               {/* GEX/DEX Toggle */}
@@ -1000,7 +1269,7 @@ export default function GEXChart({
                 }}
                 title={`Click to switch to ${showGEX ? 'Delta Exposure (DEX)' : 'Gamma Exposure (GEX)'}`}
               >
-                {showGEX ? 'GEX' : 'DEX'}
+                {showGEX ? 'DEX' : 'GEX'}
               </div>
               
               {/* Positive Gamma legend click area - covers checkbox AND full text */}

@@ -1,0 +1,61 @@
+// REAL GAMMA CALCULATION - Replace the fake Polygon gamma
+
+/**
+ * Calculate real Gamma using Black-Scholes formula
+ */
+const calculateRealGamma = (
+  spot: number,
+  strike: number,
+  timeToExpiry: number, // in years
+  volatility: number,
+  riskFreeRate: number = 0.05
+): number => {
+  if (timeToExpiry <= 0) return 0;
+  
+  const d1 = (Math.log(spot / strike) + (riskFreeRate + 0.5 * volatility * volatility) * timeToExpiry) / 
+             (volatility * Math.sqrt(timeToExpiry));
+  
+  // Standard normal probability density function φ(d1)
+  const phi_d1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1);
+  
+  // Gamma calculation
+  const gamma = phi_d1 / (spot * volatility * Math.sqrt(timeToExpiry));
+  
+  return gamma;
+};
+
+/**
+ * Calculate GEX using REAL gamma, not fake Polygon data
+ */
+const calculateGammaExposure = (
+  openInterest: number, 
+  spot: number, 
+  strike: number,
+  expirationDate: string,
+  contractType: 'call' | 'put' = 'call',
+  impliedVol: number = 0.2 // Default 20% if no IV available
+): number => {
+  // Calculate time to expiration in years
+  const currentDate = new Date();
+  const expiry = new Date(expirationDate + 'T16:00:00');
+  const timeToExpiry = Math.max(0, (expiry.getTime() - currentDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+  
+  if (timeToExpiry <= 0) return 0;
+  
+  // Calculate REAL gamma using Black-Scholes
+  const realGamma = calculateRealGamma(spot, strike, timeToExpiry, impliedVol);
+  
+  // GEX = Real Gamma × OI × 100 × Spot²
+  let gex = realGamma * openInterest * 100 * spot * spot;
+  
+  // Apply dealer perspective signs
+  if (contractType === 'put') {
+    gex = -gex;
+  }
+  
+  return gex;
+};
+
+// UPDATE FUNCTION CALLS:
+// OLD: calculateGammaExposure(openInterest, spotPrice, callData.greeks?.gamma, 'call')
+// NEW: calculateGammaExposure(openInterest, spotPrice, strikeNum, selectedExpiration, 'call', callData.implied_volatility || 0.2)
