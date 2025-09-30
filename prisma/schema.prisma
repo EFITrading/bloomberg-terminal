@@ -1,0 +1,59 @@
+// Prisma schema for Options Flow Database
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./options_flow.db"
+}
+
+model OptionsFlow {
+  id                   Int      @id @default(autoincrement())
+  
+  // Core contract details
+  ticker               String   // Options ticker (e.g., "AAPL240926C00150000")
+  underlying_ticker    String   // Stock ticker (e.g., "AAPL")
+  strike               Float    // Strike price
+  expiry               String   // Expiration date
+  type                 String   // "call" or "put"
+  
+  // Trade details
+  trade_size           Int      // Number of contracts
+  premium_per_contract Float    // Price per contract
+  total_premium        Float    // Total dollar value
+  
+  // Flow classification
+  flow_type            String?  // "bullish", "bearish", "neutral"
+  trade_type           String?  // "block", "sweep"
+  above_ask            Boolean? @default(false)
+  below_bid            Boolean? @default(false)
+  
+  // Market data
+  exchange             Int?     // Exchange ID
+  conditions           String?  // Trade conditions (JSON array as string)
+  
+  // Timestamps
+  trade_timestamp      DateTime // When the trade occurred
+  created_at           DateTime @default(now()) // When we stored it
+  
+  // Performance indexes
+  @@index([underlying_ticker, trade_timestamp])
+  @@index([total_premium, trade_timestamp])
+  @@index([trade_type, trade_timestamp])
+  @@index([created_at])
+  @@map("options_flow")
+}
+
+model FlowSession {
+  id                Int      @id @default(autoincrement())
+  session_id        String   @unique // UUID for each scan session
+  started_at        DateTime @default(now())
+  completed_at      DateTime?
+  total_trades      Int      @default(0)
+  total_premium     Float    @default(0)
+  symbols_scanned   Int      @default(0)
+  scan_duration_ms  Int?     // Milliseconds to complete scan
+  
+  @@map("flow_sessions")
+}

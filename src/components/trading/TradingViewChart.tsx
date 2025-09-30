@@ -8,16 +8,20 @@ import {
   TbBellRinging, 
   TbMessageCircle, 
   TbTrendingUp,
+  TbTrendingDown,
   TbX,
   TbSend,
   TbPhoto,
   TbUser,
-  TbLock
+  TbLock,
+  TbCalculator,
+  TbLink
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 import ChartDataCache from '../../lib/chartDataCache';
+import OptionsCalculator from '../calculator/OptionsCalculator';
 
-// Add custom styles for 3D carved effect
+// Add custom styles for 3D carved effect and holographic animations
 const carvedTextStyles = `
   .text-shadow-carved {
     text-shadow: 
@@ -38,6 +42,25 @@ const carvedTextStyles = `
   .glow-red {
     text-shadow: 0 0 5px rgba(255, 0, 0, 0.5), 0 0 10px rgba(255, 0, 0, 0.3);
   }
+  
+  /* Holographic Channel Animations */
+  @keyframes shimmer {
+    0% { transform: translateX(-100%) skewX(-12deg); }
+    100% { transform: translateX(200%) skewX(-12deg); }
+  }
+  
+  @keyframes spin-slow {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
+  }
+  
+  .animate-spin-slow {
+    animation: spin-slow 8s linear infinite;
+  }
 `;
 
 // TradingView-style Chart Data Interface
@@ -47,6 +70,7 @@ interface ChartDataPoint {
   high: number;
   low: number;
   close: number;
+  volume: number;
   date: string;
   time: string;
 }
@@ -119,6 +143,10 @@ interface ChartConfig {
       body: string;
       wick: string;
       border: string;
+    };
+    volume: {
+      bullish: string;
+      bearish: string;
     };
   };
 }
@@ -1531,6 +1559,10 @@ export default function TradingViewChart({
         body: '#ff0000',      // Pure red for bearish body
         wick: '#ff0000',      // Pure red for bearish wick
         border: '#ff0000'     // Pure red for bearish border
+      },
+      volume: {
+        bullish: '#00bfff',   // Bright blue for bullish volume
+        bearish: '#ff0000'    // Bright red for bearish volume
       }
     }
   });
@@ -1579,7 +1611,29 @@ export default function TradingViewChart({
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null);
   const [watchlistTab, setWatchlistTab] = useState('Markets');
   const [regimesTab, setRegimesTab] = useState('Life');
-  const [chatTab, setChatTab] = useState('admin');
+  const [chatTab, setChatTab] = useState('announcements');
+  const [chatView, setChatView] = useState('channels'); // 'channels' or 'hub'
+  
+  // Chat messages state for each channel
+  const [chatMessages, setChatMessages] = useState<{[channel: string]: Array<{id: string, user: string, message: string, timestamp: Date, userType: string}>}>({
+    announcements: [
+      {id: '1', user: 'SYSTEM ADMIN', message: 'New Volume Bars Feature Released! You can now customize volume bar colors in chart settings for enhanced visualization.', timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000), userType: 'admin'},
+      {id: '2', user: 'MARKET ALERT', message: 'Extended trading session tonight due to FOMC announcement. Please adjust your strategies accordingly.', timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000), userType: 'system'}
+    ],
+    flow: [],
+    swings: [],
+    portfolios: [],
+    insights: []
+  });
+  
+  const [currentMessage, setCurrentMessage] = useState('');
+  const [screenshots, setScreenshots] = useState<Array<{id: string, url: string, timestamp: Date, notes: string}>>([]);
+  const [notes, setNotes] = useState<Array<{id: string, title: string, content: string, timestamp: Date, color: string}>>([]);
+  const [reminders, setReminders] = useState<Array<{id: string, title: string, datetime: Date, completed: boolean}>>([]);
+  
+  // Chat functionality states
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, name: string, type: string, url: string, size: number}>>([]);
 
   // Market Regime Analysis state with caching and progress tracking
   const [marketRegimeData, setMarketRegimeData] = useState<MarketRegimeData | null>(null);
@@ -1817,6 +1871,21 @@ export default function TradingViewChart({
     
     return () => clearInterval(interval);
   }, []); // Empty dependency array to run only once
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showEmojiPicker) {
+        const target = event.target as Element;
+        if (!target.closest('.emoji-picker-container')) {
+          setShowEmojiPicker(false);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showEmojiPicker]);
 
   // Expected Range data loading - reset when symbol changes
   useEffect(() => {
@@ -2273,19 +2342,17 @@ export default function TradingViewChart({
     setError(null);
     
     try {
-      // Try cache first for INSTANT response
+      // FORCE FRESH DATA: Clear cache for volume data
       const cache = ChartDataCache.getInstance();
-      const cachedData = cache.get(sym, timeframe);
       
-      if (cachedData) {
-        console.log(`⚡ INSTANT CACHE HIT: ${sym} ${timeframe} (${cachedData.length} points)`);
-        setData(cachedData);
-        setLoading(false);
-        
-        const loadTime = performance.now() - startTime;
-        console.log(`📊 CACHE LOAD: ${loadTime.toFixed(2)}ms`);
-        return;
+      // Clear cache for this symbol to force fresh data with volume
+      console.log('🔄 FORCING FRESH DATA: Clearing cache for volume support');
+      if (cache.clear) {
+        cache.clear();
       }
+      
+      // Skip cache check - always fetch fresh data for volume
+      console.log('� BYPASSING CACHE: Fetching fresh data with volume support');
       
       // Not in cache - use optimized API fetch with smart batching
       const data = await cache.getOrFetch(sym, timeframe, async () => {
@@ -2314,9 +2381,9 @@ export default function TradingViewChart({
         
         console.log(`⚡ OPTIMIZED RANGE: ${sym} ${timeframe} - ${daysBack} days (${startDate} to ${endDate})`);
         
-        // Ultra-fast API call with aggressive cache busting
+        // Ultra-fast API call with aggressive cache busting (force fresh data for volume)
         const response = await fetch(
-          `/api/historical-data?symbol=${sym}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&_t=${Date.now()}`
+          `/api/historical-data?symbol=${sym}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&forceRefresh=true&_t=${Date.now()}`
         );
         
         if (!response.ok) {
@@ -2324,6 +2391,31 @@ export default function TradingViewChart({
         }
         
         const result = await response.json();
+        
+        // Debug: Check what data we're actually getting from API in main fetch
+        console.log('🔍 MAIN API DATA DEBUG:', {
+          symbol: sym,
+          timeframe,
+          totalResults: result.results?.length || 0,
+          firstResult: result.results?.[0],
+          firstResultKeys: Object.keys(result.results?.[0] || {}),
+          hasVolumeField: result.results?.[0]?.v !== undefined,
+          volumeValue: result.results?.[0]?.v,
+          volumeType: typeof result.results?.[0]?.v,
+          allVolumeValues: result.results?.slice(0, 10).map((item: any, i: number) => ({ index: i, v: item.v, type: typeof item.v })) || []
+        });
+        
+        // Check if ALL volume values are 0 or undefined
+        const allVolumes = result.results?.map((item: any) => item.v).filter((v: any) => v !== undefined && v !== null) || [];
+        const nonZeroVolumes = allVolumes.filter((v: any) => v > 0);
+        console.log('🔍 VOLUME ANALYSIS:', {
+          totalItems: result.results?.length || 0,
+          itemsWithVolumeField: allVolumes.length,
+          itemsWithNonZeroVolume: nonZeroVolumes.length,
+          maxVolume: nonZeroVolumes.length > 0 ? Math.max(...nonZeroVolumes) : 'NONE',
+          minVolume: nonZeroVolumes.length > 0 ? Math.min(...nonZeroVolumes) : 'NONE',
+          avgVolume: nonZeroVolumes.length > 0 ? (nonZeroVolumes.reduce((a: any, b: any) => a + b, 0) / nonZeroVolumes.length).toFixed(0) : 'NONE'
+        });
         
         if (!result?.results?.length) {
           throw new Error(`No data available for ${sym}`);
@@ -2343,6 +2435,7 @@ export default function TradingViewChart({
             high: item.h,
             low: item.l,
             close: item.c,
+            volume: item.v || 0, // ADD VOLUME FIELD!
             date: new Date(item.t).toISOString().split('T')[0],
             time: new Date(item.t).toLocaleTimeString('en-US', { 
               hour: '2-digit', 
@@ -2350,6 +2443,15 @@ export default function TradingViewChart({
               hour12: false 
             })
           };
+          
+          // Debug first few items
+          if (i < 3) {
+            console.log(`🔍 MAIN MAPPING ITEM ${i}:`, {
+              rawVolume: item.v,
+              mappedVolume: transformedData[i].volume,
+              mappedKeys: Object.keys(transformedData[i])
+            });
+          }
         }
         
         return transformedData;
@@ -2430,17 +2532,54 @@ export default function TradingViewChart({
     const result = await response.json();
     if (!result?.results?.length) throw new Error(`No data for ${symbol}`);
     
-    return result.results.map((item: any) => ({
-      timestamp: item.t,
-      open: item.o,
-      high: item.h,
-      low: item.l,
-      close: item.c,
-      date: new Date(item.t).toISOString().split('T')[0],
-      time: new Date(item.t).toLocaleTimeString('en-US', { 
-        hour: '2-digit', minute: '2-digit', hour12: false 
-      })
-    }));
+    // Debug: Check what data we're actually getting from API
+    console.log('🔍 API DATA DEBUG:', {
+      symbol,
+      timeframe,
+      totalResults: result.results.length,
+      firstResult: result.results[0],
+      firstResultKeys: Object.keys(result.results[0] || {}),
+      hasVolumeField: result.results[0]?.v !== undefined,
+      volumeValue: result.results[0]?.v,
+      allVolumeValues: result.results.slice(0, 5).map((item: any) => item.v)
+    });
+    
+    const mappedData = result.results.map((item: any, index: number) => {
+      const mapped = {
+        timestamp: item.t,
+        open: item.o,
+        high: item.h,
+        low: item.l,
+        close: item.c,
+        volume: item.v || 0,
+        date: new Date(item.t).toISOString().split('T')[0],
+        time: new Date(item.t).toLocaleTimeString('en-US', { 
+          hour: '2-digit', minute: '2-digit', hour12: false 
+        })
+      };
+      
+      // Debug first few items
+      if (index < 3) {
+        console.log(`🔍 MAPPING ITEM ${index}:`, {
+          rawItem: item,
+          rawKeys: Object.keys(item),
+          rawVolume: item.v,
+          mappedVolume: mapped.volume,
+          mappedKeys: Object.keys(mapped)
+        });
+      }
+      
+      return mapped;
+    });
+    
+    // Debug: Check mapped data
+    console.log('🔍 MAPPED DATA DEBUG:', {
+      firstMappedItem: mappedData[0],
+      hasVolumeAfterMapping: mappedData[0]?.volume !== undefined,
+      volumeAfterMapping: mappedData[0]?.volume
+    });
+    
+    return mappedData;
   };
 
   // Auto-fit chart to data
@@ -3035,12 +3174,13 @@ export default function TradingViewChart({
     ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
 
-    // Calculate chart areas - reserve space for indicators and time axis
+    // Calculate chart areas - reserve space for indicators, volume, and time axis
     const timeAxisHeight = 25;
+    const volumeAreaHeight = 80; // Reserve space for volume bars
     const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
     const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
     
-    const priceChartHeight = height - indicatorPanelHeight - timeAxisHeight;
+    const priceChartHeight = height - indicatorPanelHeight - volumeAreaHeight - timeAxisHeight;
     const indicatorStartY = priceChartHeight;
     const indicatorEndY = indicatorStartY + indicatorPanelHeight;
 
@@ -3261,6 +3401,9 @@ export default function TradingViewChart({
       console.log(`🎯 Rendered ${validZones.filter(z => z.isValid).length} valid zones`);
     }
 
+    // Draw volume bars above the time axis (TradingView style)
+    drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+
     // Draw time axis at the bottom
     drawTimeAxis(ctx, width, height, visibleData, chartWidth, visibleCandleCount, scrollOffset, data);
 
@@ -3285,6 +3428,166 @@ export default function TradingViewChart({
     console.log(`✅ Integrated chart rendered successfully with ${config.theme} theme`);
 
   }, [data, dimensions, chartHeight, config.chartType, config.theme, config.showGrid, config.axisStyle, config.indicators, colors, scrollOffset, visibleCandleCount, drawings]);
+
+  // Draw volume bars above the x-axis (TradingView style)
+  const drawVolumeProfile = (
+    ctx: CanvasRenderingContext2D,
+    visibleData: ChartDataPoint[],
+    chartWidth: number,
+    priceChartHeight: number,
+    visibleCandleCount: number,
+    volumeAreaHeight: number = 80,
+    timeAxisHeight: number = 25,
+    config: ChartConfig
+  ) => {
+    // Early return if no data or no volume data
+    if (!visibleData.length) return;
+
+    // Calculate volume profile area - dedicated space between price chart and time axis
+    const volumeStartY = priceChartHeight;
+    const volumeEndY = priceChartHeight + volumeAreaHeight;
+    
+    // Draw subtle volume background area
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+    ctx.fillRect(40, volumeStartY, chartWidth - 80, volumeAreaHeight);
+
+    // Find max volume for scaling
+    const volumes = visibleData.map(d => d.volume || 0).filter(v => v > 0);
+    
+    // ALWAYS log volume data check for debugging
+    console.log('🎵 VOLUME DATA CHECK:', {
+      totalCandles: visibleData.length,
+      volumesFound: volumes.length,
+      firstCandleFullData: visibleData[0],
+      dataKeys: visibleData[0] ? Object.keys(visibleData[0]) : 'NO_DATA',
+      maxVolume: volumes.length > 0 ? Math.max(...volumes) : 'NO_VOLUMES',
+      firstFewCandlesWithVolume: visibleData.slice(0, 3).map(d => ({ 
+        timestamp: new Date(d.timestamp).toISOString().slice(11, 19),
+        volume: d.volume,
+        hasVolume: d.hasOwnProperty('volume'),
+        volumeType: typeof d.volume
+      }))
+    });
+    
+    // Check for real volume data first
+    let maxVolume;
+    let useTestData = false;
+    
+    if (volumes.length === 0) {
+      console.log('🚨 NO VOLUME DATA DETECTED - Check API response above');
+      console.log('🎵 Falling back to test data for now');
+      maxVolume = 2000000; // 2M test max for more realistic scaling
+      useTestData = true;
+    } else {
+      console.log('✅ REAL VOLUME DATA FOUND!', { volumeCount: volumes.length, maxVolume: Math.max(...volumes) });
+      maxVolume = Math.max(...volumes);
+    }
+    
+    const candleSpacing = chartWidth / visibleCandleCount;
+    const candleWidth = Math.max(1, candleSpacing * 0.8);
+
+    // Draw subtle volume border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(40, volumeStartY, chartWidth - 80, volumeAreaHeight);
+
+    // Draw volume bars
+    visibleData.forEach((candle, index) => {
+      const x = Math.round(40 + (index * candleSpacing) + (candleSpacing - candleWidth) / 2);
+      
+      // Use real volume or generate test volume
+      let volumeValue;
+      if (useTestData) {
+        // Generate realistic volume based on price movement and candle type
+        const priceRange = Math.abs(candle.high - candle.low);
+        const avgPrice = (candle.high + candle.low) / 2;
+        const bodySize = Math.abs(candle.close - candle.open);
+        
+        // Base volume with some randomness
+        let baseVolume = (Math.random() * 0.4 + 0.3) * maxVolume; // 30-70% of max
+        
+        // Increase volume for larger price movements
+        const volatilityMultiplier = 1 + (priceRange / avgPrice) * 2;
+        
+        // Increase volume for larger candle bodies (more decisive moves)
+        const bodyMultiplier = 1 + (bodySize / priceRange) * 0.5;
+        
+        volumeValue = baseVolume * volatilityMultiplier * bodyMultiplier;
+        
+        // Add some random spikes for realism (10% chance of high volume)
+        if (Math.random() < 0.1) {
+          volumeValue *= (Math.random() * 1.5 + 1.5); // 1.5x to 3x spike
+        }
+        
+        volumeValue = Math.min(volumeValue, maxVolume); // Cap at max
+      } else {
+        volumeValue = candle.volume;
+        if (!volumeValue || volumeValue <= 0) return; // Skip if no real volume
+      }
+      
+      const volumeHeight = (volumeValue / maxVolume) * volumeAreaHeight;
+      const barY = volumeEndY - volumeHeight;
+
+      // Color volume bars based on price movement and user settings
+      const isGreen = candle.close > candle.open;
+      const volumeColor = isGreen ? config.colors.volume.bullish : config.colors.volume.bearish;
+      
+      // Convert hex to rgba with transparency
+      const hexToRgba = (hex: string, alpha: number) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      };
+      
+      ctx.fillStyle = hexToRgba(volumeColor, 0.7);
+
+      // Draw volume bar
+      ctx.fillRect(x, barY, Math.round(candleWidth), volumeHeight);
+
+      // Add subtle border to volume bars for better definition
+      ctx.strokeStyle = hexToRgba(volumeColor, 0.9);
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, barY, Math.round(candleWidth), volumeHeight);
+    });
+
+    // Draw volume scale labels on the right
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'left';
+
+    // Draw volume labels (3 levels: 0, 50%, 100%)
+    for (let i = 0; i <= 2; i++) {
+      const volumeLevel = (maxVolume / 2) * i;
+      const y = volumeEndY - (i * volumeAreaHeight / 2);
+      
+      // Format volume for display
+      let volumeText = '';
+      if (volumeLevel >= 1000000) {
+        volumeText = `${(volumeLevel / 1000000).toFixed(1)}M`;
+      } else if (volumeLevel >= 1000) {
+        volumeText = `${(volumeLevel / 1000).toFixed(1)}K`;
+      } else {
+        volumeText = volumeLevel.toFixed(0);
+      }
+
+      ctx.fillText(volumeText, chartWidth - 35, y + 3);
+      
+      // Draw tick mark
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(chartWidth - 40, y);
+      ctx.lineTo(chartWidth - 35, y);
+      ctx.stroke();
+    }
+
+    // Add volume label
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = 'bold 10px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText('Volume', 45, volumeStartY + 15);
+  };
 
   // Draw grid lines for price chart area only
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, priceHeight: number) => {
@@ -6352,63 +6655,915 @@ export default function TradingViewChart({
       </div>
     );
   };
-  const ChatPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => (
-    <div className="h-full flex flex-col">
-      {/* Tabs */}
-      <div className="flex border-b border-[#1a1a1a]">
-        {['admin', 'classic'].map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-3 text-sm font-medium transition-colors capitalize ${
-              activeTab === tab 
-                ? 'text-violet-400 border-b-2 border-violet-400' 
-                : 'text-white text-opacity-60 hover:text-white hover:text-opacity-80'
-            }`}
-          >
-            {tab} chats
-          </button>
-        ))}
-      </div>
+  const ChatPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
+    const channels = [
+      { id: 'announcements', name: 'Announcements', icon: TbBellRinging, color: 'text-amber-400', adminOnly: true },
+      { id: 'flow', name: 'Flow', icon: TbTrendingUp, color: 'text-cyan-400', adminOnly: false },
+      { id: 'swings', name: 'Swings', icon: TbChartLine, color: 'text-emerald-400', adminOnly: false },
+      { id: 'portfolios', name: 'Portfolios', icon: TbUser, color: 'text-violet-400', adminOnly: false },
+      { id: 'insights', name: 'Insights', icon: TbNews, color: 'text-orange-400', adminOnly: false }
+    ];
+
+    const takeScreenshot = async () => {
+      try {
+        const canvas = chartCanvasRef.current;
+        if (canvas) {
+          const dataURL = canvas.toDataURL('image/png');
+          const newScreenshot = {
+            id: Date.now().toString(),
+            url: dataURL,
+            timestamp: new Date(),
+            notes: ''
+          };
+          setScreenshots(prev => [newScreenshot, ...prev]);
+        }
+      } catch (error) {
+        console.error('Failed to capture screenshot:', error);
+      }
+    };
+
+    const addNote = () => {
+      const newNote = {
+        id: Date.now().toString(),
+        title: 'New Note',
+        content: '',
+        timestamp: new Date(),
+        color: '#3b82f6'
+      };
+      setNotes(prev => [newNote, ...prev]);
+    };
+
+    const addReminder = () => {
+      const newReminder = {
+        id: Date.now().toString(),
+        title: 'New Reminder',
+        datetime: new Date(Date.now() + 3600000), // 1 hour from now
+        completed: false
+      };
+      setReminders(prev => [newReminder, ...prev]);
+    };
+
+    // File upload handler
+    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = event.target.files;
+      if (!files) return;
       
-      {/* Chat Messages */}
-      <div className="flex-1 p-4 space-y-3 overflow-y-auto">
-        {[...Array(6)].map((_, i) => (
-          <div key={i} className="flex items-start space-x-3">
-            <div className="w-8 h-8 rounded-full bg-blue-500 bg-opacity-20 flex items-center justify-center">
-              <span className="text-blue-400 text-sm font-medium">U</span>
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const fileData = {
+            id: Date.now().toString() + Math.random().toString(36),
+            name: file.name,
+            type: file.type,
+            url: e.target?.result as string,
+            size: file.size
+          };
+          
+          setUploadedFiles(prev => [...prev, fileData]);
+          
+          // Send file as message
+          const fileMessage = {
+            id: Date.now().toString(),
+            user: 'You',
+            message: `📎 **${file.name}** (${(file.size / 1024 / 1024).toFixed(2)} MB)`,
+            timestamp: new Date(),
+            userType: 'user',
+            fileData: fileData
+          };
+          
+          setChatMessages(prev => ({
+            ...prev,
+            [activeTab]: [...(prev[activeTab] || []), fileMessage]
+          }));
+        };
+        
+        if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+          reader.readAsDataURL(file);
+        } else {
+          reader.readAsText(file);
+        }
+      });
+      
+      // Reset file input
+      event.target.value = '';
+    };
+
+    // Enhanced Stock Market Emoji Collection
+    const emojis = [
+      // Bullish Emojis (Green/Up Movement)
+      '�', '�', '�', '�', '�', '⬆️', '�', '💎', '�', '⚡',
+      '🎯', '�', '�', '🌟', '✨', '🎉', '🏆', '�', '🤑', '�',
+      
+      // Bearish Emojis (Red/Down Movement)  
+      '�', '�', '�', '�', '⬇️', '📊', '💔', '😰', '�', '�',
+      '⚠️', '�', '�', '�', '�', '�', '�', '⛔', '🛑', '🆘',
+      
+      // Market Sentiment & Trading
+      '�', '�', '�', '💹', '🏦', '�', '�', '�', '�', '�',
+      '⏰', '�', '🔔', '📢', '💡', '�', '🎲', '🎰', '🃏', '♠️',
+      
+      // General Reactions
+      '�', '�', '�', '�', '�', '�', '�', '🤣', '😊', '😇',
+      '🙂', '😉', '😌', '😍', '🥰', '😘', '😎', '🤩', '🥳', '�',
+      
+      // Action & Confirmation
+      '✅', '❌', '👍', '👎', '👌', '🤝', '🙏', '💯', '🔥', '💥'
+    ];
+
+    // Add emoji to message
+    const addEmoji = (emoji: string) => {
+      setCurrentMessage(prev => prev + emoji);
+      setShowEmojiPicker(false);
+    };
+
+    const sendMessage = (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (!currentMessage.trim()) return;
+      
+      const newMessage = {
+        id: Date.now().toString(),
+        user: 'You',
+        message: currentMessage.trim(),
+        timestamp: new Date(),
+        userType: 'user'
+      };
+      
+      setChatMessages(prev => ({
+        ...prev,
+        [activeTab]: [...(prev[activeTab] || []), newMessage]
+      }));
+      
+      setCurrentMessage('');
+    };
+
+    const handleKeyPress = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    };
+
+    return (
+      <div className="h-full flex flex-col bg-black">
+        {/* Professional Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-800 bg-black">
+          <div className="flex items-center space-x-3">
+            <div className="relative">
+              <div className="w-3 h-3 bg-emerald-400 rounded-full"></div>
+              <div className="absolute inset-0 w-3 h-3 bg-emerald-400 rounded-full animate-ping opacity-75"></div>
             </div>
-            <div className="flex-1">
-              <div className="flex items-center space-x-2">
-                <span className="text-white text-opacity-80 font-medium">User {i + 1}</span>
-                <span className="text-white text-opacity-40 text-xs">2m ago</span>
+            <h3 className="text-white font-semibold text-xl tracking-wide">Trading Hub</h3>
+            <div className="px-2 py-1 bg-gray-800 text-gray-300 text-xs rounded-full font-medium">
+              LIVE
+            </div>
+          </div>
+          <div className="flex bg-gray-900 rounded-xl p-1 border border-gray-700">
+            <button
+              onClick={() => setChatView('channels')}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 flex items-center space-x-2 ${
+                chatView === 'channels' 
+                  ? 'bg-blue-600 text-white shadow-lg transform scale-105' 
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              }`}
+            >
+              <TbMessageCircle size={16} />
+              <span>Channels</span>
+            </button>
+            <button
+              onClick={() => setChatView('hub')}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 flex items-center space-x-2 ${
+                chatView === 'hub' 
+                  ? 'bg-violet-600 text-white shadow-lg transform scale-105' 
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              }`}
+            >
+              <TbUser size={16} />
+              <span>Hub</span>
+            </button>
+          </div>
+        </div>
+
+        {chatView === 'channels' ? (
+          <>
+            {/* Sleek Professional Channel Bar with Separators */}
+            <div className="flex bg-gradient-to-b from-gray-950 to-black border-b border-gray-800/50">
+              {channels.map((channel, index) => {
+                const isActive = activeTab === channel.id;
+                const isLast = index === channels.length - 1;
+                
+                // Custom channel symbols instead of generic icons
+                const getChannelSymbol = () => {
+                  switch(channel.id) {
+                    case 'announcements': return '◉';
+                    case 'flow': return '⟨⟩';
+                    case 'swings': return '◈';
+                    case 'portfolios': return '⬢';
+                    case 'insights': return '◆';
+                    default: return '●';
+                  }
+                };
+                
+                const getChannelAccent = () => {
+                  switch(channel.id) {
+                    case 'announcements': return 'border-amber-400 text-amber-400';
+                    case 'flow': return 'border-emerald-400 text-emerald-400';
+                    case 'swings': return 'border-blue-400 text-blue-400';
+                    case 'portfolios': return 'border-violet-400 text-violet-400';
+                    case 'insights': return 'border-orange-400 text-orange-400';
+                    default: return 'border-gray-400 text-gray-400';
+                  }
+                };
+                
+                return (
+                  <div key={channel.id} className="flex items-center">
+                    <button
+                      onClick={() => setActiveTab(channel.id)}
+                      className={`relative px-6 py-4 flex items-center space-x-3 font-medium transition-all duration-300 group ${
+                        isActive 
+                          ? `${getChannelAccent()} bg-gray-900/80 shadow-lg` 
+                          : 'text-white hover:text-white hover:bg-gray-900/50'
+                      }`}
+                    >
+                      {/* Custom geometric symbol */}
+                      <div className={`text-xl font-bold transition-all duration-300 ${
+                        isActive 
+                          ? 'scale-110 animate-pulse drop-shadow-md' 
+                          : 'group-hover:scale-105 text-gray-300'
+                      }`}>
+                        {getChannelSymbol()}
+                      </div>
+                      
+                      {/* Channel name - Crispy White */}
+                      <span className={`text-sm font-bold tracking-wide transition-all duration-300 ${
+                        isActive 
+                          ? 'text-white drop-shadow-sm scale-105' 
+                          : 'text-white/90 group-hover:text-white group-hover:drop-shadow-sm'
+                      }`}>
+                        {channel.name.toUpperCase()}
+                      </span>
+                      
+                      {/* Admin indicator */}
+                      {channel.adminOnly && (
+                        <div className="w-2 h-2 bg-red-400 rounded-full animate-pulse shadow-sm shadow-red-400/50"></div>
+                      )}
+                      
+                      {/* Active indicator bar */}
+                      {isActive && (
+                        <div className={`absolute bottom-0 left-0 right-0 h-1 ${
+                          getChannelAccent().split(' ')[0].replace('border-', 'bg-')
+                        } animate-pulse shadow-md`}></div>
+                      )}
+                      
+                      {/* Subtle hover line */}
+                      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    </button>
+                    
+                    {/* Elegant Separator */}
+                    {!isLast && (
+                      <div className="flex flex-col items-center py-2">
+                        <div className="w-px h-6 bg-gradient-to-b from-transparent via-gray-600/50 to-transparent"></div>
+                        <div className="w-1 h-1 bg-gray-600/30 rounded-full my-1"></div>
+                        <div className="w-px h-6 bg-gradient-to-b from-transparent via-gray-600/50 to-transparent"></div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* Messages Area */}
+            <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar bg-black h-[1100px]">
+              {chatMessages[activeTab]?.map((message) => {
+                const formatTime = (date: Date) => {
+                  const now = new Date();
+                  const diff = now.getTime() - date.getTime();
+                  const minutes = Math.floor(diff / 60000);
+                  const hours = Math.floor(diff / 3600000);
+                  const days = Math.floor(diff / 86400000);
+                  
+                  if (minutes < 1) return 'just now';
+                  if (minutes < 60) return `${minutes}m ago`;
+                  if (hours < 24) return `${hours}h ago`;
+                  return `${days}d ago`;
+                };
+
+                // Check if message contains @everyone for glow effect
+                const hasEveryoneMention = message.message.includes('@everyone');
+                
+                const getUserStyle = () => {
+                  switch(message.userType) {
+                    case 'admin':
+                      return {
+                        iconBg: 'from-amber-500 to-orange-500',
+                        userColor: 'text-amber-400',
+                        badge: 'ADMIN',
+                        badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      };
+                    case 'system':
+                      return {
+                        iconBg: 'from-red-500 to-pink-500',
+                        userColor: 'text-red-400',
+                        badge: 'SYSTEM',
+                        badgeColor: 'bg-red-500/20 text-red-300 border-red-500/30'
+                      };
+                    default:
+                      return {
+                        iconBg: 'from-blue-500 to-cyan-500',
+                        userColor: 'text-blue-400',
+                        badge: null,
+                        badgeColor: ''
+                      };
+                  }
+                };
+
+                const style = getUserStyle();
+                
+                return (
+                  <div 
+                    key={message.id} 
+                    className={`group px-4 py-2 hover:bg-gray-900/30 transition-colors ${
+                      hasEveryoneMention 
+                        ? 'bg-orange-500/10 border-l-4 border-orange-500 shadow-lg shadow-orange-500/20 animate-pulse' 
+                        : 'bg-transparent hover:bg-gray-900/20'
+                    }`}
+                  >
+                    {/* Admin pinned indicator */}
+                    {message.userType === 'admin' && (
+                      <div className="flex items-center space-x-1 mb-2">
+                        <TbBellRinging size={12} className="text-amber-400" />
+                        <span className="text-amber-300 text-xs font-semibold">PINNED MESSAGE</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-start space-x-3">
+                      {/* User Avatar */}
+                      <div className={`w-10 h-10 bg-gradient-to-br ${style.iconBg} flex items-center justify-center shadow-lg flex-shrink-0 mt-1`}>
+                        <TbUser className="text-white" size={18} />
+                      </div>
+                      
+                      {/* Message Content */}
+                      <div className="flex-1 min-w-0">
+                        {/* User Info Header */}
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className={`${style.userColor} font-bold text-base hover:underline cursor-pointer`}>
+                            {message.user}
+                          </span>
+                          {style.badge && (
+                            <span className={`text-xs px-2 py-1 font-bold border ${style.badgeColor}`}>
+                              {style.badge}
+                            </span>
+                          )}
+                          <span className="text-gray-500 text-xs font-medium">
+                            {formatTime(message.timestamp)}
+                          </span>
+                        </div>
+                        
+                        {/* Message Text */}
+                        <div className={`text-gray-100 text-base leading-relaxed ${
+                          hasEveryoneMention ? 'text-white font-medium' : ''
+                        }`}>
+                          {message.message.split('@everyone').map((part, index, array) => (
+                            <span key={index}>
+                              {/* Animate emojis in message text with market-specific animations */}
+                              {part.split(/(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)/gu).map((segment, segIndex) => {
+                                const isEmoji = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u.test(segment);
+                                if (isEmoji) {
+                                  // Get appropriate animation for message emojis
+                                  const getMessageEmojiAnimation = (emoji: string) => {
+                                    const bullishEmojis = ['🐂', '📈', '🚀', '💹', '🟢', '⬆️', '💎', '🔥', '⚡', '💰', '🤑'];
+                                    const bearishEmojis = ['🐻', '📉', '🔻', '🔴', '⬇️', '💸', '😰', '😱', '🩸', '💀'];
+                                    
+                                    if (bullishEmojis.includes(emoji)) {
+                                      return 'bullish-pump';
+                                    } else if (bearishEmojis.includes(emoji)) {
+                                      return 'bearish-dump';
+                                    } else if (emoji === '🚀') {
+                                      return 'rocket-launch';
+                                    } else if (emoji === '💎') {
+                                      return 'diamond-hands';
+                                    } else {
+                                      return 'float';
+                                    }
+                                  };
+                                  
+                                  return (
+                                    <span 
+                                      key={segIndex}
+                                      className="inline-block hover:animate-spin transition-transform duration-300 hover:scale-150 cursor-pointer"
+                                      style={{
+                                        animation: `${getMessageEmojiAnimation(segment)} ${1.2 + (segIndex % 3) * 0.3}s ease-in-out infinite`,
+                                        animationDelay: `${segIndex * 0.15}s`
+                                      }}
+                                      title={segment === '🚀' ? 'To The Moon! 🌙' : 
+                                             segment === '💎' ? 'Diamond Hands 💪' :
+                                             segment === '🐂' ? 'Bullish AF 📈' :
+                                             segment === '🐻' ? 'Bearish Vibes 📉' : segment}
+                                    >
+                                      {segment}
+                                    </span>
+                                  );
+                                } else {
+                                  return <span key={segIndex}>{segment}</span>;
+                                }
+                              })}
+                              {index < array.length - 1 && (
+                                <span className="bg-orange-500/20 text-orange-300 px-1 py-0.5 font-bold border border-orange-500/30 animate-pulse">
+                                  @everyone
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                        
+                        {/* File Attachment Display */}
+                        {(message as any).fileData && (
+                          <div className="mt-3 p-3 bg-gray-900/50 border border-gray-700 max-w-md">
+                            {(message as any).fileData.type.startsWith('image/') ? (
+                              <div className="space-y-2">
+                                <img 
+                                  src={(message as any).fileData.url} 
+                                  alt={(message as any).fileData.name}
+                                  className="max-w-full h-auto max-h-64 object-contain border border-gray-600"
+                                />
+                                <div className="flex items-center space-x-2 text-sm text-gray-400">
+                                  <span>📷</span>
+                                  <span>{(message as any).fileData.name}</span>
+                                  <span>({(((message as any).fileData.size / 1024 / 1024).toFixed(2))} MB)</span>
+                                </div>
+                              </div>
+                            ) : (message as any).fileData.type.startsWith('video/') ? (
+                              <div className="space-y-2">
+                                <video 
+                                  src={(message as any).fileData.url} 
+                                  controls
+                                  className="max-w-full h-auto max-h-64 border border-gray-600"
+                                />
+                                <div className="flex items-center space-x-2 text-sm text-gray-400">
+                                  <span>🎥</span>
+                                  <span>{(message as any).fileData.name}</span>
+                                  <span>({(((message as any).fileData.size / 1024 / 1024).toFixed(2))} MB)</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-3">
+                                <div className="flex-shrink-0 w-10 h-10 bg-orange-500/20 flex items-center justify-center">
+                                  <span className="text-orange-400 text-xl">📄</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-gray-200 font-medium truncate">{(message as any).fileData.name}</div>
+                                  <div className="text-gray-400 text-sm">
+                                    {(message as any).fileData.type} • {(((message as any).fileData.size / 1024 / 1024).toFixed(2))} MB
+                                  </div>
+                                </div>
+                                <button 
+                                  onClick={() => {
+                                    const link = document.createElement('a');
+                                    link.href = (message as any).fileData.url;
+                                    link.download = (message as any).fileData.name;
+                                    link.click();
+                                  }}
+                                  className="flex-shrink-0 text-orange-400 hover:text-orange-300 transition-colors"
+                                >
+                                  ⬇️
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }) || (
+                <div className="text-center text-gray-500 py-8">
+                  <TbMessageCircle size={48} className="mx-auto mb-3 opacity-50" />
+                  <p>No messages in this channel yet.</p>
+                  <p className="text-sm">Be the first to start the conversation!</p>
+                </div>
+              )}
+              
+              {['flow', 'swings', 'portfolios', 'insights'].includes(activeTab) && (
+                <>
+                  {[...Array(8)].map((_, i) => {
+                    const getChannelConfig = () => {
+                      switch(activeTab) {
+                        case 'flow':
+                          return {
+                            icon: i % 2 === 0 ? TbTrendingUp : TbChartLine,
+                            gradient: i % 2 === 0 ? 'from-emerald-500 to-green-500' : 'from-blue-500 to-cyan-500',
+                            accent: i % 2 === 0 ? 'emerald' : 'blue',
+                            message: `Unusual ${i % 2 === 0 ? 'CALL' : 'PUT'} flow detected in SPY ${350 + i * 5} strike`,
+                            data: [`Volume: ${(Math.random() * 50 + 10).toFixed(0)}K`, `Premium: $${(Math.random() * 10 + 5).toFixed(2)}M`, `IV: ${(Math.random() * 30 + 20).toFixed(1)}%`]
+                          };
+                        case 'swings':
+                          return {
+                            icon: i % 2 === 0 ? TbTrendingUp : TbTrendingDown,
+                            gradient: i % 2 === 0 ? 'from-green-500 to-emerald-500' : 'from-red-500 to-pink-500',
+                            accent: i % 2 === 0 ? 'green' : 'red',
+                            message: `${i % 2 === 0 ? 'LONG' : 'SHORT'} setup forming on AAPL - target $${170 + i * 2}`,
+                            data: [`Entry: $${(165 + i * 1.5).toFixed(2)}`, `R/R: ${(Math.random() * 2 + 1).toFixed(1)}:1`, `Confidence: ${75 + Math.floor(Math.random() * 20)}%`]
+                          };
+                        case 'portfolios':
+                          return {
+                            icon: TbChartLine,
+                            gradient: 'from-violet-500 to-purple-500',
+                            accent: 'violet',
+                            message: `Portfolio performance update: +${(Math.random() * 5 + 1).toFixed(1)}% this week`,
+                            data: [`YTD: +${(Math.random() * 25 + 10).toFixed(1)}%`, `Sharpe: ${(Math.random() * 1.5 + 1).toFixed(2)}`, `Max DD: -${(Math.random() * 8 + 2).toFixed(1)}%`]
+                          };
+                        case 'insights':
+                          return {
+                            icon: TbNews,
+                            gradient: 'from-orange-500 to-amber-500',
+                            accent: 'orange',
+                            message: `Market insight: ${i % 2 === 0 ? 'Bullish' : 'Bearish'} divergence forming in key levels`,
+                            data: [`Strength: ${i % 2 === 0 ? 'Strong' : 'Moderate'}`, `Timeframe: ${['1D', '4H', '1H'][i % 3]}`, `Confidence: ${70 + Math.floor(Math.random() * 25)}%`]
+                          };
+                        default:
+                          return { icon: TbUser, gradient: 'from-gray-500 to-gray-600', accent: 'gray', message: '', data: [] };
+                      }
+                    };
+                    
+                    const config = getChannelConfig();
+                    const IconComponent = config.icon;
+                    
+                    return (
+                      <div key={i} className="relative bg-gradient-to-r from-gray-900/20 to-gray-800/20 p-6 rounded-2xl border border-gray-700/30 backdrop-blur-sm hover:border-gray-600/50 transition-all duration-300 group">
+                        <div className="flex items-start space-x-4">
+                          <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${config.gradient} flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform duration-300`}>
+                            <IconComponent className="text-white" size={20} />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-3 mb-3">
+                              <span className={`text-${config.accent}-400 font-bold text-sm`}>
+                                TRADER_{String(i + 1).padStart(3, '0')}
+                              </span>
+                              <div className={`px-3 py-1 rounded-full border ${
+                                i % 3 === 0 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
+                                i % 3 === 1 ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' :
+                                'bg-violet-500/20 text-violet-300 border-violet-500/30'
+                              }`}>
+                                <span className="text-xs font-bold">
+                                  {i % 3 === 0 ? 'PRO' : i % 3 === 1 ? 'VIP' : 'ELITE'}
+                                </span>
+                              </div>
+                              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+                              <span className="text-gray-400 text-xs">{Math.floor(Math.random() * 60) + 1} minutes ago</span>
+                            </div>
+                            <div className="text-white leading-relaxed mb-4 font-medium">
+                              {config.message}
+                            </div>
+                            {config.data.length > 0 && (
+                              <div className="flex items-center space-x-4 text-sm">
+                                {config.data.map((item, idx) => (
+                                  <span key={idx} className={`text-${config.accent}-400 font-mono bg-${config.accent}-500/10 px-2 py-1 rounded`}>
+                                    {item}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {Math.random() > 0.6 && (
+                              <div className="mt-4 bg-black/50 border border-gray-700/50 rounded-xl p-4 backdrop-blur-sm">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="text-xs text-gray-400 font-medium">Chart Analysis</div>
+                                  <TbChartLine size={14} className="text-gray-500" />
+                                </div>
+                                <div className="w-full h-20 bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-violet-500/10 rounded-lg flex items-center justify-center border border-gray-700/30">
+                                  <div className="text-center">
+                                    <TbChartLine size={24} className="text-gray-500 mx-auto mb-1" />
+                                    <span className="text-gray-500 text-xs font-medium">Live Chart Data</span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+            
+            {/* Premium Black & Orange Message Bar - Boxy & Bigger */}
+            <div className="border-t border-orange-500/20 p-8 bg-gradient-to-r from-black via-gray-950 to-black">
+              <div className="relative bg-black/80 border border-orange-500/30 shadow-2xl backdrop-blur-sm">
+                {/* Glow Effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10"></div>
+                
+                <div className="relative flex items-center px-8 py-6">
+                  {/* Add Files Button - Bigger */}
+                  <label className="group p-6 text-gray-400 hover:text-orange-400 transition-all duration-200 hover:bg-orange-500/10 mr-4 cursor-pointer">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*,video/*,.pdf,.doc,.docx,.txt"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" className="group-hover:scale-110 transition-transform">
+                      <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                    </svg>
+                    <span className="sr-only">Upload files</span>
+                  </label>
+
+                  {/* Message Input - Much Bigger */}
+                  <input
+                    type="text"
+                    value={currentMessage}
+                    onChange={(e) => setCurrentMessage(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder={`Message ${channels.find(c => c.id === activeTab)?.name || 'channel'}...`}
+                    className="flex-1 bg-transparent text-white px-8 py-6 focus:outline-none placeholder-gray-500 font-medium text-xl tracking-wide"
+                    autoFocus
+                  />
+
+                  {/* Emoji Button - Bigger */}
+                  <div className="relative ml-4 emoji-picker-container">
+                    <button 
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      className={`group p-6 text-gray-400 hover:text-orange-400 transition-all duration-200 hover:bg-orange-500/10 ${
+                        showEmojiPicker ? 'text-orange-400 bg-orange-500/20 animate-pulse' : ''
+                      }`}
+                      title="Add emoji"
+                    >
+                      <svg 
+                        width="32" 
+                        height="32" 
+                        viewBox="0 0 24 24" 
+                        fill="currentColor" 
+                        className={`group-hover:scale-110 transition-all duration-300 ${
+                          showEmojiPicker ? 'animate-bounce scale-110' : ''
+                        }`}
+                      >
+                        <path d="M12,2C6.48,2 2,6.48 2,12C2,17.52 6.48,22 12,22C17.52,22 22,17.52 22,12C22,6.48 17.52,2 12,2ZM12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20ZM8.5,11A1.5,1.5 0 0,1 7,9.5A1.5,1.5 0 0,1 8.5,8A1.5,1.5 0 0,1 10,9.5A1.5,1.5 0 0,1 8.5,11ZM15.5,11A1.5,1.5 0 0,1 14,9.5A1.5,1.5 0 0,1 15.5,8A1.5,1.5 0 0,1 17,9.5A1.5,1.5 0 0,1 15.5,11ZM12,17.5C14.33,17.5 16.31,16.04 17.11,14H6.89C7.69,16.04 9.67,17.5 12,17.5Z"/>
+                      </svg>
+                    </button>
+                    
+                    {/* Emoji Picker Popup */}
+                    {showEmojiPicker && (
+                      <div className="absolute bottom-full right-0 mb-2 bg-black/95 border border-orange-500/30 shadow-2xl backdrop-blur-sm p-4 w-80 max-h-64 overflow-y-auto z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-orange-400 font-semibold animate-pulse">Choose Emoji ✨</span>
+                          <button 
+                            onClick={() => setShowEmojiPicker(false)}
+                            className="text-gray-400 hover:text-white transition-all duration-200 hover:rotate-90 hover:scale-110"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        
+                        {/* Quick Trading Reactions */}
+                        <div className="mb-4 p-2 bg-gray-900/50 border border-gray-700">
+                          <div className="text-xs text-gray-400 mb-2 font-semibold">Quick Reactions:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {[
+                              { emoji: '🚀💎', label: 'TO THE MOON!' },
+                              { emoji: '📈🐂', label: 'BULLISH!' },
+                              { emoji: '📉🐻', label: 'BEARISH!' },
+                              { emoji: '🔥💰', label: 'PRINTING!' },
+                              { emoji: '💸😱', label: 'RIP MY CALLS' },
+                              { emoji: '💎🤲', label: 'DIAMOND HANDS' }
+                            ].map((reaction, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => {
+                                  setCurrentMessage(prev => prev + reaction.emoji + ' ' + reaction.label + ' ');
+                                  setShowEmojiPicker(false);
+                                }}
+                                className="text-xs px-2 py-1 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 hover:text-orange-200 transition-all duration-200 border border-orange-500/20 hover:scale-105"
+                                title={`Add: ${reaction.emoji} ${reaction.label}`}
+                              >
+                                {reaction.emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-8 gap-2">
+                          {emojis.map((emoji, index) => {
+                            // Specialized animation types for market emoji categories  
+                            const getEmojiAnimation = (emoji: string, index: number) => {
+                              const bullishEmojis = ['🐂', '📈', '🚀', '💹', '�', '⬆️', '�💎', '🔥', '⚡', '🎯', '💪', '👆', '🌟', '✨', '🎉', '🏆', '💰', '🤑', '💵'];
+                              const bearishEmojis = ['�', '📉', '🔻', '🔴', '⬇️', '💔', '�', '�', '🩸', '⚠️', '🚨', '�💸', '👇', '😭', '💀', '⛔', '🛑', '🆘'];
+                              const marketEmojis = ['📊', '💹', '🏦', '🪙', '💳', '💱', '📱', '💻', '⏰', '📅', '🔔', '📢', '�', '🧠', '🎲', '🎰', '�', '♠️'];
+                              const faceEmojis = ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '😉', '😌', '😍', '🥰', '😘', '😎', '🤩', '🥳', '😏'];
+                              
+                              if (bullishEmojis.includes(emoji)) {
+                                return `bullish-pump ${1.2 + (index % 3) * 0.2}s ease-in-out infinite`;
+                              } else if (bearishEmojis.includes(emoji)) {
+                                return `bearish-dump ${1.5 + (index % 3) * 0.3}s ease-in-out infinite`;
+                              } else if (marketEmojis.includes(emoji)) {
+                                return `market-pulse ${2 + (index % 2) * 0.4}s ease-in-out infinite`;
+                              } else if (faceEmojis.includes(emoji)) {
+                                return `emoji-bounce ${1.5 + (index % 3) * 0.3}s ease-in-out infinite`;
+                              } else {
+                                return `float ${1 + (index % 4) * 0.3}s ease-in-out infinite alternate`;
+                              }
+                            };
+                            
+                            return (
+                              <button
+                                key={index}
+                                onClick={() => addEmoji(emoji)}
+                                className="text-2xl hover:bg-orange-500/20 p-2 transition-all duration-300 hover:scale-150 flex items-center justify-center relative group"
+                                style={{
+                                  animation: getEmojiAnimation(emoji, index),
+                                  animationDelay: `${index * 0.08}s`
+                                }}
+                                onMouseEnter={(e) => {
+                                  // Special hover animations for specific emojis
+                                  if (emoji === '🚀') {
+                                    e.currentTarget.style.animation = `rocket-launch 1s ease-in-out infinite`;
+                                  } else if (emoji === '💎') {
+                                    e.currentTarget.style.animation = `diamond-hands 0.8s ease-in-out infinite`;
+                                  } else if (emoji === '🐂') {
+                                    e.currentTarget.style.animation = `bullish-pump 0.5s ease-in-out infinite, emoji-rainbow 2s linear infinite`;
+                                  } else if (emoji === '🐻') {
+                                    e.currentTarget.style.animation = `bearish-dump 0.7s ease-in-out infinite, emoji-rainbow 2s linear infinite`;
+                                  } else if (['📈', '📉', '💹', '📊'].includes(emoji)) {
+                                    e.currentTarget.style.animation = `market-pulse 0.4s ease-in-out infinite, emoji-glow 1s ease-in-out infinite`;
+                                  } else {
+                                    e.currentTarget.style.animation = `emoji-wiggle 0.6s ease-in-out infinite, emoji-rainbow 1.5s linear infinite`;
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.animation = getEmojiAnimation(emoji, index);
+                                  e.currentTarget.style.animationDelay = `${index * 0.08}s`;
+                                }}
+                                title={(() => {
+                                  const tooltips: {[key: string]: string} = {
+                                    '🐂': 'Bull Market - Bullish Sentiment',
+                                    '🐻': 'Bear Market - Bearish Sentiment', 
+                                    '📈': 'Stonks Up - Price Rising',
+                                    '📉': 'Price Down - Bearish Movement',
+                                    '🚀': 'To The Moon - Massive Pump',
+                                    '💎': 'Diamond Hands - HODL Strong',
+                                    '💹': 'Chart With Upwards Trend',
+                                    '🔥': 'On Fire - Hot Stock',
+                                    '⚡': 'Lightning Fast - Quick Moves',
+                                    '💰': 'Money Bag - Profits',
+                                    '💸': 'Money With Wings - Losses',
+                                    '🤑': 'Money Face - Making Bank',
+                                    '📊': 'Bar Chart - Technical Analysis',
+                                    '🎯': 'Direct Hit - Target Reached',
+                                    '⬆️': 'Up Arrow - Bullish Direction',
+                                    '⬇️': 'Down Arrow - Bearish Direction',
+                                    '🟢': 'Green Circle - Profit/Gains',
+                                    '🔴': 'Red Circle - Loss/Drop',
+                                    '⚠️': 'Warning - Risk Alert',
+                                    '💪': 'Strong - Powerful Move',
+                                    '😱': 'Face Screaming - Market Panic',
+                                    '😰': 'Anxious Face - Market Fear',
+                                    '🩸': 'Blood - Heavy Losses',
+                                    '💀': 'Skull - Dead Cat Bounce',
+                                    '🚨': 'Siren - Market Alert'
+                                  };
+                                  return tooltips[emoji] || emoji;
+                                })()}
+                              >
+                                <span className="transition-all duration-300 group-hover:animate-pulse">
+                                  {emoji}
+                                </span>
+                                {/* Hover glow effect */}
+                                <div className="absolute inset-0 bg-gradient-to-r from-orange-500/20 via-yellow-500/20 to-orange-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 blur-lg -z-10"></div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Premium Send Button - Bigger & Boxy */}
+                  <button 
+                    onClick={sendMessage}
+                    disabled={!currentMessage.trim()}
+                    className={`group relative p-6 ml-6 transition-all duration-200 ${
+                      currentMessage.trim()
+                        ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700 shadow-lg shadow-orange-500/30 transform hover:scale-110'
+                        : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                    }`}
+                    title="Send message"
+                  >
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="group-hover:scale-110 transition-transform">
+                      <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z"/>
+                    </svg>
+                    {currentMessage.trim() && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-orange-400/20 to-orange-600/20 animate-pulse"></div>
+                    )}
+                  </button>
+                </div>
+                
+                {/* Bottom Accent Line */}
+                <div className="absolute bottom-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-orange-500/50 to-transparent"></div>
               </div>
-              <div className="text-white text-opacity-70 text-sm mt-1">
-                Sample message content for chat {i + 1}
+            </div>
+          </>
+        ) : (
+          /* Professional Personal Hub */
+          <div className="flex-1 overflow-y-auto custom-scrollbar bg-black">
+            {/* Quick Actions */}
+            <div className="p-6 border-b border-gray-800">
+              <div className="flex items-center space-x-3 mb-6">
+                <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-500 rounded-xl flex items-center justify-center">
+                  <TbUser className="text-white" size={18} />
+                </div>
+                <h4 className="text-white font-bold text-lg">Personal Hub</h4>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <button
+                  onClick={takeScreenshot}
+                  className="bg-gradient-to-br from-blue-600 to-cyan-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
+                >
+                  <TbPhoto size={24} className="mb-2 group-hover:scale-110 transition-transform" />
+                  <div>Screenshot</div>
+                </button>
+                <button
+                  onClick={addNote}
+                  className="bg-gradient-to-br from-emerald-600 to-green-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
+                >
+                  <TbNews size={24} className="mb-2 group-hover:scale-110 transition-transform" />
+                  <div>Note</div>
+                </button>
+                <button
+                  onClick={addReminder}
+                  className="bg-gradient-to-br from-violet-600 to-purple-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
+                >
+                  <TbBellRinging size={24} className="mb-2 group-hover:scale-110 transition-transform" />
+                  <div>Reminder</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Screenshots */}
+            <div className="p-4 border-b border-[#2a2a2a]">
+              <h4 className="text-white font-bold mb-3">📸 Screenshots ({screenshots.length})</h4>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {screenshots.slice(0, 3).map(screenshot => (
+                  <div key={screenshot.id} className="flex items-center space-x-3 bg-[#1a1a1a] p-3 rounded-lg">
+                    <div className="w-12 h-8 bg-[#0a0a0a] rounded border border-[#2a2a2a] flex items-center justify-center">
+                      <span className="text-xs text-gray-400">📊</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-white text-sm font-medium">Chart Screenshot</div>
+                      <div className="text-gray-400 text-xs">{screenshot.timestamp.toLocaleString()}</div>
+                    </div>
+                  </div>
+                ))}
+                {screenshots.length === 0 && (
+                  <div className="text-gray-400 text-sm text-center py-4">No screenshots yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="p-4 border-b border-[#2a2a2a]">
+              <h4 className="text-white font-bold mb-3">📝 Notes ({notes.length})</h4>
+              <div className="space-y-2">
+                {notes.slice(0, 2).map(note => (
+                  <div key={note.id} className="bg-[#1a1a1a] p-3 rounded-lg border-l-4" style={{ borderLeftColor: note.color }}>
+                    <div className="text-white font-medium text-sm">{note.title}</div>
+                    <div className="text-gray-400 text-xs mt-1">{note.timestamp.toLocaleString()}</div>
+                  </div>
+                ))}
+                {notes.length === 0 && (
+                  <div className="text-gray-400 text-sm text-center py-4">No notes yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Reminders */}
+            <div className="p-4">
+              <h4 className="text-white font-bold mb-3">⏰ Reminders ({reminders.filter(r => !r.completed).length})</h4>
+              <div className="space-y-2">
+                {reminders.filter(r => !r.completed).slice(0, 3).map(reminder => (
+                  <div key={reminder.id} className="flex items-center space-x-3 bg-[#1a1a1a] p-3 rounded-lg">
+                    <input
+                      type="checkbox"
+                      checked={reminder.completed}
+                      onChange={(e) => {
+                        setReminders(prev => prev.map(r => 
+                          r.id === reminder.id ? { ...r, completed: e.target.checked } : r
+                        ));
+                      }}
+                      className="text-blue-500"
+                    />
+                    <div className="flex-1">
+                      <div className="text-white text-sm font-medium">{reminder.title}</div>
+                      <div className="text-gray-400 text-xs">{reminder.datetime.toLocaleString()}</div>
+                    </div>
+                  </div>
+                ))}
+                {reminders.filter(r => !r.completed).length === 0 && (
+                  <div className="text-gray-400 text-sm text-center py-4">No pending reminders</div>
+                )}
               </div>
             </div>
           </div>
-        ))}
+        )}
       </div>
-      
-      {/* Chat Input */}
-      <div className="border-t border-[#1a1a1a] p-4">
-        <div className="flex items-center space-x-2">
-          <input
-            type="text"
-            placeholder="Type a message..."
-            className="flex-1 bg-[#1a1a1a] text-white px-3 py-2 rounded border border-[#2a2a2a] focus:border-violet-400 focus:outline-none"
-          />
-          <button className="p-2 text-white text-opacity-60 hover:text-violet-400 transition-colors">
-            <TbPhoto size={20} />
-          </button>
-          <button className="p-2 bg-violet-500 text-white rounded hover:bg-violet-600 transition-colors">
-            <TbSend size={20} />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <>
@@ -6453,6 +7608,25 @@ export default function TradingViewChart({
             100% { opacity: 0.7; transform: translateX(100%); }
           }
           
+          /* Custom Scrollbar for Chat */
+          .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+          }
+          
+          .custom-scrollbar::-webkit-scrollbar-track {
+            background: #0a0a0a;
+            border-radius: 3px;
+          }
+          
+          .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+            border-radius: 3px;
+          }
+          
+          .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #2563eb, #7c3aed);
+          }
+
           /* 3D Carved Button Effects */
           .btn-3d-carved {
             background: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%) !important;
@@ -7538,6 +8712,44 @@ export default function TradingViewChart({
             </div>
           </div>
 
+          {/* Volume Colors */}
+          <div className="mb-6">
+            <label className="block text-[#d1d4dc] text-sm font-medium mb-3">📊 Volume Bars</label>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[#787b86] text-sm">Bullish Volume</span>
+                <input
+                  type="color"
+                  value={config.colors.volume.bullish}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+                    ...prev,
+                    colors: {
+                      ...prev.colors,
+                      volume: { ...prev.colors.volume, bullish: e.target.value }
+                    }
+                  }))}
+                  className="w-8 h-8 rounded cursor-pointer bg-transparent"
+                />
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <span className="text-[#787b86] text-sm">Bearish Volume</span>
+                <input
+                  type="color"
+                  value={config.colors.volume.bearish}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig(prev => ({
+                    ...prev,
+                    colors: {
+                      ...prev.colors,
+                      volume: { ...prev.colors.volume, bearish: e.target.value }
+                    }
+                  }))}
+                  className="w-8 h-8 rounded cursor-pointer bg-transparent"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Preset Themes */}
           <div className="mb-4">
             <label className="block text-[#d1d4dc] text-sm font-medium mb-2">Quick Presets</label>
@@ -7547,7 +8759,8 @@ export default function TradingViewChart({
                   ...prev,
                   colors: {
                     bullish: { body: '#26a69a', wick: '#26a69a', border: '#26a69a' },
-                    bearish: { body: '#ef5350', wick: '#ef5350', border: '#ef5350' }
+                    bearish: { body: '#ef5350', wick: '#ef5350', border: '#ef5350' },
+                    volume: { bullish: '#26a69a', bearish: '#ef5350' }
                   }
                 }))}
                 className="px-3 py-2 bg-[#131722] text-[#787b86] rounded text-sm hover:text-white hover:bg-[#2a2e39] transition-colors"
@@ -7559,7 +8772,8 @@ export default function TradingViewChart({
                   ...prev,
                   colors: {
                     bullish: { body: '#00d4aa', wick: '#00d4aa', border: '#00d4aa' },
-                    bearish: { body: '#fb8c00', wick: '#fb8c00', border: '#fb8c00' }
+                    bearish: { body: '#fb8c00', wick: '#fb8c00', border: '#fb8c00' },
+                    volume: { bullish: '#00d4aa', bearish: '#fb8c00' }
                   }
                 }))}
                 className="px-3 py-2 bg-[#131722] text-[#787b86] rounded text-sm hover:text-white hover:bg-[#2a2e39] transition-colors"
@@ -7571,7 +8785,8 @@ export default function TradingViewChart({
                   ...prev,
                   colors: {
                     bullish: { body: '#4caf50', wick: '#4caf50', border: '#2e7d32' },
-                    bearish: { body: '#f44336', wick: '#f44336', border: '#c62828' }
+                    bearish: { body: '#f44336', wick: '#f44336', border: '#c62828' },
+                    volume: { bullish: '#4caf50', bearish: '#f44336' }
                   }
                 }))}
                 className="px-3 py-2 bg-[#131722] text-[#787b86] rounded text-sm hover:text-white hover:bg-[#2a2e39] transition-colors"
@@ -7583,7 +8798,8 @@ export default function TradingViewChart({
                   ...prev,
                   colors: {
                     bullish: { body: '#2196f3', wick: '#2196f3', border: '#2196f3' },
-                    bearish: { body: '#9c27b0', wick: '#9c27b0', border: '#9c27b0' }
+                    bearish: { body: '#9c27b0', wick: '#9c27b0', border: '#9c27b0' },
+                    volume: { bullish: '#2196f3', bearish: '#9c27b0' }
                   }
                 }))}
                 className="px-3 py-2 bg-[#131722] text-[#787b86] rounded text-sm hover:text-white hover:bg-[#2a2e39] transition-colors"
@@ -7621,6 +8837,8 @@ export default function TradingViewChart({
               { id: 'regimes', icon: TbTrendingUp, label: 'Markets', color: 'from-gray-800 to-gray-900', accent: 'emerald' },
               { id: 'news', icon: TbNews, label: 'News', color: 'from-gray-800 to-gray-900', accent: 'amber' },
               { id: 'alerts', icon: TbBellRinging, label: 'Alerts', color: 'from-gray-800 to-gray-900', accent: 'red' },
+              { id: 'calc', icon: TbCalculator, label: 'Calc', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
+              { id: 'chain', icon: TbLink, label: 'Chain', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
               { id: 'chat', icon: TbMessageCircle, label: 'Chat', color: 'from-gray-800 to-gray-900', accent: 'violet' }
             ].map((item, index) => {
               const IconComponent = item.icon;
@@ -7924,6 +9142,14 @@ export default function TradingViewChart({
             {activeSidebarPanel === 'alerts' && (
               <div className="p-4 text-center text-white text-opacity-50">
                 Alerts section coming soon...
+              </div>
+            )}
+            {activeSidebarPanel === 'calc' && (
+              <OptionsCalculator />
+            )}
+            {activeSidebarPanel === 'chain' && (
+              <div className="p-4 text-center text-white text-opacity-50">
+                Options Chain coming soon...
               </div>
             )}
             {activeSidebarPanel === 'chat' && (

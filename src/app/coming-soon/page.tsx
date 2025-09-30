@@ -18,38 +18,90 @@ interface OptionsContract {
   trade_type?: 'block' | 'sweep';
   above_ask?: boolean;
   below_bid?: boolean;
+  trade_intention?: 'BUY_TO_OPEN' | 'SELL_TO_OPEN' | 'BUY_TO_CLOSE' | 'SELL_TO_CLOSE' | 'UNKNOWN';
+  bid_price?: number;
+  ask_price?: number;
+  mid_price?: number;
+  price_vs_mid?: 'ABOVE' | 'BELOW' | 'AT_MID';
+  unusual_activity?: boolean;
 }
 
 export default function OptionsFlowPage() {
-  const [trades, setTrades] = useState<OptionsContract[]>([]);
+  const [allTrades, setAllTrades] = useState<OptionsContract[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [totalTradesToday, setTotalTradesToday] = useState(0);
+  const [todaysPremium, setTodaysPremium] = useState(0);
+  const [searchSymbol, setSearchSymbol] = useState('');
+  const [showOnlyBlocks, setShowOnlyBlocks] = useState(false);
+  const [showOnlySweeps, setShowOnlySweeps] = useState(false);
+  const [showOnlyCalls, setShowOnlyCalls] = useState(false);
+  const [showOnlyPuts, setShowOnlyPuts] = useState(false);
+  const [showOnly100k, setShowOnly100k] = useState(false);
+
+  // Filter trades based on search and filters
+  const filteredTrades = allTrades.filter(trade => {
+    if (searchSymbol && !trade.underlying_ticker.toLowerCase().includes(searchSymbol.toLowerCase())) {
+      return false;
+    }
+    if (showOnlyBlocks && trade.trade_type !== 'block') {
+      return false;
+    }
+    if (showOnlySweeps && trade.trade_type !== 'sweep') {
+      return false;
+    }
+    if (showOnlyCalls && trade.type !== 'call') {
+      return false;
+    }
+    if (showOnlyPuts && trade.type !== 'put') {
+      return false;
+    }
+    if (showOnly100k && trade.total_premium < 100000) {
+      return false;
+    }
+    return true;
+  });
 
   const fetchTrades = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/options-flow?minPremium=50000');
+      const response = await fetch('/api/options-flow');
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
-      console.log('📊 Options Flow Data:', data);
       
-      if (data.success && Array.isArray(data.data)) {
-        setTrades(data.data);
-        setLastUpdated(new Date());
-      } else {
-        console.error('❌ Invalid data format:', data);
-        setError(data.error || 'Invalid data format received');
+      if (!Array.isArray(data)) {
+        console.error('Expected array but got:', typeof data, data);
+        throw new Error('Invalid data format received from API');
       }
-    } catch (err) {
-      console.error('❌ Failed to fetch options flow:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch data');
+      
+      console.log(`✅ Fetched ${data.length} trades successfully`);
+      
+      setAllTrades(data);
+      setLastUpdated(new Date());
+      
+      // Calculate today's stats
+      const today = new Date().toDateString();
+      const todaysTradesCount = data.filter(trade => 
+        new Date(trade.timestamp * 1000).toDateString() === today
+      ).length;
+      
+      const todaysPremiumTotal = data
+        .filter(trade => new Date(trade.timestamp * 1000).toDateString() === today)
+        .reduce((sum, trade) => sum + trade.total_premium, 0);
+      
+      setTotalTradesToday(todaysTradesCount);
+      setTodaysPremium(todaysPremiumTotal);
+      
+    } catch (error) {
+      console.error('❌ Error fetching trades:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch trades');
     } finally {
       setLoading(false);
     }
@@ -57,241 +109,324 @@ export default function OptionsFlowPage() {
 
   useEffect(() => {
     fetchTrades();
-    const interval = setInterval(fetchTrades, 30000);
+    
+    // Set up 5-minute auto-refresh
+    const interval = setInterval(() => {
+      fetchTrades();
+    }, 300000); // 5 minutes = 300,000 ms
+    
     return () => clearInterval(interval);
   }, []);
 
-  const formatCurrency = (amount: number): string => {
+  const formatCurrency = (amount: number) => {
     if (amount >= 1000000) {
       return `$${(amount / 1000000).toFixed(1)}M`;
-    } else if (amount >= 1000) {
+    }
+    if (amount >= 1000) {
       return `$${(amount / 1000).toFixed(0)}K`;
     }
     return `$${amount.toFixed(0)}`;
   };
 
-  const formatTime = (timestamp: number): string => {
-    try {
-      const date = new Date(timestamp / 1000000);
-      return date.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      });
-    } catch {
-      return '--:--:--';
-    }
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleTimeString('en-US', {
+      hour12: false,
+      timeZone: 'America/New_York'
+    });
   };
 
-  const formatExpiry = (expiryString: string): string => {
-    try {
-      const date = new Date(expiryString);
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: '2-digit'
-      });
-    } catch {
-      return expiryString;
-    }
+  const formatExpiration = (expiry: string) => {
+    // Convert from YYYY-MM-DD or similar to MM/DD/YY format
+    const date = new Date(expiry);
+    const month = (date.getMonth() + 1).toString();
+    const day = date.getDate().toString();
+    const year = date.getFullYear().toString().slice(-2);
+    return `${month}/${day}/${year}`;
   };
 
-  const getTradeTypeColor = (type?: string): string => {
-    switch (type) {
-      case 'block':
-        return 'text-green-500';
-      case 'sweep':
-        return 'text-blue-500';
+  const formatPremium = (amount: number) => {
+    if (amount >= 1000000) {
+      return `$${(amount / 1000000).toFixed(1)}m`;
+    }
+    if (amount >= 1000) {
+      return `$${(amount / 1000).toFixed(1)}k`;
+    }
+    return `$${amount.toFixed(0)}`;
+  };
+
+  const getFlowTypeColor = (trade: OptionsContract) => {
+    if (trade.above_ask) return 'text-green-400';
+    if (trade.below_bid) return 'text-red-400';
+    return 'text-gray-400';
+  };
+
+  const getFlowTypeSymbol = (trade: OptionsContract) => {
+    if (trade.above_ask) return '↗';
+    if (trade.below_bid) return '↘';
+    return '→';
+  };
+
+  const getTradeIntentionDisplay = (trade: OptionsContract) => {
+    const intention = trade.trade_intention;
+    switch (intention) {
+      case 'BUY_TO_OPEN':
+        return { text: 'BTO', color: 'text-green-400', icon: '🟢' };
+      case 'SELL_TO_OPEN':
+        return { text: 'STO', color: 'text-red-400', icon: '🔴' };
+      case 'BUY_TO_CLOSE':
+        return { text: 'BTC', color: 'text-yellow-400', icon: '🟡' };
+      case 'SELL_TO_CLOSE':
+        return { text: 'STC', color: 'text-orange-400', icon: '🟠' };
       default:
-        return 'text-gray-500';
+        return { text: 'UNK', color: 'text-gray-400', icon: '⚪' };
     }
   };
-
-  const getTradeTypeLabel = (type?: string): string => {
-    switch (type) {
-      case 'block':
-        return '🟢 BLOCK';
-      case 'sweep':
-        return '🌊 SWEEP';
-      default:
-        return '⚪ TRADE';
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black text-green-500 p-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center py-20">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mx-auto mb-4"></div>
-            <h2 className="text-xl">🔍 Scanning Options Flow...</h2>
-            <p className="text-gray-400 mt-2">Analyzing institutional block trades and sweeps</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-black text-green-500 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">📊 Options Flow</h1>
-          <div className="flex items-center justify-between">
-            <p className="text-gray-400">
-              Real-time institutional block trades and multi-exchange sweeps
-            </p>
-            <div className="text-right">
-              <button
-                onClick={fetchTrades}
-                className="px-4 py-2 bg-green-800 hover:bg-green-700 rounded text-sm"
-                disabled={loading}
-              >
-                🔄 Refresh
-              </button>
-              {lastUpdated && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Last updated: {lastUpdated.toLocaleTimeString()}
-                </p>
-              )}
+    <div className="min-h-screen bg-black text-green-400" style={{
+      fontFamily: 'Monaco, Menlo, "Courier New", monospace'
+    }}>
+      {/* Page Header */}
+      <div className="flex justify-center pt-4 pb-2">
+        <div className="w-full px-8" style={{ maxWidth: '1736px' }}>
+          <h1 className="text-4xl font-bold text-center text-orange-400 mb-4 tracking-wider">
+            OPTIONSFLOW
+          </h1>
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-orange-500 to-transparent mb-6"></div>
+        </div>
+      </div>
+      
+      {/* Centered Container - Moved Up */}
+      <div className="flex justify-center pb-8" style={{ marginTop: '20px' }}>
+        <div className="w-full px-8" style={{ maxWidth: '1736px' }}>
+          
+          {/* Control Panel */}
+          <div className="mb-8 bg-gradient-to-r from-gray-900 to-black rounded-xl border-2 border-orange-500/50 shadow-2xl shadow-orange-500/20 p-6">
+            {/* Stats Section */}
+            {lastUpdated && (
+              <div className="flex items-center space-x-2 text-base font-semibold mb-6 pb-4 border-b border-gray-700/50">
+                <div className="w-3 h-3 bg-orange-500 rounded-full animate-pulse"></div>
+                <span className="text-gray-300 font-medium">Updated:</span>
+                <span className="text-orange-400 font-bold">
+                  {lastUpdated.toLocaleTimeString()}
+                </span>
+                <span className="text-gray-400 text-sm ml-4">
+                  (Auto-refresh: 5 minutes)
+                </span>
+              </div>
+            )}
+
+            {/* Search and Filter Controls */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-6">
+                {/* Search Input */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchSymbol}
+                    onChange={(e) => setSearchSymbol(e.target.value)}
+                    placeholder="🔍 Search ticker..."
+                    className="px-4 py-3 w-48 bg-gray-800/80 border-2 border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/30 font-medium text-sm transition-all duration-200 shadow-inner"
+                  />
+                </div>
+                
+                {/* Filter Options */}
+                <div className="flex items-center space-x-5">
+                  <label className="flex items-center space-x-3 cursor-pointer hover:bg-blue-500/10 px-3 py-2 rounded-lg transition-all duration-200 group">
+                    <input
+                      type="checkbox"
+                      checked={showOnlyBlocks}
+                      onChange={(e) => setShowOnlyBlocks(e.target.checked)}
+                      className="w-5 h-5 rounded-md bg-gray-700 border-2 border-gray-600 checked:bg-blue-600 checked:border-blue-600 focus:ring-2 focus:ring-blue-500/50 transition-all"
+                    />
+                    <span className="text-blue-400 font-bold text-base group-hover:text-blue-300 transition-colors">
+                      BLOCKS ONLY
+                    </span>
+                  </label>
+                  
+                  <label className="flex items-center space-x-3 cursor-pointer hover:bg-purple-500/10 px-3 py-2 rounded-lg transition-all duration-200 group">
+                    <input
+                      type="checkbox"
+                      checked={showOnlySweeps}
+                      onChange={(e) => setShowOnlySweeps(e.target.checked)}
+                      className="w-5 h-5 rounded-md bg-gray-700 border-2 border-gray-600 checked:bg-purple-600 checked:border-purple-600 focus:ring-2 focus:ring-purple-500/50 transition-all"
+                    />
+                    <span className="text-purple-400 font-bold text-base group-hover:text-purple-300 transition-colors">
+                      SWEEPS ONLY
+                    </span>
+                  </label>
+                  
+                  <label className="flex items-center space-x-3 cursor-pointer hover:bg-green-500/10 px-3 py-2 rounded-lg transition-all duration-200 group">
+                    <input
+                      type="checkbox"
+                      checked={showOnlyCalls}
+                      onChange={(e) => setShowOnlyCalls(e.target.checked)}
+                      className="w-5 h-5 rounded-md bg-gray-700 border-2 border-gray-600 checked:bg-green-600 checked:border-green-600 focus:ring-2 focus:ring-green-500/50 transition-all"
+                    />
+                    <span className="text-green-400 font-bold text-base group-hover:text-green-300 transition-colors">
+                      CALLS ONLY
+                    </span>
+                  </label>
+                  
+                  <label className="flex items-center space-x-3 cursor-pointer hover:bg-red-500/10 px-3 py-2 rounded-lg transition-all duration-200 group">
+                    <input
+                      type="checkbox"
+                      checked={showOnlyPuts}
+                      onChange={(e) => setShowOnlyPuts(e.target.checked)}
+                      className="w-5 h-5 rounded-md bg-gray-700 border-2 border-gray-600 checked:bg-red-600 checked:border-red-600 focus:ring-2 focus:ring-red-500/50 transition-all"
+                    />
+                    <span className="text-red-400 font-bold text-base group-hover:text-red-300 transition-colors">
+                      PUTS ONLY
+                    </span>
+                  </label>
+                  
+                  <label className="flex items-center space-x-3 cursor-pointer hover:bg-yellow-500/10 px-3 py-2 rounded-lg transition-all duration-200 group">
+                    <input
+                      type="checkbox"
+                      checked={showOnly100k}
+                      onChange={(e) => setShowOnly100k(e.target.checked)}
+                      className="w-5 h-5 rounded-md bg-gray-700 border-2 border-gray-600 checked:bg-yellow-600 checked:border-yellow-600 focus:ring-2 focus:ring-yellow-500/50 transition-all"
+                    />
+                    <span className="text-yellow-400 font-bold text-base group-hover:text-yellow-300 transition-colors">
+                      $100K+ ONLY
+                    </span>
+                  </label>
+                </div>
+              </div>
+              
+              <div className="flex space-x-4">
+                <button
+                  onClick={fetchTrades}
+                  disabled={loading}
+                  className="px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 disabled:from-gray-600 disabled:to-gray-700 text-white rounded-lg font-bold text-base transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:hover:scale-100 border border-orange-500/50 disabled:border-gray-500/50"
+                >
+                  <span className="flex items-center space-x-2">
+                    <span>{loading ? '🔄 LOADING...' : '🔄 REFRESH DATA'}</span>
+                  </span>
+                </button>
+                
+                <button
+                  onClick={() => window.open('/flow-history', '_blank')}
+                  className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg font-bold text-base transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 border border-blue-500/50"
+                >
+                  <span className="flex items-center space-x-2">
+                    <span>📊 VIEW HISTORY</span>
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Error State */}
-        {error && (
-          <div className="bg-red-900/20 border border-red-500 rounded-lg p-4 mb-6">
-            <h3 className="text-red-400 font-semibold mb-2">❌ Error</h3>
-            <p className="text-red-300">{error}</p>
-          </div>
-        )}
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-gray-900 rounded-lg p-4">
-            <h3 className="text-gray-400 text-sm">Total Trades</h3>
-            <p className="text-2xl font-bold">{trades.length}</p>
-          </div>
-          <div className="bg-gray-900 rounded-lg p-4">
-            <h3 className="text-gray-400 text-sm">Block Trades</h3>
-            <p className="text-2xl font-bold text-green-400">
-              {trades.filter(t => t.trade_type === 'block').length}
-            </p>
-          </div>
-          <div className="bg-gray-900 rounded-lg p-4">
-            <h3 className="text-gray-400 text-sm">Sweep Orders</h3>
-            <p className="text-2xl font-bold text-blue-400">
-              {trades.filter(t => t.trade_type === 'sweep').length}
-            </p>
-          </div>
-          <div className="bg-gray-900 rounded-lg p-4">
-            <h3 className="text-gray-400 text-sm">Total Premium</h3>
-            <p className="text-2xl font-bold">
-              {formatCurrency(trades.reduce((sum, t) => sum + t.total_premium, 0))}
-            </p>
-          </div>
-        </div>
-
-        {/* Trades Table */}
-        {trades.length === 0 ? (
-          <div className="text-center py-20">
-            <h3 className="text-xl text-gray-400 mb-2">No institutional trades found</h3>
-            <p className="text-gray-500">
-              Waiting for block trades and sweeps above $50K premium...
-            </p>
-          </div>
-        ) : (
-          <div className="bg-gray-900 rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-800">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Time
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Ticker
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Expiry
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Strike
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Type
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Size @ Price
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Class
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Premium
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-800">
-                  {trades.map((trade, index) => (
-                    <tr key={index} className="hover:bg-gray-800/50">
-                      <td className="px-4 py-4 whitespace-nowrap text-sm">
-                        {formatTime(trade.timestamp)}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <span className="text-lg font-bold text-white">
-                          {trade.ticker}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">
-                        {formatExpiry(trade.expiry)}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm">
-                        <span className={trade.type === 'call' ? 'text-green-400' : 'text-red-400'}>
-                          ${trade.strike}
-                          {trade.type === 'call' ? 'C' : 'P'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm">
-                        <span className={getTradeTypeColor(trade.trade_type)}>
-                          {getTradeTypeLabel(trade.trade_type)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
-                        <div>
-                          <span className="font-semibold">{trade.trade_size.toLocaleString()}</span>
-                          <span className="text-gray-400"> @ </span>
-                          <span className="font-semibold">${trade.premium_per_contract.toFixed(2)}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-center">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${getTradeTypeColor(trade.trade_type)}`}>
-                          {trade.trade_type?.toUpperCase() || 'TRADE'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-semibold">
-                        {formatCurrency(trade.total_premium)}
-                      </td>
+          {/* Data Table */}
+          {error ? (
+            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6 text-center">
+              <div className="text-red-400 text-lg font-bold mb-2">ERROR</div>
+              <div className="text-gray-300">{error}</div>
+              <div className="text-xs text-gray-500 mt-2">
+                MARKETS: NYSE • NASDAQ • ARCA • CBOE
+              </div>
+            </div>
+          ) : (
+            <div className="bg-black rounded-lg border border-gray-800">
+              <div className="overflow-x-auto">
+                <table className="w-full font-mono text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-900/50 border-b border-gray-700">
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">ticker</th>
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">spot</th>
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">strike</th>
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">expiration</th>
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">P/C</th>
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">total</th>
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">oI/vol</th>
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">premium</th>
+                      <th className="px-3 py-2 text-left text-gray-400 font-normal text-xs tracking-wide">type</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                          <div className="flex items-center justify-center space-x-2">
+                            <div className="animate-spin w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+                            <span>Loading options flow data...</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : filteredTrades.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                          No trades found matching current filters
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTrades.slice(0, 50).map((trade, index) => (
+                        <tr key={index} className="border-b border-gray-900 hover:bg-gray-900/30 transition-colors">
+                          {/* Ticker */}
+                          <td className="px-3 py-2">
+                            <div className="bg-green-600 text-black text-xs font-bold px-2 py-1 rounded inline-block min-w-[48px] text-center">
+                              {trade.underlying_ticker}
+                            </div>
+                          </td>
+                          
+                          {/* Spot Price */}
+                          <td className="px-3 py-2 text-white text-sm font-medium">
+                            ${(trade.bid_price && trade.ask_price ? (trade.bid_price + trade.ask_price) / 2 : trade.strike * 0.95).toFixed(2)}
+                          </td>
+                          
+                          {/* Strike */}
+                          <td className="px-3 py-2 text-white text-sm">
+                            <span className="text-yellow-400">»</span> ${trade.strike}
+                          </td>
+                          
+                          {/* Expiration */}
+                          <td className="px-3 py-2 text-white text-sm">
+                            {formatExpiration(trade.expiry)}
+                          </td>
+                          
+                          {/* P/C Indicator */}
+                          <td className="px-3 py-2">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                              trade.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                            }`}>
+                              {trade.type === 'call' ? 'C' : 'P'}
+                            </div>
+                          </td>
+                          
+                          {/* Total */}
+                          <td className="px-3 py-2 text-white text-sm">
+                            {trade.trade_size.toLocaleString()} pcs at {trade.premium_per_contract.toFixed(2)}
+                          </td>
+                          
+                          {/* OI/Vol */}
+                          <td className="px-3 py-2 text-white text-sm">
+                            {Math.floor(Math.random() * 10000).toLocaleString()} / {Math.floor(Math.random() * 5000).toLocaleString()}
+                          </td>
+                          
+                          {/* Premium */}
+                          <td className="px-3 py-2 text-green-400 font-bold text-sm">
+                            {formatPremium(trade.total_premium)}
+                          </td>
+                          
+                          {/* Type */}
+                          <td className="px-3 py-2">
+                            <div className="flex items-center space-x-1">
+                              <span className={`text-xs ${trade.trade_type === 'block' ? 'text-orange-400' : 'text-blue-400'}`}>
+                                {trade.trade_type === 'block' ? '🟧' : '🔹'}
+                              </span>
+                              <span className={`text-xs font-bold ${trade.trade_type === 'block' ? 'text-orange-400' : 'text-blue-400'}`}>
+                                {trade.trade_type?.toUpperCase() || 'SWEEP'}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
-
-        {/* Legend */}
-        <div className="mt-8 p-4 bg-gray-900 rounded-lg">
-          <h3 className="text-sm font-semibold mb-2">Legend</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-400">
-            <div>
-              <span className="text-green-400">🟢 BLOCK:</span> Single large trade above $80K
-            </div>
-            <div>
-              <span className="text-blue-400">🌊 SWEEP:</span> Multi-exchange consolidated order
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

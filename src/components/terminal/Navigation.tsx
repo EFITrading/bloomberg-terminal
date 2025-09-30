@@ -34,7 +34,7 @@ export default function Navigation() {
     { name: 'Data Driven', path: '/data-driven' },
     { name: 'Analytics', path: '/analytics' },
     { name: 'AI Suite', path: '/ai-suite' },
-    { name: 'Coming Soon', path: '/coming-soon' }
+    { name: 'OptionsFlow', path: '/coming-soon' }
   ];
 
   return (
