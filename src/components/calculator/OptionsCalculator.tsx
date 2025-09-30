@@ -675,50 +675,56 @@ const OptionsCalculator = () => {
       iv = realOption.impliedVolatility;
     }
     
-    // Find the actual ATM strike option to use as our baseline purchase
-    // This represents what we actually bought (the option closest to current stock price)
-    const atmStrike = heatMapStrikes.reduce((prev, curr) => 
-      Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev
-    );
+    // Use the SELECTED strike as the baseline for P&L calculations
+    // If no strike is selected, fall back to ATM
+    let baselineStrike = selectedStrike;
+    if (!baselineStrike) {
+      // Find ATM strike as fallback
+      baselineStrike = heatMapStrikes.reduce((prev, curr) => 
+        Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev
+      );
+    }
     
-    // Get the ATM option data (what we actually bought)
-    const atmKey = `${atmStrike}-${selectedExpiration}-${optionType}`;
-    const atmOption = realOptionsData[atmKey];
+    // Get the selected/baseline option data (what we actually bought)
+    const baselineKey = `${baselineStrike}-${selectedExpiration}-${optionType}`;
+    const baselineOption = realOptionsData[baselineKey];
     
-    if (!atmOption) {
-      console.warn(`❌ No ATM option data found for baseline: ${atmKey}`);
+    if (!baselineOption) {
+      console.warn(`❌ No baseline option data found for key: ${baselineKey}`);
       return 0;
     }
     
-    // Use ATM option price as our purchase price baseline
-    let atmPurchasePrice = 0;
-    if (atmOption.lastPrice > 0) {
-      atmPurchasePrice = atmOption.lastPrice;
-    } else if (atmOption.ask > 0) {
-      atmPurchasePrice = atmOption.ask;
-    } else if (atmOption.bid > 0 && atmOption.ask > 0) {
-      atmPurchasePrice = (atmOption.bid + atmOption.ask) / 2;
-    } else if (atmOption.bid > 0) {
-      atmPurchasePrice = atmOption.bid;
+    // Use baseline option price as our purchase price
+    let purchasePrice = 0;
+    if (customPremium && customPremium > 0) {
+      purchasePrice = customPremium;
+    } else if (baselineOption.lastPrice > 0) {
+      purchasePrice = baselineOption.lastPrice;
+    } else if (baselineOption.ask > 0) {
+      purchasePrice = baselineOption.ask;
+    } else if (baselineOption.bid > 0 && baselineOption.ask > 0) {
+      purchasePrice = (baselineOption.bid + baselineOption.ask) / 2;
+    } else if (baselineOption.bid > 0) {
+      purchasePrice = baselineOption.bid;
     } else {
-      console.warn(`❌ No ATM price data available`);
+      console.warn(`❌ No baseline price data available for ${baselineKey}`);
       return 0;
     }
     
-    // Calculate what the ATM option would be worth if stock was at this strike level at this time
+    // Calculate what the selected option would be worth if stock was at this strike level at this time
     const theoreticalPrice = calculateBlackScholesPrice(
-      strike,       // SIMULATE stock price being at this level (Y-axis)
-      atmStrike,    // Strike of the option we actually bought (ATM)
+      strike,         // SIMULATE stock price being at this level (Y-axis)
+      baselineStrike, // Strike of the option we actually bought (selected)
       riskFreeRate,
       iv,
       timeToExpiry,
       optionType === 'call'
     );
     
-    // P&L calculation: (theoretical value at this stock level - what we paid for ATM) / what we paid * 100
-    const pl = atmPurchasePrice > 0 ? ((theoreticalPrice - atmPurchasePrice) / atmPurchasePrice) * 100 : 0;
+    // P&L calculation: (theoretical value at this stock level - what we paid) / what we paid * 100
+    const pl = purchasePrice > 0 ? ((theoreticalPrice - purchasePrice) / purchasePrice) * 100 : 0;
     
-    console.log(`📊 P&L: Stock@$${strike}, ATM$${atmStrike} ${optionType}, ${daysToExp}d = ${pl.toFixed(1)}% (theo: $${theoreticalPrice.toFixed(2)}, paid: $${atmPurchasePrice.toFixed(2)})`);;
+    console.log(`📊 P&L: Stock@$${strike}, Selected$${baselineStrike} ${optionType}, ${daysToExp}d = ${pl.toFixed(1)}% (theo: $${theoreticalPrice.toFixed(2)}, paid: $${purchasePrice.toFixed(2)})`);;
     
     return pl;
   };
@@ -940,10 +946,16 @@ const OptionsCalculator = () => {
                   <div className="p-4">
                     <select 
                       value={selectedStrike || ''}
-                      onChange={(e) => setSelectedStrike(e.target.value ? Number(e.target.value) : null)}
+                      onChange={(e) => {
+                        const newStrike = e.target.value ? Number(e.target.value) : null;
+                        console.log(`🎯 Strike dropdown changed: ${selectedStrike} -> ${newStrike}`);
+                        setSelectedStrike(newStrike);
+                        // Clear custom premium to use real market data for the new strike
+                        setCustomPremium(null);
+                      }}
                       className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300 cursor-pointer"
                     >
-                      <option value="" className="bg-gray-900">$180</option>
+                      <option value="" className="bg-gray-900">Select Strike Price</option>
                       {strikes.map((strike) => (
                         <option key={strike} value={strike} className="bg-gray-900">
                           ${strike}
@@ -984,9 +996,14 @@ const OptionsCalculator = () => {
                               const lastPrice = realOption.lastPrice > 0 ? realOption.lastPrice : null;
                               const bidPrice = realOption.bid > 0 ? realOption.bid : null;
                               const iv = realOption.impliedVolatility > 0 ? (realOption.impliedVolatility * 100).toFixed(1) : null;
+                              
+                              if (!askPrice && !lastPrice && !bidPrice) {
+                                return `🔴 NO MARKET DATA - Strike $${selectedStrike} ${optionType.toUpperCase()} ${selectedExpiration}`;
+                              }
+                              
                               return `Ask $${askPrice?.toFixed(2) || 'N/A'} | Last $${lastPrice?.toFixed(2) || 'N/A'} | Bid $${bidPrice?.toFixed(2) || 'N/A'}`;
                             }
-                            return 'Ask $6.90 | Last $6.90 | Bid $6.80';
+                            return `🔴 NO OPTION DATA - Strike $${selectedStrike} ${optionType.toUpperCase()} ${selectedExpiration}`;
                           })()}
                         </div>
                       </div>
@@ -1024,6 +1041,30 @@ const OptionsCalculator = () => {
             </div>
           </div>
         </div>
+
+        {/* Warning for selected option with no data */}
+        {selectedStrike && selectedExpiration && (() => {
+          const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
+          const realOption = realOptionsData[key];
+          const hasMarketData = realOption && (
+            (realOption.lastPrice > 0) || 
+            (realOption.ask > 0) ||
+            (realOption.bid > 0)
+          );
+          
+          if (!hasMarketData) {
+            return (
+              <div className="bg-yellow-900 border border-yellow-600 rounded-xl p-6 mb-8">
+                <h3 className="text-yellow-300 font-bold mb-2">⚠️ No Market Data for Selected Option</h3>
+                <p className="text-yellow-200 text-sm">
+                  Strike <strong>${selectedStrike}</strong> {optionType.toUpperCase()} expiring <strong>{selectedExpiration}</strong> has no current market data (bid/ask/last).
+                  Try selecting a different strike or expiration, or enter a custom premium to see calculations.
+                </p>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* Real Data Status Warnings */}
         {availableExpirations.length === 0 && !loading && (
@@ -1172,8 +1213,10 @@ const OptionsCalculator = () => {
                                   isATM ? 'border-yellow-400 border-2' : 'border-gray-600'
                                 }`}
                                 onClick={() => {
+                                  console.log(`🎯 Heat map cell clicked: Strike $${strike}, Expiration: ${selectedExpiration}`);
                                   setSelectedStrike(strike);
-                                  // selectedExpiration is already set
+                                  // Clear custom premium to use real market data for the new strike
+                                  setCustomPremium(null);
                                 }}
                                 title={`Strike: $${strike}${isATM ? ' (ATM)' : ''}, Days: ${timePoint.days}${shouldDisplay ? `, P&L: ${pl.toFixed(1)}%, Real Data` : ', No Real Data Available'}`}
                               >
