@@ -1,0 +1,585 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const cache = new Map<string, { data: any; timestamp: number }>();
+
+interface OptionContract {
+  ticker: string;
+  strike_price: number;
+  expiration_date: string;
+  contract_type: 'call' | 'put';
+}
+
+interface OptionSnapshot {
+  details: {
+    strike_price: number;
+    contract_type: 'call' | 'put';
+    expiration_date: string;
+  };
+  greeks: {
+    gamma: number;
+    delta: number;
+  };
+  open_interest: number;
+}
+
+interface StrikeGEX {
+  strike: number;
+  call_gex: number;
+  put_gex: number;
+  call_dex: number;
+  put_dex: number;
+  call_oi: number;
+  put_oi: number;
+  call_gamma: number;
+  put_gamma: number;
+  call_delta: number;
+  put_delta: number;
+  net_gex: number;
+  net_dex: number;
+  total_oi: number;
+  net_gamma: number;
+  net_delta: number;
+}
+
+// Get current spot price
+async function fetchSpotPrice(symbol: string): Promise<number> {
+  const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+  console.log(`🔗 Fetching spot price from: ${url}`);
+  
+  const response = await fetch(url);
+  const data = await response.json();
+  
+  console.log(`💰 Spot price response:`, data);
+  
+  if (!data.results || data.results.length === 0) {
+    throw new Error(`No price data for ${symbol}`);
+  }
+  
+  const spotPrice = data.results[0].c;
+  console.log(`✅ Real spot price for ${symbol}: $${spotPrice}`);
+  return spotPrice;
+}
+
+// Get ALL expiration dates and combine them (same as analysis suite)
+async function getAllOptionsData(symbol: string) {
+  console.log(`🔍 Fetching ALL expiration dates for ${symbol}`);
+  
+  // First get all available expiration dates
+  const response = await fetch(`http://localhost:3000/api/options-chain?ticker=${symbol}`);
+  const result = await response.json();
+  
+  if (!result.success || !result.data) {
+    throw new Error(`Failed to fetch expiration dates for ${symbol}`);
+  }
+  
+  const expirationDates = Object.keys(result.data).sort();
+  console.log(`📅 Found ${expirationDates.length} expiration dates:`, expirationDates);
+  
+  // Combine data from all expirations (same approach as analysis suite)
+  const combinedStrikeMap = new Map<number, { 
+    callOI: number; 
+    putOI: number; 
+    callGamma: number; 
+    putGamma: number;
+    callDelta: number;
+    putDelta: number;
+  }>();
+  
+  let spotPrice = result.currentPrice;
+  
+  for (const expDate of expirationDates.slice(0, 6)) { // Use first 6 expirations like analysis suite
+    console.log(`🔄 Processing expiration: ${expDate}`);
+    
+    const expResponse = await fetch(`http://localhost:3000/api/options-chain?ticker=${symbol}&expiration=${expDate}`);
+    const expResult = await expResponse.json();
+    
+    if (expResult.success && expResult.data && expResult.data[expDate]) {
+      const expirationData = expResult.data[expDate];
+      
+      // Process calls
+      if (expirationData.calls) {
+        Object.entries(expirationData.calls).forEach(([strike, callData]: [string, any]) => {
+          const strikeNum = parseFloat(strike);
+          
+          // Only process strikes in our target range $620-$690
+          if (strikeNum < 620 || strikeNum > 690) return;
+          
+          const openInterest = callData.open_interest || 0;
+          const gamma = callData.greeks?.gamma || 0;
+          const delta = callData.greeks?.delta || 0;
+          
+          if (!combinedStrikeMap.has(strikeNum)) {
+            combinedStrikeMap.set(strikeNum, { 
+              callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0 
+            });
+          }
+          
+          const existing = combinedStrikeMap.get(strikeNum)!;
+          existing.callOI += openInterest;
+          existing.callGamma += gamma * openInterest; // Weight gamma by OI
+          existing.callDelta += delta * openInterest; // Weight delta by OI
+          
+          console.log(`📞 Call ${strikeNum}: OI+=${openInterest}, γ=${gamma?.toFixed(6)}`);
+        });
+      }
+      
+      // Process puts
+      if (expirationData.puts) {
+        Object.entries(expirationData.puts).forEach(([strike, putData]: [string, any]) => {
+          const strikeNum = parseFloat(strike);
+          
+          // Only process strikes in our target range $620-$690
+          if (strikeNum < 620 || strikeNum > 690) return;
+          
+          const openInterest = putData.open_interest || 0;
+          const gamma = putData.greeks?.gamma || 0;
+          const delta = putData.greeks?.delta || 0;
+          
+          if (!combinedStrikeMap.has(strikeNum)) {
+            combinedStrikeMap.set(strikeNum, { 
+              callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0 
+            });
+          }
+          
+          const existing = combinedStrikeMap.get(strikeNum)!;
+          existing.putOI += openInterest;
+          existing.putGamma += gamma * openInterest; // Weight gamma by OI
+          existing.putDelta += delta * openInterest; // Weight delta by OI
+          
+          console.log(`📱 Put ${strikeNum}: OI+=${openInterest}, γ=${gamma?.toFixed(6)}`);
+        });
+      }
+    }
+  }
+  
+  console.log(`💫 Combined data for ${combinedStrikeMap.size} strikes in $620-$690 range`);
+  
+  return { combinedStrikeMap, spotPrice, expirationDates };
+}
+
+// Fetch options contracts
+async function getOptionsContracts(
+  symbol: string,
+  expirationStart: string,
+  expirationEnd: string
+): Promise<OptionContract[]> {
+  const baseUrl = 'https://api.polygon.io/v3/reference/options/contracts';
+  
+  const callsUrl = `${baseUrl}?underlying_ticker=${symbol}&contract_type=call&expiration_date.gte=${expirationStart}&expiration_date.lte=${expirationEnd}&limit=1000&apiKey=${POLYGON_API_KEY}`;
+  const putsUrl = `${baseUrl}?underlying_ticker=${symbol}&contract_type=put&expiration_date.gte=${expirationStart}&expiration_date.lte=${expirationEnd}&limit=1000&apiKey=${POLYGON_API_KEY}`;
+  
+  console.log(`🔗 Fetching calls from: ${callsUrl}`);
+  console.log(`🔗 Fetching puts from: ${putsUrl}`);
+  
+  const [callsRes, putsRes] = await Promise.all([
+    fetch(callsUrl),
+    fetch(putsUrl)
+  ]);
+  
+  if (!callsRes.ok || !putsRes.ok) {
+    throw new Error(`Failed to fetch contracts: Calls ${callsRes.status}, Puts ${putsRes.status}`);
+  }
+  
+  const calls = await callsRes.json();
+  const puts = await putsRes.json();
+  
+  console.log(`📋 Real contracts data:`, {
+    calls_found: calls.results?.length || 0,
+    puts_found: puts.results?.length || 0,
+    calls_status: calls.status,
+    puts_status: puts.status,
+    sample_call: calls.results?.[0],
+    sample_put: puts.results?.[0]
+  });
+  
+  return [...(calls.results || []), ...(puts.results || [])];
+}
+
+// Filter relevant strikes - FORCE strikes between $620-$690 for SPY
+function filterRelevantStrikes(
+  contracts: OptionContract[],
+  spotPrice: number
+): OptionContract[] {
+  const minStrike = 620;  // Fixed range $620
+  const maxStrike = 690;  // Fixed range $690
+  
+  console.log(`🎯 FILTERING STRIKES: Spot=$${spotPrice}, FORCED Range=$${minStrike}-$${maxStrike}`);
+  
+  const filtered = contracts.filter(contract => {
+    const strike = contract.strike_price;
+    const inRange = strike >= minStrike && strike <= maxStrike;
+    if (inRange) {
+      console.log(`✅ INCLUDING Strike $${strike}`);
+    } else {
+      console.log(`❌ EXCLUDING Strike $${strike} (outside $620-$690 range)`);
+    }
+    return inRange;
+  });
+  
+  console.log(`🎯 STRIKE FILTER RESULTS:`, {
+    total_contracts: contracts.length,
+    filtered_contracts: filtered.length,
+    spot_price: spotPrice,
+    forced_min_strike: minStrike,
+    forced_max_strike: maxStrike,
+    included_strikes: filtered.map(c => c.strike_price).sort((a, b) => a - b)
+  });
+  
+  return filtered;
+}
+
+// Get options snapshots with Greeks
+async function getOptionsSnapshots(
+  symbol: string,
+  contracts: OptionContract[]
+): Promise<OptionSnapshot[]> {
+  const batchSize = 250;
+  const batches: Promise<any>[] = [];
+  
+  console.log(`📏 Processing ${contracts.length} contracts in batches of ${batchSize}`);
+  
+  for (let i = 0; i < contracts.length; i += batchSize) {
+    const batch = contracts.slice(i, i + batchSize);
+    const tickers = batch.map(c => c.ticker).join(',');
+    
+    const url = `https://api.polygon.io/v3/snapshot/options/${symbol}?option_contract.in=${tickers}&apiKey=${POLYGON_API_KEY}`;
+    console.log(`🔗 Batch ${Math.floor(i/batchSize) + 1}: ${batch.length} contracts`);
+    
+    batches.push(fetch(url).then(async r => {
+      if (!r.ok) {
+        console.error(`❌ Batch failed: ${r.status} ${r.statusText}`);
+        return { results: [] };
+      }
+      const data = await r.json();
+      console.log(`✅ Batch ${Math.floor(i/batchSize) + 1} response:`, {
+        results_count: data.results?.length || 0,
+        status: data.status,
+        sample_result: data.results?.[0]
+      });
+      return data;
+    }));
+  }
+  
+  const results = await Promise.all(batches);
+  const allSnapshots = results.flatMap(r => r.results || []);
+  
+  console.log(`📊 Total snapshots with Greeks: ${allSnapshots.length}`);
+  console.log(`📊 Sample snapshot:`, allSnapshots[0]);
+  
+  return allSnapshots;
+}
+
+// Calculate GEX by strike
+function calculateGEXByStrike(
+  snapshots: OptionSnapshot[],
+  spotPrice: number
+) {
+  const gexByStrike = new Map<number, Omit<StrikeGEX, 'net_gex' | 'net_dex' | 'total_oi' | 'net_gamma' | 'net_delta'>>();
+  
+  let totalCallGamma = 0;
+  let totalPutGamma = 0;
+  let totalCallDelta = 0;
+  let totalPutDelta = 0;
+  let processedContracts = 0;
+  let skippedContracts = 0;
+  
+  console.log(`🔍 REAL DATA - Processing ${snapshots.length} option snapshots for GEX calculation`);
+  
+  snapshots.forEach((snapshot, index) => {
+    const details = snapshot.details;
+    const greeks = snapshot.greeks;
+    const strike = details.strike_price;
+    const contractType = details.contract_type;
+    const openInterest = snapshot.open_interest || 0;
+    
+    // Debug first few contracts to see real data
+    if (index < 5) {
+      console.log(`🔍 REAL SAMPLE CONTRACT ${index + 1}:`, {
+        strike: strike,
+        type: contractType,
+        open_interest: openInterest,
+        gamma: greeks?.gamma,
+        delta: greeks?.delta,
+        has_greeks: !!greeks,
+        full_snapshot: snapshot
+      });
+    }
+    
+    if (openInterest === 0 || !greeks || !greeks.gamma) {
+      skippedContracts++;
+      if (index < 10) {
+        console.log(`⚠️ SKIPPING CONTRACT: OI=${openInterest}, hasGreeks=${!!greeks}, gamma=${greeks?.gamma}`);
+      }
+      return;
+    }
+    
+    processedContracts++;
+    
+    // GEX Formula: Gamma × OI × 100 × Spot² / 100
+    const contractGEX = greeks.gamma * openInterest * 100 * spotPrice * spotPrice / 100;
+    
+    // DEX Formula: Delta × OI × 100 × Spot
+    const contractDEX = greeks.delta * openInterest * 100 * spotPrice;
+    
+    if (!gexByStrike.has(strike)) {
+      gexByStrike.set(strike, {
+        strike: strike,
+        call_gex: 0,
+        put_gex: 0,
+        call_dex: 0,
+        put_dex: 0,
+        call_oi: 0,
+        put_oi: 0,
+        call_gamma: 0,
+        put_gamma: 0,
+        call_delta: 0,
+        put_delta: 0
+      });
+    }
+    
+    const strikeData = gexByStrike.get(strike)!;
+    
+    if (contractType === 'call') {
+      strikeData.call_gex += contractGEX;
+      strikeData.call_dex += contractDEX;
+      strikeData.call_oi += openInterest;
+      strikeData.call_gamma += greeks.gamma * openInterest;
+      strikeData.call_delta += greeks.delta * openInterest;
+      totalCallGamma += contractGEX;
+      totalCallDelta += contractDEX;
+    } else {
+      strikeData.put_gex += contractGEX * -1;
+      strikeData.put_dex += contractDEX * -1;
+      strikeData.put_oi += openInterest;
+      strikeData.put_gamma += greeks.gamma * openInterest;
+      strikeData.put_delta += greeks.delta * openInterest;
+      totalPutGamma += contractGEX * -1;
+      totalPutDelta += contractDEX * -1;
+    }
+  });
+  
+  const aggregated: StrikeGEX[] = Array.from(gexByStrike.values()).map(strike => ({
+    ...strike,
+    net_gex: strike.call_gex + strike.put_gex,
+    net_dex: strike.call_dex + strike.put_dex,
+    total_oi: strike.call_oi + strike.put_oi,
+    net_gamma: strike.call_gamma + strike.put_gamma,
+    net_delta: strike.call_delta + strike.put_delta
+  }));
+  
+  aggregated.sort((a, b) => a.strike - b.strike);
+  
+  console.log('📊 REAL GEX CALCULATION COMPLETE:', {
+    processed_contracts: processedContracts,
+    skipped_contracts: skippedContracts,
+    total_strikes_with_gex: aggregated.length,
+    total_call_gex: totalCallGamma,
+    total_put_gex: totalPutGamma,
+    net_gex: totalCallGamma + totalPutGamma,
+    top_5_strikes: aggregated.slice(0, 5).map(s => ({
+      strike: s.strike,
+      net_gex: s.net_gex,
+      call_gex: s.call_gex,
+      put_gex: s.put_gex
+    }))
+  });
+  
+  return {
+    strikes: aggregated,
+    totals: {
+      call_gex: totalCallGamma,
+      put_gex: totalPutGamma,
+      net_gex: totalCallGamma + totalPutGamma,
+      call_dex: totalCallDelta,
+      put_dex: totalPutDelta,
+      net_dex: totalCallDelta + totalPutDelta
+    }
+  };
+}
+
+// Calculate key levels
+function calculateKeyLevels(aggregatedData: ReturnType<typeof calculateGEXByStrike>, spotPrice: number) {
+  const strikes = aggregatedData.strikes;
+  
+  console.log('🔍 REAL DATA - Calculating key levels from strikes:', {
+    total_strikes: strikes.length,
+    strikes_with_data: strikes.filter(s => Math.abs(s.net_gex) > 0).length,
+    sample_strikes: strikes.slice(0, 5).map(s => ({
+      strike: s.strike,
+      net_gex: s.net_gex,
+      call_gex: s.call_gex,
+      put_gex: s.put_gex,
+      total_oi: s.total_oi
+    })),
+    gex_range: {
+      min: Math.min(...strikes.map(s => s.net_gex)),
+      max: Math.max(...strikes.map(s => s.net_gex))
+    }
+  });
+  
+  // Zero Gamma Level
+  let zeroGammaLevel = spotPrice;
+  let minGEXDiff = Infinity;
+  
+  for (let i = 0; i < strikes.length - 1; i++) {
+    const current = strikes[i];
+    const next = strikes[i + 1];
+    
+    if ((current.net_gex > 0 && next.net_gex < 0) || 
+        (current.net_gex < 0 && next.net_gex > 0)) {
+      const ratio = Math.abs(current.net_gex) / 
+                   (Math.abs(current.net_gex) + Math.abs(next.net_gex));
+      zeroGammaLevel = current.strike + (next.strike - current.strike) * ratio;
+      console.log(`✅ REAL ZERO GAMMA found between strikes ${current.strike} and ${next.strike}: $${zeroGammaLevel.toFixed(2)}`);
+      break;
+    }
+    
+    if (Math.abs(current.net_gex) < minGEXDiff) {
+      minGEXDiff = Math.abs(current.net_gex);
+      zeroGammaLevel = current.strike;
+    }
+  }
+  
+  // Gamma Walls - REAL DATA ANALYSIS
+  const sortedByAbsGEX = [...strikes].sort((a, b) => 
+    Math.abs(b.net_gex) - Math.abs(a.net_gex)
+  );
+  
+  console.log('🔍 REAL DATA - Sorted strikes by absolute GEX:', {
+    top_10_strikes: sortedByAbsGEX.slice(0, 10).map(s => ({
+      strike: s.strike,
+      net_gex: s.net_gex,
+      abs_gex: Math.abs(s.net_gex),
+      call_gex: s.call_gex,
+      put_gex: s.put_gex,
+      total_oi: s.total_oi
+    }))
+  });
+  
+  const callWalls = sortedByAbsGEX.filter(s => s.net_gex > 0).slice(0, 3);
+  const putWalls = sortedByAbsGEX.filter(s => s.net_gex < 0).slice(0, 3);
+  
+  console.log('🟢 REAL CALL WALLS found:', callWalls.map(w => ({
+    strike: w.strike,
+    net_gex: w.net_gex,
+    call_oi: w.call_oi
+  })));
+  
+  console.log('🔴 REAL PUT WALLS found:', putWalls.map(w => ({
+    strike: w.strike,
+    net_gex: w.net_gex,
+    put_oi: w.put_oi
+  })));
+  
+  const positioning = aggregatedData.totals.net_gex > 0 ? 'short_gamma' : 'long_gamma';
+  
+  // Gamma Flip Point
+  let gammaFlipPoint = null;
+  let maxGEXGradient = 0;
+  
+  for (let i = 0; i < strikes.length - 1; i++) {
+    const gradient = Math.abs(strikes[i + 1].net_gex - strikes[i].net_gex);
+    if (gradient > maxGEXGradient) {
+      maxGEXGradient = gradient;
+      gammaFlipPoint = (strikes[i].strike + strikes[i + 1].strike) / 2;
+    }
+  }
+  
+  return {
+    zero_gamma_level: zeroGammaLevel,
+    zero_gamma_distance_pct: ((zeroGammaLevel / spotPrice - 1) * 100),
+    call_walls: callWalls,
+    put_walls: putWalls,
+    gamma_flip_point: gammaFlipPoint,
+    dealer_positioning: positioning,
+    strongest_call_wall: callWalls[0] || null,
+    strongest_put_wall: putWalls[0] || null
+  };
+}
+
+// Main API route
+export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const symbol = searchParams.get('symbol') || 'SPY';
+  
+  // Check if API key is available
+  if (!POLYGON_API_KEY) {
+    console.error('❌ POLYGON_API_KEY not configured');
+    return NextResponse.json({
+      success: false,
+      error: 'POLYGON_API_KEY not configured',
+      symbol,
+      source: 'config_error'
+    }, { status: 500 });
+  }
+  
+  console.log(`📊 Fetching GEX data for ${symbol} from Polygon API`);
+  
+  const cacheKey = `gex_${symbol}`;
+  const cached = cache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
+  
+  try {
+    console.log(`🔍 Step 1: Fetching spot price for ${symbol}`);
+    const spotPrice = await fetchSpotPrice(symbol);
+    console.log(`💰 Spot price: $${spotPrice}`);
+    
+    console.log(`🔍 Step 2: Getting ALL options data (like analysis suite)`);
+    const { combinedStrikeMap, spotPrice: updatedSpotPrice, expirationDates } = await getAllOptionsData(symbol);
+    const finalSpotPrice = updatedSpotPrice || spotPrice;
+    console.log(`� Final spot price: $${finalSpotPrice}`);
+    
+    console.log(`🔍 Step 3: Processing combined data from ${expirationDates.length} expirations`);
+    console.log(`📊 Total strikes with data: ${combinedStrikeMap.size}`);
+    console.log(`🎯 Filtered contracts: ${filtered.length}`);
+    
+    console.log(`🔍 Step 5: Getting options snapshots with Greeks`);
+    const snapshots = await getOptionsSnapshots(symbol, filtered);
+    console.log(`📊 Snapshots with data: ${snapshots.length}`);
+    
+    console.log(`🔍 Step 6: Calculating GEX by strike`);
+    const aggregated = calculateGEXByStrike(snapshots, spotPrice);
+    console.log(`📈 GEX strikes calculated: ${aggregated.strikes.length}`);
+    
+    console.log(`🔍 Step 7: Calculating key levels`);
+    const keyLevels = calculateKeyLevels(aggregated, spotPrice);
+    console.log(`🎯 Key levels calculated:`, {
+      zero_gamma: keyLevels.zero_gamma_level,
+      call_walls: keyLevels.call_walls.length,
+      put_walls: keyLevels.put_walls.length
+    });
+    
+    const response = {
+      symbol,
+      spot_price: spotPrice,
+      timestamp: new Date().toISOString(),
+      gex_by_strike: aggregated.strikes,
+      totals: aggregated.totals,
+      key_levels: keyLevels,
+      metadata: {
+        contracts_analyzed: snapshots.length,
+        expirations_included: [...new Set(contracts.map(c => c.expiration_date))],
+        strike_range: {
+          min: Math.min(...aggregated.strikes.map(s => s.strike)),
+          max: Math.max(...aggregated.strikes.map(s => s.strike))
+        }
+      }
+    };
+    
+    cache.set(cacheKey, { data: response, timestamp: Date.now() });
+    
+    return NextResponse.json(response);
+    
+  } catch (error: any) {
+    console.error('GEX calculation error:', error);
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 }
+    );
+  }
+}

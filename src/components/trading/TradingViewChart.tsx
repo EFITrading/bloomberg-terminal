@@ -20,6 +20,10 @@ import {
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 import ChartDataCache from '../../lib/chartDataCache';
 import OptionsCalculator from '../calculator/OptionsCalculator';
+import TradingPlan from './TradingPlan';
+import { gexService } from '../../lib/gexService';
+import { useGEXData } from '../../hooks/useGEXData';
+import { GEXChartOverlay } from '../GEXChartOverlay';
 
 // Add custom styles for 3D carved effect and holographic animations
 const carvedTextStyles = `
@@ -118,7 +122,6 @@ interface ChartConfig {
   timeframe: string;
   chartType: 'candlestick' | 'line';
   theme: 'dark' | 'light';
-  indicators: string[];
   drawings: Drawing[];
   crosshair: boolean;
   timezone: string;
@@ -344,11 +347,7 @@ const DROPDOWN_CHART_TYPES: { label: string; value: string; icon: string }[] = [
 
 const CHART_TYPES = [...MAIN_CHART_TYPES, ...DROPDOWN_CHART_TYPES];
 
-// Technical Indicators
-const INDICATORS = [
-  { label: 'Flow Algo', value: 'flowalgo', category: 'flow' },
-  { label: 'GEX', value: 'gex', category: 'gamma' }
-];
+
 
 // ✨ TradingView-Style Drawing Properties Panel Component
 interface DrawingPropertiesPanelProps {
@@ -826,6 +825,18 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
   );
 };
 
+
+
+
+
+
+
+
+
+
+
+
+
 // Black-Scholes Mathematical Functions for Expected Range Calculations
 // Normal cumulative distribution function
 const normalCDF = (x: number): number => {
@@ -1261,6 +1272,135 @@ const renderExpectedRangeLines = (
   console.log(`📊 Drew ${linesDrawn} out of ${linesToDraw.length} Expected Range lines`);
 };
 
+// Render GEX levels on chart
+const renderGEXLevels = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  minPrice: number,
+  maxPrice: number,
+  gexData: any
+) => {
+  if (!gexData || !gexData.gexData) return;
+
+  console.log('📊 Rendering GEX levels on chart with new data structure...');
+
+  const priceToY = (price: number) => {
+    return height - ((price - minPrice) / (maxPrice - minPrice)) * height;
+  };
+
+  // Zero Gamma Level
+  if (gexData.gexData.zeroGammaLevel) {
+    const y = priceToY(gexData.gexData.zeroGammaLevel);
+    
+    ctx.strokeStyle = '#eab308';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 4]);
+    ctx.globalAlpha = 0.9;
+    
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width - 80, y);
+    ctx.stroke();
+    
+    // Label
+    ctx.fillStyle = '#eab308';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`Zero Γ: $${gexData.gexData.zeroGammaLevel.toFixed(0)}`, width - 10, y - 5);
+    
+    console.log(`🟡 Zero Gamma Level rendered at $${gexData.gexData.zeroGammaLevel}`);
+  }
+
+  // GEX Flip Level - Critical dealer behavior change level
+  if (gexData.gexData.gexFlipLevel) {
+    const y = priceToY(gexData.gexData.gexFlipLevel);
+    
+    // Color based on gamma environment
+    const flipColor = gexData.gexData.isPositiveGamma ? '#8b5cf6' : '#f97316'; // Purple for positive, Orange for negative
+    
+    ctx.strokeStyle = flipColor;
+    ctx.lineWidth = 4;
+    ctx.setLineDash([12, 6, 4, 6]); // Distinctive dash pattern
+    ctx.globalAlpha = 0.95;
+    
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width - 80, y);
+    ctx.stroke();
+    
+    // Label with gamma environment
+    ctx.fillStyle = flipColor;
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`GEX FLIP: $${gexData.gexData.gexFlipLevel.toFixed(0)} [${gexData.gexData.gammaEnvironment}]`, width - 10, y + 15);
+    
+    console.log(`🔄 GEX Flip Level rendered at $${gexData.gexData.gexFlipLevel} (${gexData.gexData.gammaEnvironment} Gamma)`);
+  }
+
+  // Call Walls (Green) - Now with actual GEX values
+  if (gexData.gexData.callWalls && gexData.gexData.callWalls.length > 0) {
+    gexData.gexData.callWalls.forEach((wall: any, i: number) => {
+      const y = priceToY(wall.strike);
+      
+      // Line thickness based on GEX strength
+      const thickness = Math.max(1, Math.min(4, wall.gex / 10000000000)); // Scale GEX to line thickness
+      
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = thickness;
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.8 - i * 0.15;
+      
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width - 80, y);
+      ctx.stroke();
+      
+      // Label with GEX value
+      ctx.fillStyle = '#00ff00';
+      ctx.font = '11px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`Call Wall: $${wall.strike.toFixed(0)} (${(wall.gex / 1000000000).toFixed(1)}B)`, width - 90, y - 5);
+      
+      console.log(`🟢 Call Wall rendered: $${wall.strike} with ${wall.gex.toFixed(0)} GEX`);
+    });
+  }
+
+  // Put Walls (Red) - Now with actual GEX values
+  if (gexData.gexData.putWalls && gexData.gexData.putWalls.length > 0) {
+    gexData.gexData.putWalls.forEach((wall: any, i: number) => {
+      const y = priceToY(wall.strike);
+      
+      // Line thickness based on GEX strength
+      const thickness = Math.max(1, Math.min(4, wall.gex / 10000000000)); // Scale GEX to line thickness
+      
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = thickness;
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.8 - i * 0.15;
+      
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width - 80, y);
+      ctx.stroke();
+      
+      // Label with GEX value
+      ctx.fillStyle = '#ff0000';
+      ctx.font = '11px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`Put Wall: $${wall.strike.toFixed(0)} (${(wall.gex / 1000000000).toFixed(1)}B)`, width - 90, y + 15);
+      
+      console.log(`🔴 Put Wall rendered: $${wall.strike} with ${wall.gex.toFixed(0)} GEX`);
+    });
+  }
+
+  // Reset canvas state
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1.0;
+  
+  console.log(`📊 GEX levels rendered: ${gexData.gexData.callWalls?.length || 0} call walls, ${gexData.gexData.putWalls?.length || 0} put walls, zero gamma at $${gexData.gexData.zeroGammaLevel}`);
+};
+
 // Expansion/Liquidation Detection Algorithm
 interface ExpansionLiquidationZone {
   type: 'expansion' | 'liquidation';
@@ -1525,8 +1665,8 @@ export default function TradingViewChart({
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   
   // Dropdown button refs for positioning
-  const indicatorsButtonRef = useRef<HTMLButtonElement>(null);
-  const timeframeButtonRef = useRef<HTMLButtonElement>(null);
+
+
 
   // Chart state
   const [config, setConfig] = useState<ChartConfig>({
@@ -1534,7 +1674,6 @@ export default function TradingViewChart({
     timeframe: initialTimeframe,
     chartType: 'candlestick',
     theme: 'dark',
-    indicators: [],
     drawings: [],
     crosshair: true,
     timezone: 'UTC',
@@ -1569,13 +1708,12 @@ export default function TradingViewChart({
 
   // Settings panel state
   const [showSettings, setShowSettings] = useState(false);
-  const [showTimeframeDropdown, setShowTimeframeDropdown] = useState(false);
-  const [showIndicatorsDropdown, setShowIndicatorsDropdown] = useState(false);
+
+
   
   // Dropdown positioning state
   const [dropdownPositions, setDropdownPositions] = useState({
-    indicators: { x: 0, y: 0, width: 0 },
-    timeframe: { x: 0, y: 0, width: 0 }
+    indicators: { x: 0, y: 0, width: 0 }
   });
 
   // Search state
@@ -1649,9 +1787,22 @@ export default function TradingViewChart({
   const [isLoadingExpectedRange, setIsLoadingExpectedRange] = useState(false);
   const [isExpectedRangeActive, setIsExpectedRangeActive] = useState(false);
 
+  // GEX state for gamma exposure levels
+  const [isGexActive, setIsGexActive] = useState(false);
+  
+  // GEX data hook - fetch GEX data when active
+  const { data: gexData, loading: isLoadingGex, error: gexError } = useGEXData(
+    symbol, 
+    isGexActive // Only auto-refresh when GEX is active
+  );
+
   // Expansion/Liquidation indicator state
   const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false);
   const [expansionLiquidationZones, setExpansionLiquidationZones] = useState<any[]>([]);
+
+
+  
+
 
   // Watchlist data state
   const [watchlistData, setWatchlistData] = useState<{[key: string]: {
@@ -2133,6 +2284,11 @@ export default function TradingViewChart({
   const [manualPriceRange, setManualPriceRange] = useState<{ min: number; max: number } | null>(null);
   const [isDraggingYAxis, setIsDraggingYAxis] = useState(false);
   const [yAxisDragStart, setYAxisDragStart] = useState<{ y: number; priceRange: { min: number; max: number } } | null>(null);
+
+
+
+
+
   const [boxZoomStart, setBoxZoomStart] = useState<{ x: number; y: number } | null>(null);
   const [boxZoomEnd, setBoxZoomEnd] = useState<{ x: number; y: number } | null>(null);
   const [isBoxZooming, setIsBoxZooming] = useState(false);
@@ -2362,24 +2518,13 @@ export default function TradingViewChart({
         const now = new Date();
         const endDate = now.toISOString().split('T')[0];
         
-        // SUPER OPTIMIZED ranges for blazing fast symbol switching
-        const ultraFastRanges = {
-          '1m': 1,      // 1 day only for 1min (ultra-fast)
-          '5m': 3,      // 3 days for 5min (ultra-fast)
-          '15m': 7,     // 1 week for 15min (ultra-fast)
-          '30m': 14,    // 2 weeks for 30min (ultra-fast)
-          '1h': 30,     // 1 month for 1hour (ultra-fast)
-          '4h': 90,     // 3 months for 4hour (ultra-fast)
-          '1d': 365,    // 1 year for daily (ultra-fast, reduced from 2555)
-          '1w': 365,    // 1 year for weekly (ultra-fast)
-          '1mo': 730    // 2 years for monthly (ultra-fast)
-        };
-        
-        const daysBack = ultraFastRanges[timeframe as keyof typeof ultraFastRanges] || 30;
+        // Use proper TradingView timeframe lookback periods for full historical data
+        const timeframeConfig = TRADINGVIEW_TIMEFRAMES.find(tf => tf.value === timeframe);
+        const daysBack = timeframeConfig?.lookback || 365; // Default to 1 year if not found
         const startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000))
           .toISOString().split('T')[0];
         
-        console.log(`⚡ OPTIMIZED RANGE: ${sym} ${timeframe} - ${daysBack} days (${startDate} to ${endDate})`);
+        console.log(`📈 FULL HISTORICAL RANGE: ${sym} ${timeframe} - ${daysBack} days (${startDate} to ${endDate})`);
         
         // Ultra-fast API call with aggressive cache busting (force fresh data for volume)
         const response = await fetch(
@@ -2459,6 +2604,11 @@ export default function TradingViewChart({
       
       // Set data and complete loading
       setData(data);
+      
+      // Initialize scroll position to show most recent candles (not 2016!)
+      const defaultVisible = Math.min(200, data.length); // Show up to 200 candles initially
+      setScrollOffset(Math.max(0, data.length - defaultVisible));
+      
       setLoading(false);
       
       const loadTime = performance.now() - startTime;
@@ -2514,12 +2664,9 @@ export default function TradingViewChart({
     const now = new Date();
     const endDate = now.toISOString().split('T')[0];
     
-    const ultraFastRanges = {
-      '1m': 1, '5m': 3, '15m': 7, '30m': 14, '1h': 30, 
-      '4h': 90, '1d': 365, '1w': 365, '1mo': 730
-    };
-    
-    const daysBack = ultraFastRanges[timeframe as keyof typeof ultraFastRanges] || 30;
+    // Use proper TradingView timeframe lookback periods for full historical data
+    const timeframeConfig = TRADINGVIEW_TIMEFRAMES.find(tf => tf.value === timeframe);
+    const daysBack = timeframeConfig?.lookback || 365; // Default to 1 year if not found
     const startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000))
       .toISOString().split('T')[0];
     
@@ -2648,13 +2795,7 @@ export default function TradingViewChart({
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element;
       
-      if (showTimeframeDropdown && !target.closest('.timeframe-dropdown')) {
-        setShowTimeframeDropdown(false);
-      }
-      
-      if (showIndicatorsDropdown && !target.closest('.indicators-dropdown')) {
-        setShowIndicatorsDropdown(false);
-      }
+
       
       if (showToolsDropdown && !target.closest('.tools-dropdown')) {
         setShowToolsDropdown(false);
@@ -2666,7 +2807,7 @@ export default function TradingViewChart({
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showTimeframeDropdown, showIndicatorsDropdown, showToolsDropdown]);
+  }, [showToolsDropdown]);
 
   // Render overlay (crosshair, zoom feedback)
   const renderOverlay = useCallback(() => {
@@ -3174,15 +3315,11 @@ export default function TradingViewChart({
     ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
 
-    // Calculate chart areas - reserve space for indicators, volume, and time axis
+    // Calculate chart areas - reserve space for volume and time axis
     const timeAxisHeight = 25;
     const volumeAreaHeight = 80; // Reserve space for volume bars
-    const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
-    const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
     
-    const priceChartHeight = height - indicatorPanelHeight - volumeAreaHeight - timeAxisHeight;
-    const indicatorStartY = priceChartHeight;
-    const indicatorEndY = indicatorStartY + indicatorPanelHeight;
+    const priceChartHeight = height - volumeAreaHeight - timeAxisHeight;
 
     // Draw grid first for price chart area (only if enabled)
     if (config.showGrid) {
@@ -3367,6 +3504,20 @@ export default function TradingViewChart({
       console.log('📊 Expected Range lines rendered on top');
     }
 
+    // Draw GEX levels on top of candlesticks (standalone button)
+    if (isGexActive && gexData) {
+      console.log('📊 Rendering GEX levels on top of chart');
+      renderGEXLevels(
+        ctx,
+        chartWidth,
+        priceChartHeight,
+        adjustedMin,
+        adjustedMax,
+        gexData
+      );
+      console.log('📊 GEX levels rendered on top');
+    }
+
     // Draw Expansion/Liquidation zones (standalone button)
     if (isExpansionLiquidationActive) {
       console.log('🎯 Detecting and rendering Expansion/Liquidation zones');
@@ -3401,19 +3552,17 @@ export default function TradingViewChart({
       console.log(`🎯 Rendered ${validZones.filter(z => z.isValid).length} valid zones`);
     }
 
+
+
+
+
     // Draw volume bars above the time axis (TradingView style)
     drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
 
     // Draw time axis at the bottom
     drawTimeAxis(ctx, width, height, visibleData, chartWidth, visibleCandleCount, scrollOffset, data);
 
-    // Draw indicators if enabled
-    if (config.indicators && config.indicators.length > 0) {
-      console.log(`🔍 Drawing ${config.indicators.length} indicators:`, config.indicators);
-      drawIndicators(ctx, visibleData, chartWidth, priceChartHeight, adjustedMin, adjustedMax, candleSpacing, indicatorStartY, indicatorEndY, oscillatorIndicators);
-    } else {
-      console.log(`🔍 No indicators to draw. config.indicators:`, config.indicators);
-    }
+
 
     // Draw stored drawings on overlay canvas (not main chart)
     const overlayCanvas = overlayCanvasRef.current;
@@ -3427,7 +3576,7 @@ export default function TradingViewChart({
 
     console.log(`✅ Integrated chart rendered successfully with ${config.theme} theme`);
 
-  }, [data, dimensions, chartHeight, config.chartType, config.theme, config.showGrid, config.axisStyle, config.indicators, colors, scrollOffset, visibleCandleCount, drawings]);
+  }, [data, dimensions, chartHeight, config.chartType, config.theme, config.showGrid, config.axisStyle, colors, scrollOffset, visibleCandleCount, drawings]);
 
   // Draw volume bars above the x-axis (TradingView style)
   const drawVolumeProfile = (
@@ -3721,51 +3870,7 @@ export default function TradingViewChart({
     return bands;
   };
 
-  // Draw indicators on the chart
-  const drawIndicators = (
-    ctx: CanvasRenderingContext2D,
-    visibleData: ChartDataPoint[],
-    chartWidth: number,
-    chartHeight: number,
-    minPrice: number,
-    maxPrice: number,
-    candleSpacing: number,
-    indicatorStartY: number,
-    indicatorEndY: number,
-    oscillatorIndicators: string[]
-  ) => {
-    const padding = (maxPrice - minPrice) * 0.1;
-    const adjustedMin = minPrice - padding;
-    const adjustedMax = maxPrice + padding;
 
-    console.log(`🎯 drawIndicators called with ${config.indicators.length} indicators:`, config.indicators);
-    console.log(`🎯 Chart dimensions: ${chartWidth}x${chartHeight}, price range: ${adjustedMin}-${adjustedMax}`);
-    console.log(`🎯 Oscillator indicators:`, oscillatorIndicators);
-    console.log(`🎯 Indicator panel: Y ${indicatorStartY} to ${indicatorEndY}`);
-
-    // Calculate panel dimensions for oscillators
-    const panelHeight = oscillatorIndicators.length > 0 ? (indicatorEndY - indicatorStartY) / oscillatorIndicators.length : 0;
-    let oscillatorIndex = 0;
-
-    config.indicators.forEach(indicator => {
-      console.log(`🎨 Rendering indicator: ${indicator}`);
-      switch (indicator) {
-        case 'flowalgo':
-          // TODO: Implement Flow Algo indicator  
-          console.log('📊 Flow Algo indicator - to be implemented');
-          break;
-        case 'gex':
-          const gexPanelStart = indicatorStartY + (oscillatorIndex * panelHeight);
-          const gexPanelEnd = gexPanelStart + panelHeight;
-          // TODO: Implement GEX indicator
-          console.log('📊 GEX indicator - to be implemented');
-          oscillatorIndex++;
-          break;
-        default:
-          console.log(`⚠️ Unknown indicator: ${indicator}`);
-      }
-    });
-  };
 
   const drawSMA = (
     ctx: CanvasRenderingContext2D,
@@ -4444,7 +4549,7 @@ export default function TradingViewChart({
       console.log(`🎨 Rendering chart with ${data.length} data points`);
       renderChart();
     }
-  }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount]);
+  }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive]);
 
   // TradingView-style interaction handlers
   const [lastMouseX, setLastMouseX] = useState(0);
@@ -4869,9 +4974,7 @@ export default function TradingViewChart({
     if (isDraggingDrawing && selectedDrawing) {
       // Convert Y to price using the same calculation as chart rendering
       const timeAxisHeight = 25;
-      const oscillatorIndicators = config.indicators.filter(ind => ['rsi', 'macd', 'stoch'].includes(ind));
-      const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
-      const priceChartHeight = dimensions.height - indicatorPanelHeight - timeAxisHeight;
+      const priceChartHeight = dimensions.height - timeAxisHeight;
       
       // Calculate visible data range for accurate price conversion
       const startIndex = Math.max(0, Math.floor(scrollOffset));
@@ -4902,9 +5005,7 @@ export default function TradingViewChart({
       // Handle Y-axis dragging (vertical movement)
       const deltaY = y - yAxisDragStart.y;
       const timeAxisHeight = 25;
-      const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
-      const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
-      const priceChartHeight = dimensions.height - indicatorPanelHeight - timeAxisHeight;
+      const priceChartHeight = dimensions.height - timeAxisHeight;
       
       // Calculate price change based on drag distance
       const originalRange = yAxisDragStart.priceRange;
@@ -4943,9 +5044,7 @@ export default function TradingViewChart({
       // Handle Y-axis dragging using current manual price range
       const deltaY = y - (lastMousePosition.y || y);
       const timeAxisHeight = 25;
-      const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
-      const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
-      const priceChartHeight = dimensions.height - indicatorPanelHeight - timeAxisHeight;
+      const priceChartHeight = dimensions.height - timeAxisHeight;
       
       // Get current manual price range
       if (manualPriceRange) {
@@ -5004,9 +5103,7 @@ export default function TradingViewChart({
     if (data.length > 0 && config.crosshair) {
       // Calculate correct chart dimensions (matching renderChart function)
       const timeAxisHeight = 25;
-      const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
-      const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
-      const priceChartHeight = dimensions.height - indicatorPanelHeight - timeAxisHeight;
+      const priceChartHeight = dimensions.height - timeAxisHeight;
       
       // Calculate visible data range (matching renderChart function)
       const startIndex = Math.max(0, Math.floor(scrollOffset));
@@ -5077,7 +5174,7 @@ export default function TradingViewChart({
         }
       }
     }
-  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, config.indicators]);
+  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe]);
 
   const handleMouseUp = useCallback(() => {
     // Handle box zoom completion
@@ -5104,9 +5201,7 @@ export default function TradingViewChart({
         
         // Calculate new price range (Y-axis)
         const timeAxisHeight = 25;
-        const oscillatorIndicators = config.indicators.filter(ind => ['gex'].includes(ind));
-        const indicatorPanelHeight = oscillatorIndicators.length > 0 ? 120 * oscillatorIndicators.length : 0;
-        const priceChartHeight = dimensions.height - indicatorPanelHeight - timeAxisHeight;
+        const priceChartHeight = dimensions.height - timeAxisHeight;
         
         // Get current price range for conversion
         const startIndex = Math.max(0, Math.floor(scrollOffset));
@@ -5145,7 +5240,7 @@ export default function TradingViewChart({
     setBoxZoomEnd(null);
     // DON'T clear selectedDrawing here - it closes the Property Editor!
     // setSelectedDrawing(null);
-  }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, config.indicators, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, isDraggingYAxis, velocity, startMomentumAnimation]);
+  }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, isDraggingYAxis, velocity, startMomentumAnimation]);
 
   // Simple drawing rendering effect - COMPLETELY DISABLED to prevent conflicts with main TradingView drawing system
   useEffect(() => {
@@ -5233,22 +5328,7 @@ export default function TradingViewChart({
     onSymbolChange?.(newSymbol);
   };
 
-  // Update dropdown positions based on button positions
-  const updateDropdownPosition = (type: 'indicators' | 'timeframe') => {
-    const buttonRef = type === 'indicators' ? indicatorsButtonRef : timeframeButtonRef;
-    
-    if (buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      setDropdownPositions(prev => ({
-        ...prev,
-        [type]: {
-          x: rect.left,
-          y: rect.bottom + 8, // 8px gap below button
-          width: rect.width
-        }
-      }));
-    }
-  };
+
 
   // Drawing Tools Functions
   const selectDrawingTool = (toolValue: string) => {
@@ -7888,41 +7968,6 @@ export default function TradingViewChart({
                 {tf.label}
               </button>
             ))}
-            
-            {/* Dropdown Toggle Button - Integrated */}
-            <div className="relative">
-              <button
-                ref={timeframeButtonRef}
-                onClick={() => {
-                  setShowTimeframeDropdown(!showTimeframeDropdown);
-                  if (!showTimeframeDropdown) {
-                    updateDropdownPosition('timeframe');
-                  }
-                }}
-                className={`btn-3d-carved relative group flex items-center space-x-1 ${['1m', '15m', '1w', '1mo'].includes(config.timeframe) ? 'active' : 'text-white'}`}
-                style={{
-                  padding: '8px 12px',
-                  fontWeight: '600',
-                  fontSize: '13px',
-                  letterSpacing: '0.5px',
-                  borderRadius: '4px'
-                }}
-              >
-                <svg 
-                  width="12" 
-                  height="12" 
-                  viewBox="0 0 12 12" 
-                  fill="currentColor"
-                  style={{
-                    transform: showTimeframeDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.2s'
-                  }}
-                >
-                  <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                </svg>
-              </button>
-              
-            </div>
           </div>
 
           {/* Glowing Orange Separator */}
@@ -7972,44 +8017,7 @@ export default function TradingViewChart({
             borderRadius: '2px'
           }}></div>
 
-          {/* Indicators Button - Moved to left side */}
-          <div className="relative indicators-dropdown search-bar-premium">
-            <button 
-              ref={indicatorsButtonRef}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                
-                if (!showIndicatorsDropdown) {
-                  updateDropdownPosition('indicators');
-                  setShowIndicatorsDropdown(true);
-                } else {
-                  setShowIndicatorsDropdown(false);
-                }
-              }}
-              className={`btn-3d-carved relative group flex items-center space-x-2 ${showIndicatorsDropdown || config.indicators.length > 0 ? 'active' : 'text-white'}`}
-              style={{
-                padding: '10px 14px',
-                fontWeight: '700',
-                fontSize: '13px',
-                borderRadius: '4px'
-              }}
-            >
-              <span>INDICATORS</span>
-              <svg 
-                width="12" 
-                height="12" 
-                viewBox="0 0 12 12" 
-                fill="currentColor"
-                style={{
-                  transform: showIndicatorsDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.2s'
-                }}
-              >
-                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-              </svg>
-            </button>
-          </div>
+
 
           {/* Expected Range Button - Standalone */}
           <div className="ml-4">
@@ -8052,6 +8060,29 @@ export default function TradingViewChart({
                 <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full"></div>
               )}
               {isExpectedRangeActive && !isLoadingExpectedRange && (
+                <span className="text-green-400 text-sm">✓</span>
+              )}
+            </button>
+          </div>
+
+          {/* GEX Button - Next to Expected Range */}
+          <div className="ml-4">
+            <button
+              onClick={() => {
+                const newActiveState = !isGexActive;
+                setIsGexActive(newActiveState);
+                console.log(`📊 GEX ${newActiveState ? 'activated' : 'deactivated'}`);
+              }}
+              className={`btn-3d-carved relative group flex items-center space-x-2 ${isGexActive ? 'active' : 'text-white'}`}
+              style={{
+                padding: '10px 14px',
+                fontWeight: '700',
+                fontSize: '13px',
+                borderRadius: '4px'
+              }}
+            >
+              <span>GEX</span>
+              {isGexActive && (
                 <span className="text-green-400 text-sm">✓</span>
               )}
             </button>
@@ -8155,99 +8186,7 @@ export default function TradingViewChart({
           {/* Enhanced Action Buttons */}
           <div className="flex items-center space-x-4">
 
-            {/* Glowing Orange Separator */}
-            <div className="mx-6" style={{
-              width: '4px',
-              height: '50px',
-              background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
-              boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
-              borderRadius: '2px'
-            }}></div>
 
-            {/* ADMIN Button - Premium Gold Design */}
-            <button 
-              className="relative group overflow-hidden"
-              style={{
-                padding: '12px 20px',
-                borderRadius: '10px',
-                background: 'linear-gradient(145deg, #1a1a1a 0%, #000000 30%, #1a1a1a 70%, #2a2a2a 100%)',
-                border: '2px solid transparent',
-                backgroundImage: 'linear-gradient(145deg, #1a1a1a 0%, #000000 30%, #1a1a1a 70%, #2a2a2a 100%), linear-gradient(90deg, #FFD700, #FFA500, #FFD700)',
-                backgroundOrigin: 'border-box',
-                backgroundClip: 'padding-box, border-box',
-                color: '#FFD700',
-                fontWeight: '800',
-                fontSize: '13px',
-                letterSpacing: '1.2px',
-                textShadow: `
-                  0 0 5px rgba(255, 215, 0, 0.8),
-                  0 2px 4px rgba(0, 0, 0, 0.9),
-                  0 0 10px rgba(255, 215, 0, 0.4),
-                  2px 2px 0px rgba(0, 0, 0, 0.8)
-                `,
-                boxShadow: `
-                  inset 0 3px 6px rgba(0, 0, 0, 0.4),
-                  inset 0 -3px 6px rgba(255, 215, 0, 0.1),
-                  0 6px 20px rgba(0, 0, 0, 0.6),
-                  0 2px 8px rgba(255, 215, 0, 0.2),
-                  0 0 25px rgba(255, 215, 0, 0.1)
-                `,
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                position: 'relative'
-              }}
-              onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
-                e.currentTarget.style.textShadow = `
-                  0 0 8px rgba(255, 215, 0, 1),
-                  0 2px 4px rgba(0, 0, 0, 0.9),
-                  0 0 15px rgba(255, 215, 0, 0.6),
-                  2px 2px 0px rgba(0, 0, 0, 0.8)
-                `;
-                e.currentTarget.style.boxShadow = `
-                  inset 0 4px 8px rgba(0, 0, 0, 0.5),
-                  inset 0 -4px 8px rgba(255, 215, 0, 0.15),
-                  0 8px 25px rgba(0, 0, 0, 0.7),
-                  0 4px 12px rgba(255, 215, 0, 0.3),
-                  0 0 35px rgba(255, 215, 0, 0.2)
-                `;
-              }}
-              onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                e.currentTarget.style.textShadow = `
-                  0 0 5px rgba(255, 215, 0, 0.8),
-                  0 2px 4px rgba(0, 0, 0, 0.9),
-                  0 0 10px rgba(255, 215, 0, 0.4),
-                  2px 2px 0px rgba(0, 0, 0, 0.8)
-                `;
-                e.currentTarget.style.boxShadow = `
-                  inset 0 3px 6px rgba(0, 0, 0, 0.4),
-                  inset 0 -3px 6px rgba(255, 215, 0, 0.1),
-                  0 6px 20px rgba(0, 0, 0, 0.6),
-                  0 2px 8px rgba(255, 215, 0, 0.2),
-                  0 0 25px rgba(255, 215, 0, 0.1)
-                `;
-              }}
-            >
-              {/* Gold shine effect */}
-              <div 
-                className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                style={{
-                  background: 'linear-gradient(45deg, transparent 30%, rgba(255, 215, 0, 0.1) 50%, transparent 70%)',
-                  animation: 'shimmer 2s infinite',
-                  borderRadius: '8px'
-                }}
-              ></div>
-              <span className="relative z-10">ADMIN</span>
-            </button>
-
-            {/* Glowing Orange Separator */}
-            <div className="mx-6" style={{
-              width: '4px',
-              height: '50px',
-              background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
-              boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
-              borderRadius: '2px'
-            }}></div>
 
             {/* AI Button - Futuristic Silver/Chrome Design */}
             <button 
@@ -8839,6 +8778,7 @@ export default function TradingViewChart({
               { id: 'alerts', icon: TbBellRinging, label: 'Alerts', color: 'from-gray-800 to-gray-900', accent: 'red' },
               { id: 'calc', icon: TbCalculator, label: 'Calc', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
               { id: 'chain', icon: TbLink, label: 'Chain', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
+              { id: 'plan', icon: TbChartLine, label: 'Plan', color: 'from-gray-800 to-gray-900', accent: 'purple' },
               { id: 'chat', icon: TbMessageCircle, label: 'Chat', color: 'from-gray-800 to-gray-900', accent: 'violet' }
             ].map((item, index) => {
               const IconComponent = item.icon;
@@ -8848,7 +8788,8 @@ export default function TradingViewChart({
                 amber: 'text-amber-400 group-hover:text-amber-300',
                 red: 'text-red-400 group-hover:text-red-300',
                 violet: 'text-violet-400 group-hover:text-violet-300',
-                cyan: 'text-cyan-400 group-hover:text-cyan-300'
+                cyan: 'text-cyan-400 group-hover:text-cyan-300',
+                purple: 'text-purple-400 group-hover:text-purple-300'
               };
               return (
               <div key={item.id} className="flex flex-col items-center mb-3">
@@ -9152,6 +9093,9 @@ export default function TradingViewChart({
                 Options Chain coming soon...
               </div>
             )}
+            {activeSidebarPanel === 'plan' && (
+              <TradingPlan />
+            )}
             {activeSidebarPanel === 'chat' && (
               <ChatPanel 
                 activeTab={chatTab} 
@@ -9163,117 +9107,9 @@ export default function TradingViewChart({
       )}
       </div>
 
-      {/* Portal Dropdowns - Rendered outside chart container to avoid z-index issues */}
-      {showIndicatorsDropdown && createPortal(
-        <div
-          className="fixed w-48 rounded-lg overflow-hidden"
-          style={{
-            left: `${dropdownPositions.indicators.x}px`,
-            top: `${dropdownPositions.indicators.y}px`,
-            background: 'linear-gradient(135deg, rgba(18, 18, 18, 0.95) 0%, rgba(12, 12, 12, 0.98) 100%)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(12px)',
-            zIndex: 999999
-          }}
-        >
-          {INDICATORS.map((indicator) => (
-            <button
-              key={indicator.value}
-              onClick={() => {
-                // Add indicator to chart
-                const isCurrentlyActive = config.indicators.includes(indicator.value);
-                setConfig(prev => ({
-                  ...prev,
-                  indicators: isCurrentlyActive
-                    ? prev.indicators.filter(ind => ind !== indicator.value)
-                    : [...prev.indicators, indicator.value]
-                }));
-                console.log(`📊 ${isCurrentlyActive ? 'Removed' : 'Added'} indicator: ${indicator.label}`);
-                setShowIndicatorsDropdown(false);
-              }}
-              className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-white hover:bg-opacity-10 transition-colors ${
-                config.indicators.includes(indicator.value) ? 'bg-blue-600 bg-opacity-20' : ''
-              }`}
-              style={{
-                background: config.indicators.includes(indicator.value) 
-                  ? 'rgba(41, 98, 255, 0.2)' 
-                  : 'transparent',
-                color: config.indicators.includes(indicator.value) 
-                  ? '#60a5fa' 
-                  : '#d1d5db',
-                fontSize: '13px',
-                fontWeight: '500',
-                letterSpacing: '0.3px',
-                textShadow: '0 1px 1px rgba(0, 0, 0, 0.8)'
-              }}
-            >
-              <div className="flex items-center space-x-3">
-                <span className="text-sm">📈</span>
-                <span>{indicator.label}</span>
-              </div>
-              {config.indicators.includes(indicator.value) && (
-                <span className="text-blue-400 text-sm">✓</span>
-              )}
-            </button>
-          ))}
-        </div>,
-        document.body
-      )}
 
-      {showTimeframeDropdown && createPortal(
-        <div 
-          className="fixed rounded-xl shadow-2xl min-w-[120px] backdrop-blur-lg"
-          style={{
-            left: `${dropdownPositions.timeframe.x}px`,
-            top: `${dropdownPositions.timeframe.y}px`,
-            background: 'linear-gradient(135deg, rgba(10, 10, 10, 0.95) 0%, rgba(26, 26, 26, 0.95) 100%)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-            zIndex: 999999
-          }}
-        >
-          {['1M', '15M', '1W', '1MO'].map((tf, index) => (
-            <button
-              key={tf}
-              onClick={() => {
-                handleTimeframeChange(tf.toLowerCase());
-                setShowTimeframeDropdown(false);
-              }}
-              className="w-full text-left transition-all duration-150"
-              style={{
-                padding: '12px 16px',
-                background: config.timeframe === tf.toLowerCase()
-                  ? 'linear-gradient(135deg, #2962ff 0%, #1e4db7 100%)'
-                  : 'transparent',
-                color: config.timeframe === tf.toLowerCase() ? '#ffffff' : '#d1d5db',
-                fontWeight: '600',
-                fontSize: '13px',
-                letterSpacing: '0.5px',
-                textShadow: config.timeframe === tf.toLowerCase()
-                  ? '0 1px 2px rgba(0, 0, 0, 0.8), 0 0 8px rgba(41, 98, 255, 0.4)'
-                  : '0 1px 1px rgba(0, 0, 0, 0.8)',
-                borderRadius: index === 0 ? '10px 10px 0 0' : index === 3 ? '0 0 10px 10px' : '0'
-              }}
-              onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                if (config.timeframe !== tf.toLowerCase()) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%)';
-                  e.currentTarget.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                if (config.timeframe !== tf.toLowerCase()) {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = '#d1d5db';
-                }
-              }}
-            >
-              {tf}
-            </button>
-          ))}
-        </div>,
-        document.body
-      )}
+
+
 
       {/* ✨ NEW: Drawing Properties Panel */}
       <DrawingPropertiesPanel
