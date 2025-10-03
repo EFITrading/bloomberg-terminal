@@ -132,11 +132,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: '2-digit',
-      day: '2-digit',
-      year: '2-digit'
-    });
+    // Parse date string manually to avoid timezone issues
+    // Expected format: YYYY-MM-DD
+    const [year, month, day] = dateString.split('-');
+    return `${month}/${day}/${year.slice(-2)}`;
   };
 
   const getTradeTypeColor = (tradeType: string) => {

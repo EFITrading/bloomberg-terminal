@@ -32,6 +32,13 @@ interface ProcessedTrade {
   related_trades?: string[];
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
+  // Fill analysis fields
+  bid_price?: number;
+  ask_price?: number;
+  bid_size?: number;
+  ask_size?: number;
+  fill_type?: 'BELOW_BID' | 'AT_BID' | 'BETWEEN' | 'AT_ASK' | 'ABOVE_ASK';
+  fill_aggression?: 'AGGRESSIVE_BUY' | 'AGGRESSIVE_SELL' | 'NEUTRAL' | 'UNKNOWN';
 }
 
 interface PremiumTier {
@@ -215,6 +222,33 @@ export class OptionsFlowService {
     }
   }
 
+  // Helper method to fetch trades for a single contract
+  private async fetchContractTrades(optionTicker: string, strike: number, expiration: string, type: 'call' | 'put', symbol: string, spotPrice: number): Promise<any[]> {
+    const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${Date.now() - 24*60*60*1000}000000&limit=1000&apikey=${this.polygonApiKey}`;
+    
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.results && data.results.length > 0) {
+        return data.results.map((trade: any) => ({
+          ...trade,
+          ticker: optionTicker,
+          strike: strike,
+          expiration: expiration,
+          type: type,
+          symbol: symbol,
+          spot_price: spotPrice
+        }));
+      }
+      
+      return [];
+    } catch (error) {
+      // Skip individual contract errors
+      return [];
+    }
+  }
+
   private filterAndClassifyTrades(trades: ProcessedTrade[], targetTicker?: string): ProcessedTrade[] {
     console.log(`🔍 Filtering ${trades.length} trades${targetTicker ? ` for ${targetTicker}` : ''}`);
     
@@ -366,6 +400,22 @@ export class OptionsFlowService {
   async scanForSweeps(ticker: string): Promise<ProcessedTrade[]> {
     console.log(`🔍 Scanning ${ticker} for sweep activity...`);
     
+    // Add timeout protection (3 minutes max)
+    const timeoutPromise = new Promise<ProcessedTrade[]>((_, reject) => {
+      setTimeout(() => reject(new Error(`Scan timeout for ${ticker} after 3 minutes`)), 180000);
+    });
+    
+    const scanPromise = this.performSweepScan(ticker);
+    
+    try {
+      return await Promise.race([scanPromise, timeoutPromise]);
+    } catch (error) {
+      console.error(`❌ Scan failed for ${ticker}:`, error);
+      return [];
+    }
+  }
+
+  private async performSweepScan(ticker: string): Promise<ProcessedTrade[]> {
     try {
       // Get stock price first
       const stockUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${this.polygonApiKey}`;
@@ -373,50 +423,74 @@ export class OptionsFlowService {
       const stockData = await stockResponse.json();
       const stockPrice = stockData.results?.[0]?.c || 50;
 
-      // Generate strike prices around current price
+      // Generate strike prices: 10% ITM and all OTM for BOTH calls and puts
       const strikes = [];
-      const baseStrike = Math.floor(stockPrice);
-      for (let i = -10; i <= 10; i++) {
-        strikes.push(baseStrike + i);
+      
+      // Calculate 10% ITM boundaries for both calls and puts
+      const itmCallBoundary = stockPrice * 0.9;  // 10% below current price (calls ITM when stock > strike)
+      const itmPutBoundary = stockPrice * 1.1;   // 10% above current price (puts ITM when stock < strike)
+      
+      // Scan range: from call 10% ITM to put 10% ITM + 50% OTM
+      const minStrike = itmCallBoundary;           // Lowest: 10% ITM calls
+      const maxStrike = Math.max(itmPutBoundary, stockPrice * 1.5);  // Highest: 10% ITM puts OR 50% OTM
+      
+      // Scan every possible strike increment: 0.5, 1, 2.5, 5, etc.
+      const possibleIncrements = [0.5, 1, 2.5, 5, 10];
+      const allPossibleStrikes = new Set<number>();
+      
+      for (const increment of possibleIncrements) {
+        const startStrike = Math.floor(minStrike / increment) * increment;
+        const endStrike = Math.ceil(maxStrike / increment) * increment;
+        
+        for (let strike = startStrike; strike <= endStrike; strike += increment) {
+          if (strike >= minStrike && strike <= maxStrike) {
+            allPossibleStrikes.add(Number(strike.toFixed(2)));
+          }
+        }
       }
+      
+      strikes.push(...Array.from(allPossibleStrikes).sort((a, b) => a - b));
+      
+      console.log(`📊 ${ticker} @ $${stockPrice}: Scanning ${strikes.length} strikes from $${minStrike.toFixed(2)} to $${maxStrike.toFixed(2)} (all increments)`);
 
       // Get expiration dates (next 50 expirations up to 1 year out)
       const expirations = this.getAllExpirations(50);
       
       const allTrades: any[] = [];
 
-      // Scan each option contract
+      // Create all contract combinations
+      const contractPromises: Promise<any[]>[] = [];
+      
       for (const exp of expirations) {
         for (const strike of strikes) {
           for (const type of ['C', 'P']) {
             const strikeStr = (strike * 1000).toString().padStart(8, '0');
             const optionTicker = `O:${ticker}${exp}${type}${strikeStr}`;
             
-            const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${Date.now() - 24*60*60*1000}000000&limit=1000&apikey=${this.polygonApiKey}`;
-            
-            try {
-              const response = await fetch(url);
-              const data = await response.json();
-              
-              if (data.results && data.results.length > 0) {
-                allTrades.push(...data.results.map((trade: any) => ({
-                  ...trade,
-                  ticker: optionTicker,
-                  strike: strike,
-                  expiration: exp,
-                  type: type === 'C' ? 'call' : 'put',
-                  symbol: ticker,
-                  spot_price: stockPrice
-                })));
-              }
-            } catch (e) {
-              // Skip individual contract errors
-            }
-            
-            // Small delay to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 20));
+            const contractPromise = this.fetchContractTrades(optionTicker, strike, exp, type === 'C' ? 'call' : 'put', ticker, stockPrice);
+            contractPromises.push(contractPromise);
           }
         }
+      }
+
+      console.log(`📡 Processing ${contractPromises.length} contracts concurrently for ${ticker}...`);
+      
+      // Process all contracts concurrently in batches of 50
+      const batchSize = 50;
+      for (let i = 0; i < contractPromises.length; i += batchSize) {
+        const batch = contractPromises.slice(i, i + batchSize);
+        const batchResults = await Promise.all(batch);
+        
+        batchResults.forEach(trades => {
+          if (trades.length > 0) {
+            allTrades.push(...trades);
+          }
+        });
+        
+        console.log(`✅ Processed batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(contractPromises.length/batchSize)} for ${ticker}`);
+        
+        // Small delay between batches to stay under rate limit
+        await new Promise(resolve => setTimeout(resolve, 10));
       }
 
       console.log(`📊 Found ${allTrades.length} total trades, detecting sweeps and blocks...`);

@@ -20,6 +20,13 @@ interface OptionsFlowData {
   trade_timestamp: string;
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
+  // Fill analysis fields
+  bid_price?: number;
+  ask_price?: number;
+  bid_size?: number;
+  ask_size?: number;
+  fill_type?: 'BELOW_BID' | 'AT_BID' | 'BETWEEN' | 'AT_ASK' | 'ABOVE_ASK';
+  fill_aggression?: 'AGGRESSIVE_BUY' | 'AGGRESSIVE_SELL' | 'NEUTRAL' | 'UNKNOWN';
 }
 
 interface OptionsFlowSummary {
