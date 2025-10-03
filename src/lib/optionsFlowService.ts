@@ -78,10 +78,15 @@ export class OptionsFlowService {
   }
 
   async fetchLiveOptionsFlow(ticker?: string): Promise<ProcessedTrade[]> {
-    console.log(`🎯 FETCHING LIVE OPTIONS FLOW WITH SWEEP DETECTION FOR: ${ticker || 'MARKET-WIDE SCAN'}`);
+    console.log(`🎯 FETCHING LIVE OPTIONS FLOW WITH SWEEP DETECTION FOR: ${ticker || 'NO TICKER SPECIFIED'}`);
     
-    // Get list of tickers to scan - use smart batching for performance
-    const tickersToScan = ticker ? [ticker] : this.getSmartTickerBatch();
+    // Only scan if a specific ticker is provided
+    if (!ticker) {
+      console.log('⚠️ No ticker specified - returning empty results');
+      return [];
+    }
+    
+    const tickersToScan = [ticker];
     
     console.log(`🔍 Scanning ${tickersToScan.length} tickers for sweep activity...`);
     
@@ -264,17 +269,21 @@ export class OptionsFlowService {
 
   private classifyTradeType(trade: ProcessedTrade): ProcessedTrade {
     // Correct classification:
-    // BLOCK = Large trade ($50k+) filled on ONE exchange only
+    // BLOCK = Large trade ($25k+) filled on ONE exchange only
     // SWEEP = Trade filled across MULTIPLE exchanges simultaneously
     let tradeType: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'SPLIT' | undefined;
     
-    // BLOCK: Single exchange trade with $50k+ premium
-    if (trade.total_premium >= 50000 && !trade.window_group?.includes('exchanges')) {
+    // SWEEP: Already classified in detectSweeps() - multiple exchanges
+    if (trade.trade_type === 'SWEEP') {
+      tradeType = 'SWEEP';
+    }
+    // BLOCK: Single exchange trade with $25k+ premium (lowered threshold)
+    else if (trade.total_premium >= 25000 && !trade.window_group?.includes('exchanges')) {
       tradeType = 'BLOCK';
     }
-    // SWEEP: Already classified in detectSweeps() - multiple exchanges
-    else if (trade.trade_type === 'SWEEP') {
-      tradeType = 'SWEEP';
+    // BLOCK: Also classify large single trades without window group as blocks
+    else if (trade.total_premium >= 25000 && !trade.window_group) {
+      tradeType = 'BLOCK';
     }
     
     return {
@@ -371,8 +380,8 @@ export class OptionsFlowService {
         strikes.push(baseStrike + i);
       }
 
-      // Get next 4 Friday expirations
-      const expirations = this.getNextExpirations(4);
+      // Get expiration dates (next 50 expirations up to 1 year out)
+      const expirations = this.getAllExpirations(50);
       
       const allTrades: any[] = [];
 
@@ -410,14 +419,20 @@ export class OptionsFlowService {
         }
       }
 
-      console.log(`📊 Found ${allTrades.length} total trades, detecting sweeps...`);
+      console.log(`📊 Found ${allTrades.length} total trades, detecting sweeps and blocks...`);
 
       // Detect sweeps from all trades
       const sweeps = this.detectSweeps(allTrades);
       
-      console.log(`🌊 Detected ${sweeps.length} sweep patterns`);
+      // Also detect individual large block trades
+      const blocks = this.detectBlocks(allTrades);
       
-      return sweeps;
+      // Combine sweeps and blocks
+      const allFlowTrades = [...sweeps, ...blocks];
+      
+      console.log(`🌊 Detected ${sweeps.length} sweep patterns and ${blocks.length} block trades`);
+      
+      return allFlowTrades.sort((a, b) => b.total_premium - a.total_premium);
 
     } catch (error) {
       console.error('Error scanning for sweeps:', error);
@@ -485,26 +500,117 @@ export class OptionsFlowService {
     return sweeps.sort((a, b) => b.total_premium - a.total_premium);
   }
 
-  private getNextExpirations(count: number): string[] {
-    const expirations = [];
+  private detectBlocks(allTrades: any[]): ProcessedTrade[] {
+    const blocks: ProcessedTrade[] = [];
+    const processedTrades = new Set<string>();
+    
+    allTrades.forEach(trade => {
+      const totalPremium = trade.price * trade.size * 100;
+      const tradeKey = `${trade.symbol}_${trade.strike}_${trade.type}_${trade.expiration}_${trade.timestamp}`;
+      
+      // Skip if already processed (to avoid duplicates with sweeps)
+      if (processedTrades.has(tradeKey)) {
+        return;
+      }
+      
+      // Classify as block if: large premium ($25k+) and significant size (50+ contracts)
+      if (totalPremium >= 25000 && trade.size >= 50) {
+        const expiry = this.formatExpiry(trade.expiration);
+        
+        blocks.push({
+          ticker: `O:${trade.symbol}${trade.expiration}${trade.type === 'call' ? 'C' : 'P'}${(trade.strike * 1000).toString().padStart(8, '0')}`,
+          underlying_ticker: trade.symbol,
+          strike: trade.strike,
+          expiry: expiry,
+          type: trade.type,
+          trade_size: trade.size,
+          premium_per_contract: trade.price,
+          total_premium: totalPremium,
+          spot_price: trade.spot_price,
+          exchange: trade.exchange,
+          exchange_name: this.exchangeNames[trade.exchange] || `Exchange ${trade.exchange}`,
+          sip_timestamp: trade.timestamp,
+          conditions: trade.conditions || [],
+          trade_timestamp: new Date(trade.timestamp / 1000000),
+          trade_type: 'BLOCK',
+          moneyness: this.getMoneyness(trade.strike, trade.spot_price, trade.type),
+          days_to_expiry: this.getDaysToExpiry(expiry)
+        });
+        
+        processedTrades.add(tradeKey);
+      }
+    });
+
+    return blocks.sort((a, b) => b.total_premium - a.total_premium);
+  }
+
+  private getAllExpirations(count: number): string[] {
+    const expirations: string[] = [];
     const today = new Date();
     
-    for (let i = 0; i < count * 7; i++) {
+    // Get all valid expiration dates (up to 1 year out)
+    for (let i = 0; i < 365 && expirations.length < count; i++) { // 1 year = 365 days
       const date = new Date(today);
       date.setDate(date.getDate() + i);
       
-      // Only Fridays (day 5) for standard options
-      if (date.getDay() === 5) {
+      const dayOfWeek = date.getDay();
+      const dateOfMonth = date.getDate();
+      const isLastFriday = this.isLastFridayOfMonth(date);
+      const isThirdFriday = this.isThirdFridayOfMonth(date);
+      
+      // Include standard expiration types:
+      // 1. Weekly Fridays (every Friday)
+      // 2. Monthly options (3rd Friday of each month)
+      // 3. End-of-month options (last trading day if not Friday)
+      const shouldInclude = 
+        dayOfWeek === 5 || // All Fridays (weeklies)
+        isThirdFriday || // Monthly options
+        isLastFriday || // End of month options
+        (dateOfMonth >= 25 && dayOfWeek >= 1 && dayOfWeek <= 5); // Last week trading days
+      
+      if (shouldInclude) {
         const year = date.getFullYear().toString().slice(-2);
         const month = (date.getMonth() + 1).toString().padStart(2, '0');
         const day = date.getDate().toString().padStart(2, '0');
-        expirations.push(`${year}${month}${day}`);
+        const expiry = `${year}${month}${day}`;
         
-        if (expirations.length >= count) break;
+        // Avoid duplicates
+        if (!expirations.includes(expiry)) {
+          expirations.push(expiry);
+        }
       }
     }
     
     return expirations;
+  }
+  
+  private isLastFridayOfMonth(date: Date): boolean {
+    const lastDayOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    const lastFriday = new Date(lastDayOfMonth);
+    
+    // Find the last Friday of the month
+    while (lastFriday.getDay() !== 5) {
+      lastFriday.setDate(lastFriday.getDate() - 1);
+    }
+    
+    return date.getTime() === lastFriday.getTime();
+  }
+  
+  private isThirdFridayOfMonth(date: Date): boolean {
+    const firstDayOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+    let fridayCount = 0;
+    
+    for (let d = 1; d <= date.getDate(); d++) {
+      const testDate = new Date(date.getFullYear(), date.getMonth(), d);
+      if (testDate.getDay() === 5) {
+        fridayCount++;
+        if (fridayCount === 3 && d === date.getDate()) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
   }
 
   private formatExpiry(expiration: string): string {
@@ -540,17 +646,15 @@ export class OptionsFlowService {
 
   private getSmartTickerBatch(): string[] {
     // Smart batching: prioritize most active options tickers first
-    // Take top 200 for initial scan to balance speed vs coverage
+    // Take top 20 for much faster initial scan
     const priorityTickers = [
       // ETFs and most active options
-      'SPY', 'QQQ', 'IWM', 'XLF', 'XLE', 'XLK', 'GDX', 'EEM', 'FXI', 'VXX',
+      'SPY', 'QQQ', 'IWM', 'XLF', 'XLE', 'XLK', 'GDX', 'EEM', 'VXX',
       // Mega caps with high options volume
-      'TSLA', 'AAPL', 'NVDA', 'AMZN', 'MSFT', 'GOOGL', 'META', 'AMD', 'NFLX', 'DIS',
-      // Add top 180 from our full list
-      ...TOP_1000_SYMBOLS.slice(0, 180)
+      'TSLA', 'AAPL', 'NVDA', 'AMZN', 'MSFT', 'GOOGL', 'META', 'AMD', 'NFLX', 'DIS'
     ];
     
-    // Remove duplicates and return
-    return [...new Set(priorityTickers)];
+    // Return just the priority tickers for faster scanning
+    return priorityTickers;
   }
 }

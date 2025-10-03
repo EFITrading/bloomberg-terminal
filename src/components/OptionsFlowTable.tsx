@@ -63,6 +63,15 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterTradeType, setFilterTradeType] = useState<string>('all');
+  const [inputTicker, setInputTicker] = useState<string>(selectedTicker);
+  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
+
+  // Only sync input field with selectedTicker when not actively typing
+  useEffect(() => {
+    if (!isInputFocused) {
+      setInputTicker(selectedTicker);
+    }
+  }, [selectedTicker, isInputFocused]);
 
   const handleSort = (field: keyof OptionsFlowData) => {
     if (sortField === field) {
@@ -122,6 +131,14 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     });
   };
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: '2-digit'
+    });
+  };
+
   const getTradeTypeColor = (tradeType: string) => {
     const colors = {
       'BLOCK': 'bg-blue-100 text-blue-800',
@@ -149,10 +166,24 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
               <label className="text-lg font-medium">Symbol:</label>
               <input
                 type="text"
-                value={selectedTicker}
-                onChange={(e) => onTickerChange(e.target.value.toUpperCase())}
-                placeholder="TICKER"
-                className="ml-3 border border-gray-300 rounded px-3 py-2 w-24 font-mono text-lg"
+                value={inputTicker}
+                onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
+                onFocus={() => setIsInputFocused(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    onTickerChange(inputTicker);
+                    setIsInputFocused(false);
+                  }
+                }}
+                onBlur={() => {
+                  setIsInputFocused(false);
+                  // If user clicks away without pressing Enter, sync with current value
+                  if (inputTicker && inputTicker !== selectedTicker) {
+                    onTickerChange(inputTicker);
+                  }
+                }}
+                placeholder="TICKER (Press Enter)"
+                className="ml-3 border border-gray-300 rounded px-3 py-2 w-32 font-mono text-lg"
                 maxLength={10}
               />
             </div>
@@ -201,54 +232,60 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       {/* Main Table */}
       <Card>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="h-[80vh] overflow-auto">
             <table className="w-full text-lg">
-              <thead>
-                <tr className="border-b">
+              <thead className="sticky top-0 bg-black z-10">
+                <tr className="border-b bg-black">
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl"
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
                     onClick={() => handleSort('trade_timestamp')}
                   >
                     Time {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl"
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
                     onClick={() => handleSort('underlying_ticker')}
                   >
                     Symbol {sortField === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl"
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
                     onClick={() => handleSort('type')}
                   >
                     Call/Put {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl"
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
                     onClick={() => handleSort('strike')}
                   >
                     Strike {sortField === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl"
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
                     onClick={() => handleSort('trade_size')}
                   >
                     Size {sortField === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl"
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
                     onClick={() => handleSort('spot_price')}
                   >
                     Spot Price {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl"
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
                     onClick={() => handleSort('total_premium')}
                   >
                     Premium {sortField === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl"
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    onClick={() => handleSort('expiry')}
+                  >
+                    Expiration {sortField === 'expiry' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
                     onClick={() => handleSort('trade_type')}
                   >
                     Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -267,6 +304,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                     <td className="p-4 font-medium text-lg">{trade.trade_size.toLocaleString()} @ {trade.premium_per_contract.toFixed(2)}</td>
                     <td className="p-4 text-lg">${trade.spot_price.toFixed(2)}</td>
                     <td className="p-4 font-semibold text-lg">{formatCurrency(trade.total_premium)}</td>
+                    <td className="p-4 text-lg">{formatDate(trade.expiry)}</td>
                     <td className="p-4">
                       <span className={`inline-block px-3 py-2 rounded-full text-sm font-medium ${getTradeTypeColor(trade.trade_type)}`}>
                         {trade.trade_type}

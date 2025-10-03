@@ -59,6 +59,11 @@ export default function OptionsFlowPage() {
     setLoading(true);
     try {
       const response = await fetch(`/api/live-options-flow?date=${selectedDate}&ticker=${selectedTicker}&saveToDb=${saveToDb}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -69,9 +74,29 @@ export default function OptionsFlowPage() {
         console.log(`📊 Options Flow Update: ${result.trades.length} trades, ${result.summary.total_premium} total premium`);
       } else {
         console.error('Failed to fetch options flow:', result.error);
+        // Set empty data on error to prevent stale data display
+        setData([]);
+        setSummary({
+          total_trades: 0,
+          total_premium: 0,
+          unique_symbols: 0,
+          trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, SPLIT: 0 },
+          call_put_ratio: { calls: 0, puts: 0 },
+          processing_time_ms: 0
+        });
       }
     } catch (error) {
       console.error('Error fetching options flow:', error);
+      // Set empty data on network error
+      setData([]);
+      setSummary({
+        total_trades: 0,
+        total_premium: 0,
+        unique_symbols: 0,
+        trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, SPLIT: 0 },
+        call_put_ratio: { calls: 0, puts: 0 },
+        processing_time_ms: 0
+      });
     } finally {
       setLoading(false);
     }
