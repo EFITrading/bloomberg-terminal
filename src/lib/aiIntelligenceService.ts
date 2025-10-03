@@ -103,8 +103,8 @@ export class AIIntelligenceService {
           symbol,
           startDate.toISOString().split('T')[0],
           endDate.toISOString().split('T')[0],
-          '1',
-          'day'
+          'day',
+          1
         );
 
         if (historicalData?.results) {
@@ -170,9 +170,9 @@ export class AIIntelligenceService {
       console.log('🏛️ AI analyzing market regimes and industry strength...');
       
       // Get market regime data
-      const regimeData = await this.industryService.getMarketRegimeDataStreaming(
-        (stage, progress) => console.log(`📊 ${stage}: ${progress}%`),
-        (timeframe, data) => console.log(`📈 ${timeframe} data received`)
+      const regimeData = await IndustryAnalysisService.getMarketRegimeDataStreaming(
+        (stage: string, progress: number) => console.log(`📊 ${stage}: ${progress}%`),
+        (timeframe: string, data: any) => console.log(`📈 ${timeframe} data received`)
       );
 
       // Analyze current market phase

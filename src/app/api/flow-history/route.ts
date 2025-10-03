@@ -1,6 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getHistoricalFlow, getFlowStats } from '@/lib/database';
 
+interface TradeData {
+  id: number;
+  ticker: string;
+  underlying_ticker: string;
+  strike: number;
+  expiry: string;
+  type: string;
+  trade_size: number;
+  premium_per_contract: number;
+  total_premium: number;
+  flow_type: string;
+  trade_type: string;
+  above_ask: boolean;
+  below_bid: boolean;
+  trade_timestamp: Date;
+  created_at: Date;
+  conditions: string | null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -43,7 +62,7 @@ export async function GET(request: NextRequest) {
     console.log(`📊 DATABASE RESULT: Retrieved ${historicalData.length} records from database`);
 
     // Format data for frontend consumption
-    const formattedData = historicalData.map(trade => ({
+    const formattedData = historicalData.map((trade: TradeData) => ({
       id: trade.id,
       ticker: trade.ticker,
       underlying_ticker: trade.underlying_ticker,
@@ -69,13 +88,13 @@ export async function GET(request: NextRequest) {
     // Get basic stats for the query
     const queryStats = {
       total_trades: formattedData.length,
-      total_premium: formattedData.reduce((sum, trade) => sum + trade.total_premium, 0),
-      avg_premium: formattedData.length > 0 ? formattedData.reduce((sum, trade) => sum + trade.total_premium, 0) / formattedData.length : 0,
-      unique_symbols: [...new Set(formattedData.map(trade => trade.underlying_ticker))].length,
-      blocks: formattedData.filter(trade => trade.trade_type === 'block').length,
-      sweeps: formattedData.filter(trade => trade.trade_type === 'sweep').length,
-      calls: formattedData.filter(trade => trade.type === 'call').length,
-      puts: formattedData.filter(trade => trade.type === 'put').length
+      total_premium: formattedData.reduce((sum: number, trade: any) => sum + trade.total_premium, 0),
+      avg_premium: formattedData.length > 0 ? formattedData.reduce((sum: number, trade: any) => sum + trade.total_premium, 0) / formattedData.length : 0,
+      unique_symbols: [...new Set(formattedData.map((trade: any) => trade.underlying_ticker))].length,
+      blocks: formattedData.filter((trade: any) => trade.trade_type === 'block').length,
+      sweeps: formattedData.filter((trade: any) => trade.trade_type === 'sweep').length,
+      calls: formattedData.filter((trade: any) => trade.type === 'call').length,
+      puts: formattedData.filter((trade: any) => trade.type === 'put').length
     };
 
     console.log(`💾 DATABASE QUERY: Found ${formattedData.length} historical trades (${queryStats.blocks} blocks, ${queryStats.sweeps} sweeps)`);

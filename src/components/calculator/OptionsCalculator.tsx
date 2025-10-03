@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { getExpirationDates, getDaysUntilExpiration } from '../../lib/optionsExpirationUtils';
 
 interface OptionData {
   strike: number;
@@ -121,7 +122,7 @@ const OptionsCalculator = () => {
   const [otmPercentage, setOtmPercentage] = useState(10); // Default 10% OTM range
   const [customPremium, setCustomPremium] = useState<number | null>(null); // User-editable premium price
   
-  const riskFreeRate = 0.0525; // Current 10-year treasury rate
+  const riskFreeRate = 0.0408; // Current 10-year treasury rate
 
   // Dynamic expiration dates fetched from real options data
   const [availableExpirations, setAvailableExpirations] = useState<{date: string; days: number}[]>([]);
@@ -348,8 +349,12 @@ const OptionsCalculator = () => {
       console.log(`📊 Attempting to get ALL options contracts for ${upperSymbol}...`);
       
       let allContracts: any[] = [];
-      let nextUrl: string | null = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${upperSymbol}&active=true&limit=1000&apikey=${POLYGON_API_KEY}`;
+      // ✅ Get contracts expiring from TODAY onwards (2025+)
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      let nextUrl: string | null = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${upperSymbol}&active=true&expiration_date.gte=${today}&limit=1000&apikey=${POLYGON_API_KEY}`;
       let pageCount = 0;
+      
+      console.log(`🔍 Fetching contracts expiring from ${today} onwards (2025+)`);
       
       // Paginate through ALL available contracts
       while (nextUrl && pageCount < 20) { // Safety limit of 20 pages (20k contracts max)
@@ -406,11 +411,17 @@ const OptionsCalculator = () => {
       const uniqueExpirations = new Set<string>();
       
       allContracts.forEach((contract: any, index: number) => {
-          // Debug first few contracts to see structure
+          // Debug first few contracts to see structure and IV fields
           if (index < 3) {
             console.log(`🔍 Contract ${index} structure:`, {
-              contract: contract,
-              keys: Object.keys(contract)
+              ticker: contract.ticker,
+              strike: contract.strike_price,
+              expiration: contract.expiration_date,
+              type: contract.contract_type,
+              implied_volatility: contract.implied_volatility,
+              iv: contract.iv,
+              implied_vol: contract.implied_vol,
+              allKeys: Object.keys(contract)
             });
           }
           
@@ -428,8 +439,6 @@ const OptionsCalculator = () => {
             });
           
           if (expDate && strike && optionType) {
-            uniqueExpirations.add(expDate);
-            
             // Calculate days to expiration
             const expiry = new Date(expDate);
             const now = new Date();
@@ -437,12 +446,42 @@ const OptionsCalculator = () => {
             
             console.log(`📅 Expiration calc: ${expDate} -> ${daysToExp} days`);
             
+            // ✅ FILTER OUT EXPIRED OPTIONS (negative days = expired!)
+            if (daysToExp <= 0) {
+              console.log(`❌ SKIPPING EXPIRED option: ${expDate} (${daysToExp} days ago)`);
+              return; // Skip this expired contract
+            }
+            
+            // ✅ FILTER OUT OPTIONS EXPIRING TOO FAR OUT (keep reasonable timeframe)
+            if (daysToExp > 730) { // More than 2 years out
+              console.log(`❌ SKIPPING far-dated option: ${expDate} (${daysToExp} days = ${(daysToExp/365).toFixed(1)} years)`);
+              return; // Skip far-dated contracts
+            }
+            
+            uniqueExpirations.add(expDate);
+            console.log(`✅ KEEPING valid option: ${expDate} (${daysToExp} days, ${(daysToExp/30).toFixed(1)} months)`);
+            
             const key = `${strike}-${expDate}-${optionType}`;
             
             // Create the contract ticker for pricing lookup
             const contractTicker = contract.ticker;
             
             console.log(`🔑 Creating option key: "${key}" for ${contractTicker}`);
+            
+            // Extract REAL implied volatility from Polygon contract data
+            let realIV = 0.25; // Fallback only
+            if (contract.implied_volatility && contract.implied_volatility > 0) {
+              realIV = contract.implied_volatility;
+              console.log(`🔍 REAL IV from Polygon: ${(realIV * 100).toFixed(1)}% for ${contractTicker}`);
+            } else if (contract.iv && contract.iv > 0) {
+              realIV = contract.iv;
+              console.log(`🔍 REAL IV from Polygon (iv field): ${(realIV * 100).toFixed(1)}% for ${contractTicker}`);
+            } else if (contract.implied_vol && contract.implied_vol > 0) {
+              realIV = contract.implied_vol;
+              console.log(`🔍 REAL IV from Polygon (implied_vol field): ${(realIV * 100).toFixed(1)}% for ${contractTicker}`);
+            } else {
+              console.warn(`⚠️ No real IV found in Polygon data for ${contractTicker}, using fallback ${(realIV * 100).toFixed(1)}%`);
+            }
             
             processedOptions[key] = {
               strike: strike,
@@ -454,7 +493,7 @@ const OptionsCalculator = () => {
               lastPrice: 0, // Will be filled by pricing API call
               volume: 0, // Will be filled by pricing API call
               openInterest: 0, // Will be filled by pricing API call
-              impliedVolatility: 0.25, // Default IV
+              impliedVolatility: realIV, // REAL IV from Polygon!
               ticker: contractTicker // Store ticker for pricing lookup
             };
           }
@@ -576,11 +615,11 @@ const OptionsCalculator = () => {
     const pricingData = await fetchSpecificOptionPricing(option.ticker);
     
     if (pricingData) {
-      // Update the option data with real pricing
+      // Update the option data with real pricing (preserve real IV!)
       realOptionsData[key] = {
         ...realOptionsData[key],
         ...pricingData,
-        impliedVolatility: 0.3, // Default IV for now
+        // Keep the REAL implied volatility from contract data!
       };
       
       console.log(`💰 Updated ${key} with REAL data: ask=$${pricingData.ask}, last=$${pricingData.lastPrice}`);
@@ -611,122 +650,74 @@ const OptionsCalculator = () => {
 
 
 
-  // Calculate P&L using REAL LAST PRICE as baseline - exactly what user wants!
-  const calculateRealPL = (strike: number, daysToExp: number): number => {
-    // Use the SELECTED expiration date for all calculations in heat map
-    if (!selectedExpiration) {
-      console.warn('No selected expiration for P&L calculation');
+  // Professional Black-Scholes P&L Calculator using REAL Polygon data like OptionsStrat
+  const calculateProfessionalPL = (stockPriceAtExpiry: number, daysToExp: number): number => {
+    if (!selectedExpiration || !selectedStrike) {
       return 0;
     }
     
-    const key = `${strike}-${selectedExpiration}-${optionType}`;
-    const realOption = realOptionsData[key];
+    // Get YOUR selected option (what you bought)
+    const yourOptionKey = `${selectedStrike}-${selectedExpiration}-${optionType}`;
+    const yourOption = realOptionsData[yourOptionKey];
     
-    console.log(`📊 P&L Calc: Strike $${strike}, Exp: ${selectedExpiration}, Days: ${daysToExp}, Key: ${key}`);
-    
-    if (!realOption) {
-      console.warn(`❌ No real option data found for key: ${key}`);
-      return 0;
-    }
-    
-    // Use custom premium if set, otherwise REAL API prices ONLY
-    let currentMarketPrice = 0;
-    let priceSource = '';
-    
-    if (customPremium && customPremium > 0) {
-      currentMarketPrice = customPremium;
-      priceSource = 'CUSTOM';
-      console.log(`💰 Using CUSTOM premium: $${currentMarketPrice.toFixed(2)}`);
-    } else {
-      // REAL API prices ONLY - no fallbacks, no simulated data
-      if (realOption.lastPrice > 0) {
-        currentMarketPrice = realOption.lastPrice;
-        priceSource = 'LAST';
-        console.log(`✅ Using REAL LAST price: $${currentMarketPrice.toFixed(2)}`);
-      } else if (realOption.ask > 0) {
-        currentMarketPrice = realOption.ask;
-        priceSource = 'ASK';
-        console.log(`✅ Using REAL ASK price: $${currentMarketPrice.toFixed(2)}`);
-      } else if (realOption.bid > 0 && realOption.ask > 0) {
-        currentMarketPrice = (realOption.bid + realOption.ask) / 2;
-        priceSource = 'MID';
-        console.log(`✅ Using REAL MID price: $${currentMarketPrice.toFixed(2)}`);
-      } else if (realOption.bid > 0) {
-        currentMarketPrice = realOption.bid;
-        priceSource = 'BID';
-        console.log(`✅ Using REAL BID price: $${currentMarketPrice.toFixed(2)}`);
-      } else {
-        // NO FALLBACK - REAL DATA ONLY
-        console.warn(`❌ NO REAL MARKET DATA for ${key} - REFUSING to show fake data`);
-        return 0;
-      }
-    }
-    
-    // CORRECT P&L LOGIC FOR HEAT MAP:
-    // Y-axis (strike): Represents potential stock price levels 
-    // X-axis (time): Represents time decay until expiration
-    // We're calculating: "If I own this option and stock moves to this price level, what's my P&L?"
-    
-    const timeToExpiry = daysToExp / 365;
-    
-    // Use real implied volatility from API data
-    let iv = 0.25; // Default IV
-    if (realOption.impliedVolatility > 0) {
-      iv = realOption.impliedVolatility;
-    }
-    
-    // Use the SELECTED strike as the baseline for P&L calculations
-    // If no strike is selected, fall back to ATM
-    let baselineStrike = selectedStrike;
-    if (!baselineStrike) {
-      // Find ATM strike as fallback
-      baselineStrike = heatMapStrikes.reduce((prev, curr) => 
-        Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev
-      );
-    }
-    
-    // Get the selected/baseline option data (what we actually bought)
-    const baselineKey = `${baselineStrike}-${selectedExpiration}-${optionType}`;
-    const baselineOption = realOptionsData[baselineKey];
-    
-    if (!baselineOption) {
-      console.warn(`❌ No baseline option data found for key: ${baselineKey}`);
-      return 0;
-    }
-    
-    // Use baseline option price as our purchase price
+    // Get CURRENT market price (what you pay NOW) - this is your foundation
     let purchasePrice = 0;
     if (customPremium && customPremium > 0) {
       purchasePrice = customPremium;
-    } else if (baselineOption.lastPrice > 0) {
-      purchasePrice = baselineOption.lastPrice;
-    } else if (baselineOption.ask > 0) {
-      purchasePrice = baselineOption.ask;
-    } else if (baselineOption.bid > 0 && baselineOption.ask > 0) {
-      purchasePrice = (baselineOption.bid + baselineOption.ask) / 2;
-    } else if (baselineOption.bid > 0) {
-      purchasePrice = baselineOption.bid;
+    } else if (yourOption?.ask > 0) {
+      purchasePrice = yourOption.ask;
+    } else if (yourOption?.lastPrice > 0) {
+      purchasePrice = yourOption.lastPrice;
+    } else if (yourOption?.bid > 0) {
+      purchasePrice = yourOption.bid;
     } else {
-      console.warn(`❌ No baseline price data available for ${baselineKey}`);
       return 0;
     }
     
-    // Calculate what the selected option would be worth if stock was at this strike level at this time
-    const theoreticalPrice = calculateBlackScholesPrice(
-      strike,         // SIMULATE stock price being at this level (Y-axis)
-      baselineStrike, // Strike of the option we actually bought (selected)
-      riskFreeRate,
-      iv,
-      timeToExpiry,
+    // Use REAL implied volatility from Polygon market data (like OptionsStrat)
+    let impliedVolatility = 0.25; // Fallback
+    if (yourOption?.impliedVolatility > 0) {
+      impliedVolatility = yourOption.impliedVolatility;
+      console.log(`🔍 ✅ Using REAL Polygon IV: ${(impliedVolatility * 100).toFixed(1)}% for ${yourOptionKey}`);
+    } else {
+      console.log(`⚠️ ❌ No real IV from Polygon for ${yourOptionKey}, using fallback ${(impliedVolatility * 100).toFixed(1)}%`);
+      console.log(`🔍 Debug yourOption data:`, yourOption);
+    }
+    
+    // Time to expiration in years
+    const timeToExpiry = daysToExp / 365;
+    
+    // Calculate theoretical option value at the simulated stock price using Black-Scholes
+    const theoreticalValue = calculateBlackScholesPrice(
+      stockPriceAtExpiry,  // What we're simulating the stock to be
+      selectedStrike,      // Your option's strike price
+      riskFreeRate,        // Current 10-year Treasury rate (4.08%)
+      impliedVolatility,   // Real market implied volatility
+      timeToExpiry,        // Time remaining
       optionType === 'call'
     );
     
-    // P&L calculation: (theoretical value at this stock level - what we paid) / what we paid * 100
-    const pl = purchasePrice > 0 ? ((theoreticalPrice - purchasePrice) / purchasePrice) * 100 : 0;
+    // Calculate P&L: If you had bought THIS strike instead of yours, what would be the difference?
+    const profitLoss = purchasePrice > 0 ? ((theoreticalValue - purchasePrice) / purchasePrice) * 100 : 0;
     
-    console.log(`📊 P&L: Stock@$${strike}, Selected$${baselineStrike} ${optionType}, ${daysToExp}d = ${pl.toFixed(1)}% (theo: $${theoreticalPrice.toFixed(2)}, paid: $${purchasePrice.toFixed(2)})`);;
+    console.log(`� REAL P&L: Your $${selectedStrike} ${optionType} cost $${purchasePrice.toFixed(2)} Theoretical Value: $${theoreticalValue.toFixed(2)} = ${profitLoss >= 0 ? '+' : ''}${profitLoss.toFixed(1)}% P&L`);
     
-    return pl;
+    // Sanity check for option behavior
+    if (optionType === 'call') {
+      const shouldProfit = stockPriceAtExpiry > selectedStrike;
+      const actualProfit = profitLoss > 5; // Account for time decay
+      if (shouldProfit && !actualProfit && Math.abs(stockPriceAtExpiry - selectedStrike) > 5) {
+        console.warn(`🚨 CALL CHECK: Stock $${stockPriceAtExpiry} > Strike $${selectedStrike} should profit but shows ${profitLoss.toFixed(1)}% (may be time decay)`);
+      }
+    } else if (optionType === 'put') {
+      const shouldProfit = stockPriceAtExpiry < selectedStrike;
+      const actualProfit = profitLoss > 5;
+      if (shouldProfit && !actualProfit && Math.abs(stockPriceAtExpiry - selectedStrike) > 5) {
+        console.warn(`🚨 PUT CHECK: Stock $${stockPriceAtExpiry} < Strike $${selectedStrike} should profit but shows ${profitLoss.toFixed(1)}% (may be time decay)`);
+      }
+    }
+    
+    return profitLoss;
   };
 
   // Calculate Greeks for selected option - REAL DATA ONLY
@@ -812,9 +803,11 @@ const OptionsCalculator = () => {
     }
   };
 
+  console.log('OptionsCalculator component is rendering');
+  
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="max-w-7xl mx-auto p-6">
+    <div className="h-full bg-black text-white overflow-y-auto">
+      <div className="p-4">
 
         
         {/* BLOOMBERG PROFESSIONAL TERMINAL INTERFACE */}
@@ -917,18 +910,29 @@ const OptionsCalculator = () => {
                     <label className="text-white text-xs font-bold uppercase tracking-widest">EXPIRATION DATE</label>
                   </div>
                   <div className="p-4">
-                    <select 
-                      value={selectedExpiration}
-                      onChange={(e) => setSelectedExpiration(e.target.value)}
-                      className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300 cursor-pointer"
-                    >
-                      <option value="" className="bg-gray-900">2025-10-17 (18d)</option>
-                      {availableExpirations.map((exp) => (
-                        <option key={exp.date} value={exp.date} className="bg-gray-900">
-                          {exp.date} ({exp.days}d)
-                        </option>
-                      ))}
-                    </select>
+                    {availableExpirations.length > 0 ? (
+                      <select 
+                        value={selectedExpiration}
+                        onChange={(e) => setSelectedExpiration(e.target.value)}
+                        className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300 cursor-pointer"
+                      >
+                        <option value="" className="bg-gray-900">Select Expiration Date</option>
+                        {availableExpirations.map((exp) => (
+                          <option key={exp.date} value={exp.date} className="bg-gray-900">
+                            {exp.date} ({exp.days}d)
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="date"
+                        value={selectedExpiration}
+                        onChange={(e) => setSelectedExpiration(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300"
+                        placeholder="YYYY-MM-DD"
+                      />
+                    )}
                   </div>
                 </div>
               </div>
@@ -944,24 +948,41 @@ const OptionsCalculator = () => {
                     <label className="text-white text-xs font-bold uppercase tracking-widest">STRIKE PRICE</label>
                   </div>
                   <div className="p-4">
-                    <select 
-                      value={selectedStrike || ''}
-                      onChange={(e) => {
-                        const newStrike = e.target.value ? Number(e.target.value) : null;
-                        console.log(`🎯 Strike dropdown changed: ${selectedStrike} -> ${newStrike}`);
-                        setSelectedStrike(newStrike);
-                        // Clear custom premium to use real market data for the new strike
-                        setCustomPremium(null);
-                      }}
-                      className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300 cursor-pointer"
-                    >
-                      <option value="" className="bg-gray-900">Select Strike Price</option>
-                      {strikes.map((strike) => (
-                        <option key={strike} value={strike} className="bg-gray-900">
-                          ${strike}
-                        </option>
-                      ))}
-                    </select>
+                    {strikes.length > 0 ? (
+                      <select 
+                        value={selectedStrike || ''}
+                        onChange={(e) => {
+                          const newStrike = e.target.value ? Number(e.target.value) : null;
+                          console.log(`🎯 Strike dropdown changed: ${selectedStrike} -> ${newStrike}`);
+                          setSelectedStrike(newStrike);
+                          // Clear custom premium to use real market data for the new strike
+                          setCustomPremium(null);
+                        }}
+                        className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300 cursor-pointer"
+                      >
+                        <option value="" className="bg-gray-900">Select Strike Price</option>
+                        {strikes.map((strike) => (
+                          <option key={strike} value={strike} className="bg-gray-900">
+                            ${strike}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="number"
+                        value={selectedStrike || ''}
+                        onChange={(e) => {
+                          const newStrike = e.target.value ? Number(e.target.value) : null;
+                          console.log(`🎯 Strike manual entry: ${selectedStrike} -> ${newStrike}`);
+                          setSelectedStrike(newStrike);
+                          setCustomPremium(null);
+                        }}
+                        step="0.5"
+                        min="0"
+                        placeholder="Enter strike price"
+                        className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-lg font-bold tabular-nums focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300"
+                      />
+                    )}
                   </div>
                 </div>
               </div>
@@ -1091,15 +1112,27 @@ const OptionsCalculator = () => {
 
 
         {/* Greeks Bar - Above Heat Map */}
-        {Object.keys(realOptionsData).length > 0 && 
-         symbol && 
-         optionType && 
-         selectedExpiration && 
-         selectedStrike && (
+        {(() => {
+          const hasSymbol = !!symbol;
+          const hasOptionType = !!optionType;
+          const hasExpiration = !!selectedExpiration;
+          const hasStrike = !!selectedStrike;
+          const hasRealData = Object.keys(realOptionsData).length > 0;
+          const hasCustomPremium = !!(customPremium && customPremium > 0);
+          const showHeatmap = hasSymbol && hasOptionType && hasExpiration && hasStrike && (hasRealData || hasCustomPremium);
+          
+          console.log('🔍 Heatmap Display Check:', {
+            hasSymbol, hasOptionType, hasExpiration, hasStrike, hasRealData, hasCustomPremium, showHeatmap,
+            symbol, optionType, selectedExpiration, selectedStrike, customPremium,
+            realDataCount: Object.keys(realOptionsData).length
+          });
+          
+          return showHeatmap;
+        })() && (
           <>
             {(() => {
               const expiration = availableExpirations.find(exp => exp.date === selectedExpiration);
-              const greeks = calculateGreeks(selectedStrike, expiration?.days || 0);
+              const greeks = calculateGreeks(selectedStrike || 0, expiration?.days || 0);
               const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
               const realOption = realOptionsData[key];
               
@@ -1135,7 +1168,7 @@ const OptionsCalculator = () => {
               );
             })()}
 
-        {/* ENHANCED PROFIT & LOSS HEAT MAP - Only show when ALL selections are made */}
+        {/* ENHANCED PROFIT & LOSS HEAT MAP - Show when selections are made and we have data or custom premium */}
         <div className="bg-black rounded-2xl p-8 border-2 border-gray-700 shadow-2xl">
           {/* Professional Heat Map Container */}
           <div className="overflow-x-auto rounded-xl border-2 border-gray-700">
@@ -1152,7 +1185,7 @@ const OptionsCalculator = () => {
                   <thead>
                     <tr>
                       <th className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-sm font-bold text-white shadow-xl">
-                        <div className="drop-shadow-lg">Stock ($)</div>
+                        <div className="drop-shadow-lg">Stock Price</div>
                       </th>
                       {heatMapTimeSeries.map((timePoint) => (
                         <th
@@ -1177,7 +1210,7 @@ const OptionsCalculator = () => {
                       
                       return (
                         <tr key={strike} className={isATM ? 'ring-2 ring-yellow-400' : ''}>
-                          {/* Y-axis: Strike Price */}
+                          {/* Y-axis: Simulated Stock Price Level */}
                           <td className={`h-12 border border-gray-600 text-center font-medium text-sm ${
                             isATM 
                               ? 'bg-yellow-900 text-yellow-300 font-bold ring-1 ring-yellow-400' 
@@ -1188,8 +1221,9 @@ const OptionsCalculator = () => {
                           
                           {/* P&L cells for each time point */}
                           {heatMapTimeSeries.map((timePoint) => {
-                            const pl = calculateRealPL(strike, timePoint.days);
-                            const key = `${strike}-${selectedExpiration}-${optionType}`;
+                            const pl = calculateProfessionalPL(strike, timePoint.days);
+                            // Professional Black-Scholes calculation using REAL market data
+                            const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
                             const realOption = realOptionsData[key];
                             
                             // Show "R" if we have real data or custom premium is set

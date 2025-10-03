@@ -89,7 +89,7 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
             onClick={onBackToTabs}
             title="Back to Data Driven"
           >
-            ← Back
+            ← Screener
           </button>
         )}
         <button 

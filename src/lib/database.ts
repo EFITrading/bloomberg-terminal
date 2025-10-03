@@ -42,7 +42,15 @@ export async function saveOptionsFlow(trades: any[], sessionId?: string) {
         above_ask: trade.above_ask || false,
         below_bid: trade.below_bid || false,
         exchange: trade.exchange,
+        exchange_name: trade.exchange_name,
         conditions: trade.conditions ? JSON.stringify(trade.conditions) : null,
+        spot_price: trade.spot_price,
+        sip_timestamp: trade.sip_timestamp ? BigInt(trade.sip_timestamp) : null,
+        sequence_number: trade.sequence_number ? BigInt(trade.sequence_number) : null,
+        window_group: trade.window_group,
+        related_trades: trade.related_trades ? JSON.stringify(trade.related_trades) : null,
+        moneyness: trade.moneyness,
+        days_to_expiry: trade.days_to_expiry,
         trade_timestamp: new Date(trade.timestamp),
       }))
     });

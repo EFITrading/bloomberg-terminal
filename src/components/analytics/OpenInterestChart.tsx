@@ -57,6 +57,7 @@ export default function OpenInterestChart({
   // Toggle states for chart visibility
   const [showCalls, setShowCalls] = useState<boolean>(true);
   const [showPuts, setShowPuts] = useState<boolean>(true);
+  const [showNetOI, setShowNetOI] = useState<boolean>(false);
   const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
   const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
   
@@ -245,16 +246,29 @@ export default function OpenInterestChart({
               
               // Only include strikes that have some open interest
               if (callOI > 0 || putOI > 0) {
-                chartData.push({
-                  strike,
-                  openInterest: callOI,
-                  type: 'call'
-                });
-                chartData.push({
-                  strike,
-                  openInterest: putOI,
-                  type: 'put'
-                });
+                if (showNetOI) {
+                  // Show NET Open Interest (Calls - Puts)
+                  const netOI = callOI - putOI;
+                  if (Math.abs(netOI) > 0) {
+                    chartData.push({
+                      strike,
+                      openInterest: Math.abs(netOI),
+                      type: netOI >= 0 ? 'call' : 'put' // Color based on net direction
+                    });
+                  }
+                } else {
+                  // Show separate call and put bars
+                  chartData.push({
+                    strike,
+                    openInterest: callOI,
+                    type: 'call'
+                  });
+                  chartData.push({
+                    strike,
+                    openInterest: putOI,
+                    type: 'put'
+                  });
+                }
               }
             });
             
@@ -274,7 +288,7 @@ export default function OpenInterestChart({
     };
 
     fetchOptionsData();
-  }, [selectedTicker, selectedExpiration, showAllDates, expirationDates]); // Back to selectedTicker
+  }, [selectedTicker, selectedExpiration, showAllDates, expirationDates, showNetOI]); // Include showNetOI for re-rendering
 
   // D3 Chart rendering
   useEffect(() => {
@@ -810,7 +824,7 @@ export default function OpenInterestChart({
     const actualBarsCreated = container.selectAll('.bar').size();
     console.log('✅ Chart creation complete. Total bars created:', actualBarsCreated);
 
-  }, [data, showCalls, showPuts, currentPrice]);
+  }, [data, showCalls, showPuts, currentPrice, showNetOI]);
 
   return (
     <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace' }}>
@@ -1295,6 +1309,33 @@ export default function OpenInterestChart({
                   }}
                   title="Click anywhere to toggle PUTS visibility"
                 />
+                
+                {/* NET OI button */}
+                <div
+                  onClick={() => setShowNetOI(!showNetOI)}
+                  style={{
+                    position: 'absolute',
+                    top: '140px', // Move much lower below PUTS
+                    right: '80px', // Move to the right
+                    padding: '8px 16px',
+                    backgroundColor: showNetOI ? '#ff9900' : 'transparent',
+                    border: `2px solid ${showNetOI ? '#ff9900' : '#666'}`,
+                    borderRadius: '2px',
+                    color: showNetOI ? '#000' : '#ff9900',
+                    cursor: 'pointer',
+                    fontSize: '14px', // Match CALLS/PUTS font size
+                    fontWeight: 'bold',
+                    fontFamily: '"Roboto Mono", monospace',
+                    zIndex: 10,
+                    transition: 'all 0.2s ease',
+                    textShadow: showNetOI ? 'none' : '0 0 2px rgba(255, 153, 0, 0.3)',
+                    boxShadow: showNetOI ? '0 0 4px rgba(255, 153, 0, 0.4)' : 'none',
+                    letterSpacing: '0.5px'
+                  }}
+                  title="Toggle NET Open Interest view (Calls - Puts)"
+                >
+                  NET OI
+                </div>
               </>
             )}
           </div>

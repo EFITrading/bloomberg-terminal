@@ -19,7 +19,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
   const [error, setError] = useState<string | null>(null);
   const [streamStatus, setStreamStatus] = useState<string>('');
   const [showWebsite, setShowWebsite] = useState(false);
-  const [progressStats, setProgressStats] = useState({ processed: 0, total: 500, found: 0 });
+  const [progressStats, setProgressStats] = useState({ processed: 0, total: 1000, found: 0 });
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
 
   const marketTabs = [
@@ -84,7 +84,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
           setOpportunities(uniqueOpportunities.sort((a: SeasonalPattern, b: SeasonalPattern) => Math.abs(b.averageReturn || b.avgReturn) - Math.abs(a.averageReturn || a.avgReturn)));
           setLoading(false);
           setStreamStatus('✅ Real data loaded from cache - Ready!');
-          setProgressStats({ processed: 600, total: 600, found: uniqueOpportunities.length });
+          setProgressStats({ processed: 1000, total: 1000, found: uniqueOpportunities.length });
           return;
         } else {
           console.warn('⚠️ Cache contains invalid/fake data, forcing refresh...');
@@ -103,8 +103,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
       setError(null);
       setShowWebsite(false);
       setOpportunities([]);
-      setStreamStatus('🔄 Loading real seasonal data from 600+ stocks...');
-      setProgressStats({ processed: 0, total: 600, found: 0 });
+      setStreamStatus('🔄 Loading real seasonal data from 1000 stocks...');
+      setProgressStats({ processed: 0, total: 1000, found: 0 });
       
       const selectedPeriod = timePeriodOptions.find(p => p.id === timePeriod);
       const years = selectedPeriod?.years || 15;
@@ -112,7 +112,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
       try {
         // Load real data directly from the service
         setStreamStatus('📊 Analyzing seasonal patterns...');
-        const realOpportunities = await seasonalService.screenSeasonalOpportunities(years, 600, 0);
+        const realOpportunities = await seasonalService.screenSeasonalOpportunities(years, 1000, 0);
         
         if (realOpportunities && realOpportunities.length > 0) {
           console.log(`✅ Loaded ${realOpportunities.length} REAL seasonal opportunities`);
@@ -124,7 +124,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
           setOpportunities(realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)) as unknown as SeasonalPattern[]);
           setLoading(false);
           setStreamStatus('✅ Real seasonal data loaded successfully!');
-          setProgressStats({ processed: 600, total: 600, found: realOpportunities.length });
+          setProgressStats({ processed: 1000, total: 1000, found: realOpportunities.length });
         } else {
           throw new Error('No seasonal opportunities found');
         }

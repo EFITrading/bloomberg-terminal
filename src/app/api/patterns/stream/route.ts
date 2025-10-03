@@ -11,11 +11,13 @@ export async function GET(request: Request) {
       try {
         const screeningService = new SeasonalScreenerService();
         
-        // Define incremental batches to avoid duplicates
+        // Define incremental batches to avoid duplicates - now covering top 1000 stocks
         const batches = [
           { start: 0, end: 100, label: 'Quick Scan (1-100)' },
           { start: 100, end: 200, label: 'Extended Scan (101-200)' },
-          { start: 200, end: 500, label: 'Complete Scan (201-500)' }
+          { start: 200, end: 500, label: 'Deep Scan (201-500)' },
+          { start: 500, end: 750, label: 'Comprehensive Scan (501-750)' },
+          { start: 750, end: 1000, label: 'Complete Scan (751-1000)' }
         ];
         
         let totalFound = 0;
@@ -30,7 +32,7 @@ export async function GET(request: Request) {
             type: 'status',
             message: `🔄 ${batch.label}: Scanning companies ${batch.start + 1}-${batch.end}...`,
             processed: totalProcessed,
-            total: 500,
+            total: 1000,
             found: totalFound
           };
           
@@ -94,7 +96,7 @@ export async function GET(request: Request) {
                 },
                 stats: {
                   processed: batch.end,
-                  total: 500,
+                  total: 1000,
                   found: totalFound,
                   batchLabel: batch.label
                 }
@@ -117,7 +119,7 @@ export async function GET(request: Request) {
             type: 'batch_complete',
             message: `✅ ${batch.label} complete: Found ${opportunities.length} opportunities`,
             processed: totalProcessed,
-            total: 500,
+            total: 1000,
             found: totalFound,
             batchLabel: batch.label
           };
@@ -131,7 +133,7 @@ export async function GET(request: Request) {
               type: 'show_website',
               message: '🚀 Initial scan complete - Website ready to display!',
               processed: totalProcessed,
-              total: 500,
+              total: 1000,
               found: totalFound
             };
             
@@ -143,9 +145,9 @@ export async function GET(request: Request) {
         // Send final completion message
         const completion = {
           type: 'complete',
-          message: `🎯 All scans complete! Found ${totalFound} seasonal opportunities across 500 companies`,
-          processed: 500,
-          total: 500,
+          message: `🎯 All scans complete! Found ${totalFound} seasonal opportunities across 1000 companies`,
+          processed: 1000,
+          total: 1000,
           found: totalFound
         };
         

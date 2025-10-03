@@ -62,7 +62,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
             className="start-screener-btn"
             onClick={handleStartScreener}
           >
-            START SCREENER <span className="btn-arrow">›</span>
+            SEASONAL CHART <span className="btn-arrow">›</span>
           </button>
         </div>
       </div>

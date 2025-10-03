@@ -283,7 +283,7 @@ export const useUltraFastChart = () => {
       for (const timeframe of timeframes) {
         if (!cache.get(symbol, timeframe)) {
           prefetchPromises.push(
-            fetchData(symbol, { timeframe, priority: 'low' }).catch(() => {
+            fetchData(symbol, { timeframe, priority: 'low' }).then(() => {}).catch(() => {
               // Ignore prefetch errors
             })
           );

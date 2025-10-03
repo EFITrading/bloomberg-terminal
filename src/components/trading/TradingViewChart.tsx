@@ -24,6 +24,7 @@ import TradingPlan from './TradingPlan';
 import { gexService } from '../../lib/gexService';
 import { useGEXData } from '../../hooks/useGEXData';
 import { GEXChartOverlay } from '../GEXChartOverlay';
+import { getExpirationDates, getExpirationDatesFromAPI, getDaysUntilExpiration } from '../../lib/optionsExpirationUtils';
 
 // Add custom styles for 3D carved effect and holographic animations
 const carvedTextStyles = `
@@ -1060,17 +1061,16 @@ const fetchMarketDataForExpectedRange = async (symbol: string) => {
     const upperBound = currentPrice * 1.05;
     console.log(`Looking for strikes between $${lowerBound.toFixed(2)} and $${upperBound.toFixed(2)}`);
 
-    // Use correct weekly expiration (Sept 26th) and monthly (October 17th)
-    const weeklyExpiryDate = '2025-09-26'; // September 26, 2025 (this Friday)
-    const monthlyExpiryDate = '2025-10-17'; // October 17, 2025
+    // Get dynamic expiration dates from Polygon API
+    const { weeklyExpiry, monthlyExpiry, weeklyDate, monthlyDate } = await getExpirationDatesFromAPI(symbol);
+    const weeklyExpiryDate = weeklyExpiry;
+    const monthlyExpiryDate = monthlyExpiry;
 
     // Calculate days to expiry
-    const today = new Date();
-    const weeklyExpiry = new Date(weeklyExpiryDate);
-    const monthlyExpiry = new Date(monthlyExpiryDate);
+    const weeklyDTE = Math.max(1, getDaysUntilExpiration(weeklyDate));
+    const monthlyDTE = Math.max(1, getDaysUntilExpiration(monthlyDate));
     
-    const weeklyDTE = Math.max(1, Math.ceil((weeklyExpiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
-    const monthlyDTE = Math.max(1, Math.ceil((monthlyExpiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+    console.log(`Using dynamic expiration dates: Weekly ${weeklyExpiryDate} (${weeklyDTE}d), Monthly ${monthlyExpiryDate} (${monthlyDTE}d)`);
 
     // Fetch options chains with API-level strike filtering (EXACT same as AI Suite)
     const weeklyOptionsResponse = await fetch(
@@ -1303,10 +1303,14 @@ const renderGEXLevels = (
     ctx.lineTo(width - 80, y);
     ctx.stroke();
     
-    // Label
-    ctx.fillStyle = '#eab308';
-    ctx.font = 'bold 12px monospace';
+    // Label with 100% bright visibility
+    ctx.globalAlpha = 1.0;
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4;
+    ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'right';
+    ctx.strokeText(`Zero Γ: $${gexData.gexData.zeroGammaLevel.toFixed(0)}`, width - 10, y - 5);
+    ctx.fillStyle = '#ffff00';
     ctx.fillText(`Zero Γ: $${gexData.gexData.zeroGammaLevel.toFixed(0)}`, width - 10, y - 5);
     
     console.log(`🟡 Zero Gamma Level rendered at $${gexData.gexData.zeroGammaLevel}`);
@@ -1329,70 +1333,120 @@ const renderGEXLevels = (
     ctx.lineTo(width - 80, y);
     ctx.stroke();
     
-    // Label with gamma environment
-    ctx.fillStyle = flipColor;
-    ctx.font = 'bold 12px monospace';
+    // Label with 100% bright visibility
+    ctx.globalAlpha = 1.0;
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4;
+    ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'right';
+    ctx.strokeText(`GEX FLIP: $${gexData.gexData.gexFlipLevel.toFixed(0)} [${gexData.gexData.gammaEnvironment}]`, width - 10, y + 15);
+    ctx.fillStyle = gexData.gexData.isPositiveGamma ? '#ff00ff' : '#ff8800';
     ctx.fillText(`GEX FLIP: $${gexData.gexData.gexFlipLevel.toFixed(0)} [${gexData.gexData.gammaEnvironment}]`, width - 10, y + 15);
     
     console.log(`🔄 GEX Flip Level rendered at $${gexData.gexData.gexFlipLevel} (${gexData.gexData.gammaEnvironment} Gamma)`);
   }
 
-  // Call Walls (Green) - Now with actual GEX values
+  // Process all walls to show NET GEX (calls and puts combined)
+  const wallsByStrike = new Map();
+  
+  // Add call walls
   if (gexData.gexData.callWalls && gexData.gexData.callWalls.length > 0) {
-    gexData.gexData.callWalls.forEach((wall: any, i: number) => {
-      const y = priceToY(wall.strike);
-      
-      // Line thickness based on GEX strength
-      const thickness = Math.max(1, Math.min(4, wall.gex / 10000000000)); // Scale GEX to line thickness
-      
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = thickness;
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 0.8 - i * 0.15;
-      
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width - 80, y);
-      ctx.stroke();
-      
-      // Label with GEX value
-      ctx.fillStyle = '#00ff00';
-      ctx.font = '11px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`Call Wall: $${wall.strike.toFixed(0)} (${(wall.gex / 1000000000).toFixed(1)}B)`, width - 90, y - 5);
-      
-      console.log(`🟢 Call Wall rendered: $${wall.strike} with ${wall.gex.toFixed(0)} GEX`);
+    gexData.gexData.callWalls.forEach((wall: any) => {
+      wallsByStrike.set(wall.strike, {
+        strike: wall.strike,
+        callGEX: wall.gex,
+        putGEX: 0
+      });
     });
   }
-
-  // Put Walls (Red) - Now with actual GEX values
+  
+  // Add put walls (merge with existing strikes or create new)
   if (gexData.gexData.putWalls && gexData.gexData.putWalls.length > 0) {
-    gexData.gexData.putWalls.forEach((wall: any, i: number) => {
-      const y = priceToY(wall.strike);
-      
-      // Line thickness based on GEX strength
-      const thickness = Math.max(1, Math.min(4, wall.gex / 10000000000)); // Scale GEX to line thickness
-      
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = thickness;
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 0.8 - i * 0.15;
-      
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width - 80, y);
-      ctx.stroke();
-      
-      // Label with GEX value
-      ctx.fillStyle = '#ff0000';
-      ctx.font = '11px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`Put Wall: $${wall.strike.toFixed(0)} (${(wall.gex / 1000000000).toFixed(1)}B)`, width - 90, y + 15);
-      
-      console.log(`🔴 Put Wall rendered: $${wall.strike} with ${wall.gex.toFixed(0)} GEX`);
+    gexData.gexData.putWalls.forEach((wall: any) => {
+      const existing = wallsByStrike.get(wall.strike);
+      if (existing) {
+        existing.putGEX = wall.gex;
+      } else {
+        wallsByStrike.set(wall.strike, {
+          strike: wall.strike,
+          callGEX: 0,
+          putGEX: wall.gex
+        });
+      }
     });
   }
+  
+  // Calculate net GEX for each strike and find the highest
+  const wallDataArray = Array.from(wallsByStrike.values()).map(wallData => ({
+    ...wallData,
+    netGEX: wallData.callGEX - wallData.putGEX,
+    absNetGEX: Math.abs(wallData.callGEX - wallData.putGEX)
+  }));
+  
+  // Find the strike with highest absolute NET GEX
+  const highestGEXWall = wallDataArray.reduce((max, current) => 
+    current.absNetGEX > max.absNetGEX ? current : max
+  );
+  
+  // Render each wall
+  wallDataArray.forEach((wallData) => {
+    const isCallDominated = wallData.netGEX > 0;
+    const isHighestGEX = wallData.strike === highestGEXWall.strike;
+    
+    const y = priceToY(wallData.strike);
+    
+    // Line thickness based on NET GEX strength
+    const thickness = Math.max(1, Math.min(4, wallData.absNetGEX / 10000000000));
+    
+    // Color based on which side dominates
+    const lineColor = isCallDominated ? '#22c55e' : '#ef4444';
+    const textColor = isCallDominated ? '#00ff00' : '#ff0000';
+    
+    const wallType = isCallDominated ? 'Call Wall' : 'Put Wall';
+    const sign = isCallDominated ? '+' : '-';
+    
+    // Special glow effect for highest GEX line - glow in appropriate color
+    if (isHighestGEX) {
+      // Draw glow effect with multiple passes in the appropriate color
+      const glowColor = isCallDominated ? [34, 197, 94] : [239, 68, 68]; // RGB values
+      for (let i = 0; i < 3; i++) {
+        ctx.strokeStyle = `rgba(${glowColor[0]}, ${glowColor[1]}, ${glowColor[2]}, ${0.4 - i * 0.1})`;
+        ctx.lineWidth = thickness + (3 - i) * 2;
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.5;
+        
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width - 80, y);
+        ctx.stroke();
+      }
+    }
+    
+    // Main line
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = thickness;
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.8;
+    
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width - 80, y);
+    ctx.stroke();
+    
+    // Label with NET GEX value
+    ctx.globalAlpha = 1.0;
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4;
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'right';
+    const yOffset = isCallDominated ? -5 : 15;
+    const label = `${wallType}: $${wallData.strike.toFixed(0)} (${sign}${(wallData.absNetGEX / 1000000000).toFixed(1)}B)`;
+    ctx.strokeText(label, width - 90, y + yOffset);
+    ctx.fillStyle = textColor;
+    ctx.fillText(label, width - 90, y + yOffset);
+    
+    console.log(`${isCallDominated ? '🟢' : '🔴'} ${wallType} rendered: $${wallData.strike} with NET ${wallData.netGEX.toFixed(0)} GEX ${isHighestGEX ? 'HIGHEST' : ''}`);
+  });
 
   // Reset canvas state
   ctx.setLineDash([]);
@@ -5322,10 +5376,41 @@ export default function TradingViewChart({
     setConfig(prev => ({ ...prev, chartType }));
   };
 
-  // Handle symbol change
+  // Handle symbol change with instant preloading
   const handleSymbolChange = (newSymbol: string) => {
     setConfig(prev => ({ ...prev, symbol: newSymbol }));
     onSymbolChange?.(newSymbol);
+    
+    // Trigger instant preload for new symbol to speed up loading
+    if (newSymbol && newSymbol.trim().length > 0) {
+      triggerInstantPreload(newSymbol.trim().toUpperCase());
+    }
+  };
+
+  // Trigger instant preload for symbol (non-blocking)
+  const triggerInstantPreload = async (symbol: string) => {
+    try {
+      console.log(`🚀 Triggering instant preload for ${symbol}...`);
+      
+      const response = await fetch('/api/instant-preload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ symbol })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`⚡ Instant preload response for ${symbol}:`, result.message);
+      } else {
+        console.warn(`⚠️ Instant preload failed for ${symbol}:`, result.error);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Instant preload request failed for ${symbol}:`, error);
+      // Don't throw - this is a background optimization
+    }
   };
 
 
@@ -6040,6 +6125,7 @@ export default function TradingViewChart({
 
   // Handle sidebar button clicks
   const handleSidebarClick = (id: string) => {
+    console.log('Sidebar button clicked:', id, 'Current panel:', activeSidebarPanel);
     setActiveSidebarPanel(activeSidebarPanel === id ? null : id);
   };
 
@@ -7726,19 +7812,17 @@ export default function TradingViewChart({
           
           /* Active State - Crispy Orange */
           .btn-3d-carved.active {
-            background: linear-gradient(145deg, #2a1a0a 0%, #1a1000 50%, #2a1a0a 100%) !important;
-            border: 1px solid rgba(255, 140, 0, 0.4) !important;
-            color: #ff8c00 !important;
+            background: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%) !important;
+            border: 1px solid rgba(128, 128, 128, 0.2) !important;
+            color: #ff6600 !important;
             box-shadow: 
-              inset 2px 2px 4px rgba(255, 140, 0, 0.1),
+              inset 2px 2px 4px rgba(128, 128, 128, 0.05),
               inset -2px -2px 4px rgba(0, 0, 0, 0.8),
               0 4px 8px rgba(0, 0, 0, 0.6),
-              0 0 0 1px rgba(255, 140, 0, 0.3),
-              0 0 10px rgba(255, 140, 0, 0.2) !important;
+              0 0 0 1px rgba(64, 64, 64, 0.1) !important;
             text-shadow: 
               1px 1px 0px rgba(0, 0, 0, 0.9),
-              -1px -1px 0px rgba(255, 140, 0, 0.2),
-              0 0 8px rgba(255, 140, 0, 0.4) !important;
+              -1px -1px 0px rgba(128, 128, 128, 0.1) !important;
           }
           
           .btn-3d-carved:hover {
@@ -7752,13 +7836,16 @@ export default function TradingViewChart({
           }
           
           .btn-3d-carved.active:hover {
-            background: linear-gradient(145deg, #3a2a1a 0%, #2a1a0a 50%, #3a2a1a 100%) !important;
+            background: linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%) !important;
+            color: #ff6600 !important;
             box-shadow: 
-              inset 2px 2px 6px rgba(255, 140, 0, 0.15),
+              inset 2px 2px 6px rgba(128, 128, 128, 0.1),
               inset -2px -2px 6px rgba(0, 0, 0, 0.9),
               0 6px 12px rgba(0, 0, 0, 0.7),
-              0 0 0 1px rgba(255, 140, 0, 0.4),
-              0 0 15px rgba(255, 140, 0, 0.3) !important;
+              0 0 0 1px rgba(96, 96, 96, 0.2) !important;
+            text-shadow: 
+              1px 1px 0px rgba(0, 0, 0, 0.9),
+              -1px -1px 0px rgba(128, 128, 128, 0.1) !important;
             transform: translateY(-1px) !important;
           }
           
@@ -8154,34 +8241,7 @@ export default function TradingViewChart({
             borderRadius: '2px'
           }}></div>
 
-          {/* Test Future Scroll Button */}
-          <button
-            onClick={() => {
-              const futurePeriods = getFuturePeriods(config.timeframe);
-              const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
-              const futureScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
-              setScrollOffset(futureScrollOffset);
-              console.log('Scrolling to future:', { futureScrollOffset, dataLength: data.length, visibleCandleCount, maxFuturePeriods });
-            }}
-            className="btn-3d-carved relative group text-gray-300"
-            style={{
-              padding: '10px 14px',
-              fontWeight: '700',
-              fontSize: '13px',
-              letterSpacing: '0.5px'
-            }}
-          >
-            FUTURE
-          </button>
 
-          {/* Glowing Orange Separator */}
-          <div className="mx-6" style={{
-            width: '4px',
-            height: '50px',
-            background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
-            boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
-            borderRadius: '2px'
-          }}></div>
 
           {/* Enhanced Action Buttons */}
           <div className="flex items-center space-x-4">
@@ -9050,6 +9110,7 @@ export default function TradingViewChart({
       {/* Sidebar Panels */}
       {activeSidebarPanel && (
         <div className="fixed top-40 bottom-0 left-16 w-[1000px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out">
+          {console.log('Sidebar panel is rendering:', activeSidebarPanel)}
           {/* Panel Header */}
           <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
             <h3 className="text-white font-medium capitalize">{activeSidebarPanel}</h3>

@@ -1,5 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+interface OptionData {
+  open_interest?: number;
+  greeks?: {
+    gamma?: number;
+  };
+}
+
+interface GEXByStrike {
+  [strike: number]: {
+    callGEX: number;
+    putGEX: number;
+    netGEX: number;
+  };
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get('symbol') || 'SPY';
@@ -68,11 +83,12 @@ export async function GET(request: NextRequest) {
         // Process calls
         if (calls) {
           Object.entries(calls).forEach(([strike, data]) => {
+            const optionData = data as OptionData;
             const strikeNum = parseFloat(strike);
             // Process all strikes - no filtering
             
-            const oi = data.open_interest || 0;
-            const gamma = data.greeks?.gamma || 0;
+            const oi = optionData.open_interest || 0;
+            const gamma = optionData.greeks?.gamma || 0;
             
             if (oi > 0 && gamma) {
               const gex = gamma * oi * (spotPrice * spotPrice) * 100;

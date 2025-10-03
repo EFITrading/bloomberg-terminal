@@ -31,7 +31,7 @@ export interface UseOptimizedDataReturn {
   getCacheStats: () => { size: number; hits: number; misses: number };
 }
 
-const CACHE_EXPIRY_TIMES = {
+const CACHE_EXPIRY_TIMES: { [key: string]: number } = {
   '1m': 1 * 60 * 1000,      // 1 minute
   '5m': 5 * 60 * 1000,      // 5 minutes  
   '15m': 15 * 60 * 1000,    // 15 minutes

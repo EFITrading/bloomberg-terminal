@@ -23,15 +23,27 @@ model OptionsFlow {
   premium_per_contract Float    // Price per contract
   total_premium        Float    // Total dollar value
   
-  // Flow classification
+  // Flow classification - Enhanced for new system
   flow_type            String?  // "bullish", "bearish", "neutral"
-  trade_type           String?  // "block", "sweep"
+  trade_type           String?  // "SWEEP", "BLOCK", "MULTI-LEG", "SPLIT"
   above_ask            Boolean? @default(false)
   below_bid            Boolean? @default(false)
   
-  // Market data
+  // Market data - Enhanced
   exchange             Int?     // Exchange ID
+  exchange_name        String?  // Exchange name (CBOE, ISE, etc.)
   conditions           String?  // Trade conditions (JSON array as string)
+  spot_price           Float?   // Stock price when option was traded
+  sip_timestamp        BigInt?  // SIP timestamp from Polygon
+  sequence_number      BigInt?  // Sequence number for ordering
+  
+  // Multi-leg detection fields
+  window_group         String?  // Time window group ID for multi-leg detection
+  related_trades       String?  // JSON array of related trade IDs
+  
+  // Performance tracking
+  moneyness            String?  // "ATM", "ITM", "OTM"
+  days_to_expiry       Int?     // Days until expiration
   
   // Timestamps
   trade_timestamp      DateTime // When the trade occurred
@@ -42,6 +54,8 @@ model OptionsFlow {
   @@index([total_premium, trade_timestamp])
   @@index([trade_type, trade_timestamp])
   @@index([created_at])
+  @@index([sip_timestamp])
+  @@index([window_group])
   @@map("options_flow")
 }
 

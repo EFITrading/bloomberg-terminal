@@ -80,7 +80,7 @@ export default function GEXChart({
       return 0;
     }
 
-    // FILTER OUT FAKE GAMMA VALUES
+    // FILTER OUT FAKE GAMMA VALUES - but keep sign information!
     const absGamma = Math.abs(polygonGamma);
     
     // Realistic gamma bounds: SPY options actually have gamma between 0.00001 and 0.1
@@ -95,12 +95,12 @@ export default function GEXChart({
       return 0;
     }
     
-    // GEX = Gamma × OI × 100 × Spot²
-    let gex = absGamma * openInterest * 100 * spot * spot;
+    // GEX = Gamma × OI × 100 × Spot² - USE RAW GAMMA like market overview API
+    let gex = polygonGamma * openInterest * 100 * spot * spot;
     
-    // Apply dealer perspective signs:
-    // - Calls: Positive GEX (dealers short gamma)
-    // - Puts: Negative GEX (dealers short gamma)
+    // Apply dealer perspective signs (same as market overview API):
+    // - Calls: Keep positive (dealers short gamma)
+    // - Puts: Make negative (dealers short gamma)
     if (contractType === 'put') {
       gex = -gex;
     }

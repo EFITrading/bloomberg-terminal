@@ -1,5 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+interface OptionData {
+  open_interest?: number;
+  greeks?: {
+    gamma?: number;
+  };
+}
+
+interface GEXByStrike {
+  [strike: number]: {
+    callGEX: number;
+    putGEX: number;
+    netGEX: number;
+  };
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get('symbol') || 'SPY';
@@ -21,7 +36,7 @@ export async function GET(request: NextRequest) {
     console.log(`📅 ${expirationDates.length} expirations found, spot: $${spotPrice}`);
 
     // Combine all strikes from all expirations
-    const gexByStrike = {};
+    const gexByStrike: GEXByStrike = {};
     let totalCallGEX = 0;
     let totalPutGEX = 0;
 
@@ -35,11 +50,12 @@ export async function GET(request: NextRequest) {
         // Process calls
         if (calls) {
           Object.entries(calls).forEach(([strike, data]) => {
+            const optionData = data as OptionData;
             const strikeNum = parseFloat(strike);
             if (strikeNum < 620 || strikeNum > 690) return;
             
-            const oi = data.open_interest || 0;
-            const gamma = data.greeks?.gamma || 0;
+            const oi = optionData.open_interest || 0;
+            const gamma = optionData.greeks?.gamma || 0;
             
             if (oi > 0 && gamma) {
               const gex = gamma * oi * (spotPrice * spotPrice) * 100;
@@ -58,11 +74,12 @@ export async function GET(request: NextRequest) {
         // Process puts
         if (puts) {
           Object.entries(puts).forEach(([strike, data]) => {
+            const optionData = data as OptionData;
             const strikeNum = parseFloat(strike);
             if (strikeNum < 620 || strikeNum > 690) return;
             
-            const oi = data.open_interest || 0;
-            const gamma = data.greeks?.gamma || 0;
+            const oi = optionData.open_interest || 0;
+            const gamma = optionData.greeks?.gamma || 0;
             
             if (oi > 0 && gamma) {
               const gex = -gamma * oi * (spotPrice * spotPrice) * 100;
@@ -82,8 +99,11 @@ export async function GET(request: NextRequest) {
 
     // Calculate net GEX for each strike
     Object.keys(gexByStrike).forEach(strike => {
-      const data = gexByStrike[strike];
-      data.netGEX = data.callGEX + data.putGEX;
+      const strikeNum = parseFloat(strike);
+      const data = gexByStrike[strikeNum];
+      if (data) {
+        data.netGEX = data.callGEX + data.putGEX;
+      }
     });
 
     const totalNetGEX = totalCallGEX + totalPutGEX;
@@ -130,6 +150,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ GEX error:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
   }
 }
