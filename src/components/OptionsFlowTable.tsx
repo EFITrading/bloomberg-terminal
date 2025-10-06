@@ -38,33 +38,71 @@ interface OptionsFlowSummary {
   processing_time_ms: number;
 }
 
+interface MarketInfo {
+  status: 'LIVE' | 'LAST_TRADING_DAY';
+  is_live: boolean;
+  data_date: string;
+  market_open: boolean;
+}
+
 interface OptionsFlowTableProps {
   data: OptionsFlowData[];
   summary: OptionsFlowSummary;
+  marketInfo?: MarketInfo;
   loading?: boolean;
   onRefresh?: () => void;
   selectedTicker: string;
   selectedDate: string;
   onTickerChange: (ticker: string) => void;
   onDateChange: (date: string) => void;
+  autoRefresh?: boolean;
+  onToggleAutoRefresh?: () => void;
+  streamingStatus?: string;
+  streamingProgress?: {current: number, total: number} | null;
 }
 
 export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   data,
   summary,
+  marketInfo,
   loading = false,
   onRefresh,
   selectedTicker,
   selectedDate,
   onTickerChange,
-  onDateChange
+  onDateChange,
+  autoRefresh = false,
+  onToggleAutoRefresh,
+  streamingStatus,
+  streamingProgress
 }) => {
   const [sortField, setSortField] = useState<keyof OptionsFlowData>('trade_timestamp');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filterType, setFilterType] = useState<string>('all');
-  const [filterTradeType, setFilterTradeType] = useState<string>('all');
+  const [selectedOptionTypes, setSelectedOptionTypes] = useState<string[]>(['call', 'put']);
+  const [selectedPremiumFilters, setSelectedPremiumFilters] = useState<string[]>([]);
+  const [customMinPremium, setCustomMinPremium] = useState<string>('');
+  const [customMaxPremium, setCustomMaxPremium] = useState<string>('');
+  const [selectedTickerFilters, setSelectedTickerFilters] = useState<string[]>([]);
+  const [selectedUniqueFilters, setSelectedUniqueFilters] = useState<string[]>([]);
+  const [expirationStartDate, setExpirationStartDate] = useState<string>('');
+  const [expirationEndDate, setExpirationEndDate] = useState<string>('');
+  const [blacklistedTickers, setBlacklistedTickers] = useState<string[]>(['', '', '', '', '']);
+  const [intentionFilter, setIntentionFilter] = useState<'all' | 'buy' | 'sell'>('all');
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [tradeAnalysis, setTradeAnalysis] = useState<Record<string, string>>({});
+  const [selectedTickerFilter, setSelectedTickerFilter] = useState<string>('');
   const [inputTicker, setInputTicker] = useState<string>(selectedTicker);
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
+  const [isFilterDialogOpen, setIsFilterDialogOpen] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage] = useState<number>(250);
+  const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false);
+
+  // Debug: Monitor filter dialog state changes
+  useEffect(() => {
+    console.log('Filter dialog state changed:', isFilterDialogOpen);
+  }, [isFilterDialogOpen]);
 
   // Only sync input field with selectedTicker when not actively typing
   useEffect(() => {
@@ -72,6 +110,45 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       setInputTicker(selectedTicker);
     }
   }, [selectedTicker, isInputFocused]);
+
+  // EFI Highlights criteria checker
+  const meetsEfiCriteria = (trade: OptionsFlowData): boolean => {
+    // Debug logging
+    console.log('Checking EFI criteria for trade:', {
+      ticker: trade.underlying_ticker,
+      days_to_expiry: trade.days_to_expiry,
+      total_premium: trade.total_premium,
+      trade_size: trade.trade_size,
+      moneyness: trade.moneyness
+    });
+
+    // 1. Check expiration (0-35 trading days) - use existing days_to_expiry field
+    if (trade.days_to_expiry < 0 || trade.days_to_expiry > 35) {
+      console.log('❌ Failed days to expiry check:', trade.days_to_expiry);
+      return false;
+    }
+
+    // 2. Check premium ($100k - $450k) - use existing total_premium field
+    if (trade.total_premium < 100000 || trade.total_premium > 450000) {
+      console.log('❌ Failed premium check:', trade.total_premium);
+      return false;
+    }
+
+    // 3. Check contracts (650 - 1999)
+    if (trade.trade_size < 650 || trade.trade_size > 1999) {
+      console.log('❌ Failed contract size check:', trade.trade_size);
+      return false;
+    }
+
+    // 4. Check OTM status
+    if (!trade.moneyness || trade.moneyness !== 'OTM') {
+      console.log('❌ Failed OTM check:', trade.moneyness);
+      return false;
+    }
+    
+    console.log('✅ Trade meets all EFI criteria!');
+    return true;
+  };
 
   const handleSort = (field: keyof OptionsFlowData) => {
     if (sortField === field) {
@@ -82,16 +159,201 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
   };
 
+  // Function to analyze bid/ask execution for visible trades
+  const analyzeBidAskExecution = async () => {
+    setIsAnalyzing(true);
+    const analysisResults: Record<string, string> = {};
+    
+    try {
+      // Get currently filtered trades
+      const visibleTrades = filteredAndSortedData;
+      
+      for (const trade of visibleTrades) {
+        try {
+          // Create option ticker format
+          const expiry = trade.expiry.replace(/-/g, '').slice(2); // Convert 2025-10-10 to 251010
+          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+          
+          // Parse trade time and get 1 second before
+          const tradeTime = new Date(trade.trade_timestamp);
+          const checkTime = new Date(tradeTime.getTime() - 1000); // 1 second before
+          const checkTimestamp = checkTime.getTime() * 1000000; // Convert to nanoseconds
+          
+          // Get quote 1 second before trade
+          const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+          
+          const response = await fetch(quotesUrl);
+          const data = await response.json();
+          
+          if (data.results && data.results.length > 0) {
+            const quote = data.results[0];
+            const bid = quote.bid_price;
+            const ask = quote.ask_price;
+            const fillPrice = trade.premium_per_contract;
+            
+            if (bid && ask && fillPrice) {
+              const tolerance = 0.02; // 2 cent tolerance
+              const mid = (bid + ask) / 2;
+              
+              if (Math.abs(fillPrice - ask) <= tolerance) {
+                analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'A'; // At ask
+              } else if (Math.abs(fillPrice - bid) <= tolerance) {
+                analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'B'; // At bid
+              } else if (fillPrice > ask + tolerance) {
+                analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'AA'; // Above ask
+              } else if (fillPrice < bid - tolerance) {
+                analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'bb'; // Below bid
+              } else {
+                analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'X'; // Mid-point
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Error analyzing trade ${trade.underlying_ticker}:`, error);
+          // Continue with next trade on error
+        }
+        
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      setTradeAnalysis(analysisResults);
+    } catch (error) {
+      console.error('Error in bid/ask analysis:', error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const filteredAndSortedData = useMemo(() => {
     let filtered = [...data];
     
-    // Apply filters
-    if (filterType !== 'all') {
-      filtered = filtered.filter(trade => trade.type === filterType);
+    // Apply filters - Option Type (checkbox)
+    if (selectedOptionTypes.length > 0 && selectedOptionTypes.length < 2) {
+      filtered = filtered.filter(trade => selectedOptionTypes.includes(trade.type));
     }
     
-    if (filterTradeType !== 'all') {
-      filtered = filtered.filter(trade => trade.trade_type === filterTradeType);
+    // Premium filters (checkbox + custom range)
+    if (selectedPremiumFilters.length > 0 || customMinPremium || customMaxPremium) {
+      filtered = filtered.filter(trade => {
+        let passesPresetFilters = true;
+        let passesCustomRange = true;
+        
+        // Check preset filters
+        if (selectedPremiumFilters.length > 0) {
+          passesPresetFilters = selectedPremiumFilters.some(filter => {
+            switch (filter) {
+              case '50000':
+                return trade.total_premium >= 50000;
+              case '99000':
+                return trade.total_premium >= 99000;
+              case '200000':
+                return trade.total_premium >= 200000;
+              default:
+                return true;
+            }
+          });
+        }
+        
+        // Check custom range
+        if (customMinPremium || customMaxPremium) {
+          const minVal = customMinPremium ? parseFloat(customMinPremium) : 0;
+          const maxVal = customMaxPremium ? parseFloat(customMaxPremium) : Infinity;
+          passesCustomRange = trade.total_premium >= minVal && trade.total_premium <= maxVal;
+        }
+        
+        return passesPresetFilters && passesCustomRange;
+      });
+    }
+    
+    // Ticker filters (checkbox)
+    if (selectedTickerFilters.length > 0) {
+      const mag7Stocks = ['AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'TSLA', 'META'];
+      
+      filtered = filtered.filter(trade => {
+        return selectedTickerFilters.every(filter => {
+          switch (filter) {
+            case 'ETF_ONLY':
+              // Assuming ETFs can be identified by ticker patterns or we need additional data
+              // For now, using a simple heuristic - ETFs often have 3 letters
+              return trade.underlying_ticker.length === 3 && !mag7Stocks.includes(trade.underlying_ticker);
+            case 'STOCK_ONLY':
+              // Exclude ETFs (assuming stocks are everything that's not in a common ETF pattern)
+              return trade.underlying_ticker.length >= 3;
+            case 'MAG7_ONLY':
+              return mag7Stocks.includes(trade.underlying_ticker);
+            case 'EXCLUDE_MAG7':
+              return !mag7Stocks.includes(trade.underlying_ticker);
+            case 'HIGHLIGHTS_ONLY':
+              return meetsEfiCriteria(trade);
+            default:
+              return true;
+          }
+        });
+      });
+    }
+    
+    // Unique filters (checkbox)
+    if (selectedUniqueFilters.length > 0) {
+      filtered = filtered.filter(trade => {
+        return selectedUniqueFilters.every(filter => {
+          switch (filter) {
+            case 'ITM':
+              return trade.moneyness === 'ITM';
+            case 'OTM':
+              return trade.moneyness === 'OTM';
+            case 'SWEEP_ONLY':
+              return trade.trade_type === 'SWEEP';
+            case 'BLOCK_ONLY':
+              return trade.trade_type === 'BLOCK';
+            case 'WEEKLY_ONLY':
+              // Check if expiration is within 7 days
+              const expiryDate = new Date(trade.expiry);
+              const today = new Date();
+              const daysToExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              return daysToExpiry <= 7;
+            case 'MULTI_LEG_ONLY':
+              return trade.trade_type === 'MULTI-LEG';
+            case 'SPLIT_ONLY':
+              return trade.trade_type === 'SPLIT';
+            default:
+              return true;
+          }
+        });
+      });
+    }
+    
+    // Expiration date range filter
+    if (expirationStartDate || expirationEndDate) {
+      filtered = filtered.filter(trade => {
+        const tradeExpiryDate = new Date(trade.expiry);
+        const startDate = expirationStartDate ? new Date(expirationStartDate) : null;
+        const endDate = expirationEndDate ? new Date(expirationEndDate) : null;
+        
+        if (startDate && endDate) {
+          return tradeExpiryDate >= startDate && tradeExpiryDate <= endDate;
+        } else if (startDate) {
+          return tradeExpiryDate >= startDate;
+        } else if (endDate) {
+          return tradeExpiryDate <= endDate;
+        }
+        return true;
+      });
+    }
+    
+    // Blacklisted tickers filter
+    const activeBlacklistedTickers = blacklistedTickers.filter(ticker => ticker.trim() !== '');
+    if (activeBlacklistedTickers.length > 0) {
+      filtered = filtered.filter(trade => {
+        return !activeBlacklistedTickers.includes(trade.underlying_ticker.toUpperCase());
+      });
+    }
+    
+    // Selected ticker filter
+    if (selectedTickerFilter) {
+      filtered = filtered.filter(trade => trade.underlying_ticker === selectedTickerFilter);
     }
 
     // Apply sorting
@@ -111,7 +373,21 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     });
 
     return filtered;
-  }, [data, sortField, sortDirection, filterType, filterTradeType]);
+  }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers]);
+
+  // Pagination logic
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredAndSortedData.slice(startIndex, endIndex);
+  }, [filteredAndSortedData, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredAndSortedData.length / itemsPerPage);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -122,12 +398,25 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }).format(value);
   };
 
+  const handleTickerClick = (ticker: string) => {
+    if (selectedTickerFilter === ticker) {
+      // If clicking the same ticker, clear the filter
+      setSelectedTickerFilter('');
+    } else {
+      // Set new ticker filter
+      setSelectedTickerFilter(ticker);
+    }
+  };
+
   const formatTime = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString('en-US', {
+    // Show exact execution time with seconds
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', {
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
+      timeZone: 'America/New_York' // Ensure ET timezone
     });
   };
 
@@ -135,156 +424,913 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     // Parse date string manually to avoid timezone issues
     // Expected format: YYYY-MM-DD
     const [year, month, day] = dateString.split('-');
-    return `${month}/${day}/${year.slice(-2)}`;
+    return `${month}/${day}/${year}`;
   };
 
   const getTradeTypeColor = (tradeType: string) => {
     const colors = {
-      'BLOCK': 'bg-blue-100 text-blue-800',
-      'SWEEP': 'bg-red-100 text-red-800',
-      'MULTI-LEG': 'bg-purple-100 text-purple-800',
-      'SPLIT': 'bg-orange-100 text-orange-800'
+      'BLOCK': 'bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold shadow-lg border border-blue-500',
+      'SWEEP': 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold shadow-lg border border-yellow-400',
+      'MULTI-LEG': 'bg-gradient-to-r from-purple-600 to-purple-700 text-white font-bold shadow-lg border border-purple-500',
+      'SPLIT': 'bg-gradient-to-r from-orange-600 to-orange-700 text-white font-bold shadow-lg border border-orange-500'
     };
-    return colors[tradeType as keyof typeof colors] || 'bg-gray-100 text-gray-800';
+    return colors[tradeType as keyof typeof colors] || 'bg-gradient-to-r from-gray-600 to-gray-700 text-white font-bold shadow-lg border border-gray-500';
   };
 
   const getCallPutColor = (type: string) => {
-    return type === 'call' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold';
+    return type === 'call' ? 'text-green-500 font-bold text-xl' : 'text-red-500 font-bold text-xl';
+  };
+
+  const getTickerStyle = (ticker: string) => {
+    return 'bg-black text-orange-500 font-bold px-4 py-2 border border-gray-700 shadow-lg text-lg tracking-wide';
   };
 
   return (
-    <div className="space-y-6">
+    <>
+      {/* Filter Dialog Modal */}
+      {isFilterDialogOpen && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-75 z-[9998]"
+            onClick={() => {
+              console.log('Dialog backdrop clicked - closing dialog');
+              setIsFilterDialogOpen(false);
+            }}
+          />
+          {/* Modal Content */}
+          <div className="fixed top-56 left-1/2 transform -translate-x-1/2 bg-black border-2 border-orange-500 rounded-lg p-3 w-auto max-w-4xl max-h-[55vh] overflow-y-auto z-[9999]" style={{ boxShadow: '0 0 30px rgba(255, 165, 0, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.6), 0 8px 32px rgba(0, 0, 0, 0.8)' }}>
+          <div>
+            <div className="flex justify-center items-center mb-6 relative">
+              <h2 className="text-2xl font-bold italic text-orange-400" style={{ fontFamily: 'Georgia, serif', textShadow: '0 0 8px rgba(255, 165, 0, 0.3)', letterSpacing: '0.5px' }}>Options Flow Filters</h2>
+              <button
+                onClick={() => setIsFilterDialogOpen(false)}
+                className="absolute right-0 text-gray-400 hover:text-white text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="-space-y-2 px-8">
+              {/* Top Row - Option Type, Value Premium, Ticker Filter */}
+              <div className="flex flex-wrap justify-start items-start gap-3 mx-2">
+                {/* Option Type */}
+                <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-gray-400/3 to-transparent rounded-lg animate-pulse"></div>
+                  <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px' }}>
+                    <span style={{ color: '#10b981', textShadow: '0 0 6px rgba(16, 185, 129, 0.4)' }}>Options</span>
+                    <span style={{ color: '#ef4444', textShadow: '0 0 6px rgba(239, 68, 68, 0.4)' }}> Type</span>
+                  </label>
+                  <div className="space-y-3 relative z-10">
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedOptionTypes.includes('put')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedOptionTypes(prev => [...prev, 'put']);
+                        } else {
+                          setSelectedOptionTypes(prev => prev.filter(type => type !== 'put'));
+                        }
+                      }}
+                      className="w-5 h-5 text-red-600 bg-black border-orange-500 rounded focus:ring-red-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedOptionTypes.includes('put') 
+                        ? 'text-red-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>Puts</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedOptionTypes.includes('call')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedOptionTypes(prev => [...prev, 'call']);
+                        } else {
+                          setSelectedOptionTypes(prev => prev.filter(type => type !== 'call'));
+                        }
+                      }}
+                      className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedOptionTypes.includes('call') 
+                        ? 'text-green-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>Calls</span>
+                  </label>
+                </div>
+                </div>
 
+                {/* Value (Premium) */}
+                <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-green-400/3 to-transparent rounded-lg animate-pulse"></div>
+                  <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#10b981', textShadow: '0 0 6px rgba(16, 185, 129, 0.4)' }}>Premium</label>
+                  <div className="space-y-3 relative z-10">
+                    {/* Preset Checkboxes */}
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedPremiumFilters.includes('50000')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedPremiumFilters(prev => [...prev, '50000']);
+                        } else {
+                          setSelectedPremiumFilters(prev => prev.filter(filter => filter !== '50000'));
+                        }
+                      }}
+                      className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedPremiumFilters.includes('50000') 
+                        ? 'text-green-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>≥ $50,000</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedPremiumFilters.includes('99000')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedPremiumFilters(prev => [...prev, '99000']);
+                        } else {
+                          setSelectedPremiumFilters(prev => prev.filter(filter => filter !== '99000'));
+                        }
+                      }}
+                      className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedPremiumFilters.includes('99000') 
+                        ? 'text-green-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>≥ $99,000</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedPremiumFilters.includes('200000')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedPremiumFilters(prev => [...prev, '200000']);
+                        } else {
+                          setSelectedPremiumFilters(prev => prev.filter(filter => filter !== '200000'));
+                        }
+                      }}
+                      className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedPremiumFilters.includes('200000') 
+                        ? 'text-green-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>≥ $200,000</span>
+                    </label>
+                    
+                    {/* Custom Range Inputs */}
+                    <div className="border-t border-orange-500 pt-3 mt-3">
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-sm text-orange-300 mb-1 block font-medium">Min ($)</label>
+                        <input
+                          type="number"
+                          value={customMinPremium}
+                          onChange={(e) => setCustomMinPremium(e.target.value)}
+                          placeholder="0"
+                          className="border border-orange-500 rounded px-3 py-2 text-sm bg-black text-green-400 placeholder-gray-500 focus:border-orange-400 focus:ring-1 focus:ring-orange-400 focus:outline-none w-full transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-orange-300 mb-1 block font-medium">Max ($)</label>
+                        <input
+                          type="number"
+                          value={customMaxPremium}
+                          onChange={(e) => setCustomMaxPremium(e.target.value)}
+                          placeholder="∞"
+                          className="border border-orange-500 rounded px-3 py-2 text-sm bg-black text-green-400 placeholder-gray-500 focus:border-orange-400 focus:ring-1 focus:ring-orange-400 focus:outline-none w-full transition-all"
+                        />
+                      </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
+                {/* Ticker Filter */}
+                <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-400/3 to-transparent rounded-lg animate-pulse"></div>
+                  <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#3b82f6', textShadow: '0 0 6px rgba(59, 130, 246, 0.4)' }}>Ticker Filter</label>
+                  <div className="space-y-3 relative z-10">
+                  <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedTickerFilters.includes('ETF_ONLY')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedTickerFilters(prev => [...prev, 'ETF_ONLY']);
+                        } else {
+                          setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'ETF_ONLY'));
+                        }
+                      }}
+                      className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedTickerFilters.includes('ETF_ONLY') 
+                        ? 'text-blue-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>ETF Only</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedTickerFilters.includes('STOCK_ONLY')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedTickerFilters(prev => [...prev, 'STOCK_ONLY']);
+                        } else {
+                          setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'STOCK_ONLY'));
+                        }
+                      }}
+                      className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedTickerFilters.includes('STOCK_ONLY') 
+                        ? 'text-blue-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>Stock Only</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedTickerFilters.includes('MAG7_ONLY')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedTickerFilters(prev => [...prev, 'MAG7_ONLY']);
+                        } else {
+                          setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'MAG7_ONLY'));
+                        }
+                      }}
+                      className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedTickerFilters.includes('MAG7_ONLY') 
+                        ? 'text-blue-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>Mag 7 Only</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                    <input
+                      type="checkbox"
+                      checked={selectedTickerFilters.includes('EXCLUDE_MAG7')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedTickerFilters(prev => [...prev, 'EXCLUDE_MAG7']);
+                        } else {
+                          setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'EXCLUDE_MAG7'));
+                        }
+                      }}
+                      className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
+                    />
+                    <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                      selectedTickerFilters.includes('EXCLUDE_MAG7') 
+                        ? 'text-blue-400 font-bold drop-shadow-lg'
+                        : 'text-gray-300'
+                    }`}>Exclude Mag 7</span>
+                  </label>
+                </div>
+                
+                <div className="flex items-center">
+                  <label className="flex items-center cursor-pointer hover:bg-blue-600/10 rounded-lg p-2 transition-all duration-200">
+                    <input
+                      type="checkbox"
+                      className="w-5 h-5 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                      checked={selectedTickerFilters.includes('HIGHLIGHTS_ONLY')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('Highlights Only checkbox clicked');
+                        const isCurrentlyChecked = selectedTickerFilters.includes('HIGHLIGHTS_ONLY');
+                        if (isCurrentlyChecked) {
+                          setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'HIGHLIGHTS_ONLY'));
+                          console.log('Unchecked - removing HIGHLIGHTS_ONLY');
+                        } else {
+                          setSelectedTickerFilters(prev => [...prev, 'HIGHLIGHTS_ONLY']);
+                          console.log('Checked - adding HIGHLIGHTS_ONLY');
+                        }
+                      }}
+                      readOnly
+                    />
+                    <span 
+                      className={`ml-3 text-lg font-medium transition-all duration-200 cursor-pointer ${
+                        selectedTickerFilters.includes('HIGHLIGHTS_ONLY') 
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const isCurrentlyChecked = selectedTickerFilters.includes('HIGHLIGHTS_ONLY');
+                        if (isCurrentlyChecked) {
+                          setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'HIGHLIGHTS_ONLY'));
+                        } else {
+                          setSelectedTickerFilters(prev => [...prev, 'HIGHLIGHTS_ONLY']);
+                        }
+                      }}
+                    >
+                      Highlights Only
+                    </span>
+                  </label>
+                </div>
+                </div>
+              </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex gap-6 items-center">
-            <div>
-              <label className="text-lg font-medium">Symbol:</label>
+              {/* Bottom Row - Unique Filters and Options Expiration */}
+              <div className="flex flex-wrap justify-start items-start gap-3 mx-2">
+                {/* Unique Filters */}
+                <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/3 to-transparent rounded-lg animate-pulse"></div>
+                  <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#fbbf24', textShadow: '0 0 6px rgba(251, 191, 36, 0.4)' }}>Unique</label>
+                  <div className="space-y-3 relative z-10">
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <input
+                        type="checkbox"
+                        checked={selectedUniqueFilters.includes('ITM')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedUniqueFilters(prev => [...prev, 'ITM']);
+                          } else {
+                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'ITM'));
+                          }
+                        }}
+                        className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                      />
+                      <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                        selectedUniqueFilters.includes('ITM') 
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                      }`}>In The Money</span>
+                    </label>
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <input
+                        type="checkbox"
+                        checked={selectedUniqueFilters.includes('OTM')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedUniqueFilters(prev => [...prev, 'OTM']);
+                          } else {
+                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'OTM'));
+                          }
+                        }}
+                        className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                      />
+                      <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                        selectedUniqueFilters.includes('OTM') 
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                      }`}>Out The Money</span>
+                    </label>
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <input
+                        type="checkbox"
+                        checked={selectedUniqueFilters.includes('SWEEP_ONLY')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedUniqueFilters(prev => [...prev, 'SWEEP_ONLY']);
+                          } else {
+                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'SWEEP_ONLY'));
+                          }
+                        }}
+                        className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                      />
+                      <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                        selectedUniqueFilters.includes('SWEEP_ONLY') 
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                      }`}>Sweep Only</span>
+                    </label>
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <input
+                        type="checkbox"
+                        checked={selectedUniqueFilters.includes('BLOCK_ONLY')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedUniqueFilters(prev => [...prev, 'BLOCK_ONLY']);
+                          } else {
+                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'BLOCK_ONLY'));
+                          }
+                        }}
+                        className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                      />
+                      <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                        selectedUniqueFilters.includes('BLOCK_ONLY') 
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                      }`}>Block Only</span>
+                    </label>
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <input
+                        type="checkbox"
+                        checked={selectedUniqueFilters.includes('WEEKLY_ONLY')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedUniqueFilters(prev => [...prev, 'WEEKLY_ONLY']);
+                          } else {
+                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'WEEKLY_ONLY'));
+                          }
+                        }}
+                        className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                      />
+                      <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                        selectedUniqueFilters.includes('WEEKLY_ONLY') 
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                      }`}>Weekly Only</span>
+                    </label>
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <input
+                        type="checkbox"
+                        checked={selectedUniqueFilters.includes('MULTI_LEG_ONLY')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedUniqueFilters(prev => [...prev, 'MULTI_LEG_ONLY']);
+                          } else {
+                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'MULTI_LEG_ONLY'));
+                          }
+                        }}
+                        className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                      />
+                      <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                        selectedUniqueFilters.includes('MULTI_LEG_ONLY') 
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                      }`}>Multi Leg Only</span>
+                    </label>
+                    <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <input
+                        type="checkbox"
+                        checked={selectedUniqueFilters.includes('SPLIT_ONLY')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedUniqueFilters(prev => [...prev, 'SPLIT_ONLY']);
+                          } else {
+                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'SPLIT_ONLY'));
+                          }
+                        }}
+                        className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                      />
+                      <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
+                        selectedUniqueFilters.includes('SPLIT_ONLY') 
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                      }`}>Split Only</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Black List */}
+                <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-orange-400/3 to-transparent rounded-lg animate-pulse"></div>
+                  <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#f97316', textShadow: '0 0 6px rgba(249, 115, 22, 0.4)' }}>Black List</label>
+                  <div className="space-y-2 relative z-10">
+                    {blacklistedTickers.map((ticker, index) => (
+                      <div key={index}>
+                        <input
+                          type="text"
+                          value={ticker}
+                          onChange={(e) => {
+                            const newTickers = [...blacklistedTickers];
+                            newTickers[index] = e.target.value.toUpperCase();
+                            setBlacklistedTickers(newTickers);
+                          }}
+                          placeholder={`Ticker ${index + 1}`}
+                          className="border border-gray-600 rounded px-2 py-1 text-sm bg-gray-800 text-white placeholder-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:outline-none w-20 transition-all"
+                          maxLength={6}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Options Expiration */}
+                <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-400/3 to-transparent rounded-lg animate-pulse"></div>
+                  <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#ffffff', textShadow: '0 0 6px rgba(255, 255, 255, 0.3)' }}>Options Expiration</label>
+                  <div className="space-y-3 relative z-10">
+                  <div>
+                    <label className="text-lg text-gray-300 mb-2 block">Start Date</label>
+                    <input
+                      type="date"
+                      value={expirationStartDate}
+                      onChange={(e) => setExpirationStartDate(e.target.value)}
+                      className="border-2 border-gray-600 rounded-lg px-2 py-2 text-sm bg-gray-800 text-white focus:border-gray-500 focus:outline-none shadow-lg w-auto transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-lg text-gray-300 mb-2 block">End Date</label>
+                    <input
+                      type="date"
+                      value={expirationEndDate}
+                      onChange={(e) => setExpirationEndDate(e.target.value)}
+                      className="border-2 border-gray-600 rounded-lg px-2 py-2 text-sm bg-gray-800 text-white focus:border-gray-500 focus:outline-none shadow-lg w-auto transition-all"
+                    />
+                  </div>
+                </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center mt-6 pt-4 border-t border-orange-500">
+              <button
+                onClick={() => {
+                  // Clear all filters
+                  setSelectedOptionTypes([]);
+                  setSelectedPremiumFilters([]);
+                  setSelectedTickerFilters([]);
+                  setSelectedUniqueFilters([]);
+                  setCustomMinPremium('');
+                  setCustomMaxPremium('');
+                  setExpirationStartDate('');
+                  setExpirationEndDate('');
+                  setBlacklistedTickers(['', '', '', '', '']);
+                }}
+                className="px-6 py-3 bg-gray-700 text-white rounded-lg border border-gray-600 hover:bg-gray-600 hover:border-gray-500 transition-all font-medium shadow-lg"
+                style={{ boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3)' }}
+              >
+                Clear All
+              </button>
+              <Button 
+                onClick={() => setIsFilterDialogOpen(false)}
+                className="px-8 py-3 bg-orange-600 text-white rounded-lg border border-orange-500 hover:bg-orange-500 hover:border-orange-400 transition-all font-bold shadow-lg"
+                style={{ boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 4px 8px rgba(255, 165, 0, 0.3)' }}
+              >
+                Apply Filters
+              </Button>
+            </div>
+          </div>
+          </div>
+        </>
+      )}
+
+      <div className="space-y-6 bg-black min-h-screen p-6">
+      {/* Premium Control Bar */}
+      <Card className="bg-black border-0 rounded-none" style={{ 
+        background: '#000000',
+        position: 'relative',
+        zIndex: 10,
+        isolation: 'isolate',
+        marginTop: '2px',
+        borderBottom: '1px solid #1f2937',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.3), 0 4px 6px rgba(0,0,0,0.1)',
+        width: 'max-content',
+        minWidth: '100%',
+        overflow: 'visible'
+      }}>
+        <CardContent className="px-8 py-6" style={{
+          backgroundColor: '#000000',
+          position: 'relative',
+          zIndex: 1,
+          background: '#000000',
+          minWidth: '1200px',
+          width: 'max-content',
+          overflow: 'visible'
+        }}>
+          <div className="flex items-center justify-between h-16" style={{ width: 'max-content', minWidth: '1080px' }}>
+            <div className="flex items-center gap-4" style={{ flexShrink: 0, width: 'max-content' }}>
+            {/* Search Input with Icon */}
+            <div className="relative">
+              {/* Search Icon - Positioned on the left */}
+              <div className="absolute left-3 top-1/2 transform -translate-y-1/2 z-10 pointer-events-none">
+                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              {/* Text Input - Text starts to the right of icon */}
               <input
                 type="text"
                 value={inputTicker}
                 onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
-                onFocus={() => setIsInputFocused(true)}
+                onFocus={(e) => { 
+                  setIsInputFocused(true); 
+                  e.target.style.border = '1px solid #fbbf24'; 
+                  e.target.style.boxShadow = '0 0 0 1px rgba(251, 191, 36, 0.2)'; 
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     onTickerChange(inputTicker);
                     setIsInputFocused(false);
                   }
                 }}
-                onBlur={() => {
+                onBlur={(e) => {
                   setIsInputFocused(false);
-                  // If user clicks away without pressing Enter, sync with current value
+                  e.target.style.border = '1px solid #4b5563'; 
+                  e.target.style.boxShadow = 'none';
                   if (inputTicker && inputTicker !== selectedTicker) {
                     onTickerChange(inputTicker);
                   }
                 }}
-                placeholder="TICKER (Press Enter)"
-                className="ml-3 border border-gray-300 rounded px-3 py-2 w-32 font-mono text-lg"
+                placeholder="Enter ticker symbol..."
+                className="w-44 h-12 bg-black border border-gray-600 text-white font-mono text-sm placeholder-gray-500 transition-all duration-200 focus:outline-none"
+                style={{ 
+                  paddingLeft: '2.75rem', // Space for icon on left
+                  paddingRight: '1rem',   // Normal padding on right
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  letterSpacing: '0.5px'
+                }}
                 maxLength={10}
               />
             </div>
-            <div>
-              <label className="text-lg font-medium">Option Type:</label>
-              <select 
-                value={filterType} 
-                onChange={(e) => setFilterType(e.target.value)}
-                className="ml-3 border border-gray-600 rounded px-3 py-2 text-lg bg-gray-800 text-white focus:border-orange-500 focus:outline-none"
+            {/* Analysis Button */}
+            <button
+              onClick={() => {
+                setIntentionFilter('all');
+                analyzeBidAskExecution();
+              }}
+              disabled={isAnalyzing}
+              className="h-10 bg-black border border-gray-600 text-white text-sm font-semibold rounded-lg transition-all duration-200 hover:border-blue-400 hover:text-white hover:bg-blue-950/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2.5"
+              style={{
+                paddingLeft: '16px',
+                paddingRight: '16px',
+                minWidth: '120px',
+                width: 'auto',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <svg className={`w-4 h-4 ${isAnalyzing ? 'animate-spin' : 'animate-pulse'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              <span>{isAnalyzing ? 'Analyzing...' : 'Intention'}</span>
+            </button>
+            
+            {/* EFI Highlights Toggle */}
+            <button
+              onClick={() => setEfiHighlightsActive(!efiHighlightsActive)}
+              className={`h-10 px-16 bg-black border text-sm font-semibold rounded-lg transition-all duration-200 flex items-center gap-2.5 ${
+                efiHighlightsActive 
+                  ? 'border-amber-400 text-white bg-amber-950/20 hover:bg-amber-950/30' 
+                  : 'border-gray-600 text-white hover:border-amber-400 hover:text-white hover:bg-amber-950/20'
+              }`}
+            >
+              <svg className={`w-4 h-4 ${efiHighlightsActive ? 'animate-bounce' : 'animate-pulse'}`} fill={efiHighlightsActive ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+              <span>EFI Highlights</span>
+              <span className={`text-xs px-2 py-0.5 rounded ${efiHighlightsActive ? 'bg-amber-400 text-black' : 'bg-gray-700 text-gray-400'}`}>
+                {efiHighlightsActive ? 'ON' : 'OFF'}
+              </span>
+            </button>
+            
+            {/* Active Ticker Filter */}
+            {selectedTickerFilter && (
+              <div className="flex items-center gap-3">
+                <span className="text-gray-300 text-sm font-medium">Filtered:</span>
+                <div className="flex items-center gap-2 bg-orange-950/30 border border-orange-500/50 rounded-lg px-3 py-2 h-10">
+                  <span className="text-orange-400 font-mono font-semibold text-sm">{selectedTickerFilter}</span>
+                  <button 
+                    onClick={() => setSelectedTickerFilter('')}
+                    className="text-orange-400 hover:text-white hover:bg-orange-500 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold transition-all duration-200"
+                    title="Clear filter"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Action Buttons */}
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={onRefresh} 
+                disabled={loading}
+                className={`h-10 px-16 bg-black border text-sm font-semibold rounded-lg transition-all duration-200 flex items-center gap-2.5 min-w-[150px] ${
+                  loading 
+                    ? 'border-gray-600 text-gray-400 cursor-not-allowed' 
+                    : 'border-gray-600 text-white hover:border-blue-400 hover:text-white hover:bg-blue-950/20'
+                }`}
               >
-                <option value="all" className="bg-gray-800 text-white">All</option>
-                <option value="call" className="bg-gray-800 text-white">Calls</option>
-                <option value="put" className="bg-gray-800 text-white">Puts</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-lg font-medium">Trade Type:</label>
-              <select 
-                value={filterTradeType} 
-                onChange={(e) => setFilterTradeType(e.target.value)}
-                className="ml-3 border border-gray-600 rounded px-3 py-2 text-lg bg-gray-800 text-white focus:border-orange-500 focus:outline-none"
+                {loading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Scanning...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Refresh Flow</span>
+                  </>
+                )}
+              </button>
+              
+              <button 
+                onClick={onToggleAutoRefresh}
+                className={`h-10 bg-black border text-sm font-semibold rounded-lg transition-all duration-200 flex items-center gap-2.5 ${
+                  autoRefresh 
+                    ? 'border-green-400 text-green-400 bg-green-950/20 hover:bg-green-950/30' 
+                    : 'border-gray-600 text-red-400 hover:border-red-400 hover:text-red-400 hover:bg-red-950/20'
+                }`}
+                style={{
+                  paddingLeft: '16px',
+                  paddingRight: '16px',
+                  minWidth: '100px',
+                  width: 'auto',
+                  whiteSpace: 'nowrap'
+                }}
               >
-                <option value="all" className="bg-gray-800 text-white">All</option>
-                <option value="BLOCK" className="bg-gray-800 text-white">Block</option>
-                <option value="SWEEP" className="bg-gray-800 text-white">Sweep</option>
-                <option value="MULTI-LEG" className="bg-gray-800 text-white">Multi-Leg</option>
-                <option value="SPLIT" className="bg-gray-800 text-white">Split</option>
-              </select>
+                <svg className={`w-4 h-4 ${autoRefresh ? 'animate-ping' : 'animate-pulse'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={autoRefresh ? "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" : "M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"} />
+                </svg>
+                <span>Live</span>
+              </button>
             </div>
-            <div>
-              <label className="text-lg font-medium">Date:</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => onDateChange(e.target.value)}
-                className="ml-3 border border-gray-300 rounded px-3 py-2 text-lg"
-              />
-            </div>
-            <div className="text-lg text-gray-600">
-              Showing {filteredAndSortedData.length} of {data.length} trades
+            
+            {/* Right Section */}
+            <div className="flex items-center gap-3" style={{ flexShrink: 0, width: 'max-content', minWidth: '600px' }}>
+              {/* Admin List Button */}
+              <button 
+                onClick={() => {
+                  // TODO: Add admin list functionality
+                  console.log('Admin List clicked');
+                }}
+                className="h-10 px-6 bg-black border border-gray-600 text-white text-sm font-semibold rounded-lg transition-all duration-200 hover:border-purple-400 hover:text-white hover:bg-purple-950/20 flex items-center gap-2.5 min-w-[120px]"
+              >
+                <svg className="w-4 h-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Admin List</span>
+              </button>
+
+              {/* Historical Button */}
+              <button
+                onClick={() => {
+                  // TODO: Add historical data functionality
+                  console.log('Historical clicked');
+                }}
+                className="h-10 bg-black border border-gray-600 text-white text-sm font-semibold rounded-lg transition-all duration-200 hover:border-blue-400 hover:text-white hover:bg-blue-950/20 flex items-center gap-2.5"
+                style={{
+                  paddingLeft: '16px',
+                  paddingRight: '16px',
+                  minWidth: '120px',
+                  width: 'auto',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <svg className="w-4 h-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span>Historical</span>
+              </button>
+
+              {/* Filter Button */}
+              <button 
+                onClick={() => {
+                  console.log('Filter button clicked - opening dialog');
+                  setIsFilterDialogOpen(true);
+                }}
+                className="h-10 px-6 bg-black border border-amber-500 text-white text-sm font-semibold rounded-lg transition-all duration-200 hover:bg-amber-950/20 hover:border-amber-400 flex items-center gap-2.5 min-w-[80px]"
+              >
+                <svg className="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                <span>Filter</span>
+              </button>
+
+              {/* Vertical Divider */}
+              <div className="w-px h-8 bg-gray-700"></div>
+
+              {/* Stats Section */}
+              <div className="flex items-center gap-3">
+                {/* Date Display */}
+                {marketInfo && (
+                  <div className="text-sm text-gray-400 font-mono">
+                    {marketInfo.data_date}
+                  </div>
+                )}
+
+                {/* Trade Count */}
+                <div className="text-sm text-gray-300">
+                  <span className="text-orange-400 font-bold font-mono">{filteredAndSortedData.length.toLocaleString()}</span>
+                  <span className="text-gray-400 ml-1">trades</span>
+                </div>
+
+                {/* Pagination Info */}
+                <div className="text-sm text-gray-300">
+                  Page <span className="text-orange-400 font-bold font-mono">{currentPage}</span>
+                  <span className="text-gray-500 mx-1">of</span>
+                  <span className="text-orange-400 font-bold font-mono">{totalPages}</span>
+                </div>
+                
+                {/* Pagination Controls */}
+                {filteredAndSortedData.length > itemsPerPage && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="w-8 h-8 flex items-center justify-center text-xs bg-black border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all duration-150"
+                    >
+                      ←
+                    </button>
+                    
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-8 h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${
+                            currentPage === pageNum
+                              ? 'bg-orange-500 text-black border-orange-500 font-bold'
+                              : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                    
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="w-8 h-8 flex items-center justify-center text-xs bg-black border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all duration-150"
+                    >
+                      →
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+        </div>
         </CardContent>
       </Card>
 
       {/* Main Table */}
-      <Card>
-        <CardContent>
+      <Card className="bg-black border border-gray-800">
+        <CardContent className="p-0">
           <div className="h-[80vh] overflow-auto">
-            <table className="w-full text-lg">
-              <thead className="sticky top-0 bg-black z-10">
-                <tr className="border-b bg-black">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-black z-10 border-b border-gray-800">
+                <tr>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('trade_timestamp')}
                   >
                     Time {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('underlying_ticker')}
                   >
                     Symbol {sortField === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('type')}
                   >
                     Call/Put {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('strike')}
                   >
                     Strike {sortField === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('trade_size')}
                   >
                     Size {sortField === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('spot_price')}
                   >
                     Spot Price {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('total_premium')}
                   >
                     Premium {sortField === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('expiry')}
                   >
                     Expiration {sortField === 'expiry' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-4 cursor-pointer hover:bg-gray-800/10 text-orange-500 font-bold text-xl bg-black"
+                    className="text-left p-6 cursor-pointer hover:bg-slate-700/50 text-orange-400 font-bold text-xl transition-all duration-200"
                     onClick={() => handleSort('trade_type')}
                   >
                     Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -292,35 +1338,89 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredAndSortedData.map((trade, index) => (
-                  <tr key={index} className="border-b hover:bg-gray-800/20">
-                    <td className="p-4 text-gray-600 text-lg">{formatTime(trade.trade_timestamp)}</td>
-                    <td className="p-4 font-semibold text-lg">{trade.underlying_ticker}</td>
-                    <td className={`p-4 text-lg ${getCallPutColor(trade.type)}`}>
+                {paginatedData.map((trade, index) => {
+                  const isEfiHighlight = efiHighlightsActive && meetsEfiCriteria(trade);
+                  return (
+                  <tr 
+                    key={index} 
+                    className="border-b border-slate-700 hover:bg-slate-800/30 transition-all duration-200"
+                    style={isEfiHighlight ? {
+                      border: '2px solid #ffd700',
+                      backgroundColor: '#000000',
+                      boxShadow: '0 0 8px rgba(255, 215, 0, 0.8)'
+                    } : {}}
+                  >
+                    <td className="p-6 text-white text-xl font-medium">{formatTime(trade.trade_timestamp)}</td>
+                    <td className="p-6">
+                      <button 
+                        onClick={() => handleTickerClick(trade.underlying_ticker)}
+                        className={`${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 cursor-pointer border-none ${
+                          selectedTickerFilter === trade.underlying_ticker ? 'ring-2 ring-orange-500 bg-gray-800/30' : ''
+                        }`}
+                      >
+                        {trade.underlying_ticker}
+                      </button>
+                    </td>
+                    <td className={`p-6 text-xl ${getCallPutColor(trade.type)}`}>
                       {trade.type.toUpperCase()}
                     </td>
-                    <td className="p-4 text-lg">${trade.strike}</td>
-                    <td className="p-4 font-medium text-lg">{trade.trade_size.toLocaleString()} @ {trade.premium_per_contract.toFixed(2)}</td>
-                    <td className="p-4 text-lg">${trade.spot_price.toFixed(2)}</td>
-                    <td className="p-4 font-semibold text-lg">{formatCurrency(trade.total_premium)}</td>
-                    <td className="p-4 text-lg">{formatDate(trade.expiry)}</td>
-                    <td className="p-4">
-                      <span className={`inline-block px-3 py-2 rounded-full text-sm font-medium ${getTradeTypeColor(trade.trade_type)}`}>
-                        {trade.trade_type}
+                    <td className="p-6 text-xl text-white font-semibold">${trade.strike}</td>
+                    <td className="p-6 font-medium text-xl text-white">
+                      <span className="text-cyan-400 font-bold">{trade.trade_size.toLocaleString()}</span> 
+                      <span className="text-slate-400"> @ </span>
+                      <span className="text-yellow-400 font-bold">{trade.premium_per_contract.toFixed(2)}</span>
+                      {tradeAnalysis[`${trade.underlying_ticker}-${trade.trade_timestamp}`] && (
+                        <span className="ml-2 px-2 py-1 rounded text-sm font-bold bg-slate-700 text-orange-400">
+                          {tradeAnalysis[`${trade.underlying_ticker}-${trade.trade_timestamp}`]}
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-6 text-xl text-white font-medium">${trade.spot_price.toFixed(2)}</td>
+                    <td className="p-6 font-bold text-xl text-green-400">{formatCurrency(trade.total_premium)}</td>
+                    <td className="p-6 text-xl text-white">{formatDate(trade.expiry)}</td>
+                    <td className="p-6">
+                      <span className={`inline-block px-4 py-2 rounded-lg text-lg font-bold ${getTradeTypeColor(trade.trade_type)}`}>
+                        {trade.trade_type === 'MULTI-LEG' ? 'ML' : trade.trade_type}
                       </span>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
-            {filteredAndSortedData.length === 0 && (
-              <div className="text-center py-8 text-gray-500 text-xl">
-                {loading ? 'Loading options flow data...' : 'No trades found matching the current filters.'}
+            {paginatedData.length === 0 && filteredAndSortedData.length === 0 && (
+              <div className="text-center py-12 text-slate-400 text-2xl font-semibold">
+                {loading ? (
+                  <div className="flex flex-col items-center justify-center space-y-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+                      <span>{streamingStatus || 'Loading premium options flow data...'}</span>
+                    </div>
+                    {streamingProgress && (
+                      <div className="flex flex-col items-center space-y-2">
+                        <div className="w-64 bg-slate-700 rounded-full h-2">
+                          <div 
+                            className="bg-orange-500 h-2 rounded-full transition-all duration-300" 
+                            style={{width: `${(streamingProgress.current / streamingProgress.total) * 100}%`}}
+                          />
+                        </div>
+                        <span className="text-sm text-slate-500">
+                          {streamingProgress.current} / {streamingProgress.total} batches processed
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  'No trades found matching the current filters.'
+                )}
               </div>
             )}
           </div>
         </CardContent>
       </Card>
+
+
     </div>
+    </>
   );
 };
