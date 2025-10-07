@@ -1078,9 +1078,9 @@ export class OptionsFlowService {
       console.log(`📊 ${ticker}: Scanning trades for ALL ${validContracts.length} valid contracts (all expirations)...`);
       
       // 🚀 BATCHED PROCESSING: Dramatically reduce API calls
-      const BATCH_SIZE = 20; // Process 20 contracts per batch (reduces API calls by 95%)
+      const BATCH_SIZE = 250; // Process 250 contracts per batch (ultra-fast processing)
       const contractBatches = this.chunkArray(validContracts, BATCH_SIZE);
-      
+
       console.log(`🔥 BATCH OPTIMIZATION: ${validContracts.length} contracts → ${contractBatches.length} batches (${BATCH_SIZE} contracts each)`);
       console.log(`📉 API calls reduced from ${validContracts.length} to ${contractBatches.length} (${((1 - contractBatches.length/validContracts.length) * 100).toFixed(1)}% reduction)`);
       
