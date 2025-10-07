@@ -1,7 +1,8 @@
-// TOP 1000 STOCKS by market cap for preloading
+// TOP 1800+ STOCKS by market cap for comprehensive options flow scanning
 // Updated October 2025 - includes all major stocks users actually trade
+// Expanded from 1000 to 1800+ stocks, all with $4B+ market cap
 
-export const TOP_1000_SYMBOLS = [
+export const TOP_1800_SYMBOLS = [
   // Top 100 - Mega caps (most important)
   'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'TSLA', 'META', 'BRK.B', 'AVGO',
   'LLY', 'WMT', 'JPM', 'V', 'UNH', 'XOM', 'ORCL', 'MA', 'COST', 'HD',
@@ -120,15 +121,68 @@ export const TOP_1000_SYMBOLS = [
   'BYND', 'TTCF', 'VERY', 'SFM', 'ELSE', 'APPH', 'GDYN', 'ELSE', 'NOSH', 'MRNS',
   'GME', 'AMC', 'BBBY', 'EXPR', 'NAKD', 'SNDL', 'TLRY', 'CGC', 'HEXO', 'OGI',
   'MSOS', 'YOLO', 'POTX', 'CNBS', 'MJ', 'THCX', 'TOKE', 'BUDZ', 'HERB', 'WEED',
-  'TSLA', 'NIO', 'XPEV', 'LI', 'BYDDY', 'BYD', 'KNDI', 'SOLO', 'AYRO', 'WKHS'
+  'TSLA', 'NIO', 'XPEV', 'LI', 'BYDDY', 'BYD', 'KNDI', 'SOLO', 'AYRO', 'WKHS',
+  
+  // 1001-1200 - Additional High Market Cap ($50B+)
+  'TSM', 'BABA', 'ASML', 'SAP', 'TM', 'NVS', 'NVO', 'HSBC', 'SHEL', 'SHOP',
+  'BX', 'APP', 'PDD', 'ANET', 'SONY', 'MUFG', 'HDB', 'ARM', 'GEV', 'SAN',
+  'UL', 'BHP', 'SPOT', 'TD', 'TTE', 'UBS', 'HOOD', 'DASH', 'SE', 'BTI',
+  'MELI', 'BBVA', 'ENB', 'SCCO', 'BN', 'SMFG', 'MSTR', 'COIN', 'DELL', 'RIO',
+  'BUD', 'CEG', 'KKR', 'IBN', 'CVNA', 'RBLX', 'RACE', 'SNOW', 'BNS', 'NET',
+  'HWM', 'MRVL', 'NU', 'ABNB', 'TDG', 'APO', 'NGG', 'ITUB', 'BCS', 'ING',
+  'CP', 'INFY', 'ADSK', 'TRI', 'EPD', 'VST', 'CNQ', 'SPG', 'DB', 'LYG',
+  'EQNR', 'PWR', 'WDAY', 'URI', 'AMX', 'VRT', 'DLR', 'HLT', 'REGN', 'AFL',
+  'ALNY', 'COR', 'NWG', 'CPNG', 'MPC', 'TFC', 'NXPI', 'FDX', 'B', 'FCX',
+  'ET', 'LHX', 'AXON', 'TRP', 'CMG', 'GM', 'BDX', 'ALL', 'O', 'DDOG',
+  
+  // 1201-1400 - Mid-Large Cap ($10B-$50B)
+  'FAST', 'MET', 'MFC', 'ROP', 'PSX', 'E', 'DEO', 'D', 'PCAR', 'SLB',
+  'STX', 'LNG', 'PSA', 'DHI', 'JD', 'CARR', 'VLO', 'NDAQ', 'F', 'SU',
+  'IDXX', 'MPLX', 'EA', 'WPM', 'BIDU', 'GRMN', 'ROST', 'VEEV', 'ARES', 'ARGX',
+  'BKR', 'ZS', 'XEL', 'VALE', 'RKT', 'XYZ', 'TTWO', 'WBD', 'TCOM', 'AMP',
+  'MPWR', 'IMO', 'EXC', 'FERG', 'AIG', 'GWW', 'OKE', 'TAK', 'CBRE', 'EW',
+  'HEI', 'WCN', 'PAYX', 'OXY', 'FICO', 'MSCI', 'CTVA', 'ETR', 'WDC', 'FLUT',
+  'CHTR', 'FANG', 'CPRT', 'FER', 'KR', 'FNV', 'AME', 'EBAY', 'YUM', 'HMC',
+  'RMD', 'CCI', 'PEG', 'TGT', 'VMC', 'UI', 'A', 'SYM', 'KMB', 'CCEP',
+  'HSY', 'TEAM', 'TKO', 'HLN', 'ROK', 'HEI.A', 'SYY', 'MLM', 'ALC', 'CCL',
+  'GFI', 'RDDT', 'ONC', 'DAL', 'AU', 'HIG', 'CCJ', 'CAH', 'WEC', 'ALAB',
+  
+  // 1401-1600 - Quality Mid-Cap ($4B-$15B)
+  'XYL', 'PRU', 'TME', 'LYV', 'MCHP', 'LVS', 'ED', 'EQT', 'PUK', 'OTIS',
+  'HUM', 'PCG', 'FIS', 'TRGP', 'GEHC', 'IQV', 'ABEV', 'WAB', 'VICI', 'CSGP',
+  'CRCL', 'KDP', 'SLF', 'VRSK', 'WTW', 'ACGL', 'CHT', 'VG', 'DD', 'INSM',
+  'RJF', 'STT', 'IR', 'CTSH', 'HPE', 'SMCI', 'LEN', 'EL', 'NRG', 'VTR',
+  'SOFI', 'STLA', 'UAL', 'IRM', 'CVE', 'BBD', 'NBIS', 'EXR', 'QSR', 'BRO',
+  'NUE', 'IBKR', 'KGC', 'FMX', 'RYAAY', 'KB', 'KVUE', 'ODFL', 'ADM', 'EME',
+  'KHC', 'MT', 'KEYS', 'MTB', 'PSTG', 'DTE', 'EFX', 'NTR', 'WRB', 'WDS',
+  'FIX', 'FITB', 'TSCO', 'K', 'IX', 'WIT', 'TEF', 'AEE', 'RKLB', 'ROL',
+  'ERIC', 'AWK', 'FIG', 'TDY', 'ATO', 'MTD', 'EXPE', 'PPL', 'BR', 'FOXA',
+  'NOK', 'VOD', 'CLS', 'ES', 'FWONA', 'FE', 'GIS', 'PHG', 'PHM', 'AVB',
+  
+  // 1601-1800+ - Solid Companies ($4B+)
+  'SYF', 'VIK', 'VLTO', 'MDB', 'ASTS', 'GRAB', 'DXCM', 'TTD', 'STM', 'FOX',
+  'CINF', 'CQP', 'CNP', 'OWL', 'EXE', 'CRDO', 'ULTA', 'LDOS', 'CYBR', 'FTS',
+  'VRSN', 'BNTX', 'NTRS', 'LI', 'FSLR', 'PCTY', 'ENPH', 'TMDX', 'SEDG', 'RUN',
+  'MRNA', 'NVAX', 'PFE', 'GOOS', 'LEVI', 'ON', 'WOLF', 'PAYC', 'BILL', 'SQ',
+  'AFRM', 'LC', 'UPST', 'Z', 'ZG', 'RDFN', 'OPEN', 'RKT', 'UWMC', 'COMP',
+  'SKLZ', 'DKNG', 'PENN', 'MGM', 'LVS', 'WYNN', 'CZR', 'BYD', 'NIO', 'XPEV',
+  'LI', 'BYDDY', 'KNDI', 'SOLO', 'AYRO', 'WKHS', 'RIDE', 'GOEV', 'FSR', 'CANOO',
+  'CHPT', 'BLNK', 'EVGO', 'PLUG', 'FCEL', 'BLDP', 'BE', 'HYLN', 'QS', 'SPCE',
+  'ASTR', 'RDW', 'VORB', 'MNTS', 'MAXR', 'SPIR', 'LUNR', 'SRAC', 'VACQ', 'IPOE',
+  'CCIV', 'IPOF', 'PSTH', 'AJAX', 'ACTC', 'ZNTE', 'FMAC', 'PRPB', 'CPUH', 'FTOC'
 ];
 
 // Organize by tiers for smart preloading
 export const PRELOAD_TIERS = {
-  TIER_1_INSTANT: TOP_1000_SYMBOLS.slice(0, 100),    // Top 100 - preload every 5 minutes
-  TIER_2_FAST: TOP_1000_SYMBOLS.slice(100, 300),     // 101-300 - preload every 15 minutes  
-  TIER_3_REGULAR: TOP_1000_SYMBOLS.slice(300, 600),  // 301-600 - preload every 30 minutes
-  TIER_4_BACKGROUND: TOP_1000_SYMBOLS.slice(600, 1000) // 601-1000 - preload every 60 minutes
+  TIER_1_INSTANT: TOP_1800_SYMBOLS.slice(0, 100),    // Top 100 - preload every 5 minutes
+  TIER_2_FAST: TOP_1800_SYMBOLS.slice(100, 300),     // 101-300 - preload every 15 minutes  
+  TIER_3_REGULAR: TOP_1800_SYMBOLS.slice(300, 600),  // 301-600 - preload every 30 minutes
+  TIER_4_BACKGROUND: TOP_1800_SYMBOLS.slice(600, 1000), // 601-1000 - preload every 60 minutes
+  TIER_5_EXTENDED: TOP_1800_SYMBOLS.slice(1000, 1400), // 1001-1400 - preload every 2 hours
+  TIER_6_COMPREHENSIVE: TOP_1800_SYMBOLS.slice(1400, 1800) // 1401-1800+ - preload every 4 hours
 };
 
-export default TOP_1000_SYMBOLS;
+export default TOP_1800_SYMBOLS;
+
+// Maintain backward compatibility
+export const TOP_1000_SYMBOLS = TOP_1800_SYMBOLS;

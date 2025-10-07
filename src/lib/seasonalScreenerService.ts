@@ -1,6 +1,6 @@
 // Service for screening seasonal opportunities from top stocks
 import PolygonService from './polygonService';
-import { TOP_1000_SYMBOLS } from './Top1000Symbols';
+import { TOP_1800_SYMBOLS } from './Top1000Symbols';
 
 interface SeasonalOpportunity {
   symbol: string;
@@ -22,9 +22,9 @@ interface StockListItem {
   marketCap?: number;
 }
 
-// Top 1000 US companies by market capitalization (as of 2025)
-// Using the comprehensive TOP_1000_SYMBOLS list for better coverage
-const TOP1000_BY_MARKET_CAP: StockListItem[] = TOP_1000_SYMBOLS.map(symbol => ({
+// Top 1800+ US companies by market capitalization (as of 2025)
+// Using the comprehensive TOP_1800_SYMBOLS list for better coverage
+const TOP1800_BY_MARKET_CAP: StockListItem[] = TOP_1800_SYMBOLS.map(symbol => ({
   symbol: symbol,
   name: symbol // We'll use symbol as name for simplicity
 }));
@@ -69,7 +69,7 @@ class SeasonalScreenerService {
   async screenSeasonalOpportunities(years: number = 15, maxStocks: number = 100, startOffset: number = 0): Promise<SeasonalOpportunity[]> {
     const opportunities: SeasonalOpportunity[] = [];
     const seenSymbols = new Set<string>(); // Track processed symbols to avoid duplicates
-    const actualMaxStocks = Math.min(maxStocks, TOP1000_BY_MARKET_CAP.length - startOffset);
+    const actualMaxStocks = Math.min(maxStocks, TOP1800_BY_MARKET_CAP.length - startOffset);
     console.log(`🔍 Starting bulk seasonal screening of ${actualMaxStocks} companies (positions ${startOffset + 1}-${startOffset + actualMaxStocks}) by market cap...`);
 
     try {
@@ -84,7 +84,7 @@ class SeasonalScreenerService {
       console.log(`✅ SPY data loaded: ${spyData.results.length} data points`);
 
       // Process ALL stocks in parallel - NO BATCHING, MAXIMUM SPEED
-      const stocksToProcess = TOP1000_BY_MARKET_CAP.slice(startOffset, startOffset + actualMaxStocks);
+      const stocksToProcess = TOP1800_BY_MARKET_CAP.slice(startOffset, startOffset + actualMaxStocks);
       
       console.log(`🚀 Processing ALL ${stocksToProcess.length} companies in PARALLEL - NO LIMITS!`);
       
@@ -282,12 +282,12 @@ class SeasonalScreenerService {
   // Fallback method with smaller batches
   async screenSeasonalOpportunitiesBatched(years: number = 15): Promise<SeasonalOpportunity[]> {
     const opportunities: SeasonalOpportunity[] = [];
-    console.log(`🔍 Starting seasonal screening of ${TOP1000_BY_MARKET_CAP.length} top market cap companies...`);
+    console.log(`🔍 Starting seasonal screening of ${TOP1800_BY_MARKET_CAP.length} top market cap companies...`);
 
     // Process stocks in smaller batches
     const batchSize = 10;
-    for (let i = 0; i < TOP1000_BY_MARKET_CAP.length; i += batchSize) {
-      const batch = TOP1000_BY_MARKET_CAP.slice(i, i + batchSize);
+    for (let i = 0; i < TOP1800_BY_MARKET_CAP.length; i += batchSize) {
+      const batch = TOP1800_BY_MARKET_CAP.slice(i, i + batchSize);
       
       console.log(`📦 Processing batch ${Math.floor(i/batchSize) + 1}: ${batch.map((s: StockListItem) => s.symbol).join(', ')}`);
       
@@ -349,7 +349,7 @@ class SeasonalScreenerService {
       await Promise.all(batchPromises);
       
       // Add delay between batches to respect rate limits
-      if (i + batchSize < TOP1000_BY_MARKET_CAP.length) {
+      if (i + batchSize < TOP1800_BY_MARKET_CAP.length) {
         console.log('⏳ Waiting 2 seconds before next batch...');
         await new Promise(resolve => setTimeout(resolve, 2000));
       }

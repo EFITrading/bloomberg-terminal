@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import preloaderService from '@/lib/DataPreloaderService';
 import UltraFastCache from '@/lib/UltraFastCache';
-import { TOP_1000_SYMBOLS, PRELOAD_TIERS } from '@/lib/Top1000Symbols';
+import { TOP_1800_SYMBOLS, TOP_1000_SYMBOLS, PRELOAD_TIERS } from '@/lib/Top1000Symbols';
 
 export async function GET(request: NextRequest) {
   try {

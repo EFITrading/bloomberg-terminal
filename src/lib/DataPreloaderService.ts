@@ -1,6 +1,6 @@
 // Background data preloader service - fetches popular data before users request it
 import UltraFastCache, { UltraFastDataCache } from './UltraFastCache';
-import { TOP_1000_SYMBOLS, PRELOAD_TIERS } from './Top1000Symbols';
+import { TOP_1800_SYMBOLS, TOP_1000_SYMBOLS, PRELOAD_TIERS } from './Top1000Symbols';
 
 interface PreloadConfig {
   symbols: string[];

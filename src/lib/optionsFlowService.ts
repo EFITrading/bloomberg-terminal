@@ -1,4 +1,4 @@
-import { TOP_1000_SYMBOLS } from './Top1000Symbols';
+import { TOP_1800_SYMBOLS } from './Top1000Symbols';
 
 // Market hours utility functions
 export function isMarketOpen(): boolean {
@@ -40,11 +40,16 @@ export function getLastTradingDay(): string {
 export function getTodaysMarketOpenTimestamp(): number {
   // Get current date in Eastern Time
   const now = new Date();
-  const eastern = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
   
-  // Create market open time (9:30 AM ET) for today
-  const marketOpen = new Date(eastern);
-  marketOpen.setHours(9, 30, 0, 0); // 9:30 AM ET
+  // Create a new date for today at 9:30 AM Eastern Time
+  // Use a simple approach: create the date in UTC and adjust for Eastern Time
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const date = now.getDate();
+  
+  // Create market open time (9:30 AM Eastern = 13:30 UTC during EST, 14:30 UTC during EDT)
+  // For simplicity, let's create it as local time and then adjust
+  const marketOpen = new Date(year, month, date, 9, 30, 0, 0);
   
   // If it's weekend, get last Friday's market open
   const day = marketOpen.getDay();
@@ -471,7 +476,9 @@ export class OptionsFlowService {
     // Get timestamp from today's market open (9:30 AM ET) instead of 24 hours ago
     const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
     const marketOpenDate = new Date(marketOpenTimestamp);
-    const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${marketOpenTimestamp}000000&apikey=${this.polygonApiKey}`;
+    // Convert milliseconds to nanoseconds properly (multiply by 1,000,000)
+    const nanosecondTimestamp = marketOpenTimestamp * 1000000;
+    const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${nanosecondTimestamp}&apikey=${this.polygonApiKey}`;
     
     console.log(`📈 Fetching ${optionTicker} trades from market open: ${marketOpenDate.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
     
@@ -957,7 +964,7 @@ export class OptionsFlowService {
         const contract = validContracts[i];
         
         try {
-          const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp}000000&limit=5000&apikey=${this.polygonApiKey}`;
+          const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp * 1000000}&limit=5000&apikey=${this.polygonApiKey}`;
           const tradesResponse = await this.robustFetch(tradesUrl);
           const tradesData = await tradesResponse.json();
           
@@ -1177,7 +1184,7 @@ export class OptionsFlowService {
       for (const contract of allContracts) {
         try {
           // Use trades endpoint with TODAY's timestamp filter
-          const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp}000000&apikey=${this.polygonApiKey}`;
+          const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp * 1000000}&apikey=${this.polygonApiKey}`;
           
           const tradesResponse = await fetch(tradesUrl);
           const tradesData = await tradesResponse.json();
@@ -1780,13 +1787,13 @@ export class OptionsFlowService {
   }
 
   private getPopularTickers(): string[] {
-    // Use the Top 1000 symbols list for comprehensive market scanning
-    return TOP_1000_SYMBOLS;
+    // Use the Top 1800+ symbols list for comprehensive market scanning
+    return TOP_1800_SYMBOLS;
   }
 
   private getTop1000Symbols(): string[] {
-    // Import and return the Top1000Symbols array as requested
-    return TOP_1000_SYMBOLS; // Use all top 1000 stocks for comprehensive coverage
+    // Import and return the expanded symbols array (now 1800+ stocks)
+    return TOP_1800_SYMBOLS; // Use all 1800+ stocks for comprehensive coverage
   }
 
   // Filter options contracts by volume (50+ minimum) and 5% ITM rule for speed optimization
