@@ -260,14 +260,38 @@ class PolygonService {
 
   async getRealtimeQuote(symbol: string): Promise<any> {
     try {
-      // Mock implementation for realtime quotes
-      return {
-        symbol,
-        price: Math.random() * 100 + 50,
-        change: (Math.random() - 0.5) * 10,
-        changePercent: (Math.random() - 0.5) * 5,
-        volume: Math.floor(Math.random() * 1000000)
-      };
+      const response = await fetch(
+        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${this.apiKey}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Accept': 'application/json',
+            'User-Agent': 'YourApp/1.0',
+            'Connection': 'keep-alive',
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.results && data.results.length > 0) {
+        const result = data.results[0];
+        return {
+          symbol: result.ticker,
+          price: result.lastQuote?.p || result.min?.c || result.prevDay?.c,
+          change: result.todaysChange || 0,
+          changePercent: result.todaysChangePerc || 0,
+          volume: result.day?.v || 0,
+          lastTrade: result.lastTrade?.p || result.min?.c || result.prevDay?.c
+        };
+      }
+
+      return null;
     } catch (error) {
       console.error(`❌ Failed to get realtime quote for ${symbol}:`, error);
       return null;

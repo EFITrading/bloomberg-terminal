@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { OptionsFlowService } from '@/lib/optionsFlowService';
+import { OptionsFlowService, getSmartDateRange, isMarketOpen } from '@/lib/optionsFlowService';
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const ticker = searchParams.get('ticker');
     const saveToDb = searchParams.get('saveToDb') === 'true';
+    
+    // Pagination parameters
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const offset = (page - 1) * limit;
+    
+    // Get smart date range for market hours handling
+    const { currentDate, isLive } = getSmartDateRange();
+    const marketStatus = isLive ? 'LIVE' : 'LAST_TRADING_DAY';
     
     const polygonApiKey = process.env.POLYGON_API_KEY;
     
@@ -83,15 +92,36 @@ export async function GET(request: NextRequest) {
       processing_time_ms: processingTime
     };
 
+    // Apply pagination to results
+    const totalTrades = processedTrades.length;
+    const paginatedTrades = processedTrades.slice(offset, offset + limit);
+    const totalPages = Math.ceil(totalTrades / limit);
+    const hasMore = page < totalPages;
+
     console.log(`✅ OPTIONS FLOW SCAN COMPLETE:`, summary);
+    console.log(`📄 Pagination: Page ${page}/${totalPages}, showing ${paginatedTrades.length} of ${totalTrades} trades`);
 
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
       ticker,
-      trades: processedTrades,
+      data: paginatedTrades, // Changed from 'trades' to 'data' to match frontend expectation
+      pagination: {
+        page,
+        limit,
+        total: totalTrades,
+        totalPages,
+        hasMore,
+        showing: paginatedTrades.length
+      },
       summary,
-      saved_to_db: saveToDb
+      saved_to_db: saveToDb,
+      market_info: {
+        status: marketStatus,
+        is_live: isLive,
+        data_date: currentDate,
+        market_open: isMarketOpen()
+      }
     });
 
   } catch (error) {
