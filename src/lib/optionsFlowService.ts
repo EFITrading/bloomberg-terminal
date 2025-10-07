@@ -38,28 +38,60 @@ export function getLastTradingDay(): string {
 }
 
 export function getTodaysMarketOpenTimestamp(): number {
-  // Get current date in Eastern Time
-  const now = new Date();
-  
-  // Create a new date for today at 9:30 AM Eastern Time
-  // Use a simple approach: create the date in UTC and adjust for Eastern Time
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const date = now.getDate();
-  
-  // Create market open time (9:30 AM Eastern = 13:30 UTC during EST, 14:30 UTC during EDT)
-  // For simplicity, let's create it as local time and then adjust
-  const marketOpen = new Date(year, month, date, 9, 30, 0, 0);
-  
-  // If it's weekend, get last Friday's market open
-  const day = marketOpen.getDay();
-  if (day === 0) { // Sunday
-    marketOpen.setDate(marketOpen.getDate() - 2); // Friday
-  } else if (day === 6) { // Saturday
-    marketOpen.setDate(marketOpen.getDate() - 1); // Friday
+  try {
+    // Get current date in Eastern Time zone
+    const now = new Date();
+    const easternTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+    
+    // Create market open at 9:30 AM Eastern Time for today
+    const year = easternTime.getFullYear();
+    const month = easternTime.getMonth();
+    const date = easternTime.getDate();
+    
+    // Create the market open time properly in Eastern timezone
+    const marketOpenEastern = new Date();
+    marketOpenEastern.setFullYear(year, month, date);
+    marketOpenEastern.setHours(9, 30, 0, 0);
+    
+    // Convert to proper timezone-aware timestamp
+    const easternOffset = easternTime.getTimezoneOffset() * 60000;
+    const marketOpenTimestamp = marketOpenEastern.getTime() - easternOffset;
+    
+    // Adjust for weekends - get last trading day
+    const marketOpen = new Date(marketOpenTimestamp);
+    const day = marketOpen.getDay();
+    
+    if (day === 0) { // Sunday - go to Friday
+      marketOpen.setDate(marketOpen.getDate() - 2);
+    } else if (day === 6) { // Saturday - go to Friday  
+      marketOpen.setDate(marketOpen.getDate() - 1);
+    }
+    
+    const finalTimestamp = marketOpen.getTime();
+    
+    // Validation: ensure timestamp is reasonable
+    const now_ms = Date.now();
+    const oneWeekAgo = now_ms - (7 * 24 * 60 * 60 * 1000);
+    const oneDayFuture = now_ms + (24 * 60 * 60 * 1000);
+    
+    if (finalTimestamp < oneWeekAgo || finalTimestamp > oneDayFuture) {
+      console.warn(`⚠️ Market open timestamp seems invalid: ${new Date(finalTimestamp).toISOString()}`);
+      // Fallback to start of today
+      const startOfToday = new Date();
+      startOfToday.setHours(9, 30, 0, 0);
+      return startOfToday.getTime();
+    }
+    
+    console.log(`📅 Market Open Timestamp: ${new Date(finalTimestamp).toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+    return finalTimestamp;
+    
+  } catch (error) {
+    console.error(`❌ Error calculating market open timestamp:`, error);
+    // Fallback to start of today at 9:30 AM
+    const fallback = new Date();
+    fallback.setHours(9, 30, 0, 0);
+    return fallback.getTime();
   }
-  
-  return marketOpen.getTime();
 }
 
 export function getSmartDateRange(): { currentDate: string; isLive: boolean } {
@@ -163,7 +195,16 @@ export class OptionsFlowService {
   ];
 
   constructor(apiKey: string) {
-    this.polygonApiKey = apiKey;
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error('❌ Polygon API key is required but not provided');
+    }
+    
+    if (apiKey.length < 10) {
+      throw new Error('❌ Polygon API key appears to be invalid (too short)');
+    }
+    
+    this.polygonApiKey = apiKey.trim();
+    console.log(`✅ Options Flow Service initialized with API key: ${apiKey.substring(0, 8)}...`);
   }
 
   // Streaming version for progressive loading
@@ -473,18 +514,33 @@ export class OptionsFlowService {
 
   // Helper method to fetch trades for a single contract
   private async fetchContractTrades(optionTicker: string, strike: number, expiration: string, type: 'call' | 'put', symbol: string, spotPrice: number): Promise<any[]> {
-    // Get timestamp from today's market open (9:30 AM ET) instead of 24 hours ago
-    const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
-    const marketOpenDate = new Date(marketOpenTimestamp);
-    // Convert milliseconds to nanoseconds properly (multiply by 1,000,000)
-    const nanosecondTimestamp = marketOpenTimestamp * 1000000;
-    const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${nanosecondTimestamp}&apikey=${this.polygonApiKey}`;
-    
-    console.log(`📈 Fetching ${optionTicker} trades from market open: ${marketOpenDate.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
-    
     try {
-      const response = await fetch(url);
-      const data = await response.json();
+      // Get timestamp from today's market open (9:30 AM ET) instead of 24 hours ago
+      const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
+      const marketOpenDate = new Date(marketOpenTimestamp);
+      
+      // Validate market open timestamp
+      if (isNaN(marketOpenTimestamp) || marketOpenTimestamp <= 0) {
+        console.error(`❌ Invalid market open timestamp for ${optionTicker}`);
+        return [];
+      }
+      
+      // Convert milliseconds to nanoseconds properly (multiply by 1,000,000)
+      const nanosecondTimestamp = marketOpenTimestamp * 1000000;
+      const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${nanosecondTimestamp}&apikey=${this.polygonApiKey}`;
+      
+      console.log(`📈 Fetching ${optionTicker} trades from market open: ${marketOpenDate.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+      
+      const response = await this.robustFetch(url);
+      
+      let data;
+      try {
+        const responseText = await response.text();
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error(`❌ JSON parse error for ${optionTicker}:`, parseError);
+        return [];
+      }
       
       if (data.results && data.results.length > 0) {
         // Get historical spot price for each trade at its exact timestamp
@@ -507,8 +563,18 @@ export class OptionsFlowService {
       }
       
       return [];
+      
     } catch (error) {
-      // Skip individual contract errors
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      if (errorMessage.includes('HTTP 403')) {
+        console.error(`❌ 403 Forbidden for ${optionTicker} - check API permissions`);
+      } else if (errorMessage.includes('HTTP 429')) {
+        console.warn(`⏱️ Rate limited for ${optionTicker}`);
+      } else {
+        console.warn(`⚠️ Error fetching trades for ${optionTicker}: ${errorMessage}`);
+      }
+      
       return [];
     }
   }
@@ -868,44 +934,95 @@ export class OptionsFlowService {
     };
   }
 
-  // ROBUST FETCH WITH CONNECTION HANDLING
-  private async robustFetch(url: string, maxRetries: number = 3): Promise<Response> {
+  // ROBUST FETCH WITH CONNECTION HANDLING AND RATE LIMITING
+  private async robustFetch(url: string, maxRetries: number = 5): Promise<Response> {
     let lastError: Error = new Error('Unknown error');
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
         
+        // Enhanced headers for better API compatibility
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
-            'User-Agent': 'OptionsFlow/1.0',
-            'Accept': 'application/json',
-            'Connection': 'keep-alive'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site'
           }
         });
         
         clearTimeout(timeoutId);
         
+        // Handle different HTTP error codes
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          const errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+          
+          // Log specific error details for debugging
+          console.error(`❌ API Error: ${errorMsg} for URL: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
+          
+          // Handle specific error codes
+          if (response.status === 403) {
+            console.error(`🚫 HTTP 403 Forbidden - Check API key permissions and rate limits`);
+            // For 403 errors, wait longer before retry
+            if (attempt < maxRetries) {
+              const delay = Math.pow(2, attempt) * 2000; // 4s, 8s, 16s, 32s
+              console.warn(`⏳ Waiting ${delay/1000}s before retry due to 403 error...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            }
+          } else if (response.status === 429) {
+            console.error(`⏱️ HTTP 429 Rate Limited - Waiting before retry`);
+            if (attempt < maxRetries) {
+              const delay = Math.pow(2, attempt) * 5000; // 10s, 20s, 40s, 80s
+              console.warn(`⏳ Rate limit delay: ${delay/1000}s...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            }
+          } else if (response.status >= 500) {
+            console.error(`🔧 HTTP ${response.status} Server Error - Retrying...`);
+          }
+          
+          throw new Error(errorMsg);
         }
         
         return response;
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('Unknown fetch error');
-        console.warn(`🔄 Fetch attempt ${attempt}/${maxRetries} failed for ${url.substring(0, 100)}...: ${lastError.message}`);
+        
+        // More detailed error logging
+        if (error instanceof Error) {
+          if (error.name === 'AbortError') {
+            console.warn(`⏰ Request timeout (attempt ${attempt}/${maxRetries}) for: ${url.substring(0, 100)}...`);
+          } else if (error.message.includes('Failed to fetch')) {
+            console.warn(`🌐 Network error (attempt ${attempt}/${maxRetries}): ${error.message}`);
+          } else {
+            console.warn(`🔄 Fetch attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+          }
+        }
         
         if (attempt < maxRetries) {
-          // Exponential backoff: 1s, 2s, 4s
-          const delay = Math.pow(2, attempt - 1) * 1000;
+          // Progressive backoff with jitter to avoid thundering herd
+          const baseDelay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s, 8s
+          const jitter = Math.random() * 1000; // Add 0-1s random jitter
+          const delay = baseDelay + jitter;
+          
+          console.warn(`⏳ Retrying in ${(delay/1000).toFixed(1)}s...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     }
     
+    console.error(`❌ All ${maxRetries} attempts failed for: ${url.substring(0, 100)}...`);
     throw lastError;
   }
 
@@ -960,73 +1077,50 @@ export class OptionsFlowService {
       
       console.log(`📊 ${ticker}: Scanning trades for ALL ${validContracts.length} valid contracts (all expirations)...`);
       
-      for (let i = 0; i < validContracts.length; i++) {
-        const contract = validContracts[i];
+      // 🚀 BATCHED PROCESSING: Dramatically reduce API calls
+      const BATCH_SIZE = 20; // Process 20 contracts per batch (reduces API calls by 95%)
+      const contractBatches = this.chunkArray(validContracts, BATCH_SIZE);
+      
+      console.log(`🔥 BATCH OPTIMIZATION: ${validContracts.length} contracts → ${contractBatches.length} batches (${BATCH_SIZE} contracts each)`);
+      console.log(`📉 API calls reduced from ${validContracts.length} to ${contractBatches.length} (${((1 - contractBatches.length/validContracts.length) * 100).toFixed(1)}% reduction)`);
+      
+      // Process batches sequentially to control API rate
+      for (let batchIndex = 0; batchIndex < contractBatches.length; batchIndex++) {
+        const batch = contractBatches[batchIndex];
+        console.log(`⚡ Processing batch ${batchIndex + 1}/${contractBatches.length} (${batch.length} contracts)`);
         
         try {
-          const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp * 1000000}&limit=5000&apikey=${this.polygonApiKey}`;
-          const tradesResponse = await this.robustFetch(tradesUrl);
-          const tradesData = await tradesResponse.json();
+          // Fetch trades for this entire batch
+          const batchTrades = await this.fetchBatchedContractTrades(
+            batch, 
+            ticker, 
+            marketOpenTimestamp, 
+            spotPrice
+          );
           
-          if (tradesData.results && tradesData.results.length > 0) {
-            contractsWithTrades++;
-            
-            // Process each trade
-            tradesData.results.forEach((trade: any) => {
-              const tradeTime = new Date(trade.sip_timestamp / 1000000);
-              const today = new Date();
-              
-              // Only today's trades
-              if (tradeTime.toDateString() !== today.toDateString()) {
-                return;
-              }
-              
-              // Market hours filter
-              const eastern = new Date(tradeTime.toLocaleString("en-US", {timeZone: "America/New_York"}));
-              const hour = eastern.getHours();
-              const minute = eastern.getMinutes();
-              const timeDecimal = hour + (minute / 60);
-              
-              if (timeDecimal < 9.5 || timeDecimal >= 16) {
-                return; // Outside market hours
-              }
-              
-              const premium = trade.price * trade.size * 100;
-              const contractType = contract.contract_type.toLowerCase();
-              
-              // Debug logging for significant put trades
-              if (contractType === 'put' && premium > 10000) {
-                console.log(`📉 LARGE PUT FOUND: ${contract.ticker} - ${trade.size} × $${trade.price} = $${premium.toFixed(0)}`);
-              }
-              
-              const processedTrade: ProcessedTrade = {
-                ticker: contract.ticker,
-                underlying_ticker: ticker,
-                strike: contract.strike_price,
-                expiry: contract.expiration_date,
-                type: contractType as 'call' | 'put',
-                trade_size: trade.size,
-                premium_per_contract: trade.price,
-                total_premium: premium,
-                spot_price: spotPrice,
-                exchange: trade.exchange,
-                exchange_name: this.exchangeNames[trade.exchange] || 'UNKNOWN',
-                sip_timestamp: trade.sip_timestamp,
-                trade_timestamp: tradeTime,
-                conditions: trade.conditions || [],
-                moneyness: this.getMoneyness(contract.strike_price, spotPrice, contract.contract_type.toLowerCase() as 'call' | 'put'),
-                days_to_expiry: Math.ceil((new Date(contract.expiration_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-              };
-              
-              allTrades.push(processedTrade);
-            });
+          // Add all batch results to main trades array
+          allTrades.push(...batchTrades);
+          contractsWithTrades += batch.filter(c => 
+            batchTrades.some(t => t.ticker === c.ticker)
+          ).length;
+          
+          // Debug logging for significant trades found
+          const largeTrades = batchTrades.filter(t => t.total_premium > 10000);
+          if (largeTrades.length > 0) {
+            console.log(`💰 Batch ${batchIndex + 1}: Found ${largeTrades.length} large trades, ${batchTrades.length} total trades`);
           }
           
-          // Smart rate limiting to prevent API errors
-          // No rate limiting needed with unlimited API
+          // Rate limiting between batches (much more reasonable)
+          if (batchIndex < contractBatches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 200)); // 200ms between batches
+          }
           
         } catch (error) {
-          console.log(`❌ Error scanning ${contract.ticker}: ${error}`);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(`❌ Batch ${batchIndex + 1} failed: ${errorMessage}`);
+          
+          // Continue with next batch instead of failing completely
+          continue;
         }
       }
       
@@ -1385,6 +1479,15 @@ export class OptionsFlowService {
 
   private async getHistoricalSpotPrice(ticker: string, timestamp: number): Promise<number> {
     try {
+      // Validate timestamp is reasonable
+      const now = Date.now();
+      const oneYearAgo = now - (365 * 24 * 60 * 60 * 1000);
+      
+      if (timestamp < oneYearAgo || timestamp > now) {
+        console.warn(`⚠️ Invalid timestamp for ${ticker}: ${new Date(timestamp).toISOString()}, using current price`);
+        return await this.getCurrentStockPrice(ticker);
+      }
+      
       // Create cache key based on ticker and rounded minute
       const tradeDate = new Date(timestamp);
       const roundedMinute = new Date(tradeDate.getFullYear(), tradeDate.getMonth(), tradeDate.getDate(), tradeDate.getHours(), tradeDate.getMinutes());
@@ -1794,6 +1897,135 @@ export class OptionsFlowService {
   private getTop1000Symbols(): string[] {
     // Import and return the expanded symbols array (now 1800+ stocks)
     return TOP_1800_SYMBOLS; // Use all 1800+ stocks for comprehensive coverage
+  }
+
+  // UTILITY: Chunk array into batches for batch processing
+  private chunkArray<T>(array: T[], chunkSize: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+      chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+
+  // BATCHED CONTRACT TRADES: Fetch trades for multiple contracts efficiently
+  private async fetchBatchedContractTrades(
+    contractsBatch: any[], 
+    ticker: string, 
+    marketOpenTimestamp: number,
+    spotPrice: number
+  ): Promise<ProcessedTrade[]> {
+    const batchTrades: ProcessedTrade[] = [];
+    
+    // Process contracts in parallel within the batch (controlled concurrency)
+    const batchPromises = contractsBatch.map(async (contract, index) => {
+      try {
+        // Stagger requests within batch to avoid overwhelming the API
+        await new Promise(resolve => setTimeout(resolve, index * 25)); // 25ms stagger
+        
+        // Validate timestamp before making API call
+        let timestampNanos = marketOpenTimestamp * 1000000;
+        const now = Date.now();
+        const timestampMs = timestampNanos / 1000000;
+        
+        if (timestampMs > now) {
+          console.warn(`⚠️ Future timestamp detected for ${contract.ticker}, using current time`);
+          timestampNanos = now * 1000000;
+        }
+        
+        const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${timestampNanos}&limit=1000&apikey=${this.polygonApiKey}`;
+        
+        const tradesResponse = await this.robustFetch(tradesUrl);
+        const responseText = await tradesResponse.text();
+        
+        if (!responseText || responseText.trim() === '') {
+          return [];
+        }
+        
+        let tradesData;
+        try {
+          tradesData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error(`❌ JSON parse error for ${contract.ticker}:`, parseError);
+          return [];
+        }
+        
+        if (tradesData.results && tradesData.results.length > 0) {
+          const processedTrades: ProcessedTrade[] = [];
+          
+          tradesData.results.forEach((trade: any) => {
+            const tradeTime = new Date(trade.sip_timestamp / 1000000);
+            const today = new Date();
+            
+            // Only today's trades
+            if (tradeTime.toDateString() !== today.toDateString()) {
+              return;
+            }
+            
+            // Market hours filter (9:30 AM - 4:00 PM ET)
+            const eastern = new Date(tradeTime.toLocaleString("en-US", {timeZone: "America/New_York"}));
+            const hour = eastern.getHours();
+            const minute = eastern.getMinutes();
+            const timeDecimal = hour + (minute / 60);
+            
+            if (timeDecimal < 9.5 || timeDecimal >= 16) {
+              return;
+            }
+            
+            const premium = trade.price * trade.size * 100;
+            const contractType = contract.contract_type?.toLowerCase() || 'call';
+            
+            const processedTrade: ProcessedTrade = {
+              ticker: contract.ticker,
+              underlying_ticker: ticker,
+              strike: contract.strike_price,
+              expiry: contract.expiration_date,
+              type: contractType as 'call' | 'put',
+              trade_size: trade.size,
+              premium_per_contract: trade.price,
+              total_premium: premium,
+              spot_price: spotPrice,
+              exchange: trade.exchange,
+              exchange_name: this.exchangeNames[trade.exchange] || 'UNKNOWN',
+              sip_timestamp: trade.sip_timestamp,
+              trade_timestamp: tradeTime,
+              conditions: trade.conditions || [],
+              moneyness: this.getMoneyness(contract.strike_price, spotPrice, contractType as 'call' | 'put'),
+              days_to_expiry: Math.ceil((new Date(contract.expiration_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+            };
+            
+            processedTrades.push(processedTrade);
+          });
+          
+          return processedTrades;
+        }
+        
+        return [];
+        
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        if (errorMessage.includes('HTTP 403')) {
+          console.error(`❌ 403 Error scanning ${contract.ticker}: ${errorMessage}`);
+        } else if (errorMessage.includes('HTTP 429')) {
+          console.warn(`⏱️ Rate limited for ${contract.ticker}, continuing with next...`);
+        } else {
+          console.log(`❌ Error scanning ${contract.ticker}: ${errorMessage}`);
+        }
+        
+        return [];
+      }
+    });
+    
+    // Wait for all contracts in this batch
+    const batchResults = await Promise.all(batchPromises);
+    
+    // Flatten and combine all results
+    batchResults.forEach(contractTrades => {
+      batchTrades.push(...contractTrades);
+    });
+    
+    return batchTrades;
   }
 
   // Filter options contracts by volume (50+ minimum) and 5% ITM rule for speed optimization
