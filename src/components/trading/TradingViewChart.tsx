@@ -8152,6 +8152,15 @@ export default function TradingViewChart({
             </button>
           </div>
 
+          {/* Glowing Orange Separator */}
+          <div className="mx-4" style={{
+            width: '4px',
+            height: '50px',
+            background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
+            boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
+            borderRadius: '2px'
+          }}></div>
+
           {/* GEX Button - Next to Expected Range */}
           <div className="ml-4">
             <button
@@ -8174,6 +8183,15 @@ export default function TradingViewChart({
               )}
             </button>
           </div>
+
+          {/* Glowing Orange Separator */}
+          <div className="mx-4" style={{
+            width: '4px',
+            height: '50px',
+            background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
+            boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
+            borderRadius: '2px'
+          }}></div>
 
           {/* Expansion/Liquidation Button */}
           <div className="ml-4">
@@ -8204,6 +8222,62 @@ export default function TradingViewChart({
               {isExpansionLiquidationActive && (
                 <span className="text-green-400 text-sm">✓</span>
               )}
+            </button>
+          </div>
+
+          {/* Glowing Orange Separator */}
+          <div className="mx-4" style={{
+            width: '4px',
+            height: '50px',
+            background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
+            boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
+            borderRadius: '2px'
+          }}></div>
+
+          {/* Live C/P Flow Button */}
+          <div className="ml-4">
+            <button
+              onClick={() => {
+                // TODO: Add Live C/P Flow functionality
+                console.log('📊 Live C/P Flow button clicked');
+              }}
+              className="btn-3d-carved relative group flex items-center space-x-2 text-white"
+              style={{
+                padding: '10px 14px',
+                fontWeight: '700',
+                fontSize: '13px',
+                borderRadius: '4px'
+              }}
+            >
+              <span>LIVE C/P FLOW</span>
+            </button>
+          </div>
+
+          {/* Glowing Orange Separator */}
+          <div className="mx-4" style={{
+            width: '4px',
+            height: '50px',
+            background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
+            boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
+            borderRadius: '2px'
+          }}></div>
+
+          {/* Drawing Tools Button */}
+          <div className="ml-4">
+            <button
+              onClick={() => {
+                // TODO: Add Drawing Tools functionality
+                console.log('🎨 Drawing Tools button clicked');
+              }}
+              className="btn-3d-carved relative group flex items-center space-x-2 text-white"
+              style={{
+                padding: '10px 14px',
+                fontWeight: '700',
+                fontSize: '13px',
+                borderRadius: '4px'
+              }}
+            >
+              <span>DRAWING TOOLS</span>
             </button>
           </div>
 
