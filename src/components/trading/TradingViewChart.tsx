@@ -25,6 +25,7 @@ import { gexService } from '../../lib/gexService';
 import { useGEXData } from '../../hooks/useGEXData';
 import { GEXChartOverlay } from '../GEXChartOverlay';
 import { getExpirationDates, getExpirationDatesFromAPI, getDaysUntilExpiration } from '../../lib/optionsExpirationUtils';
+import { createApiUrl } from '../../lib/apiConfig';
 
 // Add custom styles for 3D carved effect and holographic animations
 const carvedTextStyles = `
@@ -1907,7 +1908,12 @@ export default function TradingViewChart({
             const endDate = new Date().toISOString().split('T')[0];
             const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
             
-            const response = await fetch(`/api/historical-data?symbol=${symbol}&startDate=${startDate}&endDate=${endDate}`);
+            const url = createApiUrl('/api/historical-data', {
+              symbol,
+              startDate,
+              endDate
+            });
+            const response = await fetch(url);
             
             if (response.ok) {
               const result = await response.json();
@@ -1968,10 +1974,18 @@ export default function TradingViewChart({
                 console.warn(`⚠️ No sufficient data for ${symbol} - got ${result?.results?.length || 0} data points`);
               }
             } else {
-              console.warn(`❌ Failed to fetch data for ${symbol}:`, response.status);
+              console.warn(`❌ Failed to fetch data for ${symbol}: HTTP ${response.status} ${response.statusText}`);
+              if (response.status >= 500) {
+                console.warn(`🔧 Server error for ${symbol} - this may be an API configuration issue`);
+              } else if (response.status === 408) {
+                console.warn(`⏱️ Timeout for ${symbol} - API response too slow`);
+              }
             }
           } catch (symbolError) {
             console.warn(`❌ Error fetching data for ${symbol}:`, symbolError);
+            if (symbolError instanceof Error && symbolError.message.includes('fetch')) {
+              console.warn(`🌐 Network connection issue for ${symbol} - check if server is running on correct port`);
+            }
             // Continue with next symbol instead of breaking the entire loop
           }
         }
@@ -2491,7 +2505,11 @@ export default function TradingViewChart({
       console.log(`🔴 LIVE: Fetching real-time price for ${sym}`);
       
       // Use the dedicated real-time price endpoint
-      const response = await fetch(`/api/realtime-price?symbol=${sym}&_t=${Date.now()}`);
+      const url = createApiUrl('/api/realtime-price', {
+        symbol: sym,
+        _t: Date.now().toString()
+      });
+      const response = await fetch(url);
       const result = await response.json();
       
       if (response.ok && result.price) {
@@ -2504,7 +2522,14 @@ export default function TradingViewChart({
         const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
         
-        const histResponse = await fetch(`/api/historical-data?symbol=${sym}&startDate=${yesterdayStr}&endDate=${todayStr}&timeframe=1d&_t=${Date.now()}`);
+        const histUrl = createApiUrl('/api/historical-data', {
+          symbol: sym,
+          startDate: yesterdayStr,
+          endDate: todayStr,
+          timeframe: '1d',
+          _t: Date.now().toString()
+        });
+        const histResponse = await fetch(histUrl);
         if (histResponse.ok) {
           const histResult = await histResponse.json();
           if (histResult?.results && histResult.results.length >= 2) {
@@ -2519,9 +2544,19 @@ export default function TradingViewChart({
         }
       } else {
         console.error(`❌ Failed to get real-time price for ${sym}:`, result);
+        if (result?.error) {
+          console.error(`🔧 API Error Details: ${result.error}`);
+        }
       }
     } catch (error) {
-      console.log('Real-time price fetch failed:', error);
+      console.error('❌ Real-time price fetch failed:', error);
+      if (error instanceof Error) {
+        if (error.message.includes('fetch')) {
+          console.error('🌐 Network connection issue - check if server is running on correct port');
+        } else if (error.message.includes('timeout')) {
+          console.error('⏱️ Request timeout - API response too slow');
+        }
+      }
     }
   }, []);
 

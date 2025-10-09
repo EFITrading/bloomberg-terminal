@@ -342,7 +342,7 @@ class ElectionCycleService {
     });
 
     // Calculate SPY comparison data (only if benchmarking against SPY)
-    const spyComparison = shouldBenchmarkSPY ? this.calculateSpyComparison(dailyData, spyData, validYears) : undefined;
+    const spyComparison = shouldBenchmarkSPY ? this.calculateSpyComparison(dailyData, spyData, validYears, symbolData) : undefined;
 
     const statistics = {
       totalReturn,
@@ -390,23 +390,75 @@ class ElectionCycleService {
   private calculateSpyComparison(
     dailyData: DailySeasonalData[],
     spyData: PolygonDataPoint[],
-    validYears: number[]
+    validYears: number[],
+    symbolData: PolygonDataPoint[]
   ) {
     // Group by months and calculate outperformance vs SPY
     const monthlyData: Array<{ month: string; outperformance: number }> = [];
     
-    // Calculate monthly outperformance for each month
+    // Calculate monthly relative performance using actual historical data
     for (let month = 1; month <= 12; month++) {
-      const monthData = dailyData.filter(d => d.month === month);
-      if (monthData.length > 0) {
-        const avgSymbolReturn = monthData.reduce((sum, d) => sum + d.avgReturn, 0) / monthData.length;
-        // For simplicity, assume SPY average monthly return is market average
-        const spyMonthlyReturn = 0.8; // Approximate SPY monthly average
-        const outperformance = avgSymbolReturn - spyMonthlyReturn;
+      // Get symbol monthly returns for each election year
+      const symbolMonthlyReturns: number[] = [];
+      const spyMonthlyReturns: number[] = [];
+      
+      // Calculate returns for each election year individually
+      validYears.forEach(year => {
+        // Get symbol data for this specific month and year
+        const symbolYearData = symbolData.filter(point => {
+          const date = new Date(point.t);
+          return date.getFullYear() === year && date.getMonth() + 1 === month;
+        });
         
-        const monthName = new Date(2024, month - 1, 1).toLocaleDateString('en-US', { month: 'short' });
-        monthlyData.push({ month: monthName, outperformance });
-      }
+        if (symbolYearData.length > 1) {
+          // Sort by date to get first and last trading day of the month
+          symbolYearData.sort((a, b) => a.t - b.t);
+          const firstDay = symbolYearData[0];
+          const lastDay = symbolYearData[symbolYearData.length - 1];
+          
+          if (firstDay.c && lastDay.c) {
+            const monthlyReturn = ((lastDay.c - firstDay.c) / firstDay.c) * 100;
+            symbolMonthlyReturns.push(monthlyReturn);
+          }
+        }
+        
+        // Get SPY data for this specific month and year
+        const spyYearData = spyData.filter(point => {
+          const date = new Date(point.t);
+          return date.getFullYear() === year && date.getMonth() + 1 === month;
+        });
+        
+        if (spyYearData.length > 1) {
+          // Sort by date to get first and last trading day of the month
+          spyYearData.sort((a, b) => a.t - b.t);
+          const firstDay = spyYearData[0];
+          const lastDay = spyYearData[spyYearData.length - 1];
+          
+          if (firstDay.c && lastDay.c) {
+            const monthlyReturn = ((lastDay.c - firstDay.c) / firstDay.c) * 100;
+            spyMonthlyReturns.push(monthlyReturn);
+          }
+        }
+      });
+      
+      // Calculate averages across all election years (add all 5 returns then divide by 5)
+      const avgSymbolReturn = symbolMonthlyReturns.length > 0 
+        ? symbolMonthlyReturns.reduce((sum, ret) => sum + ret, 0) / symbolMonthlyReturns.length 
+        : 0;
+        
+      const avgSpyReturn = spyMonthlyReturns.length > 0 
+        ? spyMonthlyReturns.reduce((sum, ret) => sum + ret, 0) / spyMonthlyReturns.length 
+        : 0;
+      
+      // Calculate outperformance as simple difference: Stock Average - SPY Average
+      // Example: GOOGL 8% - SPY 4% = 4% outperformance
+      const outperformance = avgSymbolReturn - avgSpyReturn;
+      
+      // Debug logging to verify calculations
+      console.log(`${new Date(2024, month - 1, 1).toLocaleDateString('en-US', { month: 'short' })} - Stock: ${avgSymbolReturn.toFixed(2)}%, SPY: ${avgSpyReturn.toFixed(2)}%, Outperformance: ${outperformance.toFixed(2)}%`);
+      
+      const monthName = new Date(2024, month - 1, 1).toLocaleDateString('en-US', { month: 'short' });
+      monthlyData.push({ month: monthName, outperformance });
     }
 
     // Sort and get best/worst months

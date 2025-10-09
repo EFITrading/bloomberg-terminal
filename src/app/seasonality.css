@@ -47,7 +47,7 @@ body {
     #0d0d0d 75%, 
     var(--bloomberg-darker) 100%);
   font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 /* Progressive Loading Styles */
@@ -219,6 +219,7 @@ div[role="button"],
   font-weight: 600 !important;
   text-shadow: none !important;
   filter: none !important;
+  font-size: 16px !important;
 }
 
 /* Nuclear option - force all text in seasonality page to be white */
@@ -325,7 +326,7 @@ body * {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
-  font-size: 14px;
+  font-size: 16px;
   border-radius: 4px;
   transition: all 0.3s ease;
   box-shadow: 0 2px 8px rgba(0, 102, 204, 0.3);
@@ -795,13 +796,15 @@ body * {
 
 /* Seasonax Chart Styles - Modern Bloomberg Terminal Theme */
 .seasonax-container {
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
   background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
   color: #ffffff;
   font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 .seasonax-container::before {
@@ -834,6 +837,9 @@ body * {
   position: relative;
   z-index: 10;
   gap: 20px;
+  width: 800px;
+  max-width: 800px;
+  margin: 0 auto;
 }
 
 .seasonax-title {
@@ -865,6 +871,10 @@ body * {
   overflow: hidden;
 }
 
+.seasonax-content.full-width {
+  max-height: calc(100vh - 180px);
+}
+
 .seasonax-charts {
   flex: 1;
   display: flex;
@@ -887,6 +897,25 @@ body * {
     0 20px 60px rgba(0, 0, 0, 0.6),
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 0 40px rgba(192, 192, 192, 0.1);
+}
+
+.seasonax-charts.full-width {
+  width: 100%;
+  max-height: calc(100vh - 200px);
+  padding: 20px 30px;
+  margin: 10px;
+  border-radius: 25px;
+}
+
+.seasonax-charts.full-width .seasonax-main-chart {
+  min-height: 300px;
+  max-height: calc(100vh - 280px);
+}
+
+.seasonax-charts.full-width .main-chart-container {
+  min-height: 250px;
+  height: calc(100vh - 350px);
+  max-height: calc(100vh - 320px);
 }
 
 .seasonax-charts::before {
@@ -1006,9 +1035,9 @@ body * {
   padding: 12px 20px;
   background: #000000;
   flex: 1;
-  max-width: 1600px;
-  min-width: 1500px;
-  width: 100%;
+  max-width: 800px;
+  min-width: 800px;
+  width: 800px;
   position: relative;
   overflow: visible;
   border-radius: 15px;
@@ -1055,6 +1084,47 @@ body * {
   50% { text-shadow: 0 0 25px rgba(192, 192, 192, 0.9), 0 0 35px rgba(192, 192, 192, 0.5); }
 }
 
+/* Main container for 3-column layout */
+.monthly-returns-main-container {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  width: 100%;
+  z-index: 1;
+  justify-content: center;
+}
+
+/* Side columns for 30-day periods */
+.period-column {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.left-column, .right-column {
+  min-width: 120px;
+}
+
+/* Center container for monthly returns */
+.monthly-returns-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.monthly-returns-row {
+  display: flex;
+  gap: 18px;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  min-width: 0;
+}
+
+/* Legacy grid layout (kept for compatibility) */
 .monthly-returns-grid {
   display: flex;
   gap: 18px;
@@ -1127,6 +1197,34 @@ body * {
   letter-spacing: 2px;
 }
 
+.month-label.best-month {
+  color: #00FF00 !important;
+}
+
+.month-label.worst-month {
+  color: #FF0000 !important;
+}
+
+.period-label.bullish-label {
+  color: #00FF00 !important;
+  font-weight: bold !important;
+}
+
+.side-subtitle.bearish-label {
+  color: #FF0000 !important;
+  font-weight: bold !important;
+}
+
+.bullish-label {
+  color: #00FF00 !important;
+  font-weight: bold !important;
+}
+
+.bearish-label {
+  color: #FF0000 !important;
+  font-weight: bold !important;
+}
+
 .return-value {
   font-size: 18px;
   font-weight: 900;
@@ -1159,6 +1257,97 @@ body * {
       rgba(255, 0, 64, 0.08) 100%);
   border-color: rgba(255, 0, 64, 0.3);
   font-weight: 600;
+}
+
+/* 30-day period items for top bar */
+.period-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 85px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: 
+    linear-gradient(145deg, 
+      rgba(20, 20, 20, 0.8) 0%, 
+      rgba(15, 15, 15, 0.9) 100%);
+  border: 1px solid rgba(192, 192, 192, 0.2);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 
+    0 4px 15px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.period-item .side-subtitle {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+.period-item.bullish-period .side-subtitle {
+  color: #00FF00;
+}
+
+.period-item.bearish-period .side-subtitle {
+  color: #FF0040;
+}
+
+.period-date {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  color: #C0C0C0;
+  text-align: center;
+  margin-bottom: 2px;
+  line-height: 1.2;
+}
+
+.period-return {
+  font-size: 16px;
+  font-weight: 900;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+  text-align: center;
+  border: 1px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.period-return.bullish {
+  color: #00FF00 !important;
+  background: 
+    linear-gradient(135deg, 
+      rgba(0, 255, 0, 0.15) 0%, 
+      rgba(0, 255, 0, 0.08) 100%);
+  border-color: rgba(0, 255, 0, 0.3);
+}
+
+.period-return.bearish {
+  color: #FF0040;
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 0, 64, 0.15) 0%, 
+      rgba(255, 0, 64, 0.08) 100%);
+  border-color: rgba(255, 0, 64, 0.3);
+}
+
+.period-item:hover {
+  background: 
+    linear-gradient(145deg, 
+      rgba(30, 30, 30, 0.9) 0%, 
+      rgba(25, 25, 25, 1) 100%);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 
+    0 6px 20px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 /* Symbol Search - Modern Bloomberg Terminal Style */
@@ -1653,7 +1842,7 @@ body * {
   color: #ffffff;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 16px;
   font-family: 'JetBrains Mono', monospace;
   font-weight: 500;
   text-transform: uppercase;
@@ -1664,6 +1853,31 @@ body * {
 .compare-btn:hover {
   background: #111111;
   border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Sweet Spot / Pain Point Buttons */
+.sweet-pain-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  position: relative;
+  left: -170px;
+}
+
+.sweet-spot-btn,
+.pain-point-btn {
+  padding: 10px 20px;
+  font-size: 16px;
+  min-width: 95px;
+}
+
+.sweet-spot-btn.compare-btn {
+  color: #00FF00 !important;
+}
+
+.pain-point-btn.compare-btn {
+  color: #FF0000 !important;
 }
 
 .comparison-tags {
@@ -2166,9 +2380,7 @@ body * {
   min-width: 0;
 }
 
-.sub-chart:hover {
-  border-color: var(--candy-silver);
-}
+/* .sub-chart:hover - removed */
 
 /* Main Chart Container - Stable sizing */
 .seasonax-main-chart {
@@ -3349,15 +3561,7 @@ body * {
   transition: all 0.1s ease-out;
 }
 
-/* Advanced Chart Interaction */
-.seasonax-charts:hover {
-  box-shadow: 
-    0 25px 80px rgba(0, 0, 0, 0.7),
-    0 15px 40px rgba(192, 192, 192, 0.3),
-    inset 0 2px 0 rgba(255, 255, 255, 0.1);
-  transform: translateY(-2px);
-  transition: all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
+/* Advanced Chart Interaction - Hover effects disabled */
 
 /* Premium Button Interactions */
 .back-btn:hover,
@@ -3450,15 +3654,7 @@ body * {
   50% { background-position: 100% 50%; }
 }
 
-/* Data Visualization Enhancements */
-.seasonax-canvas:hover {
-  transform: scale(1.01);
-  box-shadow: 
-    0 20px 60px rgba(0, 0, 0, 0.8),
-    0 12px 40px rgba(192, 192, 192, 0.4),
-    inset 0 2px 0 rgba(255, 255, 255, 0.1);
-  transition: all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
+/* Data Visualization Enhancements - Hover zoom disabled */
 
 /* Advanced Cursor Effects */
 .monthly-return-item,

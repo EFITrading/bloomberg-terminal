@@ -113,6 +113,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
   const [selectedElectionPeriod, setSelectedElectionPeriod] = useState<string>('Election Year');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [sweetSpotPeriod, setSweetSpotPeriod] = useState<{startDay: number, endDay: number, period: string} | null>(null);
+  const [painPointPeriod, setPainPointPeriod] = useState<{startDay: number, endDay: number, period: string} | null>(null);
   const [chartSettings, setChartSettings] = useState<ChartSettings>({
     startDate: '11 Oct',
     endDate: '6 Nov',
@@ -485,7 +487,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
       };
     });
 
-    const sortedMonthsByPerformance = [...monthlyAverages].sort((a, b) => b.avgReturn - a.avgReturn);
+    const sortedMonthsByPerformance = [...monthlyAverages].sort((a, b) => b.outperformance - a.outperformance);
     const bestMonths = sortedMonthsByPerformance.slice(0, 3);
     const worstMonths = sortedMonthsByPerformance.slice(-3).reverse();
 
@@ -575,6 +577,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
       return { bestPeriod, worstPeriod };
     };
 
+
+
     const { bestPeriod, worstPeriod } = analyze30DayPatterns(dailyData);
 
     return {
@@ -635,6 +639,105 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
     setSelectedSymbol(symbol);
     setIsElectionMode(false); // Reset to normal seasonal mode when symbol changes
     setElectionData(null);
+  };
+
+  // Analyze 50-90 day periods for Sweet Spot and Pain Point functionality
+  const analyzeLongTermPatterns = (dailyData: DailySeasonalData[]) => {
+    let bestSweetSpot = { startDay: 1, endDay: 50, avgReturn: -999, period: '', totalReturn: 0 };
+    let worstPainPoint = { startDay: 1, endDay: 50, avgReturn: 999, period: '', totalReturn: 0 };
+
+    // Test different window sizes from 50 to 90 days
+    for (let windowSize = 50; windowSize <= 90; windowSize++) {
+      // Slide through the year
+      for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+        const endDay = startDay + windowSize - 1;
+        const windowData = dailyData.filter(d => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
+        
+        if (windowData.length >= Math.floor(windowSize * 0.8)) { // Ensure we have at least 80% of data points
+          // Calculate cumulative return for the period
+          const sortedWindowData = windowData.sort((a, b) => a.dayOfYear - b.dayOfYear);
+          let cumulativeReturn = 0;
+          let avgReturn = 0;
+          
+          sortedWindowData.forEach(d => {
+            cumulativeReturn += d.avgReturn;
+            avgReturn += d.avgReturn;
+          });
+          
+          avgReturn = avgReturn / sortedWindowData.length;
+          
+          // Check for best sweet spot
+          if (cumulativeReturn > bestSweetSpot.totalReturn) {
+            const startDataPoint = dailyData.find(d => d.dayOfYear === startDay);
+            const endDataPoint = dailyData.find(d => d.dayOfYear === endDay);
+            
+            if (startDataPoint && endDataPoint) {
+              bestSweetSpot = {
+                startDay,
+                endDay,
+                avgReturn,
+                totalReturn: cumulativeReturn,
+                period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day} (${windowSize} days)`
+              };
+            }
+          }
+          
+          // Check for worst pain point
+          if (cumulativeReturn < worstPainPoint.totalReturn) {
+            const startDataPoint = dailyData.find(d => d.dayOfYear === startDay);
+            const endDataPoint = dailyData.find(d => d.dayOfYear === endDay);
+            
+            if (startDataPoint && endDataPoint) {
+              worstPainPoint = {
+                startDay,
+                endDay,
+                avgReturn,
+                totalReturn: cumulativeReturn,
+                period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day} (${windowSize} days)`
+              };
+            }
+          }
+        }
+      }
+    }
+
+    return { bestSweetSpot, worstPainPoint };
+  };
+
+  const handleSweetSpotClick = () => {
+    if (!seasonalData?.dailyData) return;
+    
+    console.log('Analyzing Sweet Spot periods...');
+    const { bestSweetSpot } = analyzeLongTermPatterns(seasonalData.dailyData);
+    
+    setSweetSpotPeriod({
+      startDay: bestSweetSpot.startDay,
+      endDay: bestSweetSpot.endDay,
+      period: bestSweetSpot.period
+    });
+    
+    // Clear pain point highlighting
+    setPainPointPeriod(null);
+    
+    console.log('Sweet Spot found:', bestSweetSpot);
+  };
+
+  const handlePainPointClick = () => {
+    if (!seasonalData?.dailyData) return;
+    
+    console.log('Analyzing Pain Point periods...');
+    const { worstPainPoint } = analyzeLongTermPatterns(seasonalData.dailyData);
+    
+    setPainPointPeriod({
+      startDay: worstPainPoint.startDay,
+      endDay: worstPainPoint.endDay,
+      period: worstPainPoint.period
+    });
+    
+    // Clear sweet spot highlighting
+    setSweetSpotPeriod(null);
+    
+    console.log('Pain Point found:', worstPainPoint);
   };
 
   const handleSettingsChange = (newSettings: Partial<ChartSettings>) => {
@@ -699,10 +802,17 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
           onElectionPeriodSelect={handleElectionPeriodSelect}
           onElectionModeToggle={handleElectionModeToggle}
         />
+        {/* Sweet Spot / Pain Point Buttons */}
+        <div className="sweet-pain-buttons">
+          <button className="sweet-spot-btn compare-btn" onClick={handleSweetSpotClick}>Sweet Spot</button>
+          <button className="pain-point-btn compare-btn" onClick={handlePainPointClick}>Pain Point</button>
+        </div>
         {/* Show monthly returns based on current mode */}
         {(isElectionMode ? electionData?.spyComparison?.monthlyData : seasonalData?.spyComparison?.monthlyData) && (
           <HorizontalMonthlyReturns 
             monthlyData={isElectionMode ? electionData!.spyComparison!.monthlyData : seasonalData!.spyComparison!.monthlyData}
+            best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
+            worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
           />
         )}
         <SeasonaxControls 
@@ -743,19 +853,14 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
 
       {/* Show data based on current mode */}
       {((isElectionMode && electionData) || (!isElectionMode && seasonalData)) && !loading && (
-        <div className="seasonax-content">
-          {/* Main Chart Area */}
-          <div className="seasonax-charts">
+        <div className="seasonax-content full-width">
+          {/* Main Chart Area - Full Width */}
+          <div className="seasonax-charts full-width">
             <SeasonaxMainChart
               data={(isElectionMode ? electionData : seasonalData) as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
               settings={chartSettings}
-            />
-          </div>
-
-          {/* Statistics Panel */}
-          <div className="seasonax-sidebar">
-            <SeasonaxStatistics 
-              data={isElectionMode ? (electionData as any) : seasonalData!}
+              sweetSpotPeriod={sweetSpotPeriod}
+              painPointPeriod={painPointPeriod}
             />
           </div>
         </div>

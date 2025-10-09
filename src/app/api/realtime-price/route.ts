@@ -3,9 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const symbol = searchParams.get('symbol');
+
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const symbol = searchParams.get('symbol');
 
     if (!symbol) {
       return NextResponse.json(
@@ -24,7 +25,13 @@ export async function GET(request: NextRequest) {
 
     // FIRST TRY: GET MOST RECENT CLOSING PRICE (WORKS WHEN MARKET IS CLOSED)
     let url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?adjusted=true&apikey=${POLYGON_API_KEY}`;
-    let response = await fetch(url);
+    
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    let response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
     let data = await response.json();
     
     console.log(`📊 PREVIOUS CLOSE DATA:`, data);
@@ -49,7 +56,12 @@ export async function GET(request: NextRequest) {
 
     // FALLBACK: TRY REAL-TIME LAST TRADE (FOR MARKET HOURS)
     url = `https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`;
-    response = await fetch(url);
+    
+    const controller2 = new AbortController();
+    const timeoutId2 = setTimeout(() => controller2.abort(), 5000);
+    
+    response = await fetch(url, { signal: controller2.signal });
+    clearTimeout(timeoutId2);
     data = await response.json();
     
     console.log(`📊 REAL-TIME LAST TRADE:`, data);
@@ -71,7 +83,12 @@ export async function GET(request: NextRequest) {
 
     // FALLBACK TO REAL-TIME QUOTE IF NO TRADE DATA
     url = `https://api.polygon.io/v2/last/nbbo/${symbol}?apikey=${POLYGON_API_KEY}`;
-    response = await fetch(url);
+    
+    const controller3 = new AbortController();
+    const timeoutId3 = setTimeout(() => controller3.abort(), 5000);
+    
+    response = await fetch(url, { signal: controller3.signal });
+    clearTimeout(timeoutId3);
     data = await response.json();
     
     console.log(`📊 REAL-TIME QUOTE:`, data);
@@ -96,12 +113,33 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ Realtime price API error:', error);
+    
+    // Handle specific error types
+    let errorMessage = 'Failed to fetch realtime price';
+    let statusCode = 500;
+    
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timeout - please try again';
+        statusCode = 408;
+      } else if (error.message.includes('fetch')) {
+        errorMessage = 'Network error - unable to connect to data provider';
+        statusCode = 503;
+      } else if (error.message.includes('API key') || error.message.includes('subscription')) {
+        errorMessage = 'Invalid API configuration or subscription level';
+        statusCode = 401;
+      } else {
+        errorMessage = error.message;
+      }
+    }
+    
     return NextResponse.json(
       { 
-        error: error instanceof Error ? error.message : 'Failed to fetch realtime price',
-        timestamp: new Date().toISOString()
+        error: errorMessage,
+        timestamp: new Date().toISOString(),
+        symbol: symbol || 'unknown'
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

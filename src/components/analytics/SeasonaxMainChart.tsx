@@ -54,6 +54,8 @@ interface SeasonaxMainChartProps {
   data: SeasonalAnalysis;
   comparisonData?: SeasonalAnalysis[];
   settings: ChartSettings;
+  sweetSpotPeriod?: { startDay: number; endDay: number; period: string } | null;
+  painPointPeriod?: { startDay: number; endDay: number; period: string } | null;
 }
 
 // Helper function to smooth data - removes abnormal spikes/crashes
@@ -152,7 +154,7 @@ const drawSeasonalLine = (
   }
 };
 
-const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings }) => {
+const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings, sweetSpotPeriod, painPointPeriod }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -434,6 +436,36 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
           drawSeasonalLine(ctx, compProcessedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, color, 2, compData.symbol);
         }
       });
+
+      // Draw Sweet Spot highlighting (green overlay)
+      if (sweetSpotPeriod) {
+        const startX = padding.left + (sweetSpotPeriod.startDay / 365) * chartWidth;
+        const endX = padding.left + (sweetSpotPeriod.endDay / 365) * chartWidth;
+        
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; // Low opacity green
+        ctx.fillRect(startX, padding.top, endX - startX, chartHeight);
+        
+        // Add Sweet Spot label
+        ctx.fillStyle = '#00FF00';
+        ctx.font = 'bold 14px "Roboto Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('SWEET SPOT', (startX + endX) / 2, padding.top - 5);
+      }
+
+      // Draw Pain Point highlighting (red overlay)
+      if (painPointPeriod) {
+        const startX = padding.left + (painPointPeriod.startDay / 365) * chartWidth;
+        const endX = padding.left + (painPointPeriod.endDay / 365) * chartWidth;
+        
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; // Low opacity red
+        ctx.fillRect(startX, padding.top, endX - startX, chartHeight);
+        
+        // Add Pain Point label
+        ctx.fillStyle = '#FF0000';
+        ctx.font = 'bold 14px "Roboto Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('PAIN POINT', (startX + endX) / 2, padding.top - 5);
+      }
 
       // Draw current date line if enabled
       if (settings.showCurrentDate) {

@@ -68,14 +68,15 @@ function getMaxDataPointsForTimeframe(timeframe: string): number {
 }
 
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const symbol = searchParams.get('symbol');
+  const startDate = searchParams.get('startDate');
+  const endDate = searchParams.get('endDate');
+  const timeframe = searchParams.get('timeframe') || '1d';
+  const nocache = searchParams.get('nocache') === 'true';
+  const force = searchParams.get('force');
+
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const symbol = searchParams.get('symbol');
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
-    const timeframe = searchParams.get('timeframe') || '1d';
-    const nocache = searchParams.get('nocache') === 'true';
-    const force = searchParams.get('force');
 
     if (!symbol || !startDate || !endDate) {
       return NextResponse.json(
@@ -132,6 +133,10 @@ export async function GET(request: NextRequest) {
     
     console.log(`🔗 Polygon API URL (DESC order for latest first): ${url}`);
     
+    // Create abort controller for timeout (more compatible than AbortSignal.timeout)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+    
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -140,9 +145,10 @@ export async function GET(request: NextRequest) {
         'Cache-Control': 'no-cache',
         'User-Agent': 'Bloomberg-Terminal/1.0'
       },
-      // FASTER TIMEOUT for quick ticker switching - fail fast if slow
-      signal: AbortSignal.timeout(8000), // 8 second timeout (reduced from 15s)
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       console.error(`❌ Polygon API Error for ${symbol}: ${response.status} ${response.statusText}`);
@@ -231,12 +237,33 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ Historical data API error:', error);
+    
+    // Handle specific error types
+    let errorMessage = 'Failed to fetch historical data';
+    let statusCode = 500;
+    
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timeout - please try again';
+        statusCode = 408;
+      } else if (error.message.includes('fetch')) {
+        errorMessage = 'Network error - unable to connect to data provider';
+        statusCode = 503;
+      } else if (error.message.includes('API key')) {
+        errorMessage = 'Invalid API configuration';
+        statusCode = 401;
+      } else {
+        errorMessage = error.message;
+      }
+    }
+    
     return NextResponse.json(
       { 
-        error: error instanceof Error ? error.message : 'Failed to fetch historical data',
-        timestamp: new Date().toISOString()
+        error: errorMessage,
+        timestamp: new Date().toISOString(),
+        symbol: symbol || 'unknown'
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }
