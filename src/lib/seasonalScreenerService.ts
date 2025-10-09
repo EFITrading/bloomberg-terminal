@@ -2,6 +2,16 @@
 import PolygonService from './polygonService';
 import { TOP_1800_SYMBOLS } from './Top1000Symbols';
 
+// Stocks that don't have reliable seasonal data - exclude from seasonality screening only
+const SEASONALITY_BLACKLIST = new Set([
+  // Only truly problematic symbols - most of these are delisted, penny stocks, or have data issues
+  'NAKD', 'SNDL', 'BBBY', 'WISH', 'CLOV', 'SPCE', 'MVIS', 'CTRM', 'EXPR', 'KOSS',
+  'WKHS', 'CLNE', 'GOEV', 'RIDE', 'NKLA', 'HYLN', 'GREE', 'SPRT', 'ANY', 'GMVD',
+  'RETO', 'REED', 'TOPS', 'SHIP', 'DRYS', 'GLBS', 'CASTOR', 'SBLK', 'DSE', 'BRDS',
+  'ADMP', 'ATOS', 'OBSV', 'VERB', 'VYNE', 'MARK', 'MOTS', 'PHUN', 'DWAC', 'BENE',
+  'PROG', 'PRTY', 'AVCT', 'ENVB', 'KPTI', 'GNUS', 'JAGX', 'BKTI', 'OCGN'
+]);
+
 interface SeasonalOpportunity {
   symbol: string;
   companyName: string;
@@ -23,11 +33,13 @@ interface StockListItem {
 }
 
 // Top 1800+ US companies by market capitalization (as of 2025)
-// Using the comprehensive TOP_1800_SYMBOLS list for better coverage
-const TOP1800_BY_MARKET_CAP: StockListItem[] = TOP_1800_SYMBOLS.map(symbol => ({
-  symbol: symbol,
-  name: symbol // We'll use symbol as name for simplicity
-}));
+// Filter out stocks without reliable seasonal data, but keep them available for options flow
+const TOP1800_BY_MARKET_CAP: StockListItem[] = TOP_1800_SYMBOLS
+  .filter(symbol => !SEASONALITY_BLACKLIST.has(symbol))
+  .map(symbol => ({
+    symbol: symbol,
+    name: symbol // We'll use symbol as name for simplicity
+  }));
 
 class SeasonalScreenerService {
   private polygonService: PolygonService;
@@ -60,9 +72,10 @@ class SeasonalScreenerService {
     // Check if seasonal starts within reasonable timeframe (show upcoming opportunities)
     const daysDifference = seasonalStartDay - todayDayOfYear;
     
-    // Show seasonals that start between -15 days and +45 days from today
-    // This gives us current/recent patterns and upcoming opportunities for the next 6 weeks
-    return daysDifference >= -15 && daysDifference <= 45;
+    // Show seasonals that start in 1-3 days AND keep showing for 2 days after start
+    // So if seasonal starts Oct 10, show from Oct 8 (today) until Oct 12 (2 days after start)
+    return daysDifference >= 1 && daysDifference <= 3 || // Upcoming (1-3 days)
+           daysDifference >= -2 && daysDifference <= 0;   // Recently started (0-2 days ago)
   }
 
   // Main screening function with bulk requests and configurable batch size
@@ -100,11 +113,34 @@ class SeasonalScreenerService {
           
           console.log(`📊 Getting bulk data for ${stock.symbol}...`);
           
-          // Use bulk historical data request
-          const stockData = await this.polygonService.getBulkHistoricalData(stock.symbol, years);
+          // Use bulk historical data request with retry logic
+          let stockData;
+          let retryCount = 0;
+          const maxRetries = 2;
+          
+          while (retryCount <= maxRetries) {
+            try {
+              stockData = await this.polygonService.getBulkHistoricalData(stock.symbol, years);
+              if (stockData?.results?.length) {
+                break; // Success
+              }
+              retryCount++;
+              if (retryCount <= maxRetries) {
+                console.log(`⚠️ Retrying ${stock.symbol} (attempt ${retryCount + 1}/${maxRetries + 1})`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // Progressive delay
+              }
+            } catch (error) {
+              retryCount++;
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              console.log(`⚠️ API error for ${stock.symbol}, attempt ${retryCount}/${maxRetries + 1}:`, errorMessage);
+              if (retryCount <= maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+              }
+            }
+          }
           
           if (!stockData?.results?.length) {
-            console.warn(`⚠️ No bulk data for ${stock.symbol}`);
+            console.warn(`⚠️ No data available for ${stock.symbol} after ${maxRetries + 1} attempts - skipping`);
             return;
           }
 

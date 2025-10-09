@@ -9,13 +9,7 @@ interface SeasonalChartProps {
 const SeasonalChart: React.FC<SeasonalChartProps> = ({ data, height = 40 }) => {
   // Add null/undefined check for data
   if (!data || !Array.isArray(data) || data.length === 0) {
-    return (
-      <div className="seasonal-chart" style={{ height: `${height}px` }}>
-        <div className="text-xs text-gray-500 flex items-center justify-center h-full">
-          No data available
-        </div>
-      </div>
-    );
+    return null; // Don't render anything if no data
   }
 
   const maxReturn = Math.max(...data.map(d => Math.abs(d.return)));
@@ -34,7 +28,7 @@ const SeasonalChart: React.FC<SeasonalChartProps> = ({ data, height = 40 }) => {
             style={{
               width: `${barWidth}%`,
               height: `${barHeight}px`,
-              backgroundColor: isPositive ? '#00BCD4' : '#FF5252',
+              backgroundColor: isPositive ? '#00FF00' : '#FF0000',
               marginTop: isPositive ? `${height - barHeight}px` : `${height * 0.5}px`
             }}
           />

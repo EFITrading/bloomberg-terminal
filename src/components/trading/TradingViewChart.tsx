@@ -18,6 +18,13 @@ import {
   TbLink
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
+
+// Global type declarations
+declare global {
+  interface Window {
+    MARKET_REGIMES_DEBUG?: any;
+  }
+}
 import ChartDataCache from '../../lib/chartDataCache';
 import OptionsCalculator from '../calculator/OptionsCalculator';
 import TradingPlan from './TradingPlan';
@@ -1855,9 +1862,75 @@ export default function TradingViewChart({
   const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false);
   const [expansionLiquidationZones, setExpansionLiquidationZones] = useState<any[]>([]);
 
+  // C/P Flow indicator state
+  const [isCPFlowActive, setIsCPFlowActive] = useState(false);
+  const [cpFlowData, setCPFlowData] = useState<{
+    timestamp: Date;
+    callFlow: number;
+    putFlow: number;
+  }[]>([]);
 
-  
+  // Generate mock C/P Flow data for one trading day (STRICTLY 9:30 AM - 4:00 PM ET)
+  const generateMockCPFlowData = useCallback(() => {
+    const data = [];
+    const today = new Date();
+    
+    // STRICT market hours - 9:30 AM to 4:00 PM Eastern Time
+    const marketOpen = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30, 0, 0); // 9:30:00 AM
+    const marketClose = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16, 0, 0, 0); // 4:00:00 PM
+    
+    // Generate data points based on timeframe for more detail
+    const intervalMinutes = config.timeframe === '5m' ? 1 : 3; // Every 1 min for 5m chart, every 3 min for 30m
+    
+    for (let time = new Date(marketOpen); time <= marketClose; time.setMinutes(time.getMinutes() + intervalMinutes)) {
+      const timeFromOpen = (time.getTime() - marketOpen.getTime()) / (1000 * 60 * 60); // Hours from open
+      const totalMarketHours = 6.5; // 9:30 AM to 4:00 PM = 6.5 hours
+      
+      // Enhanced realistic flow patterns
+      const baseCallFlow = 75000000; // $75M base
+      const basePutFlow = 65000000;  // $65M base
+      
+      // More sophisticated time-based patterns
+      const openingRush = timeFromOpen < 1 ? (1 - timeFromOpen) * 0.5 : 0; // Strong volume at open
+      const lunchLull = (timeFromOpen > 2.5 && timeFromOpen < 3.5) ? -0.3 : 0; // Lunch slowdown
+      const closingRush = timeFromOpen > 5.5 ? (timeFromOpen - 5.5) * 0.8 : 0; // Strong volume at close
+      
+      // Call bias (stronger in morning)
+      const callBias = Math.cos(timeFromOpen * Math.PI / totalMarketHours) * 0.4 + openingRush;
+      // Put bias (stronger in afternoon and during market stress)
+      const putBias = Math.sin(timeFromOpen * Math.PI / totalMarketHours) * 0.5 + closingRush;
+      
+      // Add realistic volatility and market events
+      const marketVolatility = Math.sin(timeFromOpen * 3) * 0.2;
+      const randomNoise = (Math.random() - 0.5) * 0.4;
+      
+      const callFlow = baseCallFlow * (1 + callBias + lunchLull + marketVolatility + randomNoise);
+      const putFlow = basePutFlow * (1 + putBias + lunchLull + marketVolatility + randomNoise);
+      
+      // Ensure we stay within realistic bounds
+      data.push({
+        timestamp: new Date(time),
+        callFlow: Math.max(10000000, Math.min(200000000, callFlow)), // $10M - $200M range
+        putFlow: Math.max(10000000, Math.min(200000000, putFlow))     // $10M - $200M range
+      });
+    }
+    
+    console.log(`📊 Generated ${data.length} C/P Flow data points from ${marketOpen.toLocaleTimeString()} to ${marketClose.toLocaleTimeString()}`);
+    return data;
+  }, [config.timeframe]);
 
+  // Initialize mock data when component mounts
+  useEffect(() => {
+    setCPFlowData(generateMockCPFlowData());
+  }, [generateMockCPFlowData]);
+
+  // Auto-deactivate C/P Flow if user switches to unsupported timeframe
+  useEffect(() => {
+    if (isCPFlowActive && config.timeframe !== '30m' && config.timeframe !== '5m') {
+      setIsCPFlowActive(false);
+      console.log('⚠️ C/P Flow indicator deactivated - unsupported timeframe');
+    }
+  }, [config.timeframe, isCPFlowActive]);
 
   // Watchlist data state
   const [watchlistData, setWatchlistData] = useState<{[key: string]: {
@@ -2138,24 +2211,58 @@ export default function TradingViewChart({
         setRegimeLoadingStage('Starting immediate analysis...');
         
         try {
-          console.log('� Auto-starting Market Regime Analysis on component mount...');
+          console.log('🚀 CHART COMPONENT: Auto-starting Market Regime Analysis on component mount...');
+          
+          // Add explicit debugging in browser console
+          window.MARKET_REGIMES_DEBUG = {
+            status: 'starting',
+            timestamp: new Date().toISOString()
+          };
           
           // Create a progress tracker
           const progressCallback = (stage: string, progress: number) => {
+            console.log(`📈 MARKET REGIMES PROGRESS: ${stage} (${progress}%)`);
             setRegimeLoadingStage(stage);
             setRegimeUpdateProgress(progress);
           };
 
           // Create a streaming callback to update results as they come in
           const streamCallback = (timeframe: string, data: TimeframeAnalysis) => {
-            console.log(`📊 Streaming ${timeframe} timeframe results...`);
-            setMarketRegimeData(prev => ({
-              ...prev,
-              [timeframe.toLowerCase()]: data
-            } as MarketRegimeData));
+            console.log(`📊 CHART: Streaming ${timeframe} timeframe results - ${data.industries.length} industries found`);
+            setMarketRegimeData(prev => {
+              const newData = {
+                ...prev,
+                [timeframe.toLowerCase()]: data
+              } as MarketRegimeData;
+              console.log(`💾 CHART: Updated Market Regime data state:`, newData);
+              return newData;
+            });
           };
 
-          const regimeData = await IndustryAnalysisService.getMarketRegimeDataStreaming(progressCallback, streamCallback);
+          console.log('🔄 CHART: Calling IndustryAnalysisService.getMarketRegimeDataStreaming...');
+          
+          // Add timeout to prevent infinite loading - increased for full dataset
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(new Error('Market regime analysis timeout after 3 minutes'));
+            }, 180000); // 3 minute timeout for full dataset
+          });
+          
+          const regimeData = await Promise.race([
+            IndustryAnalysisService.getMarketRegimeDataStreaming(progressCallback, streamCallback),
+            timeoutPromise
+          ]);
+          console.log('📦 CHART: Received final regime data:', regimeData);
+          
+          // Add explicit debugging in browser console
+          window.MARKET_REGIMES_DEBUG = {
+            status: 'completed',
+            timestamp: new Date().toISOString(),
+            data: regimeData,
+            lifeIndustries: regimeData?.life?.industries?.length || 0,
+            developingIndustries: regimeData?.developing?.industries?.length || 0,
+            momentumIndustries: regimeData?.momentum?.industries?.length || 0
+          };
           
           // Cache the complete data
           setRegimeDataCache(prev => ({
@@ -2168,7 +2275,15 @@ export default function TradingViewChart({
           console.log('✅ Market Regime Analysis Auto-loaded and Cached');
         } catch (error) {
           console.error('❌ Error loading market regime data:', error);
-          setRegimeLoadingStage('Error loading data');
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          
+          if (errorMessage.includes('Failed to fetch') || errorMessage.includes('CONNECTION_REFUSED')) {
+            setRegimeLoadingStage('Server connection failed - ensure dev server is running');
+          } else if (errorMessage.includes('timeout') || errorMessage.includes('AbortError')) {
+            setRegimeLoadingStage('Analysis timeout - server may be overloaded');
+          } else {
+            setRegimeLoadingStage('Error loading data - check console for details');
+          }
         } finally {
           setIsLoadingRegimes(false);
           setRegimeUpdateProgress(100);
@@ -2504,17 +2619,17 @@ export default function TradingViewChart({
     try {
       console.log(`🔴 LIVE: Fetching real-time price for ${sym}`);
       
-      // Use the dedicated real-time price endpoint
-      const url = createApiUrl('/api/realtime-price', {
-        symbol: sym,
-        _t: Date.now().toString()
-      });
-      const response = await fetch(url);
+      // Use Polygon API directly for real-time price instead of custom endpoint
+      const polygonUrl = `https://api.polygon.io/v2/last/trade/${sym}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+      const response = await fetch(polygonUrl);
       const result = await response.json();
       
-      if (response.ok && result.price) {
-        console.log(`💰 LIVE PRICE: ${sym} = $${result.price} (${result.source}: ${result.date})`);
-        setCurrentPrice(result.price);
+      console.log(`🔵 LIVE: Polygon API response for ${sym}:`, result);
+      
+      if (response.ok && result.status === 'OK' && result.results?.p) {
+        const livePrice = result.results.p; // Polygon's last trade price
+        console.log(`💰 LIVE PRICE: ${sym} = $${livePrice}`);
+        setCurrentPrice(livePrice);
         
         // For price change calculation, use current dates - NOT HARDCODED
         const today = new Date();
@@ -2533,7 +2648,7 @@ export default function TradingViewChart({
         if (histResponse.ok) {
           const histResult = await histResponse.json();
           if (histResult?.results && histResult.results.length >= 2) {
-            const current = result.price;
+            const current = livePrice;
             const previous = histResult.results[histResult.results.length - 2]?.c || current;
             const change = current - previous;
             const changePercent = ((change) / previous) * 100;
@@ -2543,9 +2658,23 @@ export default function TradingViewChart({
           }
         }
       } else {
-        console.error(`❌ Failed to get real-time price for ${sym}:`, result);
-        if (result?.error) {
-          console.error(`🔧 API Error Details: ${result.error}`);
+        console.log(`⚠️ No live trade data for ${sym}, trying last close price...`);
+        
+        // Fallback: Try to get the most recent close price from daily data
+        const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+        try {
+          const fallbackResponse = await fetch(fallbackUrl);
+          const fallbackResult = await fallbackResponse.json();
+          
+          if (fallbackResult.status === 'OK' && fallbackResult.results?.[0]?.c) {
+            const closePrice = fallbackResult.results[0].c;
+            console.log(`📊 FALLBACK: Using previous close price for ${sym}: $${closePrice}`);
+            setCurrentPrice(closePrice);
+          } else {
+            console.error(`❌ Failed to get fallback price for ${sym}:`, fallbackResult);
+          }
+        } catch (fallbackError) {
+          console.error(`❌ Fallback price fetch failed for ${sym}:`, fallbackError);
         }
       }
     } catch (error) {
@@ -3407,8 +3536,11 @@ export default function TradingViewChart({
     // Calculate chart areas - reserve space for volume and time axis
     const timeAxisHeight = 25;
     const volumeAreaHeight = 80; // Reserve space for volume bars
+    const cpFlowPaneHeight = 320; // Reserve space for C/P Flow indicator (quadrupled height for better visibility)
     
-    const priceChartHeight = height - volumeAreaHeight - timeAxisHeight;
+    // Adjust price chart height based on active indicators
+    const totalBottomSpace = volumeAreaHeight + timeAxisHeight + (isCPFlowActive ? cpFlowPaneHeight : 0);
+    const priceChartHeight = height - totalBottomSpace;
 
     // Draw grid first for price chart area (only if enabled)
     if (config.showGrid) {
@@ -3645,8 +3777,16 @@ export default function TradingViewChart({
 
 
 
-    // Draw volume bars above the time axis (TradingView style)
-    drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+    // Draw C/P Flow indicator above volume (if active)
+    if (isCPFlowActive && cpFlowData.length > 0) {
+      const cpFlowPaneHeight = 320; // Much taller indicator pane
+      drawCPFlowIndicator(ctx, cpFlowData, chartWidth, priceChartHeight, cpFlowPaneHeight, config);
+      // Adjust volume position down to make room for C/P Flow pane
+      drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + cpFlowPaneHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+    } else {
+      // Draw volume bars above the time axis (TradingView style)
+      drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+    }
 
     // Draw time axis at the bottom
     drawTimeAxis(ctx, width, height, visibleData, chartWidth, visibleCandleCount, scrollOffset, data);
@@ -3825,6 +3965,220 @@ export default function TradingViewChart({
     ctx.font = 'bold 10px Arial';
     ctx.textAlign = 'left';
     ctx.fillText('Volume', 45, volumeStartY + 15);
+  };
+
+  // Draw C/P Flow indicator pane
+  const drawCPFlowIndicator = (
+    ctx: CanvasRenderingContext2D,
+    flowData: { timestamp: Date; callFlow: number; putFlow: number }[],
+    chartWidth: number,
+    priceChartHeight: number,
+    paneHeight: number,
+    config: ChartConfig
+  ) => {
+    const startY = priceChartHeight;
+    const endY = priceChartHeight + paneHeight;
+    const leftMargin = 70; // Increased from 40 to 70 to accommodate Y-axis labels
+    const rightMargin = 40;
+    const plotWidth = chartWidth - leftMargin - rightMargin;
+    
+    // Draw pane background - pure black
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(leftMargin, startY, plotWidth, paneHeight);
+    
+    // Draw pane border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(leftMargin, startY, plotWidth, paneHeight);
+    
+    if (flowData.length === 0) return;
+    
+    // Find min/max values for Y-axis scaling
+    const allFlows = flowData.flatMap(d => [d.callFlow, d.putFlow]);
+    const minFlow = Math.min(...allFlows);
+    const maxFlow = Math.max(...allFlows);
+    const flowRange = maxFlow - minFlow;
+    
+    // Create Y-axis scale function with more padding for taller pane
+    const scaleY = (value: number) => {
+      const normalized = (value - minFlow) / flowRange;
+      return startY + paneHeight - (normalized * (paneHeight - 60)); // 30px margin top/bottom for taller pane
+    };
+    
+    // Draw Y-axis labels (dollar amounts) - Enhanced white crispy text
+    ctx.fillStyle = '#ffffff'; // Pure white for maximum contrast
+    ctx.font = 'bold 12px Arial'; // Bigger, bolder font
+    ctx.textAlign = 'right';
+    
+    // Draw 6 Y-axis labels for better granularity
+    for (let i = 0; i <= 5; i++) {
+      const value = minFlow + (flowRange * i / 5);
+      const y = scaleY(value);
+      const label = value >= 1000000000 ? `$${(value / 1000000000).toFixed(1)}B` : `$${(value / 1000000).toFixed(0)}M`;
+      
+      // Add text shadow for crispness
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
+      ctx.shadowBlur = 2;
+      
+      ctx.fillText(label, leftMargin - 10, y + 4); // More space from the edge
+      
+      // Reset shadow
+      ctx.shadowColor = 'transparent';
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.shadowBlur = 0;
+      
+      // Draw tick mark - brighter and thicker
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(leftMargin - 10, y);
+      ctx.lineTo(leftMargin, y);
+      ctx.stroke();
+    }
+    
+    // Create time scale - STRICT market hours only (9:30 AM - 4:00 PM)
+    const today = new Date();
+    const marketOpen = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30, 0, 0);
+    const marketClose = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16, 0, 0, 0);
+    
+    const timeRange = marketClose.getTime() - marketOpen.getTime(); // Exactly 6.5 hours
+    const scaleX = (timestamp: Date) => {
+      const timeFromOpen = timestamp.getTime() - marketOpen.getTime();
+      // Clamp to market hours only - no pre/post market data
+      const normalized = Math.max(0, Math.min(1, timeFromOpen / timeRange));
+      return Math.round(leftMargin + (normalized * plotWidth)); // Round for crispy positioning
+    };
+    
+    // Enable anti-aliasing for crispy lines
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    // Draw Call Flow line (green) - 100% opacity, crispy
+    ctx.strokeStyle = '#00ff00'; // Pure green, 100% opacity
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    flowData.forEach((point, index) => {
+      const x = Math.round(scaleX(point.timestamp)); // Round for crispy pixels
+      const y = Math.round(scaleY(point.callFlow));
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+    ctx.stroke();
+    
+    // Draw Put Flow line (red) - 100% opacity, crispy
+    ctx.strokeStyle = '#ff0000'; // Pure red, 100% opacity
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    flowData.forEach((point, index) => {
+      const x = Math.round(scaleX(point.timestamp)); // Round for crispy pixels
+      const y = Math.round(scaleY(point.putFlow));
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+    ctx.stroke();
+    
+    // Add title in center - Enhanced white crispy text
+    ctx.fillStyle = '#ffffff'; // Pure white
+    ctx.font = 'bold 14px Arial'; // Bigger title
+    ctx.textAlign = 'center'; // Center alignment
+    
+    // Add text shadow for title
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+    ctx.shadowBlur = 2;
+    
+    // Center the title in the middle of the plot area
+    const centerX = leftMargin + (plotWidth / 2);
+    ctx.fillText('C/P FLOW', centerX, startY + 20);
+    
+    // Reset shadow
+    ctx.shadowColor = 'transparent';
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.shadowBlur = 0;
+    
+    // Position legend on top right - moved left to fit within box
+    const legendStartX = leftMargin + plotWidth - 140; // Start 140px from right edge (moved 20px left)
+    
+    // Call legend (top right)
+    ctx.fillStyle = '#00ff00'; // Pure green
+    ctx.fillRect(legendStartX, startY + 10, 18, 5);
+    ctx.fillStyle = '#ffffff'; // Pure white
+    ctx.font = 'bold 12px Arial'; // Bigger legend text
+    ctx.textAlign = 'left'; // Left align for legend text
+    
+    // Add text shadow for legend
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+    ctx.shadowBlur = 2;
+    
+    ctx.fillText('CALLS', legendStartX + 25, startY + 17);
+    
+    // Put legend (to the right of calls)
+    ctx.fillStyle = '#ff0000'; // Pure red
+    ctx.fillRect(legendStartX + 70, startY + 10, 18, 5);
+    ctx.fillStyle = '#ffffff'; // Pure white
+    ctx.fillText('PUTS', legendStartX + 95, startY + 17);
+    
+    // Reset shadow
+    ctx.shadowColor = 'transparent';
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.shadowBlur = 0;
+    
+    // Draw time markers (9:30 AM, 10:30, 12:00 PM, 2:00, 4:00 PM) - Enhanced
+    const timeMarkers = [
+      { time: new Date(marketOpen), label: '9:30 AM' },
+      { time: new Date(marketOpen.getTime() + 1 * 60 * 60 * 1000), label: '10:30' },
+      { time: new Date(marketOpen.getTime() + 2.5 * 60 * 60 * 1000), label: '12:00 PM' },
+      { time: new Date(marketOpen.getTime() + 4.5 * 60 * 60 * 1000), label: '2:00' },
+      { time: new Date(marketClose), label: '4:00 PM' }
+    ];
+    
+    ctx.fillStyle = '#ffffff'; // Pure white
+    ctx.font = 'bold 11px Arial'; // Bigger, bolder font
+    ctx.textAlign = 'center';
+    
+    timeMarkers.forEach(marker => {
+      const x = scaleX(marker.time);
+      
+      // Add text shadow for crispness
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
+      ctx.shadowBlur = 2;
+      
+      ctx.fillText(marker.label, x, endY - 8);
+      
+      // Reset shadow
+      ctx.shadowColor = 'transparent';
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.shadowBlur = 0;
+      
+      // Draw vertical line - brighter and thicker
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, startY);
+      ctx.lineTo(x, endY - 20);
+      ctx.stroke();
+    });
   };
 
   // Draw grid lines for price chart area only
@@ -6551,220 +6905,324 @@ export default function TradingViewChart({
   // RegimesPanel component removed for reconstruction
   // Enhanced Market Regimes Panel Component with advanced analytics
   const RegimesPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
-    // Remove empty tabs - only keep the functional content
-    // const [viewMode, setViewMode] = React.useState<'overview'>('overview');
+    console.log('🎭 REGIMES PANEL: Rendering with activeTab:', activeTab);
+    console.log('🎭 REGIMES PANEL: Market regime data available:', !!marketRegimeData);
+    console.log('🎭 REGIMES PANEL: Full market regime data:', marketRegimeData);
+    
+    // Add to global debug object
+    window.MARKET_REGIMES_DEBUG = {
+      ...window.MARKET_REGIMES_DEBUG,
+      panelRender: {
+        activeTab,
+        hasData: !!marketRegimeData,
+        data: marketRegimeData
+      }
+    };
     
     const getCurrentTimeframeData = () => {
-      if (!marketRegimeData) return null;
+      if (!marketRegimeData) {
+        console.log('🎭 REGIMES PANEL: No market regime data available');
+        return null;
+      }
       
+      let data;
       switch (activeTab) {
         case 'Life':
-          return marketRegimeData.life;
+          data = marketRegimeData.life;
+          break;
         case 'Developing':
-          return marketRegimeData.developing;
+          data = marketRegimeData.developing;
+          break;
         case 'Momentum':
-          return marketRegimeData.momentum;
+          data = marketRegimeData.momentum;
+          break;
         default:
-          return marketRegimeData.life;
+          data = marketRegimeData.life;
       }
+      
+      console.log(`🎭 REGIMES PANEL: ${activeTab} data:`, data);
+      return data;
     };
 
     const timeframeData = getCurrentTimeframeData();
     const bullishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bullish').slice(0, 20) || [];
     const bearishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bearish').slice(0, 20) || [];
+    
+    console.log(`🎭 REGIMES PANEL: ${activeTab} - Bullish: ${bullishIndustries.length}, Bearish: ${bearishIndustries.length}`);
 
     return (
       <div className="h-full flex flex-col" style={{
-        background: 'linear-gradient(145deg, #000000 0%, #0a0a0a 25%, #000000 50%, #0a0a0a 75%, #000000 100%)',
-        boxShadow: 'inset 0 0 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-        borderRadius: '0',
-        overflow: 'hidden'
+        background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 25%, #111111 50%, #0a0a0a 75%, #000000 100%)',
+        borderLeft: '1px solid rgba(255, 102, 0, 0.3)'
       }}>
-        {/* Professional Glossy Header */}
+        {/* Premium Bloomberg-Style Header */}
         <div style={{
-          background: 'linear-gradient(145deg, #000000 0%, #1a1a1a 50%, #000000 100%)',
-          borderBottom: '2px solid rgba(255, 255, 255, 0.1)',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+          background: '#000000',
+          borderBottom: '2px solid rgba(255, 102, 0, 0.4)',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
         }}>
-          {/* Enhanced Centered Title */}
-          <div className="px-8 py-8 text-center relative" style={{
-            background: 'linear-gradient(145deg, #000000 0%, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%, #000000 100%)',
-            borderBottom: '2px solid rgba(255, 255, 255, 0.15)',
-            boxShadow: 'inset 0 4px 12px rgba(0, 0, 0, 0.8), inset 0 -2px 8px rgba(255, 255, 255, 0.05), 0 8px 20px rgba(0, 0, 0, 0.6)',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            {/* Background enhancement elements */}
-            <div className="absolute inset-0" style={{
-              background: 'radial-gradient(ellipse at center, rgba(255, 255, 255, 0.03) 0%, transparent 70%)',
-              pointerEvents: 'none'
+          {/* Premium Title Section */}
+          <div className="px-6 py-6 relative overflow-hidden">
+            {/* Background Ambient Glow */}
+            <div className="absolute inset-0 opacity-30" style={{
+              background: 'radial-gradient(ellipse at top, rgba(255, 102, 0, 0.1) 0%, transparent 70%)'
             }}/>
-            <div className="absolute inset-0" style={{
-              background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.02) 50%, transparent 100%)',
-              pointerEvents: 'none'
+            <div className="absolute inset-0 opacity-20" style={{
+              background: 'linear-gradient(90deg, transparent 0%, rgba(255, 102, 0, 0.05) 50%, transparent 100%)'
             }}/>
             
-            <h1 className="font-mono font-bold tracking-[0.25em] uppercase relative z-10" style={{
-              fontSize: '32px',
-              background: 'linear-gradient(135deg, #ffffff 0%, #f0f0f0 25%, #ffffff 50%, #f0f0f0 75%, #ffffff 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              textShadow: '0 4px 15px rgba(255, 255, 255, 0.4), 0 0 40px rgba(255, 255, 255, 0.15), 0 2px 0 rgba(0, 0, 0, 0.8)',
-              letterSpacing: '0.2em',
-              lineHeight: '1.2',
-              filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8))'
-            }}>
-              Market Regimes
-            </h1>
-            
-            {/* Subtle decorative elements */}
-            <div className="absolute left-1/2 bottom-2 transform -translate-x-1/2" style={{
-              width: '60px',
-              height: '2px',
-              background: 'linear-gradient(90deg, transparent 0%, #ffffff 50%, transparent 100%)',
-              opacity: 0.3
-            }}/>
+            <div className="relative z-10 flex items-center justify-center">
+              <div className="text-center">
+                <h1 className="text-4xl font-bold tracking-wider uppercase mb-1" style={{
+                  fontFamily: '"JetBrains Mono", monospace',
+                  background: 'linear-gradient(135deg, #ffffff 0%, #ffcc80 25%, #ff9800 50%, #ffcc80 75%, #ffffff 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  textShadow: '0 2px 10px rgba(255, 152, 0, 0.3)',
+                  filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8))'
+                }}>
+                  Market Regimes
+                </h1>
+              </div>
+              
+              {/* Status Indicator - positioned absolute top right */}
+              <div className="absolute top-6 right-6 flex items-center space-x-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" style={{
+                    boxShadow: '0 0 8px rgba(76, 175, 80, 0.6)'
+                  }}/>
+                  <span className="text-xs text-green-400 font-mono font-medium">LIVE</span>
+                </div>
+                <div className="text-xs text-gray-500 font-mono">
+                  {new Date().toLocaleTimeString()}
+                </div>
+              </div>
+            </div>
           </div>
           
-          {/* Professional 3D Tabs */}
-          <div className="px-6 py-8 flex justify-center">
-            <div className="flex" style={{
-              background: 'linear-gradient(145deg, #000000 0%, #0a0a0a 50%, #000000 100%)',
-              borderRadius: '12px',
-              padding: '6px',
-              boxShadow: 'inset 0 4px 8px rgba(0, 0, 0, 0.8), inset 0 -4px 8px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 0, 0, 0.9)',
-              border: '1px solid rgba(255, 255, 255, 0.05)'
+          {/* Premium Tab Navigation */}
+          <div className="px-6 pb-4">
+            <div className="flex rounded-lg p-2" style={{
+              background: '#000000',
+              border: '1px solid rgba(255, 102, 0, 0.2)',
+              boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.8)'
             }}>
-              {['Life', 'Developing', 'Momentum'].map((tab, index) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className="relative px-8 py-4 text-lg font-bold transition-all duration-300 font-mono uppercase tracking-wider"
-                  style={{
-                    background: activeTab === tab 
-                      ? 'linear-gradient(145deg, #1a1a1a 0%, #000000 25%, #2a2a2a 50%, #000000 75%, #1a1a1a 100%)'
-                      : 'linear-gradient(145deg, #000000 0%, #0a0a0a 50%, #000000 100%)',
-                    color: activeTab === tab ? '#ffffff' : '#666666',
-                    borderRadius: '8px',
-                    margin: '0 2px',
-                    minWidth: '140px',
-                    textShadow: activeTab === tab 
-                      ? '0 2px 4px rgba(0, 0, 0, 0.9), 0 0 10px rgba(255, 255, 255, 0.2)' 
-                      : '0 1px 2px rgba(0, 0, 0, 0.8)',
-                    boxShadow: activeTab === tab
-                      ? 'inset 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 -2px 4px rgba(255, 255, 255, 0.1), 0 4px 12px rgba(0, 0, 0, 0.7)'
-                      : 'inset 0 1px 2px rgba(0, 0, 0, 0.6), inset 0 -1px 2px rgba(255, 255, 255, 0.02), 0 2px 6px rgba(0, 0, 0, 0.5)',
-                    border: activeTab === tab 
-                      ? '1px solid rgba(255, 255, 255, 0.1)' 
-                      : '1px solid rgba(255, 255, 255, 0.02)',
-                    transform: activeTab === tab ? 'translateY(-1px)' : 'translateY(0)',
-                    letterSpacing: '0.1em'
-                  }}
-                  onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                    if (activeTab !== tab) {
-                      e.currentTarget.style.background = 'linear-gradient(145deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)';
-                      e.currentTarget.style.color = '#cccccc';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0, 0, 0, 0.7), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 10px rgba(0, 0, 0, 0.6)';
-                    }
-                  }}
-                  onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                    if (activeTab !== tab) {
-                      e.currentTarget.style.background = 'linear-gradient(145deg, #000000 0%, #0a0a0a 50%, #000000 100%)';
-                      e.currentTarget.style.color = '#666666';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(0, 0, 0, 0.6), inset 0 -1px 2px rgba(255, 255, 255, 0.02), 0 2px 6px rgba(0, 0, 0, 0.5)';
-                    }
-                  }}
-                >
-                  {tab}
-                  {activeTab === tab && (
-                    <div 
-                      className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 rounded-full"
-                      style={{
-                        width: '30px',
-                        height: '3px',
-                        background: 'linear-gradient(90deg, transparent 0%, #ffffff 50%, transparent 100%)',
-                        boxShadow: '0 0 10px rgba(255, 255, 255, 0.5)'
-                      }}
-                    />
-                  )}
-                </button>
-              ))}
+              {['Life', 'Developing', 'Momentum'].map((tab, index) => {
+                const tabColors = {
+                  'Life': { bg: 'rgba(76, 175, 80, 0.15)', border: 'rgba(76, 175, 80, 0.4)', color: '#4caf50', hoverBg: 'rgba(76, 175, 80, 0.25)' },
+                  'Developing': { bg: 'rgba(33, 150, 243, 0.15)', border: 'rgba(33, 150, 243, 0.4)', color: '#2196f3', hoverBg: 'rgba(33, 150, 243, 0.25)' },
+                  'Momentum': { bg: 'rgba(156, 39, 176, 0.15)', border: 'rgba(156, 39, 176, 0.4)', color: '#9c27b0', hoverBg: 'rgba(156, 39, 176, 0.25)' }
+                };
+                const tabStyle = tabColors[tab as keyof typeof tabColors];
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className="relative flex-1 px-8 py-4 text-lg font-mono font-bold uppercase tracking-wider transition-all duration-300"
+                    style={{
+                      background: activeTab === tab ? tabStyle.bg : 'transparent',
+                      color: activeTab === tab ? tabStyle.color : '#666666',
+                      borderRadius: '8px',
+                      border: activeTab === tab ? `2px solid ${tabStyle.border}` : '2px solid transparent',
+                      textShadow: activeTab === tab 
+                        ? `0 1px 3px ${tabStyle.color}80` 
+                        : '0 1px 2px rgba(0, 0, 0, 0.8)',
+                      boxShadow: activeTab === tab
+                        ? `0 4px 12px ${tabStyle.color}40, inset 0 1px 0 rgba(255, 255, 255, 0.1)`
+                        : 'inset 0 1px 0 rgba(255, 255, 255, 0.02)',
+                      transform: activeTab === tab ? 'translateY(-2px) scale(1.02)' : 'translateY(0) scale(1)'
+                    }}
+                    onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                      if (activeTab !== tab) {
+                        e.currentTarget.style.background = tabStyle.hoverBg;
+                        e.currentTarget.style.color = tabStyle.color;
+                        e.currentTarget.style.border = `2px solid ${tabStyle.border}60`;
+                        e.currentTarget.style.transform = 'translateY(-1px) scale(1.01)';
+                      }
+                    }}
+                    onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                      if (activeTab !== tab) {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = '#666666';
+                        e.currentTarget.style.border = '2px solid transparent';
+                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                      }
+                    }}
+                  >
+                    {tab}
+                    {activeTab === tab && (
+                      <div 
+                        className="absolute -bottom-1 left-1/2 transform -translate-x-1/2"
+                        style={{
+                          width: '60%',
+                          height: '3px',
+                          background: `linear-gradient(90deg, transparent 0%, ${tabStyle.color} 50%, transparent 100%)`,
+                          borderRadius: '2px',
+                          boxShadow: `0 0 8px ${tabStyle.color}`
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
         
-        {/* Progress bar */}
+        {/* Premium Progress Bar */}
         {isLoadingRegimes && (
-          <div className="w-full bg-[#1a1a1a]">
+          <div className="w-full h-1 relative overflow-hidden" style={{
+            background: 'linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)'
+          }}>
             <div 
-              className="bg-emerald-500 h-1 transition-all duration-300 ease-out"
-              style={{ width: `${regimeUpdateProgress}%` }}
-            />
+              className="h-full transition-all duration-500 ease-out relative"
+              style={{ 
+                width: `${regimeUpdateProgress}%`,
+                background: 'linear-gradient(90deg, #ff6600 0%, #ff9800 50%, #ffcc80 100%)',
+                boxShadow: '0 0 10px rgba(255, 102, 0, 0.6)'
+              }}
+            >
+              <div className="absolute inset-0 animate-pulse" style={{
+                background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%)'
+              }}/>
+            </div>
           </div>
         )}
         
-        {/* Content */}
+        {/* Premium Content Area */}
         <div className="flex-1 overflow-hidden">
           {isLoadingRegimes && !marketRegimeData ? (
-            <div className="flex flex-col items-center justify-center h-full space-y-4">
-              <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-              <div className="text-white text-opacity-60 text-sm text-center">
-                <div>{regimeLoadingStage}</div>
-                <div className="text-xs text-white text-opacity-40 mt-1">{regimeUpdateProgress}% complete</div>
-                <div className="text-xs text-emerald-400 mt-2">📊 Auto-loading on startup...</div>
+            <div className="flex flex-col items-center justify-center h-full space-y-6 p-8">
+              <div className="relative">
+                <div className="w-12 h-12 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" style={{
+                  boxShadow: '0 0 20px rgba(255, 152, 0, 0.3)'
+                }}></div>
+                <div className="absolute inset-0 w-12 h-12 border border-orange-300 border-opacity-20 rounded-full animate-ping"></div>
+              </div>
+              <div className="text-center font-mono">
+                <div className="text-white text-lg font-bold mb-2">{regimeLoadingStage}</div>
+                <div className="text-orange-400 text-sm mb-1">{regimeUpdateProgress}% complete</div>
+                <div className="text-gray-500 text-xs">Analyzing market momentum...</div>
               </div>
             </div>
           ) : !marketRegimeData ? (
-            <div className="flex flex-col items-center justify-center h-full space-y-4">
-              <div className="text-white text-opacity-60 text-center">
-                <div className="text-lg mb-2">📊</div>
-                <div>Market Regime Analysis</div>
-                <div className="text-xs text-white text-opacity-40 mt-1">Analysis loading automatically...</div>
+            <div className="flex flex-col items-center justify-center h-full space-y-6 p-8">
+              <div className="text-4xl mb-4">📊</div>
+              <div className="text-center font-mono">
+                <div className="text-white text-xl font-bold mb-2">Market Regime Analysis</div>
+                <div className="text-orange-400 text-sm">Initializing premium analytics...</div>
               </div>
             </div>
           ) : (
-            <div className="h-full overflow-y-auto">
-              {/* Show streaming indicator while still loading */}
+            <div className="h-full overflow-y-auto" style={{
+              background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)'
+            }}>
+              {/* Premium Streaming Indicator */}
               {isLoadingRegimes && (
-                <div className="mx-4 mt-3 px-3 py-2 bg-emerald-900 bg-opacity-20 border border-emerald-500 border-opacity-30 rounded text-xs text-emerald-400">
-                  🔄 {regimeLoadingStage} ({regimeUpdateProgress}% complete)
+                <div className="mx-6 mt-4 p-3 rounded-lg" style={{
+                  background: 'linear-gradient(135deg, rgba(255, 102, 0, 0.1) 0%, rgba(255, 152, 0, 0.05) 100%)',
+                  border: '1px solid rgba(255, 102, 0, 0.3)',
+                  boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+                }}>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-3 h-3 bg-orange-400 rounded-full animate-pulse" style={{
+                      boxShadow: '0 0 8px rgba(255, 152, 0, 0.8)'
+                    }}/>
+                    <span className="text-orange-300 font-mono text-sm font-medium">
+                      {regimeLoadingStage} ({regimeUpdateProgress}%)
+                    </span>
+                  </div>
                 </div>
               )}
               
-              {/* Content - Industry Lists */}
-              <div className="p-4">
-                {/* Industry Lists */}
+              {/* Premium Industry Analysis Grid */}
+              <div className="px-6 pb-6">
                 <div className="grid grid-cols-2 gap-6">
-                  {/* Bullish Industries */}
-                  <div className="space-y-4">
-                    <h3 className="text-xl font-bold text-green-400 uppercase tracking-wider mb-4">Bullish Industries</h3>
-                    <div className="grid grid-cols-2 gap-3">
+                  {/* Premium Bullish Industries Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" style={{
+                            boxShadow: '0 0 8px rgba(76, 175, 80, 0.8)'
+                          }}/>
+                          <span className="text-green-400 font-mono font-bold text-sm uppercase tracking-wider">
+                            Bullish Momentum
+                          </span>
+                        </div>
+                      </h3>
+                      <div className="text-green-400 font-mono text-xs bg-green-400 bg-opacity-10 px-2 py-1 rounded">
+                        {bullishIndustries.length} sectors
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3">
                     {bullishIndustries.length > 0 ? bullishIndustries.map((industry, index) => (
                       <div 
                         key={industry.symbol} 
-                        className="group p-4 rounded-lg bg-black border border-green-400 border-opacity-20 hover:border-green-400 hover:border-opacity-40 transition-all duration-200 shadow-lg"
+                        className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
+                        style={{
+                          background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)',
+                          border: '1px solid rgba(76, 175, 80, 0.2)',
+                          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(0, 0, 0, 0.2) 100%)';
+                          e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.4)';
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 25px rgba(76, 175, 80, 0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)';
+                          e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.2)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)';
+                        }}
                       >
-                        <div className="flex justify-between items-center mb-3">
-                          <div className="flex items-center">
-                            <span className="text-base text-gray-500 mr-3 font-mono">#{index + 1}</span>
-                            <span className="text-green-400 font-bold text-xl tracking-wide">{industry.symbol}</span>
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-3">
+                              <span className="text-green-400 font-mono font-bold text-2xl tracking-wide">
+                                {industry.symbol}
+                              </span>
+                              <div className="flex items-center space-x-1">
+                                <div className="w-1 h-1 bg-green-400 rounded-full"/>
+                                <div className="w-1 h-1 bg-green-400 rounded-full opacity-75"/>
+                                <div className="w-1 h-1 bg-green-400 rounded-full opacity-50"/>
+                              </div>
+                            </div>
+                            <div className="text-gray-300 text-base mt-1 font-medium leading-relaxed">
+                              {industry.name}
+                            </div>
                           </div>
-                          <div className="text-green-300 text-base font-mono bg-green-400 bg-opacity-10 px-2 py-1 rounded">
-                            +{industry.relativePerformance.toFixed(2)}%
+                          <div className="text-right">
+                            <div className="text-green-400 font-mono text-xl font-bold">
+                              +{industry.relativePerformance.toFixed(2)}%
+                            </div>
+                            <div className="w-16 h-1 bg-gray-700 rounded-full mt-1 overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-green-500 to-green-300 rounded-full transition-all duration-1000"
+                                style={{ width: `${Math.min(100, (industry.relativePerformance / 5) * 100)}%` }}
+                              />
+                            </div>
                           </div>
                         </div>
-                        <div className="text-white text-lg mb-1 font-medium">{industry.name}</div>
                         
-                        {/* Top Performing Stocks within this Industry */}
+                        {/* Top Performers */}
                         {industry.topPerformers && industry.topPerformers.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-green-400 border-opacity-20">
-                            <div className="space-y-2">
-                              {industry.topPerformers.slice(0, 3).map((stock, stockIndex) => (
+                          <div className="border-t border-green-400 border-opacity-20 pt-3 mt-3">
+                            <div className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wide">
+                              Top 3 Performers
+                            </div>
+                            <div className="space-y-1">
+                              {industry.topPerformers.slice(0, 3).map((stock) => (
                                 <div 
                                   key={stock.symbol} 
-                                  className="flex justify-between items-center bg-gray-900 bg-opacity-50 px-3 py-2 rounded cursor-pointer hover:bg-gray-800 hover:bg-opacity-60 transition-all duration-200"
+                                  className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200"
+                                  style={{
+                                    background: 'rgba(0, 0, 0, 0.3)',
+                                    border: '1px solid rgba(76, 175, 80, 0.1)'
+                                  }}
                                   onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                                     e.stopPropagation();
                                     console.log(`📊 Switching chart to ${stock.symbol} from bullish industry`);
@@ -6773,9 +7231,19 @@ export default function TradingViewChart({
                                     }
                                     setConfig(prev => ({ ...prev, symbol: stock.symbol }));
                                   }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(76, 175, 80, 0.1)';
+                                    e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.3)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
+                                    e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.1)';
+                                  }}
                                 >
-                                  <span className="text-white font-mono font-medium text-base">{stock.symbol}</span>
-                                  <span className="text-green-400 font-mono font-bold text-base">
+                                  <span className="text-white font-mono font-medium text-lg">
+                                    {stock.symbol}
+                                  </span>
+                                  <span className="text-green-400 font-mono font-bold text-lg">
                                     +{stock.relativePerformance.toFixed(1)}%
                                   </span>
                                 </div>
@@ -6785,42 +7253,100 @@ export default function TradingViewChart({
                         )}
                       </div>
                     )) : (
-                      <div className="p-4 rounded-lg bg-black border border-gray-500 border-opacity-30 text-center">
-                        <div className="text-gray-400 text-base">No bullish industries</div>
-                        <div className="text-gray-500 text-sm mt-1">in this timeframe</div>
+                      <div className="text-center py-8">
+                        <div className="text-gray-500 font-mono text-sm">
+                          No bullish sectors detected
+                        </div>
                       </div>
                     )}
                     </div>
                   </div>
                   
-                  {/* Bearish Industries */}
-                  <div className="space-y-4">
-                    <h3 className="text-xl font-bold text-red-400 uppercase tracking-wider mb-4">Bearish Industries</h3>
-                    <div className="grid grid-cols-2 gap-3">
+                  {/* Premium Bearish Industries Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse" style={{
+                            boxShadow: '0 0 8px rgba(244, 67, 54, 0.8)'
+                          }}/>
+                          <span className="text-red-400 font-mono font-bold text-sm uppercase tracking-wider">
+                            Bearish Pressure
+                          </span>
+                        </div>
+                      </h3>
+                      <div className="text-red-400 font-mono text-xs bg-red-400 bg-opacity-10 px-2 py-1 rounded">
+                        {bearishIndustries.length} sectors
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3">
                     {bearishIndustries.length > 0 ? bearishIndustries.map((industry, index) => (
                       <div 
                         key={industry.symbol} 
-                        className="group p-4 rounded-lg bg-black border border-red-400 border-opacity-20 hover:border-red-400 hover:border-opacity-40 transition-all duration-200 shadow-lg"
+                        className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
+                        style={{
+                          background: 'linear-gradient(135deg, rgba(244, 67, 54, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)',
+                          border: '1px solid rgba(244, 67, 54, 0.2)',
+                          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(244, 67, 54, 0.15) 0%, rgba(0, 0, 0, 0.2) 100%)';
+                          e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.4)';
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 25px rgba(244, 67, 54, 0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(244, 67, 54, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)';
+                          e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.2)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)';
+                        }}
                       >
-                        <div className="flex justify-between items-center mb-3">
-                          <div className="flex items-center">
-                            <span className="text-base text-gray-500 mr-3 font-mono">#{index + 1}</span>
-                            <span className="text-red-400 font-bold text-xl tracking-wide">{industry.symbol}</span>
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-3">
+                              <span className="text-red-400 font-mono font-bold text-2xl tracking-wide">
+                                {industry.symbol}
+                              </span>
+                              <div className="flex items-center space-x-1">
+                                <div className="w-1 h-1 bg-red-400 rounded-full"/>
+                                <div className="w-1 h-1 bg-red-400 rounded-full opacity-75"/>
+                                <div className="w-1 h-1 bg-red-400 rounded-full opacity-50"/>
+                              </div>
+                            </div>
+                            <div className="text-gray-300 text-base mt-1 font-medium leading-relaxed">
+                              {industry.name}
+                            </div>
                           </div>
-                          <div className="text-red-300 text-base font-mono bg-red-400 bg-opacity-10 px-2 py-1 rounded">
-                            {industry.relativePerformance.toFixed(2)}%
+                          <div className="text-right">
+                            <div className="text-red-400 font-mono text-xl font-bold">
+                              {industry.relativePerformance.toFixed(2)}%
+                            </div>
+                            <div className="w-16 h-1 bg-gray-700 rounded-full mt-1 overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-red-500 to-red-300 rounded-full transition-all duration-1000"
+                                style={{ width: `${Math.min(100, Math.abs(industry.relativePerformance / 5) * 100)}%` }}
+                              />
+                            </div>
                           </div>
                         </div>
-                        <div className="text-white text-lg mb-1 font-medium">{industry.name}</div>
                         
-                        {/* Worst Performing Stocks within this Industry */}
+                        {/* Worst Performers */}
                         {industry.worstPerformers && industry.worstPerformers.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-red-400 border-opacity-20">
-                            <div className="space-y-2">
-                              {industry.worstPerformers.slice(0, 3).map((stock, stockIndex) => (
+                          <div className="border-t border-red-400 border-opacity-20 pt-3 mt-3">
+                            <div className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wide">
+                              Worst 3 Performers
+                            </div>
+                            <div className="space-y-1">
+                              {industry.worstPerformers.slice(0, 3).map((stock) => (
                                 <div 
                                   key={stock.symbol} 
-                                  className="flex justify-between items-center bg-gray-900 bg-opacity-50 px-3 py-2 rounded cursor-pointer hover:bg-gray-800 hover:bg-opacity-60 transition-all duration-200"
+                                  className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200"
+                                  style={{
+                                    background: 'rgba(0, 0, 0, 0.3)',
+                                    border: '1px solid rgba(244, 67, 54, 0.1)'
+                                  }}
                                   onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                                     e.stopPropagation();
                                     console.log(`📊 Switching chart to ${stock.symbol} from bearish industry`);
@@ -6829,9 +7355,19 @@ export default function TradingViewChart({
                                     }
                                     setConfig(prev => ({ ...prev, symbol: stock.symbol }));
                                   }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(244, 67, 54, 0.1)';
+                                    e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.3)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
+                                    e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.1)';
+                                  }}
                                 >
-                                  <span className="text-white font-mono font-medium text-base">{stock.symbol}</span>
-                                  <span className="text-red-400 font-mono font-bold text-base">
+                                  <span className="text-white font-mono font-medium text-lg">
+                                    {stock.symbol}
+                                  </span>
+                                  <span className="text-red-400 font-mono font-bold text-lg">
                                     {stock.relativePerformance.toFixed(1)}%
                                   </span>
                                 </div>
@@ -6841,9 +7377,10 @@ export default function TradingViewChart({
                         )}
                       </div>
                     )) : (
-                      <div className="p-4 rounded-lg bg-black border border-gray-500 border-opacity-30 text-center">
-                        <div className="text-gray-400 text-base">No bearish industries</div>
-                        <div className="text-gray-500 text-sm mt-1">in this timeframe</div>
+                      <div className="text-center py-8">
+                        <div className="text-gray-500 font-mono text-sm">
+                          No bearish sectors detected
+                        </div>
                       </div>
                     )}
                     </div>
@@ -8273,18 +8810,40 @@ export default function TradingViewChart({
           <div className="ml-4">
             <button
               onClick={() => {
-                // TODO: Add Live C/P Flow functionality
-                console.log('📊 Live C/P Flow button clicked');
+                // Only allow C/P Flow on 30m or 5m timeframes for detail
+                if (config.timeframe !== '30m' && config.timeframe !== '5m') {
+                  console.log('⚠️ C/P Flow indicator only available on 30m or 5m timeframes');
+                  // You could add a toast notification here
+                  return;
+                }
+                
+                setIsCPFlowActive(!isCPFlowActive);
+                if (!isCPFlowActive) {
+                  console.log('📊 C/P Flow indicator activated');
+                  setCPFlowData(generateMockCPFlowData()); // Refresh data when activated
+                } else {
+                  console.log('📊 C/P Flow indicator deactivated');
+                }
               }}
-              className="btn-3d-carved relative group flex items-center space-x-2 text-white"
+              className={`btn-3d-carved relative group flex items-center space-x-2 text-white ${isCPFlowActive ? 'active' : ''} ${config.timeframe !== '30m' && config.timeframe !== '5m' ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{
                 padding: '10px 14px',
                 fontWeight: '700',
                 fontSize: '13px',
                 borderRadius: '4px'
               }}
+              title={config.timeframe !== '30m' && config.timeframe !== '5m' ? 'C/P Flow only available on 30m or 5m timeframes' : 'Toggle C/P Flow indicator'}
             >
               <span>LIVE C/P FLOW</span>
+              {isCPFlowActive && (
+                <div 
+                  className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full"
+                  style={{
+                    boxShadow: '0 0 6px rgba(34, 197, 94, 0.8)',
+                    animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                  }}
+                />
+              )}
             </button>
           </div>
 
@@ -9219,7 +9778,7 @@ export default function TradingViewChart({
       {/* Sidebar Panels */}
       {activeSidebarPanel && (
         <div className="fixed top-40 bottom-0 left-16 w-[1000px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out">
-          {console.log('Sidebar panel is rendering:', activeSidebarPanel)}
+{/* Sidebar panel debugging */}
           {/* Panel Header */}
           <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
             <h3 className="text-white font-medium capitalize">{activeSidebarPanel}</h3>
@@ -9256,7 +9815,7 @@ export default function TradingViewChart({
               </div>
             )}
             {activeSidebarPanel === 'calc' && (
-              <OptionsCalculator />
+              <OptionsCalculator initialSymbol={config.symbol} />
             )}
             {activeSidebarPanel === 'chain' && (
               <div className="p-4 text-center text-white text-opacity-50">

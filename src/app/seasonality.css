@@ -865,14 +865,14 @@ body * {
   display: flex;
   background: transparent;
   min-height: 0;
-  max-height: calc(100vh - 100px);
+  max-height: calc(100vh - 120px);
   position: relative;
   z-index: 1;
   overflow: hidden;
 }
 
 .seasonax-content.full-width {
-  max-height: calc(100vh - 180px);
+  max-height: calc(100vh - 200px);
 }
 
 .seasonax-charts {
@@ -908,14 +908,14 @@ body * {
 }
 
 .seasonax-charts.full-width .seasonax-main-chart {
-  min-height: 300px;
-  max-height: calc(100vh - 280px);
+  min-height: 280px;
+  max-height: calc(100vh - 300px);
 }
 
 .seasonax-charts.full-width .main-chart-container {
-  min-height: 250px;
-  height: calc(100vh - 350px);
-  max-height: calc(100vh - 320px);
+  min-height: 230px;
+  height: calc(100vh - 370px);
+  max-height: calc(100vh - 340px);
 }
 
 .seasonax-charts::before {

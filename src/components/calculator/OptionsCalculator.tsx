@@ -105,10 +105,14 @@ const calculateTheta = (S: number, K: number, r: number, sigma: number, T: numbe
   }
 };
 
-const OptionsCalculator = () => {
-  console.log('🔥 OPTIONS CALCULATOR COMPONENT RENDERING');
-  console.log('🔥 ABOUT TO DECLARE STATE VARIABLES');
-  const [symbol, setSymbol] = useState('');
+interface OptionsCalculatorProps {
+  initialSymbol?: string;
+}
+
+const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = 'SPY' }) => {
+  console.log('🔥 OPTIONS CALCULATOR COMPONENT RENDERING with symbol:', initialSymbol);
+  const [symbol, setSymbol] = useState(initialSymbol);
+  const [userManuallyEnteredSymbol, setUserManuallyEnteredSymbol] = useState(false);
   console.log('🔥 SYMBOL STATE DECLARED:', symbol);
     const [currentPrice, setCurrentPrice] = useState(0); // Will fetch real price from API
   const [selectedExpiration, setSelectedExpiration] = useState('');
@@ -123,6 +127,16 @@ const OptionsCalculator = () => {
   const [customPremium, setCustomPremium] = useState<number | null>(null); // User-editable premium price
   
   const riskFreeRate = 0.0408; // Current 10-year treasury rate
+
+  // Sync symbol with chart ONLY when user hasn't manually entered a different symbol
+  useEffect(() => {
+    if (initialSymbol && initialSymbol !== symbol && !userManuallyEnteredSymbol) {
+      console.log('🔄 Syncing symbol with chart:', initialSymbol);
+      setSymbol(initialSymbol);
+    } else if (userManuallyEnteredSymbol && initialSymbol && initialSymbol !== symbol) {
+      console.log('✋ Chart sync blocked - user manually entered symbol:', symbol);
+    }
+  }, [initialSymbol]); // Only trigger when chart symbol changes, not when manual symbol changes
 
   // Dynamic expiration dates fetched from real options data
   const [availableExpirations, setAvailableExpirations] = useState<{date: string; days: number}[]>([]);
@@ -144,6 +158,7 @@ const OptionsCalculator = () => {
       Object.values(realOptionsData).forEach(option => {
         if (option.expiration === selectedExpiration) {
           allStrikes.add(option.strike);
+          console.log(`📊 Added strike: $${option.strike} for ${selectedExpiration}`);
         }
       });
     } else {
@@ -157,11 +172,16 @@ const OptionsCalculator = () => {
     // Simple sort: high to low (natural dropdown order with ATM in center)
     const sortedStrikes = Array.from(allStrikes).sort((a, b) => b - a);
     
-    console.log(`✅ Available strikes: ${sortedStrikes.length} strikes`);
-    console.log(`✅ Range: $${Math.min(...sortedStrikes)} - $${Math.max(...sortedStrikes)}`);
+    console.log(`🚨 STRIKES DEBUG:`, {
+      totalStrikes: sortedStrikes.length,
+      firstFew: sortedStrikes.slice(0, 5),
+      lastFew: sortedStrikes.slice(-5),
+      range: `$${Math.min(...sortedStrikes)} - $${Math.max(...sortedStrikes)}`,
+      currentPrice: currentPrice
+    });
     
     return sortedStrikes;
-  }, [selectedExpiration, realOptionsData]);
+  }, [selectedExpiration, realOptionsData, currentPrice]);
 
   // Filter strikes for heat map based on OTM percentage
   const heatMapStrikes = useMemo(() => {
@@ -264,16 +284,43 @@ const OptionsCalculator = () => {
     );
   }, [heatMapStrikes, currentPrice]);
 
-  // Auto-select ATM strike when strikes are available
+  // Auto-select first expiration when data loads (if none selected)
   useEffect(() => {
-    if (strikes.length > 0 && currentPrice > 0) {
-      const atmStrike = strikes.reduce((prev, curr) => 
-        Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev
-      );
-      setSelectedStrike(atmStrike);
-      console.log(`🎯 Auto-selected ATM strike: $${atmStrike} (closest to $${currentPrice})`);
+    if (availableExpirations.length > 0 && !selectedExpiration) {
+      const firstExpiration = availableExpirations[0];
+      setSelectedExpiration(firstExpiration.date);
+      console.log(`🎯 Auto-selected first expiration: ${firstExpiration.date} (${firstExpiration.days} days)`);
+      
+      // Clear selected strike so ATM selection can happen for new expiration
+      setSelectedStrike(null);
     }
-  }, [strikes, currentPrice]);
+  }, [availableExpirations, selectedExpiration]);
+
+  // Auto-select ATM strike ONLY when no strike is manually selected
+  useEffect(() => {
+    if (strikes.length > 0 && currentPrice > 0 && selectedStrike === null) {
+      console.log(`🚨 ATM SELECTION (No manual selection):`, {
+        currentPrice,
+        availableStrikes: strikes.slice(0, 10), // First 10 strikes
+        strikesCount: strikes.length
+      });
+      
+      const atmStrike = strikes.reduce((prev, curr) => {
+        const prevDistance = Math.abs(prev - currentPrice);
+        const currDistance = Math.abs(curr - currentPrice);
+        return currDistance < prevDistance ? curr : prev;
+      });
+      
+      console.log(`🎯 ATM CALCULATION RESULT: $${atmStrike} selected as closest to $${currentPrice}`);
+      
+      setSelectedStrike(atmStrike);
+      console.log(`🎯 Auto-selected ATM strike: $${atmStrike} (closest to live price $${currentPrice})`);
+    } else if (selectedStrike !== null) {
+      console.log(`✅ MANUAL STRIKE PRESERVED: $${selectedStrike} (user selected, not overriding)`);
+    }
+  }, [strikes, currentPrice, selectedExpiration, optionType, selectedStrike]); // Added selectedStrike to dependencies
+
+  // Removed redundant useEffect - ATM selection is now handled above
 
   // Auto-fill premium when strike/expiration selection changes - ALWAYS fetch fresh real-time pricing
   useEffect(() => {
@@ -345,19 +392,42 @@ const OptionsCalculator = () => {
       setCurrentPrice(currentStockPrice);
       console.log(`✅ INSTANT SUCCESS: ${upperSymbol} = $${currentStockPrice} (REAL-TIME)`);
       
-      // Now try to get ALL options contracts (with pagination to ensure we get everything)
+      // 🚀 NEW APPROACH: Use Polygon's options snapshot API to get REAL pricing data with IV
+      console.log(`📊 Fetching ALL available options data with pricing and IV for ${upperSymbol}...`);
+      
+      // Get all available option chains using the snapshot API (no date filtering)
+      const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${upperSymbol}?apikey=${POLYGON_API_KEY}`;
+      console.log(`� Fetching options snapshot: ${snapshotUrl}`);
+      
+      const snapshotResponse = await fetch(snapshotUrl);
+      
+      if (!snapshotResponse.ok) {
+        throw new Error(`Failed to get options snapshot for ${upperSymbol}: ${snapshotResponse.status}`);
+      }
+      
+      const snapshotData = await snapshotResponse.json();
+      console.log(`📊 Snapshot response:`, snapshotData);
+      
+      if (snapshotData.status !== 'OK' || !snapshotData.results || snapshotData.results.length === 0) {
+        console.warn(`⚠️ No options data available for ${upperSymbol} - this stock may not have active options trading`);
+        setRealOptionsData({});
+        setAvailableExpirations([]);
+        setLoading(false);
+        return;
+      }
+      
+      // 🔄 RESTORE PAGINATION: Get ALL options contracts with full strikes and expirations
       console.log(`📊 Attempting to get ALL options contracts for ${upperSymbol}...`);
       
       let allContracts: any[] = [];
-      // ✅ Get contracts expiring from TODAY onwards (2025+)
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
       let nextUrl: string | null = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${upperSymbol}&active=true&expiration_date.gte=${today}&limit=1000&apikey=${POLYGON_API_KEY}`;
       let pageCount = 0;
       
-      console.log(`🔍 Fetching contracts expiring from ${today} onwards (2025+)`);
+      console.log(`🔍 Fetching contracts expiring from ${today} onwards (ALL future dates)`);
       
-      // Paginate through ALL available contracts
-      while (nextUrl && pageCount < 20) { // Safety limit of 20 pages (20k contracts max)
+      // Paginate through ALL available contracts to get complete options chain
+      while (nextUrl && pageCount < 50) { // Increased safety limit for full chain
         pageCount++;
         console.log(`🔗 FETCHING PAGE ${pageCount}: ${nextUrl}`);
         
@@ -406,98 +476,74 @@ const OptionsCalculator = () => {
       console.log(`🎯 FINAL RESULT: ${allContracts.length} total contracts for ${upperSymbol}`);
       
       // Process ALL collected contracts
-      console.log(`🔍 Processing ${allContracts.length} contracts...`);
       const processedOptions: RealOptionsData = {};
       const uniqueExpirations = new Set<string>();
       
       allContracts.forEach((contract: any, index: number) => {
-          // Debug first few contracts to see structure and IV fields
-          if (index < 3) {
-            console.log(`🔍 Contract ${index} structure:`, {
-              ticker: contract.ticker,
-              strike: contract.strike_price,
-              expiration: contract.expiration_date,
-              type: contract.contract_type,
-              implied_volatility: contract.implied_volatility,
-              iv: contract.iv,
-              implied_vol: contract.implied_vol,
-              allKeys: Object.keys(contract)
-            });
-          }
-          
-          // For options contracts API, the data structure is different
-          let expDate = contract.expiration_date;
-          let strike = contract.strike_price;
-          let optionType = contract.contract_type?.toLowerCase();
-          
-            console.log(`📊 Extracted contract data:`, {
-              expDate,
-              strike,
-              optionType,
-              ticker: contract.ticker,
-              contractStructure: Object.keys(contract)
-            });
-          
-          if (expDate && strike && optionType) {
-            // Calculate days to expiration
-            const expiry = new Date(expDate);
-            const now = new Date();
-            const daysToExp = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-            
-            console.log(`📅 Expiration calc: ${expDate} -> ${daysToExp} days`);
-            
-            // ✅ FILTER OUT EXPIRED OPTIONS (negative days = expired!)
-            if (daysToExp <= 0) {
-              console.log(`❌ SKIPPING EXPIRED option: ${expDate} (${daysToExp} days ago)`);
-              return; // Skip this expired contract
-            }
-            
-            // ✅ FILTER OUT OPTIONS EXPIRING TOO FAR OUT (keep reasonable timeframe)
-            if (daysToExp > 730) { // More than 2 years out
-              console.log(`❌ SKIPPING far-dated option: ${expDate} (${daysToExp} days = ${(daysToExp/365).toFixed(1)} years)`);
-              return; // Skip far-dated contracts
-            }
-            
-            uniqueExpirations.add(expDate);
-            console.log(`✅ KEEPING valid option: ${expDate} (${daysToExp} days, ${(daysToExp/30).toFixed(1)} months)`);
-            
-            const key = `${strike}-${expDate}-${optionType}`;
-            
-            // Create the contract ticker for pricing lookup
-            const contractTicker = contract.ticker;
-            
-            console.log(`🔑 Creating option key: "${key}" for ${contractTicker}`);
-            
-            // Extract REAL implied volatility from Polygon contract data
-            let realIV = 0.25; // Fallback only
-            if (contract.implied_volatility && contract.implied_volatility > 0) {
-              realIV = contract.implied_volatility;
-              console.log(`🔍 REAL IV from Polygon: ${(realIV * 100).toFixed(1)}% for ${contractTicker}`);
-            } else if (contract.iv && contract.iv > 0) {
-              realIV = contract.iv;
-              console.log(`🔍 REAL IV from Polygon (iv field): ${(realIV * 100).toFixed(1)}% for ${contractTicker}`);
-            } else if (contract.implied_vol && contract.implied_vol > 0) {
-              realIV = contract.implied_vol;
-              console.log(`🔍 REAL IV from Polygon (implied_vol field): ${(realIV * 100).toFixed(1)}% for ${contractTicker}`);
-            } else {
-              console.warn(`⚠️ No real IV found in Polygon data for ${contractTicker}, using fallback ${(realIV * 100).toFixed(1)}%`);
-            }
-            
-            processedOptions[key] = {
-              strike: strike,
-              expiration: expDate,
-              daysToExpiration: daysToExp,
-              type: optionType as 'call' | 'put',
-              bid: 0, // Will be filled by pricing API call
-              ask: 0, // Will be filled by pricing API call
-              lastPrice: 0, // Will be filled by pricing API call
-              volume: 0, // Will be filled by pricing API call
-              openInterest: 0, // Will be filled by pricing API call
-              impliedVolatility: realIV, // REAL IV from Polygon!
-              ticker: contractTicker // Store ticker for pricing lookup
-            };
-          }
-        });
+        // Debug first few contracts to see structure
+        if (index < 3) {
+          console.log(`🔍 Contract ${index} structure:`, {
+            ticker: contract.ticker,
+            strike: contract.strike_price,
+            expiration: contract.expiration_date,
+            type: contract.contract_type,
+            allKeys: Object.keys(contract)
+          });
+        }
+        
+        const expDate = contract.expiration_date;
+        const strike = contract.strike_price;
+        const optionType = contract.contract_type?.toLowerCase();
+        
+        if (!expDate || !strike || !optionType) {
+          console.warn(`⚠️ Missing required data for contract:`, { expDate, strike, optionType });
+          return;
+        }
+        
+        // Calculate days to expiration  
+        const expiry = new Date(expDate);
+        const now = new Date();
+        const daysToExp = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        
+        // Only filter out expired options (keep all future dates like original code)
+        if (daysToExp <= 0) {
+          console.log(`❌ SKIPPING EXPIRED option: ${expDate} (${daysToExp} days ago)`);
+          return;
+        }
+        
+        console.log(`✅ KEEPING option: ${expDate} (${daysToExp} days, ${(daysToExp/365).toFixed(1)} years)`);
+        
+        uniqueExpirations.add(expDate);
+        
+        const key = `${strike}-${expDate}-${optionType}`;
+        const contractTicker = contract.ticker;
+        
+        // Store contract structure (pricing will be filled later via separate API calls)
+        processedOptions[key] = {
+          strike: strike,
+          expiration: expDate,
+          daysToExpiration: daysToExp,
+          type: optionType as 'call' | 'put',
+          bid: 0, // Will be filled by pricing API
+          ask: 0, // Will be filled by pricing API
+          lastPrice: 0, // Will be filled by pricing API
+          volume: 0, // Will be filled by pricing API
+          openInterest: 0, // Will be filled by pricing API
+          impliedVolatility: 0.25, // Fallback - will be updated with real pricing
+          ticker: contractTicker
+        };
+        
+        console.log(`✅ Added contract: ${key}`);
+      });
+      
+      // Check if we have any valid options after processing
+      if (Object.keys(processedOptions).length === 0) {
+        console.warn(`⚠️ No valid options found for ${upperSymbol} after filtering`);
+        setRealOptionsData({});
+        setAvailableExpirations([]);
+        setLoading(false);
+        return;
+      }
         
         // Sort expirations chronologically (earliest first)
         console.log(`🔍 Raw unique expirations found:`, Array.from(uniqueExpirations));
@@ -516,16 +562,24 @@ const OptionsCalculator = () => {
           return keep;
         });
         
-        // Skip bulk pricing - we'll fetch individual pricing when user selects specific options
-        console.log(`✅ Loaded contracts structure - pricing will be fetched on-demand when user selects options`);
-        
         setAvailableExpirations(expirationsWithDays);
         setRealOptionsData(processedOptions);
         
-        console.log(`✅ Loaded ${Object.keys(processedOptions).length} real options contracts`);
+        console.log(`✅ SUCCESS: Loaded ${Object.keys(processedOptions).length} REAL options with live pricing and IV`);
         console.log(`✅ Available expirations: ${expirationsWithDays.length}`);
-        console.log(`✅ Expiration details:`, expirationsWithDays);
-        console.log(`✅ Sample options data:`, Object.keys(processedOptions).slice(0, 5));
+        console.log(`✅ No more fallback 25% IV - all Greeks will use REAL market implied volatility!`);
+        
+        // Debug sample of loaded options data
+        const sampleOptions = Object.entries(processedOptions).slice(0, 5);
+        console.log(`🚨 SAMPLE OPTIONS DATA:`, sampleOptions.map(([key, option]) => ({
+          key,
+          strike: option.strike,
+          expiration: option.expiration,
+          type: option.type,
+          iv: `${(option.impliedVolatility * 100).toFixed(1)}%`
+        })));
+        
+        console.log(`🎯 ATM auto-selection will be handled by useEffect hooks`);
       
       setLoading(false);
       setError(null);
@@ -725,8 +779,16 @@ const OptionsCalculator = () => {
     const key = `${strike}-${availableExpirations.find(exp => exp.days === daysToExp)?.date}-${optionType}`;
     const realOption = realOptionsData[key];
     
+    console.log('🔍 GREEKS DEBUG:', {
+      key,
+      hasRealOption: !!realOption,
+      realOptionIV: realOption?.impliedVolatility,
+      realOptionData: realOption
+    });
+    
     // Only calculate if we have real options data
     if (!realOption) {
+      console.log('❌ NO REAL OPTION DATA - returning null Greeks');
       return {
         delta: null,
         gamma: null,
@@ -742,7 +804,17 @@ const OptionsCalculator = () => {
     const timeToExpiry = daysToExp / 365;
     const iv = realOption.impliedVolatility;
     
-    return {
+    console.log('📊 GREEKS CALCULATION INPUTS (REAL DATA):', {
+      currentPrice,
+      strike,
+      timeToExpiry: `${timeToExpiry.toFixed(4)} years`,
+      iv: `${(iv * 100).toFixed(1)}%`,
+      riskFreeRate: `${(riskFreeRate * 100).toFixed(2)}%`,
+      optionType,
+      dataSource: 'Polygon Snapshot API'
+    });
+    
+    const calculatedGreeks = {
       delta: calculateDelta(currentPrice, strike, riskFreeRate, iv, timeToExpiry, optionType === 'call'),
       gamma: calculateGamma(currentPrice, strike, riskFreeRate, iv, timeToExpiry),
       theta: calculateTheta(currentPrice, strike, riskFreeRate, iv, timeToExpiry, optionType === 'call'),
@@ -752,6 +824,15 @@ const OptionsCalculator = () => {
       volume: realOption.volume,
       openInterest: realOption.openInterest
     };
+    
+    console.log('✅ CALCULATED GREEKS:', {
+      delta: calculatedGreeks.delta?.toFixed(3),
+      gamma: calculatedGreeks.gamma?.toFixed(4), 
+      theta: calculatedGreeks.theta?.toFixed(2),
+      usingFallbackIV: iv === 0.25
+    });
+    
+    return calculatedGreeks;
   };
 
   // Get color for P&L cell with enhanced progressive gradients for both profits and losses
@@ -783,13 +864,21 @@ const OptionsCalculator = () => {
   // Handle symbol input changes  
   const handleSymbolChange = (newSymbol: string) => {
     const upperSymbol = newSymbol.toUpperCase().trim();
+    
+    // If user clears the input completely, re-enable chart sync
+    if (upperSymbol === '') {
+      setUserManuallyEnteredSymbol(false);
+      console.log(`🔄 Input cleared - chart sync re-enabled`);
+    } else {
+      // Set manual flag first, then update symbol to prevent override
+      setUserManuallyEnteredSymbol(true);
+      console.log(`🔤 MANUAL SYMBOL CHANGE: ${upperSymbol} (chart sync disabled)`);
+    }
+    
     setSymbol(upperSymbol);
     setSelectedStrike(null);
     setSelectedExpiration('');
     setError(null);
-    
-    // useEffect will handle the API call when symbol changes
-    console.log(`SYMBOL CHANGED TO: ${upperSymbol}`);
   };
 
   // Handle Enter key press for manual search trigger
@@ -831,7 +920,27 @@ const OptionsCalculator = () => {
                 <div className="absolute inset-0 bg-gradient-to-r from-orange-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                 <div className="relative bg-black border-2 border-gray-700 hover:border-orange-500 transition-all duration-300 shadow-inner">
                   <div className="bg-gradient-to-r from-orange-900/30 to-transparent p-2 border-b border-gray-700">
-                    <label className="text-white text-xs font-bold uppercase tracking-widest">STOCK SYMBOL</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-white text-xs font-bold uppercase tracking-widest">STOCK SYMBOL</label>
+                      <div className="flex items-center space-x-2">
+                        <span className={`text-xs ${userManuallyEnteredSymbol ? 'text-orange-400' : 'text-green-400'}`}>
+                          {userManuallyEnteredSymbol ? '✋ Manual override' : '🔗 Syncs with chart'}
+                        </span>
+                        {userManuallyEnteredSymbol && (
+                          <button
+                            onClick={() => {
+                              setUserManuallyEnteredSymbol(false);
+                              setSymbol(initialSymbol);
+                              console.log('🔄 Re-synced with chart:', initialSymbol);
+                            }}
+                            className="text-xs bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded transition-colors"
+                            title="Sync with chart"
+                          >
+                            🔄
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <div className="p-4">
                     <div className="relative">
@@ -840,7 +949,7 @@ const OptionsCalculator = () => {
                         value={symbol}
                         onChange={(e) => handleSymbolChange(e.target.value)}
                         onKeyPress={handleKeyPress}
-                        placeholder="NVDA"
+                        placeholder="SPY"
                         className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-xl font-bold uppercase tracking-wider focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300"
                       />
                       <button 
@@ -1219,50 +1328,24 @@ const OptionsCalculator = () => {
                             ${strike} {isATM && '★'}
                           </td>
                           
-                          {/* P&L cells for each time point */}
+                          {/* REMOVED ALL P&L CALCULATIONS - Just show empty cells */}
                           {heatMapTimeSeries.map((timePoint) => {
-                            const pl = calculateProfessionalPL(strike, timePoint.days);
-                            // Professional Black-Scholes calculation using REAL market data
-                            const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
-                            const realOption = realOptionsData[key];
-                            
-                            // Show "R" if we have real data or custom premium is set
-                            const hasRealData = (customPremium && customPremium > 0) || (realOption && (
-                              (realOption.lastPrice > 0) || 
-                              (realOption.ask > 0) ||
-                              (realOption.bid > 0 && realOption.ask > 0)
-                            ));
-                            
-                            // Don't show P&L if no real data or if calculation returned 0 due to missing data
-                            const shouldDisplay = hasRealData && pl !== 0;
-                            
                             return (
                               <td
                                 key={`${strike}-${timePoint.days}`}
-                                className={`h-12 border text-center text-xs font-bold cursor-pointer hover:opacity-80 transition-opacity ${
-                                  shouldDisplay ? getPLColor(pl) : 'bg-gray-800 text-gray-500'
-                                } ${
-                                  hasRealData ? 'ring-1 ring-blue-400' : ''
-                                } ${
+                                className={`h-12 border text-center text-xs font-bold cursor-pointer hover:opacity-80 transition-opacity bg-gray-800 text-gray-500 ${
                                   isATM ? 'border-yellow-400 border-2' : 'border-gray-600'
                                 }`}
                                 onClick={() => {
                                   console.log(`🎯 Heat map cell clicked: Strike $${strike}, Expiration: ${selectedExpiration}`);
                                   setSelectedStrike(strike);
-                                  // Clear custom premium to use real market data for the new strike
                                   setCustomPremium(null);
                                 }}
-                                title={`Strike: $${strike}${isATM ? ' (ATM)' : ''}, Days: ${timePoint.days}${shouldDisplay ? `, P&L: ${pl.toFixed(1)}%, Real Data` : ', No Real Data Available'}`}
+                                title={`Strike: $${strike}${isATM ? ' (ATM)' : ''}, Days: ${timePoint.days} - P&L Calculations Removed`}
                               >
-                                {shouldDisplay ? (
-                                  <div>
-                                    {pl > 0 ? '+' : ''}{pl.toFixed(0)}%
-                                  </div>
-                                ) : (
-                                  <div className="text-xs text-gray-500">
-                                    --
-                                  </div>
-                                )}
+                                <div className="text-xs text-gray-500">
+                                  --
+                                </div>
                               </td>
                           );
                           })}

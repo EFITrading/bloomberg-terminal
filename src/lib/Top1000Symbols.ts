@@ -24,23 +24,23 @@ export const TOP_1800_SYMBOLS = [
   'PAYX', 'JCI', 'KHC', 'CHTR', 'CMG', 'CARR', 'ALL', 'PPG', 'FAST', 'AZO',
   'EA', 'IQV', 'CTAS', 'MRVL', 'ODFL', 'VRSK', 'KR', 'AMP', 'MNST', 'PRU',
   'GLW', 'XEL', 'HSY', 'BIIB', 'WMB', 'FTNT', 'HCA', 'ADM', 'O', 'A',
-  'WELL', 'STZ', 'PSA', 'CTSH fast', 'YUM', 'SBUX', 'IDXX', 'EXR', 'KMI', 'CPRT',
+  'WELL', 'STZ', 'PSA', 'CTSH', 'YUM', 'SBUX', 'IDXX', 'EXR', 'KMI', 'CPRT',
   'VICI', 'ILMN', 'CBRE', 'GPN', 'OTIS', 'DOW', 'FANG', 'HPQ', 'LHX', 'WAB',
   
   // 201-300 - Mid-large caps
-  'DLTR', 'EA', 'GEHC fast', 'CMI', 'MPWR', 'ANSS fast', 'MLM', 'HLT', 'AVB', 'VMC',
+  'DLTR', 'EA', 'GEHC', 'CMI', 'MPWR', 'ANSS', 'MLM', 'HLT', 'AVB', 'VMC',
   'DD', 'WBA', 'EQR', 'PH', 'HAL', 'KEYS', 'IT', 'AME', 'NTRS', 'BF.B',
   'LYB', 'WDC', 'TEL', 'TSCO', 'WRK', 'LUV', 'URI', 'CLX', 'MAR', 'RMD',
   'DFS', 'MTB', 'PEG', 'AWK', 'FTV', 'LYV', 'TT', 'MSCI', 'COO', 'CAH',
   'ARE', 'IFF', 'MKC', 'FITB', 'RSG', 'CDW', 'ETR', 'NVR', 'FRC', 'HPE',
-  'BXP', 'NDAQ', 'SWKS', 'SIVB', 'HBAN fast', 'CMS', 'K', 'CTVA', 'RF', 'PKI',
+  'BXP', 'NDAQ', 'SWKS', 'SIVB', 'HBAN', 'CMS', 'K', 'CTVA', 'RF', 'PKI',
   'ZBRA', 'DTE', 'TROW', 'FE', 'ES', 'HOLX', 'ALGN', 'EPAM', 'LH', 'WAT',
   'CNP', 'DRE', 'CE', 'STT', 'CFG', 'ROK', 'FIS', 'IP', 'MAS', 'POOL',
   'EXPD', 'CLR', 'RJF', 'NI', 'JBHT', 'CHRW', 'UDR', 'HST', 'LDOS', 'AKAM',
   'ULTA', 'INCY', 'PEAK', 'PAYC', 'TDY', 'J', 'CBOE', 'LNT', 'PWR', 'TECH',
   
   // 301-400 - Popular mid caps
-  'MAA', 'JKHY', 'GL', 'SYF', 'PBCT', 'NTAP', 'IEX', 'FFIV', 'LW fast', 'OMC',
+  'MAA', 'JKHY', 'GL', 'SYF', 'PBCT', 'NTAP', 'IEX', 'FFIV', 'LW', 'OMC',
   'NUE', 'COF', 'ATO', 'ALLE', 'BRO', 'REG', 'AEE', 'EVRG', 'TAP', 'WY',
   'AMCR', 'AIZ', 'SWK', 'CDAY', 'XRAY', 'KIM', 'AOS', 'HSIC', 'TPG', 'L',
   'WHR', 'MOS', 'SBAC', 'CAG', 'PENN', 'HII', 'FMC', 'ZION', 'EMN', 'JNPR',

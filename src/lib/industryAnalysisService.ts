@@ -694,12 +694,31 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
 ];
 
 export class IndustryAnalysisService {
-  private static readonly BASE_URL = '/api';
-  // MAXIMIZED for Professional Polygon.io Plan ($199/month - 1000 req/min)
-  private static readonly BATCH_SIZE = 30; // Restored to original for $199/month unlimited plan
-  private static readonly MAX_CONCURRENT_BATCHES = 4; // Restored concurrent batches for speed
-  private static readonly CACHE_DURATION = 3 * 60 * 1000; // 3 minutes - fresh data priority
-  private static readonly REQUEST_DELAY = 200; // Increased delay between batch groups (200ms)
+  private static baseUrl = '/api'; // Make this mutable to handle port changes
+  // ULTRA-OPTIMIZED for Professional Polygon.io Plan ($199/month - UNLIMITED requests)
+  private static readonly BATCH_SIZE = 50; // Increased batch size for unlimited plan
+  private static readonly MAX_CONCURRENT_BATCHES = 10; // More concurrent batches for speed
+  private static readonly CACHE_DURATION = 10 * 60 * 1000; // 10 minutes cache for efficiency
+  private static readonly REQUEST_DELAY = 50; // Minimal delay for professional unlimited plan
+  
+  // Initialize service with connection check
+  private static async initializeService(): Promise<void> {
+    try {
+      // Test connection to API
+      const response = await fetch(`${this.baseUrl}/health`, { 
+        method: 'GET',
+        signal: AbortSignal.timeout(3000) // 3 second timeout
+      });
+      
+      if (response.ok) {
+        console.log('✅ API connection verified');
+      } else {
+        console.warn('⚠️ API health check failed, but continuing with default URL');
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not connect to API, ensure development server is running');
+    }
+  }
   
   // Enhanced configuration for different API tiers
   private static readonly API_TIER_CONFIGS = {
@@ -712,8 +731,47 @@ export class IndustryAnalysisService {
   private static historicalDataCache = new Map<string, any>();
   private static cacheExpiry = new Map<string, number>();
 
-  // Enhanced batch fetch with concurrent processing and better caching
+  // ULTRA-FAST bulk fetch using new bulk API endpoint
   static async batchFetchHistoricalData(
+    symbols: string[],
+    days: number
+  ): Promise<Map<string, any>> {
+    console.log(`🚀 ULTRA-FAST BULK FETCH: Starting for ${symbols.length} symbols`);
+    
+    // Try the new bulk endpoint first for maximum speed
+    try {
+      const response = await fetch(`${this.baseUrl}/bulk-historical-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ symbols, days }),
+        signal: AbortSignal.timeout(120000) // 2 minute timeout for bulk fetch
+      });
+
+      if (response.ok) {
+        const bulkResult = await response.json();
+        if (bulkResult.success) {
+          console.log(`✅ BULK FETCH SUCCESS: ${bulkResult.stats.successful}/${bulkResult.stats.requested} symbols loaded`);
+          const dataMap = new Map<string, any>();
+          for (const [symbol, data] of Object.entries(bulkResult.data)) {
+            dataMap.set(symbol, data);
+          }
+          return dataMap;
+        }
+      }
+      
+      console.log(`⚠️ Bulk endpoint failed, falling back to individual requests`);
+    } catch (error) {
+      console.log(`⚠️ Bulk endpoint error, falling back to individual requests:`, error);
+    }
+
+    // Fallback to individual requests if bulk fails
+    return this.legacyBatchFetchHistoricalData(symbols, days);
+  }
+
+  // Legacy batch fetch method as fallback
+  private static async legacyBatchFetchHistoricalData(
     symbols: string[],
     days: number
   ): Promise<Map<string, any>> {
@@ -773,11 +831,28 @@ export class IndustryAnalysisService {
                 }
                 
                 try {
+                  // Add timeout and retry logic for better reliability
+                  const controller = new AbortController();
+                  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                  
                   const response = await fetch(
-                    `${this.BASE_URL}/historical-data?symbol=${symbol}&startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`
+                    `${this.baseUrl}/historical-data?symbol=${symbol}&startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`,
+                    {
+                      signal: controller.signal,
+                      headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                      }
+                    }
                   );
                   
+                  clearTimeout(timeoutId);
+                  
                   if (!response.ok) {
+                    if (response.status === 404) {
+                      console.warn(`⚠️ No data found for ${symbol}`);
+                      return { symbol, data: { results: [], status: 'OK', message: 'No data available' } };
+                    }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                   }
                   
@@ -790,8 +865,18 @@ export class IndustryAnalysisService {
                   
                   return { symbol, data };
                 } catch (error) {
-                  console.error(`❌ Error fetching data for ${symbol}:`, error);
-                  return { symbol, data: null };
+                  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                  
+                  if (error instanceof Error && error.name === 'AbortError') {
+                    console.error(`⏱️ Timeout fetching data for ${symbol}`);
+                  } else if (errorMessage.includes('Failed to fetch') || errorMessage.includes('CONNECTION_REFUSED')) {
+                    console.error(`🔌 Connection error for ${symbol}: Server may not be running on expected port`);
+                  } else {
+                    console.error(`❌ Error fetching data for ${symbol}:`, error);
+                  }
+                  
+                  // Return empty data instead of null to prevent cascading errors
+                  return { symbol, data: { results: [], status: 'ERROR', message: errorMessage } };
                 }
               });
 
@@ -822,20 +907,26 @@ export class IndustryAnalysisService {
   ): number {
     try {
       if (!etfData?.results || !spyData?.results || etfData.results.length === 0 || spyData.results.length === 0) {
+        console.warn('⚠️ Missing data for relative performance calculation');
         return 0;
       }
 
-      // Calculate percentage change for both
-      const etfStartPrice = etfData.results[0].c;
-      const etfEndPrice = etfData.results[etfData.results.length - 1].c;
-      const etfChange = ((etfEndPrice - etfStartPrice) / etfStartPrice) * 100;
+      // CRITICAL FIX: Data comes in DESC order (newest first)
+      // So [0] = most recent, [length-1] = oldest
+      const etfNewestPrice = etfData.results[0].c;  // Most recent
+      const etfOldestPrice = etfData.results[etfData.results.length - 1].c;  // Oldest
+      const etfChange = ((etfNewestPrice - etfOldestPrice) / etfOldestPrice) * 100;
 
-      const spyStartPrice = spyData.results[0].c;
-      const spyEndPrice = spyData.results[spyData.results.length - 1].c;
-      const spyChange = ((spyEndPrice - spyStartPrice) / spyStartPrice) * 100;
+      const spyNewestPrice = spyData.results[0].c;  // Most recent  
+      const spyOldestPrice = spyData.results[spyData.results.length - 1].c;  // Oldest
+      const spyChange = ((spyNewestPrice - spyOldestPrice) / spyOldestPrice) * 100;
 
+      const relativePerf = etfChange - spyChange;
+      
+      console.log(`📊 ${etfData.ticker}: ETF change ${etfChange.toFixed(2)}%, SPY change ${spyChange.toFixed(2)}%, Relative: ${relativePerf.toFixed(2)}%`);
+      
       // Return relative performance (ETF vs SPY)
-      return etfChange - spyChange;
+      return relativePerf;
     } catch (error) {
       console.error('Error calculating relative performance from data:', error);
       return 0;
@@ -852,14 +943,14 @@ export class IndustryAnalysisService {
         return 0;
       }
 
-      // Calculate percentage change for both
-      const holdingStartPrice = holdingData.results[0].c;
-      const holdingEndPrice = holdingData.results[holdingData.results.length - 1].c;
-      const holdingChange = ((holdingEndPrice - holdingStartPrice) / holdingStartPrice) * 100;
+      // CRITICAL FIX: Data comes in DESC order (newest first)
+      const holdingNewestPrice = holdingData.results[0].c;  // Most recent
+      const holdingOldestPrice = holdingData.results[holdingData.results.length - 1].c;  // Oldest
+      const holdingChange = ((holdingNewestPrice - holdingOldestPrice) / holdingOldestPrice) * 100;
 
-      const etfStartPrice = etfData.results[0].c;
-      const etfEndPrice = etfData.results[etfData.results.length - 1].c;
-      const etfChange = ((etfEndPrice - etfStartPrice) / etfStartPrice) * 100;
+      const etfNewestPrice = etfData.results[0].c;  // Most recent
+      const etfOldestPrice = etfData.results[etfData.results.length - 1].c;  // Oldest
+      const etfChange = ((etfNewestPrice - etfOldestPrice) / etfOldestPrice) * 100;
 
       // Return relative performance (Holding vs ETF)
       return holdingChange - etfChange;
@@ -906,9 +997,33 @@ export class IndustryAnalysisService {
 
   // Analyze industry performance for a specific timeframe using bulk data
   static async analyzeTimeframe(days: number, timeframeName: string): Promise<TimeframeAnalysis> {
-    console.log(`🔍 Analyzing ${timeframeName} timeframe (${days} days)...`);
+    console.log(`🔍 DETAILED ANALYSIS: Starting ${timeframeName} timeframe (${days} days)...`);
     
-    // Collect all unique symbols (ETFs + holdings + SPY)
+    // Add timeout to prevent infinite hanging - increased for full dataset
+    const timeoutPromise = new Promise<TimeframeAnalysis>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`${timeframeName} analysis timeout - taking too long`));
+      }, 60000); // 60 second timeout per timeframe for full dataset
+    });
+
+    const analysisPromise = this.performTimeframeAnalysis(days, timeframeName);
+    
+    try {
+      return await Promise.race([analysisPromise, timeoutPromise]);
+    } catch (error) {
+      console.error(`❌ ${timeframeName} analysis failed:`, error);
+      // Return empty analysis instead of hanging
+      return {
+        timeframe: timeframeName,
+        days,
+        industries: []
+      };
+    }
+  }
+
+  // Separate the actual analysis logic to enable timeout handling
+  private static async performTimeframeAnalysis(days: number, timeframeName: string): Promise<TimeframeAnalysis> {
+    // Collect all unique symbols (ETFs + holdings + SPY) - FULL DATASET
     const allSymbols = new Set<string>();
     allSymbols.add('SPY'); // Always include SPY for relative performance
     
@@ -919,10 +1034,14 @@ export class IndustryAnalysisService {
       }
     }
 
-    console.log(`📊 Fetching data for ${allSymbols.size} symbols...`);
+    console.log(`📊 MARKET REGIMES: Fetching data for ${allSymbols.size} symbols for ${timeframeName}...`);
+    console.log(`📋 First 10 symbols: ${Array.from(allSymbols).slice(0, 10).join(', ')}...`);
     
     // Bulk fetch all historical data
+    console.log(`⏱️ ${timeframeName}: Starting batch fetch...`);
     const historicalDataMap = await this.batchFetchHistoricalData(Array.from(allSymbols), days);
+    console.log(`💾 MARKET REGIMES: Retrieved data for ${historicalDataMap.size} symbols out of ${allSymbols.size} requested`);
+    
     const spyData = historicalDataMap.get('SPY');
     
     if (!spyData) {
@@ -932,6 +1051,11 @@ export class IndustryAnalysisService {
         days,
         industries: []
       };
+    }
+
+    console.log(`📈 SPY data received: ${spyData.results?.length || 0} data points`);
+    if (spyData.results && spyData.results.length > 0) {
+      console.log(`📊 SPY price range: $${spyData.results[spyData.results.length - 1].c} → $${spyData.results[0].c}`);
     }
 
     const industries: IndustryPerformance[] = [];
@@ -965,7 +1089,14 @@ export class IndustryAnalysisService {
     // Sort by relative performance
     industries.sort((a, b) => b.relativePerformance - a.relativePerformance);
 
-    console.log(`✅ ${timeframeName} analysis complete: ${industries.length} industries analyzed`);
+    console.log(`✅ MARKET REGIMES SUCCESS: ${timeframeName} analysis complete: ${industries.length} industries analyzed`);
+    
+    // Log top 3 bullish and bearish industries for verification
+    const bullish = industries.filter(i => i.trend === 'bullish').slice(0, 3);
+    const bearish = industries.filter(i => i.trend === 'bearish').slice(0, 3);
+    
+    console.log(`🟢 Top 3 Bullish (${timeframeName}):`, bullish.map(i => `${i.symbol} (+${i.relativePerformance.toFixed(2)}%)`));
+    console.log(`🔴 Top 3 Bearish (${timeframeName}):`, bearish.map(i => `${i.symbol} (${i.relativePerformance.toFixed(2)}%)`));
     
     return {
       timeframe: timeframeName,
@@ -1023,9 +1154,19 @@ export class IndustryAnalysisService {
     progressCallback?: (stage: string, progress: number) => void,
     streamCallback?: (timeframe: string, data: TimeframeAnalysis) => void
   ): Promise<MarketRegimeData> {
-    console.log('🔄 Starting STREAMING Market Regime Analysis...');
+    console.log('� STARTING MARKET REGIME ANALYSIS - INDUSTRY SERVICE INVOKED');
     
-    if (progressCallback) progressCallback('Initializing streaming analysis...', 10);
+    if (progressCallback) progressCallback('Initializing streaming analysis...', 5);
+    
+    // Initialize service and check API connection
+    try {
+      await this.initializeService();
+      console.log('✅ Market Regime Service initialized successfully');
+    } catch (error) {
+      console.error('❌ Failed to initialize Market Regime Service:', error);
+    }
+    
+    if (progressCallback) progressCallback('API connection verified, starting analysis...', 10);
 
     // Initialize empty result object
     const result: Partial<MarketRegimeData> = {};
@@ -1043,13 +1184,17 @@ export class IndustryAnalysisService {
     
     for (const { days, name, label } of timeframes) {
       try {
+        console.log(`🔍 STARTING ${label.toUpperCase()} TIMEFRAME ANALYSIS (${days} days)`);
         if (progressCallback) progressCallback(`Analyzing ${label} timeframe (${days}d)...`, 20 + (timeframes.findIndex(t => t.name === name) * 20));
         
         const data = await this.analyzeTimeframe(days, label);
         result[name] = data;
         
+        console.log(`📊 ${label} analysis complete - found ${data.industries.length} industries`);
+        
         // Stream the result immediately when ready
         if (streamCallback) {
+          console.log(`📤 Streaming ${label} results to UI...`);
           streamCallback(label, data);
         }
         
@@ -1058,8 +1203,23 @@ export class IndustryAnalysisService {
         console.log(`✅ ${label} timeframe analysis complete - streaming result`);
         completedAnalyses.push(data);
       } catch (error) {
-        console.error(`❌ Error analyzing ${label} timeframe:`, error);
-        throw error;
+        console.error(`❌ CRITICAL ERROR analyzing ${label} timeframe:`, error);
+        
+        // Don't throw - instead create empty timeframe data and continue
+        const emptyData: TimeframeAnalysis = {
+          timeframe: label,
+          days,
+          industries: []
+        };
+        result[name] = emptyData;
+        
+        if (streamCallback) {
+          console.log(`📤 Streaming empty ${label} results due to error...`);
+          streamCallback(label, emptyData);
+        }
+        
+        console.log(`⚠️ ${label} timeframe failed - using empty data and continuing`);
+        completedAnalyses.push(emptyData);
       }
     }
 
@@ -1072,7 +1232,10 @@ export class IndustryAnalysisService {
       return result as MarketRegimeData;
     } catch (error) {
       console.error('❌ Error in streaming market regime analysis:', error);
-      throw error;
+      
+      // Return partial results even if there were errors
+      console.log('⚠️ Returning partial market regime data due to errors');
+      return result as MarketRegimeData;
     }
   }
 

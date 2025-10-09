@@ -88,7 +88,7 @@
   padding: 16px 24px;
   max-width: 1400px;
   margin: 0 auto;
-  background: #111111;
+  background: #000000;
 }
 
 .seasonax-logo .logo-text {
@@ -137,7 +137,7 @@
   padding: 0 24px 16px;
   max-width: 1400px;
   margin: 0 auto;
-  background: #111111;
+  background: #000000;
 }
 
 .search-input {
@@ -362,7 +362,7 @@
 /* Market Tabs */
 .market-tabs {
   display: flex;
-  background: #111111;
+  background: #000000;
   border-bottom: 2px solid #FF6600;
   max-width: 1400px;
   margin: 0 auto;
@@ -420,7 +420,7 @@
 
 /* Time Period Dropdown */
 .time-period-section {
-  background: #111111;
+  background: #000000;
   border-bottom: 2px solid #333333;
   max-width: 1400px;
   margin: 0 auto;
@@ -488,6 +488,28 @@
   max-width: 1400px;
   margin: 0 auto;
   border-bottom: 1px solid #333333;
+  max-height: 80vh; /* Limit height to enable scrolling */
+  overflow-y: auto; /* Enable vertical scrolling */
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar styling */
+.opportunities-section::-webkit-scrollbar {
+  width: 8px;
+}
+
+.opportunities-section::-webkit-scrollbar-track {
+  background: #000000;
+  border-radius: 4px;
+}
+
+.opportunities-section::-webkit-scrollbar-thumb {
+  background: #FF6600;
+  border-radius: 4px;
+}
+
+.opportunities-section::-webkit-scrollbar-thumb:hover {
+  background: #ff8533;
 }
 
 .section-header {
@@ -526,6 +548,8 @@
   gap: 20px;
   max-width: 1400px;
   margin: 0 auto;
+  /* Allow grid to expand vertically for scrolling */
+  min-height: min-content;
 }
 
 @media (max-width: 1200px) {
@@ -548,7 +572,7 @@
 
 /* Opportunity Card */
 .opportunity-card {
-  background: #111111;
+  background: #000000;
   border: 2px solid #333333;
   border-radius: 4px;
   padding: 20px;
@@ -577,13 +601,15 @@
 }
 
 .card-rank.bullish {
-  background: linear-gradient(135deg, #00BCD4, #26C6DA);
+  background: #00FF00;
   color: #000000;
+  font-weight: 900;
 }
 
 .card-rank.bearish {
-  background: linear-gradient(135deg, #FF5252, #FF7043);
+  background: #FF0000;
   color: #FFFFFF;
+  font-weight: 900;
 }
 
 .card-chart {
@@ -1030,7 +1056,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
-  background: #1a1a1a;
+  background: #000000;
   border: 1px solid #333;
   border-radius: 6px;
   padding: 16px;
@@ -1056,7 +1082,7 @@
 }
 
 .monthly-spy-item {
-  background: #1a1a1a;
+  background: #000000;
   border: 1px solid #333;
   border-radius: 4px;
   padding: 12px;
@@ -1077,11 +1103,11 @@
 }
 
 .spy-performance.bullish {
-  color: #00ff88;
+  color: #00FF00;
 }
 
 .spy-performance.bearish {
-  color: #ff6b6b;
+  color: #FF0000;
 }
 
 .spy-status {
@@ -1095,7 +1121,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #1a1a1a;
+  background: #000000;
   border: 1px solid #333;
   border-radius: 4px;
   padding: 16px;
@@ -1140,7 +1166,7 @@
 .calculation-note {
   margin-top: 12px;
   padding: 8px 12px;
-  background: #1a1a1a;
+  background: #000000;
   border-left: 3px solid #FF6600;
   border-radius: 0 4px 4px 0;
 }
