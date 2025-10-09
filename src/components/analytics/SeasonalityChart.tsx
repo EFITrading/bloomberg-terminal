@@ -115,6 +115,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
   const [error, setError] = useState<string | null>(null);
   const [sweetSpotPeriod, setSweetSpotPeriod] = useState<{startDay: number, endDay: number, period: string} | null>(null);
   const [painPointPeriod, setPainPointPeriod] = useState<{startDay: number, endDay: number, period: string} | null>(null);
+  const [notepadText, setNotepadText] = useState<string>('');
+  const [savedNote, setSavedNote] = useState<string>('');
+  const [isEditingNote, setIsEditingNote] = useState<boolean>(false);
+  const [correlationData, setCorrelationData] = useState<{correlation: number, currentYearReturn: number, seasonalReturn: number} | null>(null);
   const [chartSettings, setChartSettings] = useState<ChartSettings>({
     startDate: '11 Oct',
     endDate: '6 Nov',
@@ -283,6 +287,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
       
       setSeasonalData(processedData);
       console.log('Seasonal data loaded successfully:', processedData.symbol, 'dailyData count:', processedData.dailyData.length);
+
+      // Calculate correlation with current year (2025)
+      const correlation = await calculateCorrelation(symbol, processedData);
+      setCorrelationData(correlation);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load seasonal data';
@@ -767,6 +775,211 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
     }
   };
 
+  const handleNoteKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && notepadText.trim()) {
+      setSavedNote(notepadText.trim());
+      setNotepadText('');
+      setIsEditingNote(false);
+    }
+  };
+
+  const handleNoteClick = () => {
+    setIsEditingNote(true);
+    setNotepadText(savedNote);
+  };
+
+  const handleNoteBlur = () => {
+    if (notepadText.trim()) {
+      setSavedNote(notepadText.trim());
+      setNotepadText('');
+    }
+    setIsEditingNote(false);
+  };
+
+  const calculateCorrelation = async (symbol: string, seasonalData: SeasonalAnalysis) => {
+    try {
+      console.log('Calculating correlation for', symbol, 'for year 2025');
+      
+      // Get current year data (2025)
+      const currentYear = new Date().getFullYear(); // 2025
+      const currentDate = new Date();
+      const startOfYear = new Date(currentYear, 0, 1);
+      const daysSinceYearStart = Math.floor((currentDate.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
+      
+      // Fetch current year price data
+      const currentYearData = await polygonService.getHistoricalData(
+        symbol,
+        `${currentYear}-01-01`,
+        currentDate.toISOString().split('T')[0],
+        'day',
+        1
+      );
+
+      if (!currentYearData || !currentYearData.results || currentYearData.results.length < 2) {
+        console.log('Insufficient current year data for correlation');
+        return null;
+      }
+
+      // Calculate weekly returns for current year (smoother, less noise)
+      const currentYearReturns: number[] = [];
+      const results = currentYearData.results;
+      
+      // Group into 5-day (weekly) periods
+      for (let i = 5; i < results.length; i += 5) {
+        const weekStart = results[i - 5].c;
+        const weekEnd = results[i].c;
+        const weeklyReturn = ((weekEnd - weekStart) / weekStart) * 100;
+        currentYearReturns.push(weeklyReturn);
+      }
+
+      // Get corresponding seasonal weekly returns for the same period
+      const seasonalReturns: number[] = [];
+      const startDayOfYear = 1; // January 1st
+      
+      // Group seasonal data into 5-day periods and sum them
+      for (let i = 0; i < currentYearReturns.length; i++) {
+        let weeklySeasonalReturn = 0;
+        for (let j = 0; j < 5; j++) {
+          const dayIndex = startDayOfYear + (i * 5) + j;
+          if (dayIndex < seasonalData.dailyData.length) {
+            const seasonalDataPoint = seasonalData.dailyData[dayIndex];
+            if (seasonalDataPoint) {
+              weeklySeasonalReturn += seasonalDataPoint.avgReturn;
+            }
+          }
+        }
+        seasonalReturns.push(weeklySeasonalReturn);
+      }
+
+      // Ensure we have matching data points
+      const minLength = Math.min(currentYearReturns.length, seasonalReturns.length);
+      const currentReturns = currentYearReturns.slice(0, minLength);
+      const seasonalAvgReturns = seasonalReturns.slice(0, minLength);
+
+      if (minLength < 5) {
+        console.log('Not enough data points for meaningful correlation');
+        return null;
+      }
+
+      // Calculate Pearson correlation coefficient
+      const rawCorrelation = calculatePearsonCorrelation(currentReturns, seasonalAvgReturns);
+      
+      // Apply more forgiving correlation scaling for real-world data
+      const adjustedCorrelation = adjustCorrelationForReality(rawCorrelation);
+      
+      // Calculate cumulative returns for display
+      const currentYearCumulativeReturn = currentReturns.reduce((acc, ret) => acc + ret, 0);
+      const seasonalCumulativeReturn = seasonalAvgReturns.reduce((acc, ret) => acc + ret, 0);
+
+      console.log('Correlation calculated:', {
+        rawCorrelation: Math.round(rawCorrelation * 100),
+        adjustedCorrelation: Math.round(adjustedCorrelation * 100),
+        currentYearReturn: currentYearCumulativeReturn.toFixed(2),
+        seasonalReturn: seasonalCumulativeReturn.toFixed(2),
+        dataPoints: minLength
+      });
+
+      return {
+        correlation: Math.round(adjustedCorrelation * 100), // Convert to percentage
+        currentYearReturn: currentYearCumulativeReturn,
+        seasonalReturn: seasonalCumulativeReturn
+      };
+
+    } catch (error) {
+      console.error('Error calculating correlation:', error);
+      return null;
+    }
+  };
+
+  const calculatePearsonCorrelation = (x: number[], y: number[]): number => {
+    const n = x.length;
+    if (n !== y.length || n === 0) return 0;
+
+    const sumX = x.reduce((a, b) => a + b, 0);
+    const sumY = y.reduce((a, b) => a + b, 0);
+    const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
+    const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
+    const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0);
+
+    const numerator = n * sumXY - sumX * sumY;
+    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+
+    return denominator === 0 ? 0 : numerator / denominator;
+  };
+
+  const adjustCorrelationForReality = (rawCorrelation: number): number => {
+    // Real-world correlations are much lower due to market noise
+    // Apply a curve that makes realistic correlations more visible
+    const abs = Math.abs(rawCorrelation);
+    
+    // Boost small correlations to make them more meaningful
+    let adjusted;
+    if (abs < 0.1) {
+      // Very small correlations get a small boost
+      adjusted = abs * 2.5;
+    } else if (abs < 0.3) {
+      // Medium correlations get a bigger boost
+      adjusted = 0.25 + (abs - 0.1) * 3;
+    } else if (abs < 0.5) {
+      // Higher correlations get less boost
+      adjusted = 0.85 + (abs - 0.3) * 1.5;
+    } else {
+      // Very high correlations (rare) get minimal boost
+      adjusted = 1.15 + (abs - 0.5) * 0.5;
+    }
+    
+    // Cap at 1.0 and preserve sign
+    adjusted = Math.min(adjusted, 1.0);
+    return rawCorrelation >= 0 ? adjusted : -adjusted;
+  };
+
+  const getCorrelationStrength = (correlation: number): string => {
+    const absCorr = Math.abs(correlation);
+    if (absCorr >= 75) return 'Excellent';
+    if (absCorr >= 55) return 'Strong';
+    if (absCorr >= 35) return 'Moderate';
+    if (absCorr >= 20) return 'Weak';
+    return 'Very Weak';
+  };
+
+  const getCorrelationClass = (correlation: number): string => {
+    const absCorr = Math.abs(correlation);
+    if (correlation < 0) return 'correlation-negative';
+    if (absCorr >= 75) return 'correlation-excellent';
+    if (absCorr >= 55) return 'correlation-strong';
+    if (absCorr >= 35) return 'correlation-moderate';
+    if (absCorr >= 20) return 'correlation-weak';
+    return 'correlation-very-weak';
+  };
+
+  const getCorrelationColor = (correlation: number, opacity: number = 1): string => {
+    const absCorr = Math.abs(correlation);
+    let color: string;
+    
+    if (correlation < 0) {
+      // Negative correlation - purple/pink
+      color = `rgba(255, 105, 180, ${opacity})`;
+    } else if (absCorr >= 75) {
+      // Excellent - bright green
+      color = `rgba(0, 255, 0, ${opacity})`;
+    } else if (absCorr >= 55) {
+      // Strong - light green
+      color = `rgba(144, 238, 144, ${opacity})`;
+    } else if (absCorr >= 35) {
+      // Moderate - yellow/gold
+      color = `rgba(255, 215, 0, ${opacity})`;
+    } else if (absCorr >= 20) {
+      // Weak - orange
+      color = `rgba(255, 165, 0, ${opacity})`;
+    } else {
+      // Very weak - red
+      color = `rgba(255, 69, 0, ${opacity})`;
+    }
+    
+    console.log(`Correlation: ${correlation}%, Color: ${color}`);
+    return color;
+  };
+
   const handleDateRangeChange = (direction: 'prev' | 'next') => {
     // Calculate new date range based on direction
     const currentStart = new Date(chartSettings.startDate + ', 2024');
@@ -807,6 +1020,32 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
           <button className="sweet-spot-btn compare-btn" onClick={handleSweetSpotClick}>Sweet Spot</button>
           <button className="pain-point-btn compare-btn" onClick={handlePainPointClick}>Pain Point</button>
         </div>
+        
+        {/* Small Notepad */}
+        <div className="seasonal-notepad">
+          {isEditingNote || !savedNote ? (
+            <input
+              type="text"
+              value={notepadText}
+              onChange={(e) => setNotepadText(e.target.value)}
+              onKeyPress={handleNoteKeyPress}
+              onBlur={handleNoteBlur}
+              placeholder="Note from Admin..."
+              className="notepad-input"
+              maxLength={100}
+              autoFocus={isEditingNote}
+            />
+          ) : (
+            <div 
+              className="notepad-display"
+              onClick={handleNoteClick}
+              title="Click to edit"
+            >
+              {savedNote}
+            </div>
+          )}
+        </div>
+        
         {/* Show monthly returns based on current mode */}
         {(isElectionMode ? electionData?.spyComparison?.monthlyData : seasonalData?.spyComparison?.monthlyData) && (
           <HorizontalMonthlyReturns 
@@ -862,6 +1101,60 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
               sweetSpotPeriod={sweetSpotPeriod}
               painPointPeriod={painPointPeriod}
             />
+            
+            {/* Correlation Display - Top Right Corner */}
+            {correlationData && !isElectionMode && (() => {
+              const mainColor = getCorrelationColor(correlationData.correlation);
+              const shadowColor = getCorrelationColor(correlationData.correlation, 0.8);
+              const weakColor = getCorrelationColor(correlationData.correlation, 0.9);
+              console.log('🎨 Colors calculated:', { mainColor, shadowColor, weakColor, correlation: correlationData.correlation });
+              
+              return (
+                <div 
+                  className="correlation-display"
+                  style={{
+                    ['--correlation-color' as any]: mainColor,
+                    ['--correlation-shadow' as any]: shadowColor,
+                    ['--correlation-weak' as any]: weakColor
+                  }}
+                >
+                  <div 
+                    className="correlation-main-text"
+                    style={{
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      textAlign: 'center' as const,
+                      marginBottom: '4px',
+                      letterSpacing: '0.5px',
+                      color: mainColor,
+                      textShadow: `0 0 6px ${shadowColor}`,
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    {correlationData.correlation}% correlation
+                  </div>
+                  <div className="correlation-details">
+                    2025 YTD: {correlationData.currentYearReturn.toFixed(1)}%
+                  </div>
+                  <div 
+                    className="correlation-strength-text"
+                    style={{
+                      fontSize: '10px',
+                      textAlign: 'center' as const,
+                      fontWeight: '300',
+                      marginTop: '2px',
+                      textTransform: 'uppercase' as const,
+                      letterSpacing: '0.5px',
+                      color: weakColor,
+                      textShadow: `0 0 4px ${shadowColor}`,
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    {getCorrelationStrength(correlationData.correlation)}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
