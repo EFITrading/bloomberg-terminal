@@ -3,6 +3,11 @@
 // Expanded from 1000 to 1800+ stocks, all with $4B+ market cap
 
 export const TOP_1800_SYMBOLS = [
+  // Major ETFs - HIGHEST PRIORITY for options trading
+  'SPY', 'QQQ', 'IWM', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP',
+  'XLY', 'XLB', 'XLRE', 'XLC', 'EFA', 'EEM', 'VTI', 'VEA', 'GDX', 'TLT',
+  'HYG', 'LQD', 'VXX', 'UVXY', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'TNA', 'TZA',
+  
   // Top 100 - Mega caps (most important)
   'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'TSLA', 'META', 'BRK.B', 'AVGO',
   'LLY', 'WMT', 'JPM', 'V', 'UNH', 'XOM', 'ORCL', 'MA', 'COST', 'HD',

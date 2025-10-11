@@ -72,7 +72,36 @@ export default function OptionsFlowPage() {
   // Streaming options flow fetch
   const fetchOptionsFlowStreaming = async () => {
     setLoading(true);
-    setData([]); // Clear existing data
+    
+    try {
+      // First, try to load from database for today
+      const today = new Date().toISOString().split('T')[0];
+      console.log(`📋 Checking database for existing streaming data for ${today}...`);
+      
+      const dbResponse = await fetch(`/api/historical-options-flow?date=${today}&ticker=${selectedTicker}`);
+      
+      if (dbResponse.ok) {
+        const dbResult = await dbResponse.json();
+        if (dbResult.success && dbResult.trades && dbResult.trades.length > 0) {
+          console.log(`💾 Found ${dbResult.trades.length} existing trades in database for ${today} - using cached data`);
+          setData(dbResult.trades);
+          setSummary(dbResult.summary);
+          if (dbResult.market_info) {
+            setMarketInfo(dbResult.market_info);
+          }
+          setLastUpdate(new Date().toLocaleString());
+          setLoading(false);
+          return; // Use cached data, don't stream fresh
+        }
+      }
+      
+      console.log(`🔄 No cached data found, starting fresh streaming...`);
+      setData([]); // Clear existing data only if streaming fresh
+      
+    } catch (dbError) {
+      console.warn('Error checking database, proceeding with streaming:', dbError);
+      setData([]); // Clear existing data
+    }
     
     try {
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${selectedTicker}`);
@@ -194,6 +223,30 @@ export default function OptionsFlowPage() {
   const fetchOptionsFlow = async (saveToDb: boolean = true) => {
     setLoading(true);
     try {
+      // First, try to load from database for today
+      const today = new Date().toISOString().split('T')[0];
+      console.log(`📋 Checking database for existing data for ${today}...`);
+      
+      const dbResponse = await fetch(`/api/historical-options-flow?date=${today}&ticker=${selectedTicker}`);
+      
+      if (dbResponse.ok) {
+        const dbResult = await dbResponse.json();
+        if (dbResult.success && dbResult.trades && dbResult.trades.length > 0) {
+          console.log(`💾 Found ${dbResult.trades.length} existing trades in database for ${today}`);
+          setData(dbResult.trades);
+          setSummary(dbResult.summary);
+          if (dbResult.market_info) {
+            setMarketInfo(dbResult.market_info);
+          }
+          setLastUpdate(new Date().toLocaleString());
+          setLoading(false);
+          return; // Use cached data, don't fetch fresh
+        }
+      }
+      
+      console.log(`🔄 No cached data found, fetching fresh options flow data...`);
+      
+      // If no cached data, fetch fresh data
       const response = await fetch(`/api/live-options-flow?ticker=${selectedTicker}&saveToDb=${saveToDb}`);
       
       if (!response.ok) {

@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   TbChartLine, 
@@ -112,6 +112,47 @@ interface MeasureDrawingMetadata extends DrawingMetadata {
   distance: number;
   angle: number;
   priceDistance: number;
+}
+
+// Horizontal Ray interface for drawing horizontal lines
+interface HorizontalRay {
+  id: string;
+  price: number;
+  color: string;
+  lineWidth: number;
+  lineStyle: 'solid' | 'dashed' | 'dotted';
+  extendLeft: boolean;
+  extendRight: boolean;
+  label: string;
+  startX?: number; // For backward compatibility
+  isSelected?: boolean; // For selection state
+}
+
+// Parallel Channels interface for drawing parallel channel lines (3-point system)
+interface ParallelChannel {
+  id: string;
+  point1: { timestamp: number; price: number }; // Start of main trend line
+  point2: { timestamp: number; price: number }; // End of main trend line  
+  point3: { timestamp: number; price: number }; // Point to define channel width
+  color: string;
+  lineWidth: number;
+  lineStyle: 'solid' | 'dashed' | 'dotted';
+  fillOpacity: number;
+  fillColor?: string; // Fill color for the channel area
+  showFill?: boolean; // Whether to show the fill
+  label: string;
+  isSelected?: boolean;
+}
+
+// Drawing Brush interface for freehand drawing
+interface DrawingBrush {
+  id: string;
+  strokes: Array<{ timestamp: number; price: number }>;
+  color: string;
+  lineWidth: number;
+  opacity: number;
+  label: string;
+  isSelected?: boolean;
 }
 
 interface PolygonDataItem {
@@ -1727,6 +1768,7 @@ export default function TradingViewChart({
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   
   // Dropdown button refs for positioning
+  const drawingsButtonRef = useRef<HTMLButtonElement>(null);
 
 
 
@@ -1784,6 +1826,97 @@ export default function TradingViewChart({
 
   // Lock state for drawing tools - when locked, tools stay active after placing a drawing
   const [isDrawingLocked, setIsDrawingLocked] = useState<boolean>(false);
+
+  // Horizontal Ray Drawing Tool State
+  const [isHorizontalRayMode, setIsHorizontalRayMode] = useState<boolean>(false);
+  const [horizontalRays, setHorizontalRays] = useState<HorizontalRay[]>([]);
+  const [selectedRay, setSelectedRay] = useState<string | null>(null);
+  const [isDrawingsDropdownOpen, setIsDrawingsDropdownOpen] = useState<boolean>(false);
+  const [isEditingRay, setIsEditingRay] = useState<boolean>(false);
+  const [rayDragStart, setRayDragStart] = useState<{x: number, y: number, originalPrice: number} | null>(null);
+
+  // Parallel Channel Dragging State
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
+  const [isEditingChannel, setIsEditingChannel] = useState<boolean>(false);
+  const [channelDragStart, setChannelDragStart] = useState<{x: number, y: number, originalChannel: ParallelChannel} | null>(null);
+
+  // Parallel Channels Drawing Tool State
+  const [isParallelChannelMode, setIsParallelChannelMode] = useState<boolean>(false);
+  const [parallelChannels, setParallelChannels] = useState<ParallelChannel[]>([]);
+  const [currentChannelPoints, setCurrentChannelPoints] = useState<Array<{ timestamp: number; price: number }>>([]);
+  const [channelDrawingStep, setChannelDrawingStep] = useState<number>(0); // 0: not started, 1: first line, 2: second line
+  const [channelPreviewPoint, setChannelPreviewPoint] = useState<{ timestamp: number; price: number } | null>(null);
+  const [lastPreviewUpdate, setLastPreviewUpdate] = useState<number>(0);
+  const [clickDebugCount, setClickDebugCount] = useState<number>(0); // Debug: count clicks when in channel mode
+
+  // Drawing Brush Tool State
+  const [isDrawingBrushMode, setIsDrawingBrushMode] = useState<boolean>(false);
+  const [drawingBrushes, setDrawingBrushes] = useState<DrawingBrush[]>([]);
+  const drawingBrushesRef = useRef<DrawingBrush[]>([]);
+  const [currentBrushStroke, setCurrentBrushStroke] = useState<Array<{ timestamp: number; price: number }>>([]);
+  const [isBrushing, setIsBrushing] = useState<boolean>(false);
+  const [lastBrushTime, setLastBrushTime] = useState<number>(0);
+  const [isMousePressed, setIsMousePressed] = useState<boolean>(false);
+
+  // Keep ref in sync with state for reliable access
+  useEffect(() => {
+    drawingBrushesRef.current = drawingBrushes;
+  }, [drawingBrushes]);
+
+  const [rayProperties, setRayProperties] = useState({
+    color: '#FFD700',
+    lineWidth: 2,
+    lineStyle: 'solid' as const,
+    extendLeft: true,
+    extendRight: true,
+    label: ''
+  });
+
+  // Parallel Channel Properties
+  const [channelProperties, setChannelProperties] = useState({
+    lineColor: '#00BFFF',
+    lineWidth: 2,
+    lineStyle: 'solid' as const,
+    fillColor: '#00BFFF33', // Semi-transparent fill
+    showFill: true,
+    label: ''
+  });
+
+  // Tool management function to prevent multiple tools being active
+  const clearAllDrawingTools = useCallback(() => {
+    setIsHorizontalRayMode(false);
+    setIsParallelChannelMode(false);
+    setIsDrawingBrushMode(false);
+    
+    // Clear any in-progress drawings
+    setCurrentChannelPoints([]);
+    setCurrentBrushStroke([]);
+    setIsBrushing(false);
+    setLastBrushTime(0);
+    setIsMousePressed(false);
+    setChannelDrawingStep(0);
+    setChannelPreviewPoint(null);
+  }, []);
+
+  const activateToolExclusively = useCallback((toolName: 'horizontal' | 'channel' | 'brush' | 'none') => {
+    clearAllDrawingTools();
+    
+    switch (toolName) {
+      case 'horizontal':
+        setIsHorizontalRayMode(true);
+        break;
+      case 'channel':
+        setIsParallelChannelMode(true);
+        setClickDebugCount(0);
+        break;
+      case 'brush':
+        setIsDrawingBrushMode(true);
+        break;
+      case 'none':
+        // Already cleared all tools above
+        break;
+    }
+  }, [clearAllDrawingTools]);
 
   // Professional crosshair information state
   const [crosshairInfo, setCrosshairInfo] = useState<{
@@ -1870,59 +2003,151 @@ export default function TradingViewChart({
     putFlow: number;
   }[]>([]);
 
-  // Generate mock C/P Flow data for one trading day (STRICTLY 9:30 AM - 4:00 PM ET)
-  const generateMockCPFlowData = useCallback(() => {
-    const data = [];
-    const today = new Date();
-    
-    // STRICT market hours - 9:30 AM to 4:00 PM Eastern Time
-    const marketOpen = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30, 0, 0); // 9:30:00 AM
-    const marketClose = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16, 0, 0, 0); // 4:00:00 PM
-    
-    // Generate data points based on timeframe for more detail
-    const intervalMinutes = config.timeframe === '5m' ? 1 : 3; // Every 1 min for 5m chart, every 3 min for 30m
-    
-    for (let time = new Date(marketOpen); time <= marketClose; time.setMinutes(time.getMinutes() + intervalMinutes)) {
-      const timeFromOpen = (time.getTime() - marketOpen.getTime()) / (1000 * 60 * 60); // Hours from open
-      const totalMarketHours = 6.5; // 9:30 AM to 4:00 PM = 6.5 hours
+  // Fetch real-time C/P Flow data from the SAME source as options flow page
+  const fetchRealCPFlowData = useCallback(async () => {
+    try {
+      console.log(`🔄 DEBUG: Starting C/P Flow data fetch for ${symbol}...`);
+      console.log(`🔄 DEBUG: Current timeframe is ${config.timeframe}`);
+      console.log(`🔄 DEBUG: Using historical options flow API to get saved database data`);
       
-      // Enhanced realistic flow patterns
-      const baseCallFlow = 75000000; // $75M base
-      const basePutFlow = 65000000;  // $65M base
+      // Use the historical API to get the saved database data (same as what you see in the table)
+      const todayStr = new Date().toISOString().split('T')[0];
+      const response = await fetch(`/api/historical-options-flow?date=${todayStr}&ticker=ALL`);
       
-      // More sophisticated time-based patterns
-      const openingRush = timeFromOpen < 1 ? (1 - timeFromOpen) * 0.5 : 0; // Strong volume at open
-      const lunchLull = (timeFromOpen > 2.5 && timeFromOpen < 3.5) ? -0.3 : 0; // Lunch slowdown
-      const closingRush = timeFromOpen > 5.5 ? (timeFromOpen - 5.5) * 0.8 : 0; // Strong volume at close
+      console.log(`🔄 DEBUG: API Response status: ${response.status}`);
       
-      // Call bias (stronger in morning)
-      const callBias = Math.cos(timeFromOpen * Math.PI / totalMarketHours) * 0.4 + openingRush;
-      // Put bias (stronger in afternoon and during market stress)
-      const putBias = Math.sin(timeFromOpen * Math.PI / totalMarketHours) * 0.5 + closingRush;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ DEBUG: API Error Response: ${errorText}`);
+        throw new Error(`Failed to fetch options flow data: ${response.status} - ${errorText}`);
+      }
       
-      // Add realistic volatility and market events
-      const marketVolatility = Math.sin(timeFromOpen * 3) * 0.2;
-      const randomNoise = (Math.random() - 0.5) * 0.4;
+      const result = await response.json();
+      console.log(`🔄 DEBUG: API Result:`, result);
       
-      const callFlow = baseCallFlow * (1 + callBias + lunchLull + marketVolatility + randomNoise);
-      const putFlow = basePutFlow * (1 + putBias + lunchLull + marketVolatility + randomNoise);
+      if (!result.success) {
+        console.warn(`❌ DEBUG: API returned success=false. Error: ${result.error || 'Unknown error'}`);
+        return [];
+      }
       
-      // Ensure we stay within realistic bounds
-      data.push({
-        timestamp: new Date(time),
-        callFlow: Math.max(10000000, Math.min(200000000, callFlow)), // $10M - $200M range
-        putFlow: Math.max(10000000, Math.min(200000000, putFlow))     // $10M - $200M range
+      if (!result.trades || result.trades.length === 0) {
+        console.warn('❌ DEBUG: No trades found in API response - NO FAKE DATA, returning empty array');
+        return [];
+      }
+      
+      console.log(`📊 DEBUG: Processing ${result.trades.length} real options flow trades for C/P Flow aggregation`);
+      
+      // Process trades into time-based C/P Flow data
+      const trades = result.trades;
+      
+      // Filter trades by the current symbol (e.g., SPY, IWM, etc.)
+      console.log(`📊 DEBUG: Raw API response contains ${trades.length} total trades`);
+      console.log(`📊 DEBUG: Looking for symbol: "${symbol}"`);
+      console.log(`📊 DEBUG: Sample trade structure:`, trades.slice(0, 2));
+      
+      // Get all unique underlying tickers to see what we have
+      const uniqueTickers = [...new Set(trades.map((trade: any) => trade.underlying_ticker))];
+      console.log(`📊 DEBUG: Available underlying tickers:`, uniqueTickers.slice(0, 10));
+      
+      const symbolTrades = trades.filter((trade: any) => {
+        const match = trade.underlying_ticker === symbol || 
+                     trade.ticker === symbol ||
+                     trade.ticker?.startsWith(symbol) ||
+                     trade.underlying_ticker?.toUpperCase() === symbol.toUpperCase();
+        
+        if (match) {
+          console.log(`✅ DEBUG: Found matching trade:`, trade);
+        }
+        return match;
       });
+      
+      console.log(`📊 DEBUG: Filtered to ${symbolTrades.length} trades for ${symbol} out of ${trades.length} total trades`);
+      
+      if (symbolTrades.length === 0) {
+        console.log(`🚨 DEBUG: No matches found. First few trades:`, trades.slice(0, 5).map((t: any) => ({
+          underlying_ticker: t.underlying_ticker,
+          ticker: t.ticker,
+          type: t.type,
+          total_premium: t.total_premium
+        })));
+      }
+      
+      if (symbolTrades.length === 0) {
+        console.warn(`❌ DEBUG: No ${symbol} trades found in ${trades.length} total trades - returning empty array`);
+        return [];
+      }
+      
+      const todayDate = new Date();
+      
+      // STRICT market hours - 9:30 AM to 4:00 PM Eastern Time
+      const marketOpen = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate(), 9, 30, 0, 0);
+      const marketClose = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate(), 16, 0, 0, 0);
+      
+      // Create time intervals based on timeframe
+      const intervalMinutes = config.timeframe === '5m' ? 1 : 3; // 1min for 5m chart, 3min for 30m chart
+      const timeSlots = new Map<number, { callFlow: number; putFlow: number; timestamp: Date }>();
+      
+      // Initialize all time slots
+      for (let time = new Date(marketOpen); time <= marketClose; time.setMinutes(time.getMinutes() + intervalMinutes)) {
+        const slotKey = Math.floor(time.getTime() / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60 * 1000);
+        timeSlots.set(slotKey, {
+          callFlow: 0,
+          putFlow: 0,
+          timestamp: new Date(slotKey)
+        });
+      }
+      
+      // Aggregate SYMBOL-SPECIFIC trades into time slots
+      symbolTrades.forEach((trade: any) => {
+        const tradeTime = new Date(trade.trade_timestamp);
+        
+        // Only include trades within market hours
+        if (tradeTime < marketOpen || tradeTime > marketClose) {
+          return;
+        }
+        
+        // Find the appropriate time slot
+        const slotKey = Math.floor(tradeTime.getTime() / (intervalMinutes * 60 * 1000)) * (intervalMinutes * 60 * 1000);
+        const slot = timeSlots.get(slotKey);
+        
+        if (slot) {
+          const premium = trade.total_premium || 0;
+          
+          if (trade.type === 'call') {
+            slot.callFlow += premium;
+          } else if (trade.type === 'put') {
+            slot.putFlow += premium;
+          }
+        }
+      });
+      
+      // Convert to array and sort by timestamp
+      const aggregatedData = Array.from(timeSlots.values())
+        .filter(slot => slot.timestamp >= marketOpen && slot.timestamp <= marketClose)
+        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      
+      console.log(`✅ Generated ${aggregatedData.length} real C/P Flow data points from ${marketOpen.toLocaleTimeString()} to ${marketClose.toLocaleTimeString()}`);
+      console.log(`📊 Sample data: Calls=${aggregatedData[0]?.callFlow.toLocaleString()}, Puts=${aggregatedData[0]?.putFlow.toLocaleString()}`);
+      
+      return aggregatedData;
+      
+    } catch (error) {
+      console.error('❌ Error fetching real C/P Flow data:', error);
+      
+      // Fallback to empty data or show error
+      return [];
     }
-    
-    console.log(`📊 Generated ${data.length} C/P Flow data points from ${marketOpen.toLocaleTimeString()} to ${marketClose.toLocaleTimeString()}`);
-    return data;
-  }, [config.timeframe]);
+  }, [symbol, config.timeframe]);
 
-  // Initialize mock data when component mounts
+  // Initialize real C/P Flow data when component mounts
   useEffect(() => {
-    setCPFlowData(generateMockCPFlowData());
-  }, [generateMockCPFlowData]);
+    const loadInitialCPFlowData = async () => {
+      const realData = await fetchRealCPFlowData();
+      setCPFlowData(realData);
+    };
+    
+    loadInitialCPFlowData();
+  }, [fetchRealCPFlowData]);
 
   // Auto-deactivate C/P Flow if user switches to unsupported timeframe
   useEffect(() => {
@@ -1931,6 +2156,27 @@ export default function TradingViewChart({
       console.log('⚠️ C/P Flow indicator deactivated - unsupported timeframe');
     }
   }, [config.timeframe, isCPFlowActive]);
+
+  // Auto-refresh C/P Flow data when active (every 30 seconds)
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    
+    if (isCPFlowActive) {
+      console.log('🔄 Starting C/P Flow auto-refresh (30s intervals)');
+      intervalId = setInterval(async () => {
+        const refreshedData = await fetchRealCPFlowData();
+        setCPFlowData(refreshedData);
+        console.log(`🔄 Auto-refreshed C/P Flow data: ${refreshedData.length} points`);
+      }, 30000); // Refresh every 30 seconds
+    }
+    
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        console.log('⏹️ Stopped C/P Flow auto-refresh');
+      }
+    };
+  }, [isCPFlowActive, fetchRealCPFlowData]);
 
   // Watchlist data state
   const [watchlistData, setWatchlistData] = useState<{[key: string]: {
@@ -2495,7 +2741,7 @@ export default function TradingViewChart({
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const chartHeight = dimensions.height;
 
-  // Dedicated overlay rendering for drawings
+  // Overlay effect for other drawings only (not rays - they're now on main canvas)
   useEffect(() => {
     const overlayCanvas = overlayCanvasRef.current;
     if (!overlayCanvas) return;
@@ -2503,16 +2749,14 @@ export default function TradingViewChart({
     const ctx = overlayCanvas.getContext('2d');
     if (!ctx) return;
 
-    console.log('🎨 [OVERLAY-EFFECT] Rendering drawings on overlay canvas:', drawings.length);
-    
-    // Clear overlay first
+    // Clear overlay 
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     
-    // Draw all stored drawings
+    // Draw other drawings (but NOT horizontal rays - they're on main canvas now)
     if (drawings.length > 0) {
       drawStoredDrawings(ctx);
     }
-  }, [drawings, dimensions, scrollOffset, visibleCandleCount]);
+  }, [drawings]);
 
   // TradingView-style color scheme (dynamic based on theme)
   const colors = {
@@ -3056,9 +3300,17 @@ export default function TradingViewChart({
 
     // Draw crosshair if enabled and mouse is over chart
     if (config.crosshair && crosshairPosition.x > 0 && crosshairPosition.y > 0) {
-      ctx.strokeStyle = config.theme === 'dark' ? '#555555' : '#cccccc';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([2, 2]);
+      // Enhanced crosshair for parallel channel mode with more precision
+      if (isParallelChannelMode) {
+        // More visible crosshair lines for drawing mode
+        ctx.strokeStyle = config.theme === 'dark' ? '#00BFFF' : '#0066CC';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+      } else {
+        ctx.strokeStyle = config.theme === 'dark' ? '#555555' : '#cccccc';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+      }
 
       // Vertical crosshair line
       ctx.beginPath();
@@ -3073,6 +3325,21 @@ export default function TradingViewChart({
       ctx.stroke();
 
       ctx.setLineDash([]);
+
+      // Add precision center dot for parallel channel mode
+      if (isParallelChannelMode) {
+        ctx.fillStyle = config.theme === 'dark' ? '#00BFFF' : '#0066CC';
+        ctx.beginPath();
+        ctx.arc(crosshairPosition.x, crosshairPosition.y, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Add small ring around the dot for better visibility
+        ctx.strokeStyle = config.theme === 'dark' ? '#FFFFFF' : '#000000';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(crosshairPosition.x, crosshairPosition.y, 4, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
 
       // PROFESSIONAL CROSSHAIR LABELS - Display price and date/time on axes
       if (crosshairInfo.visible) {
@@ -3253,7 +3520,7 @@ export default function TradingViewChart({
       const centerY = (startY + endY) / 2;
       ctx.fillText('Release to zoom', centerX, centerY);
     }
-  }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd]);
+  }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd, isParallelChannelMode]);
 
   // Update overlay when interactions change
   useEffect(() => {
@@ -3322,12 +3589,28 @@ export default function TradingViewChart({
           const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
           setScrollOffset(Math.min(maxScrollOffset, scrollOffset + panRight));
           break;
+        case 'Delete':
+        case 'Backspace':
+          e.preventDefault();
+          // Delete selected ray or channel
+          if (selectedRay) {
+            setHorizontalRays(prev => prev.filter(ray => ray.id !== selectedRay));
+            setSelectedRay(null);
+            setIsEditingRay(false);
+            setRayDragStart(null);
+          } else if (selectedChannel) {
+            setParallelChannels(prev => prev.filter(channel => channel.id !== selectedChannel));
+            setSelectedChannel(null);
+            setIsEditingChannel(false);
+            setChannelDragStart(null);
+          }
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [data.length, scrollOffset, visibleCandleCount]);
+  }, [data.length, scrollOffset, visibleCandleCount, selectedRay, selectedChannel]);
 
   // Wheel event handler for zoom and scroll - with Y-axis scaling support
   useEffect(() => {
@@ -3778,12 +4061,19 @@ export default function TradingViewChart({
 
 
     // Draw C/P Flow indicator above volume (if active)
+    console.log(`🔄 DEBUG: Chart render - isCPFlowActive=${isCPFlowActive}, cpFlowData.length=${cpFlowData.length}`);
+    
     if (isCPFlowActive && cpFlowData.length > 0) {
+      console.log(`📊 DEBUG: Drawing C/P Flow indicator with ${cpFlowData.length} data points`);
       const cpFlowPaneHeight = 320; // Much taller indicator pane
       drawCPFlowIndicator(ctx, cpFlowData, chartWidth, priceChartHeight, cpFlowPaneHeight, config);
       // Adjust volume position down to make room for C/P Flow pane
       drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + cpFlowPaneHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+      console.log(`✅ DEBUG: C/P Flow indicator drawn successfully`);
     } else {
+      if (isCPFlowActive) {
+        console.log(`⚠️ DEBUG: C/P Flow is active but no data available (${cpFlowData.length} points)`);
+      }
       // Draw volume bars above the time axis (TradingView style)
       drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
     }
@@ -3976,11 +4266,16 @@ export default function TradingViewChart({
     paneHeight: number,
     config: ChartConfig
   ) => {
+    console.log(`🎨 DEBUG: drawCPFlowIndicator called with ${flowData.length} data points`);
+    console.log(`🎨 DEBUG: Chart dimensions - width: ${chartWidth}, priceHeight: ${priceChartHeight}, paneHeight: ${paneHeight}`);
+    
     const startY = priceChartHeight;
     const endY = priceChartHeight + paneHeight;
     const leftMargin = 70; // Increased from 40 to 70 to accommodate Y-axis labels
     const rightMargin = 40;
     const plotWidth = chartWidth - leftMargin - rightMargin;
+    
+    console.log(`🎨 DEBUG: Pane area - startY: ${startY}, endY: ${endY}, plotWidth: ${plotWidth}`);
     
     // Draw pane background - pure black
     ctx.fillStyle = '#000000';
@@ -3991,7 +4286,12 @@ export default function TradingViewChart({
     ctx.lineWidth = 1;
     ctx.strokeRect(leftMargin, startY, plotWidth, paneHeight);
     
-    if (flowData.length === 0) return;
+    console.log(`🎨 DEBUG: Background and border drawn`);
+    
+    if (flowData.length === 0) {
+      console.log(`⚠️ DEBUG: No flow data to draw, exiting`);
+      return;
+    }
     
     // Find min/max values for Y-axis scaling
     const allFlows = flowData.flatMap(d => [d.callFlow, d.putFlow]);
@@ -4984,6 +5284,388 @@ export default function TradingViewChart({
         }
       }
     }
+
+    // Draw horizontal rays on the main chart canvas - they will NEVER disappear
+    if (horizontalRays.length > 0) {
+      horizontalRays.forEach(ray => {
+        const y = priceToScreenForDrawings(ray.price);
+        
+        if (y >= 0 && y <= dimensions.height) {
+          // Draw the horizontal line
+          ctx.strokeStyle = ray.color || '#00ff00';
+          ctx.lineWidth = ray.lineWidth || 2;
+          
+          // Set line style based on ray properties
+          const lineStyle = ray.lineStyle || 'solid';
+          switch (lineStyle) {
+            case 'dashed':
+              ctx.setLineDash([10, 5]);
+              break;
+            case 'dotted':
+              ctx.setLineDash([2, 3]);
+              break;
+            default:
+              ctx.setLineDash([]);
+              break;
+          }
+          
+          ctx.beginPath();
+          ctx.moveTo(40, y);
+          ctx.lineTo(dimensions.width - 80, y); // Stop before Y-axis
+          ctx.stroke();
+
+          // Draw price label on Y-axis (like in your image)
+          const priceText = ray.price.toFixed(2);
+          ctx.font = '20px Arial';
+          const textWidth = ctx.measureText(priceText).width;
+          const textHeight = 24;
+          
+          // Background box on Y-axis
+          ctx.fillStyle = ray.color || '#00ff00';
+          ctx.fillRect(dimensions.width - 80, y - textHeight/2, textWidth + 8, textHeight);
+          
+          // Price text in white
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'left';
+          ctx.fillText(priceText, dimensions.width - 76, y + 4);
+        }
+      });
+    }
+
+    // Draw current channel being created (visual feedback with live preview)
+    if (isParallelChannelMode && (currentChannelPoints.length > 0 || channelPreviewPoint)) {
+      // Save current context state
+      ctx.save();
+      
+      // Draw placed points with precise alignment markers (use independent styling)
+      currentChannelPoints.forEach((point, index) => {
+        const x = timeToScreen(point.timestamp);
+        const y = priceToScreenForDrawings(point.price);
+        
+        // Draw larger, more visible point marker with proper context isolation
+        ctx.save(); // Save state before drawing each point
+        
+        // Main point circle
+        ctx.fillStyle = '#00BFFF';
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Add white border for better visibility
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Add precision center dot to show exact placement
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Draw point label with black text 
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText((index + 1).toString(), x, y + 20); // Move label below point
+        ctx.restore(); // Restore state after each point
+      });
+      
+      // Show progress indicator in top-left corner (save context first)
+      ctx.save();
+      ctx.fillStyle = '#FFD700';
+      ctx.font = 'bold 16px Arial';
+      ctx.textAlign = 'left';
+      const stepText = currentChannelPoints.length === 0 ? 'STEP 1: Click first point' : 
+                      currentChannelPoints.length === 1 ? 'STEP 2: Click second point' : 'STEP 3: Click third point';
+      ctx.fillText(stepText, 20, 40);
+      
+      // Show current crosshair coordinates for precision
+      if (channelPreviewPoint && crosshairInfo.visible) {
+        ctx.fillStyle = '#00BFFF';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText(`Crosshair: ${crosshairInfo.price} @ ${crosshairInfo.time}`, 20, 85);
+      }
+      
+      // Show click debug counter to track responsiveness
+      ctx.fillStyle = '#FF0000';
+      ctx.font = 'bold 14px Arial';
+      ctx.fillText(`Clicks detected: ${clickDebugCount}`, 20, 65);
+      ctx.restore();
+      
+      // Preview logic based on current step (with proper context management)
+      if (channelPreviewPoint) {
+        const previewX = timeToScreen(channelPreviewPoint.timestamp);
+        const previewY = priceToScreenForDrawings(channelPreviewPoint.price);
+        
+        if (currentChannelPoints.length === 1) {
+          // Show preview line from point 1 to mouse position
+          const point1X = timeToScreen(currentChannelPoints[0].timestamp);
+          const point1Y = priceToScreenForDrawings(currentChannelPoints[0].price);
+          
+          ctx.save(); // Save context for line drawing
+          ctx.strokeStyle = '#00BFFF';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(point1X, point1Y);
+          ctx.lineTo(previewX, previewY);
+          ctx.stroke();
+          ctx.restore(); // Restore after line
+          
+          // Draw preview point
+          ctx.save(); // Save context for preview point
+          ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
+          ctx.beginPath();
+          ctx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.restore(); // Restore after preview point
+          
+          // Show instruction text
+          ctx.save();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = 'bold 12px Arial';
+          ctx.fillText('Click to set trend line end', previewX + 10, previewY + 20);
+          ctx.restore();
+          
+        } else if (currentChannelPoints.length === 2) {
+          // Show preview of complete channel with mouse position as width point
+          const point1X = timeToScreen(currentChannelPoints[0].timestamp);
+          const point1Y = priceToScreenForDrawings(currentChannelPoints[0].price);
+          const point2X = timeToScreen(currentChannelPoints[1].timestamp);
+          const point2Y = priceToScreenForDrawings(currentChannelPoints[1].price);
+          
+          // Draw main trend line (solid) with proper context
+          ctx.save();
+          ctx.strokeStyle = '#00BFFF';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(point1X, point1Y);
+          ctx.lineTo(point2X, point2Y);
+          ctx.stroke();
+          ctx.restore();
+          
+          // Calculate and draw preview parallel line
+          const A = point2Y - point1Y;
+          const B = point1X - point2X;
+          const C = (point2X - point1X) * point1Y - (point2Y - point1Y) * point1X;
+          const distance = Math.abs(A * previewX + B * previewY + C) / Math.sqrt(A * A + B * B);
+          
+          const crossProduct = (point2X - point1X) * (previewY - point1Y) - (point2Y - point1Y) * (previewX - point1X);
+          const isAbove = crossProduct > 0;
+          
+          const lineLength = Math.sqrt(A * A + B * B);
+          const normalX = A / lineLength;
+          const normalY = -B / lineLength;
+          
+          const finalNormalX = isAbove ? normalX : -normalX;
+          const finalNormalY = isAbove ? normalY : -normalY;
+          
+          const parallelStartX = point1X + finalNormalX * distance;
+          const parallelStartY = point1Y + finalNormalY * distance;
+          const parallelEndX = point2X + finalNormalX * distance;
+          const parallelEndY = point2Y + finalNormalY * distance;
+          
+          // Draw preview parallel line (dashed) with context
+          ctx.save();
+          ctx.strokeStyle = 'rgba(0, 191, 255, 0.7)';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(parallelStartX, parallelStartY);
+          ctx.lineTo(parallelEndX, parallelEndY);
+          ctx.stroke();
+          ctx.restore();
+          
+          // Draw preview fill with context
+          ctx.save();
+          ctx.fillStyle = 'rgba(0, 191, 255, 0.1)';
+          ctx.beginPath();
+          ctx.moveTo(point1X, point1Y);
+          ctx.lineTo(point2X, point2Y);
+          ctx.lineTo(parallelEndX, parallelEndY);
+          ctx.lineTo(parallelStartX, parallelStartY);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+          
+          // Draw preview point with context
+          ctx.save();
+          ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
+          ctx.beginPath();
+          ctx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.restore();
+          
+          // Show instruction text with context
+          ctx.save();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = 'bold 12px Arial';
+          ctx.fillText('Click to set channel width', previewX + 10, previewY + 20);
+          ctx.restore();
+        }
+      }
+      
+      // Restore the main context state after all channel preview drawing
+      ctx.restore();
+    }
+
+    // Draw parallel channels (3-point system)
+    if (parallelChannels.length > 0) {
+      parallelChannels.forEach(channel => {
+        const isSelected = selectedChannel === channel.id;
+        ctx.strokeStyle = isSelected ? '#FFFF00' : (channel.color || '#00BFFF'); // Yellow when selected
+        ctx.lineWidth = isSelected ? 3 : (channel.lineWidth || 2); // Thicker when selected
+        
+        // Set line style
+        const lineStyle = channel.lineStyle || 'solid';
+        switch (lineStyle) {
+          case 'dashed':
+            ctx.setLineDash([10, 5]);
+            break;
+          case 'dotted':
+            ctx.setLineDash([2, 3]);
+            break;
+          default:
+            ctx.setLineDash([]);
+            break;
+        }
+        
+        // Convert points to screen coordinates using the drawing-specific function
+        const point1X = timeToScreen(channel.point1.timestamp);
+        const point1Y = priceToScreenForDrawings(channel.point1.price);
+        const point2X = timeToScreen(channel.point2.timestamp);
+        const point2Y = priceToScreenForDrawings(channel.point2.price);
+        const point3X = timeToScreen(channel.point3.timestamp);
+        const point3Y = priceToScreenForDrawings(channel.point3.price);
+        
+        // Calculate the main trend line (point1 to point2)
+        const mainLineStartX = point1X;
+        const mainLineStartY = point1Y;
+        const mainLineEndX = point2X;
+        const mainLineEndY = point2Y;
+        
+        // Calculate perpendicular distance from point3 to the main line
+        // Formula for distance from point to line: |ax + by + c| / sqrt(a² + b²)
+        const A = point2Y - point1Y;
+        const B = point1X - point2X;
+        const C = (point2X - point1X) * point1Y - (point2Y - point1Y) * point1X;
+        const distance = Math.abs(A * point3X + B * point3Y + C) / Math.sqrt(A * A + B * B);
+        
+        // Determine if point3 is above or below the main line
+        const crossProduct = (point2X - point1X) * (point3Y - point1Y) - (point2Y - point1Y) * (point3X - point1X);
+        const isAbove = crossProduct > 0;
+        
+        // Calculate unit normal vector (perpendicular to main line)
+        const lineLength = Math.sqrt(A * A + B * B);
+        const normalX = A / lineLength;
+        const normalY = -B / lineLength;
+        
+        // Adjust normal direction based on which side point3 is on
+        const finalNormalX = isAbove ? normalX : -normalX;
+        const finalNormalY = isAbove ? normalY : -normalY;
+        
+        // Calculate parallel line points
+        const parallelStartX = point1X + finalNormalX * distance;
+        const parallelStartY = point1Y + finalNormalY * distance;
+        const parallelEndX = point2X + finalNormalX * distance;
+        const parallelEndY = point2Y + finalNormalY * distance;
+        
+        // Draw main trend line (point1 to point2)
+        ctx.beginPath();
+        ctx.moveTo(mainLineStartX, mainLineStartY);
+        ctx.lineTo(mainLineEndX, mainLineEndY);
+        ctx.stroke();
+        
+        // Draw parallel line
+        ctx.beginPath();
+        ctx.moveTo(parallelStartX, parallelStartY);
+        ctx.lineTo(parallelEndX, parallelEndY);
+        ctx.stroke();
+        
+        // Fill the channel with semi-transparent color (if enabled)
+        if (channel.showFill !== false) {
+          ctx.fillStyle = channel.fillColor || `${channel.color || '#00BFFF'}33`; // Use fillColor or add transparency to line color
+          ctx.beginPath();
+          ctx.moveTo(mainLineStartX, mainLineStartY);
+          ctx.lineTo(mainLineEndX, mainLineEndY);
+          ctx.lineTo(parallelEndX, parallelEndY);
+          ctx.lineTo(parallelStartX, parallelStartY);
+          ctx.closePath();
+          ctx.fill();
+        }
+        
+        // Draw point markers for visual feedback (optional)
+        if (channel.isSelected) {
+          ctx.fillStyle = channel.color || '#00BFFF';
+          ctx.beginPath();
+          ctx.arc(point1X, point1Y, 4, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(point2X, point2Y, 4, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(point3X, point3Y, 4, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      });
+    }
+
+    // Draw drawing brushes
+    if (drawingBrushes.length > 0) {
+      console.log('🖌️ Rendering', drawingBrushes.length, 'brush strokes:', drawingBrushes.map(b => `${b.label}(${b.strokes.length}pts)`));
+      drawingBrushes.forEach((brush, index) => {
+        if (brush.strokes.length >= 2) {
+          console.log(`🖌️ Rendering brush ${index + 1}: ${brush.label} with ${brush.strokes.length} points`);
+          ctx.strokeStyle = brush.color || '#FF69B4';
+          ctx.lineWidth = brush.lineWidth || 3;
+          ctx.globalAlpha = brush.opacity || 0.8;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.setLineDash([]);
+          
+          ctx.beginPath();
+          for (let i = 0; i < brush.strokes.length; i++) {
+            const stroke = brush.strokes[i];
+            const x = timeToScreen(stroke.timestamp);
+            const y = priceToScreenForDrawings(stroke.price);
+            
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+          }
+          ctx.stroke();
+          ctx.globalAlpha = 1.0; // Reset alpha
+        }
+      });
+    }
+
+    // Draw current brush stroke being drawn
+    if (isBrushing && currentBrushStroke.length > 0) {
+      ctx.strokeStyle = '#FF69B4';
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.8;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.setLineDash([]);
+      
+      ctx.beginPath();
+      for (let i = 0; i < currentBrushStroke.length; i++) {
+        const stroke = currentBrushStroke[i];
+        const x = timeToScreen(stroke.timestamp);
+        const y = priceToScreenForDrawings(stroke.price);
+        
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1.0; // Reset alpha
+    }
   };
 
   // Re-render when data or settings change
@@ -4992,12 +5674,248 @@ export default function TradingViewChart({
       console.log(`🎨 Rendering chart with ${data.length} data points`);
       renderChart();
     }
-  }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive]);
+  }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive, horizontalRays, parallelChannels, currentChannelPoints, channelPreviewPoint, isParallelChannelMode, drawingBrushes, currentBrushStroke, isBrushing]);
+
+  // 🚨 NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
+  useEffect(() => {
+    if (!isParallelChannelMode) return;
+    
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+    
+    console.log('🔥 ACTIVATING NUCLEAR BACKUP EVENT LISTENER FOR PARALLEL CHANNELS');
+    
+    const forceClickHandler = (e: MouseEvent) => {
+      if (!isParallelChannelMode) return;
+      
+      console.log('💥 RAW DOM CLICK DETECTED - FORCING PARALLEL CHANNEL LOGIC');
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      // Force increment click counter
+      setClickDebugCount(prev => {
+        console.log('💥 FORCE CLICK COUNT:', prev + 1);
+        return prev + 1;
+      });
+      
+      // Use EXACT same coordinate conversion as main click handler
+      const newPoint = screenToTimePriceCoordinates(x, y);
+      console.log('💥 FORCE CREATING POINT WITH RAW DOM:', newPoint);
+      
+      // FORCE the state update regardless of React lifecycle
+      setCurrentChannelPoints(currentPoints => {
+        const currentCount = currentPoints.length;
+        console.log('💥 RAW DOM - FORCING STATE UPDATE FROM:', currentCount);
+        
+        if (currentCount === 0) {
+          console.log('💥 RAW DOM - FORCE POINT 1');
+          setChannelDrawingStep(1);
+          return [newPoint];
+        } else if (currentCount === 1) {
+          console.log('💥 RAW DOM - FORCE POINT 2');
+          setChannelDrawingStep(2);
+          return [...currentPoints, newPoint];
+        } else if (currentCount === 2) {
+          console.log('💥 RAW DOM - FORCE POINT 3 - CREATING CHANNEL');
+          const allPoints = [...currentPoints, newPoint];
+          
+          const newChannel: ParallelChannel = {
+            id: Date.now().toString(),
+            point1: allPoints[0],
+            point2: allPoints[1], 
+            point3: allPoints[2],
+            color: '#00BFFF',
+            lineWidth: 2,
+            lineStyle: 'solid',
+            fillOpacity: 0.1,
+            fillColor: '#00BFFF33',
+            showFill: true,
+            label: `Channel ${parallelChannels.length + 1}`
+          };
+          
+          setParallelChannels(prev => [...prev, newChannel]);
+          setChannelDrawingStep(0);
+          setChannelPreviewPoint(null);
+          
+          if (!isDrawingLocked) {
+            activateToolExclusively('none'); // Clear all tools instead of just this one
+          }
+          
+          return [];
+        }
+        
+        return currentPoints;
+      });
+    };
+    
+    // Add the raw DOM listener with capture=true to intercept before React
+    canvas.addEventListener('mousedown', forceClickHandler, true);
+    
+    // Cleanup
+    return () => {
+      canvas.removeEventListener('mousedown', forceClickHandler, true);
+    };
+  }, [isParallelChannelMode, dimensions, scrollOffset, data, parallelChannels.length, isDrawingLocked]);
 
   // TradingView-style interaction handlers
   const [lastMouseX, setLastMouseX] = useState(0);
   const [dragStartX, setDragStartX] = useState(0);
   const [dragStartOffset, setDragStartOffset] = useState(0);
+
+  // Stable helper function to get EXACT same priceChartHeight as renderChart function
+  const actualPriceChartHeight = useMemo((): number => {
+    const timeAxisHeight = 25;
+    const volumeAreaHeight = 80;
+    const cpFlowPaneHeight = 320;
+    const totalBottomSpace = volumeAreaHeight + timeAxisHeight + (isCPFlowActive ? cpFlowPaneHeight : 0);
+    return dimensions.height - totalBottomSpace;
+  }, [dimensions.height, isCPFlowActive]);
+
+  // Coordinate conversion functions (optimized to avoid recreating helper functions)
+  const screenToPrice = useCallback((y: number): number => {
+    const priceChartHeight = actualPriceChartHeight;
+    
+    // Get current price range - EXACT same logic as crosshair
+    const startIndex = Math.max(0, Math.floor(scrollOffset));
+    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+    const visibleData = data.slice(startIndex, endIndex);
+    
+    if (visibleData.length === 0) return 0;
+    
+    // EXACT same price calculation as crosshair
+    const prices = visibleData.flatMap(d => [d.high, d.low]);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const padding = (maxPrice - minPrice) * 0.1;
+    const adjustedMin = minPrice - padding;
+    const adjustedMax = maxPrice + padding;
+    
+    // Use EXACT same formula as crosshair: adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin))
+    return adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
+  }, [actualPriceChartHeight, scrollOffset, visibleCandleCount, data]);
+
+  // Helper function to get STABLE chart price range (for drawings - doesn't change with scrolling)
+  const getStablePriceRange = (): { min: number; max: number } => {
+    if (!data || data.length === 0) return { min: 0, max: 100 };
+    
+    const allPrices = data.flatMap(d => [d.high, d.low]);
+    const minPrice = Math.min(...allPrices);
+    const maxPrice = Math.max(...allPrices);
+    const padding = (maxPrice - minPrice) * 0.1;
+    return {
+      min: minPrice - padding,
+      max: maxPrice + padding
+    };
+  };
+
+  const priceToScreen = useCallback((price: number): number => {
+    const priceChartHeight = actualPriceChartHeight;
+    
+    // Get current price range - EXACT same logic as crosshair
+    const startIndex = Math.max(0, Math.floor(scrollOffset));
+    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+    const visibleData = data.slice(startIndex, endIndex);
+    
+    if (visibleData.length === 0) return priceChartHeight / 2;
+    
+    // EXACT same price calculation as crosshair
+    const prices = visibleData.flatMap(d => [d.high, d.low]);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const padding = (maxPrice - minPrice) * 0.1;
+    const adjustedMin = minPrice - padding;
+    const adjustedMax = maxPrice + padding;
+    
+    // Inverse of crosshair formula: adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin))
+    // Solving for y: y = ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight
+    return ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight;
+  }, [actualPriceChartHeight, scrollOffset, visibleCandleCount, data]);
+
+  const timeToScreen = useCallback((timestamp: number): number => {
+    const candleWidth = (dimensions.width - 100) / visibleCandleCount;
+    const startIndex = Math.max(0, Math.floor(scrollOffset));
+    const visibleData = data.slice(startIndex, startIndex + visibleCandleCount);
+    
+    // Find the index of the timestamp in visible data
+    const dataIndex = visibleData.findIndex(d => d.timestamp >= timestamp);
+    const relativeIndex = dataIndex >= 0 ? dataIndex : visibleData.length - 1;
+    
+    return 40 + (relativeIndex * candleWidth);
+  }, [dimensions.width, visibleCandleCount, scrollOffset, data]);
+
+  // Specialized coordinate functions for drawings that use STABLE price range (not viewport dependent)
+  const priceToScreenForDrawings = useCallback((price: number): number => {
+    const priceChartHeight = actualPriceChartHeight;
+    
+    // Get visible data for current price range calculation
+    const startIndex = Math.max(0, scrollOffset);
+    const endIndex = Math.min(data.length, scrollOffset + visibleCandleCount);
+    const visibleData = data.slice(startIndex, endIndex);
+    
+    if (visibleData.length === 0) {
+      return priceChartHeight / 2;
+    }
+    
+    // Use the EXACT same price range calculation that the chart rendering uses
+    const currentRange = getCurrentPriceRange(visibleData);
+    
+    if (currentRange.min === currentRange.max) {
+      // Fallback if range is invalid
+      return priceChartHeight / 2;
+    }
+    
+    const adjustedMin = currentRange.min;
+    const adjustedMax = currentRange.max;
+    
+    // Convert price to Y coordinate using the current chart range
+    return ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight;
+  }, [actualPriceChartHeight, scrollOffset, data.length, visibleCandleCount, data, getCurrentPriceRange]);
+
+  // Memoized coordinate conversion with performance optimization
+  const screenToTimePriceCoordinates = useCallback((screenX: number, screenY: number): { timestamp: number; price: number } => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas || !data.length) return { timestamp: Date.now(), price: 0 };
+    
+    // Use EXACT same coordinate system as crosshair calculation for perfect alignment
+    const priceChartHeight = actualPriceChartHeight;
+    
+    // Convert screen X to actual timestamp - using same logic as crosshair
+    const chartWidth = dimensions.width - 100; // Match crosshair calculation
+    const candleWidth = chartWidth / visibleCandleCount;
+    const relativeX = Math.max(0, screenX - 40); // Account for left margin (match crosshair)
+    const visibleCandleIndex = Math.floor(relativeX / candleWidth);
+    const absoluteCandleIndex = scrollOffset + visibleCandleIndex;
+    const boundedIndex = Math.max(0, Math.min(absoluteCandleIndex, data.length - 1));
+    const timestamp = data[boundedIndex]?.timestamp || Date.now();
+    
+    // Convert screen Y to actual price using EXACT same logic as crosshair calculation
+    const startIndex = Math.max(0, Math.floor(scrollOffset));
+    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+    const visibleData = data.slice(startIndex, endIndex);
+    
+    if (visibleData.length === 0) return { timestamp, price: 0 };
+    
+    // Use EXACT same price calculation as crosshair (from handleMouseMove)
+    const prices = visibleData.flatMap(d => [d.high, d.low]);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const padding = (maxPrice - minPrice) * 0.1;
+    const adjustedMin = minPrice - padding;
+    const adjustedMax = maxPrice + padding;
+    
+    // Use EXACT same formula as crosshair: adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin))
+    // Only consider mouse position within the price chart area (match crosshair behavior)
+    const price = screenY <= priceChartHeight ? 
+      adjustedMax - ((screenY / priceChartHeight) * (adjustedMax - adjustedMin)) : 
+      adjustedMax - ((screenY / priceChartHeight) * (adjustedMax - adjustedMin));
+    
+    return { timestamp, price };
+  }, [actualPriceChartHeight, dimensions.width, visibleCandleCount, scrollOffset, data]);
 
   // Unified mouse handler that prioritizes drawing interaction over chart panning
   const handleUnifiedMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -5008,15 +5926,200 @@ export default function TradingViewChart({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    console.log('🖱️ Mouse down at:', { x, y });
+    console.log('🖱️ CLICK DETECTED at:', { x, y, isParallelChannelMode, currentChannelPoints: currentChannelPoints.length, button: e.button });
+    
+    // Increment click counter for debugging when in channel mode
+    if (isParallelChannelMode) {
+      setClickDebugCount(prev => prev + 1);
+    }
+    
+    // Visual click feedback - briefly flash the click location
+    if (isParallelChannelMode) {
+      const canvas = overlayCanvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#FF0000';
+          ctx.beginPath();
+          ctx.arc(x, y, 10, 0, 2 * Math.PI);
+          ctx.fill();
+          setTimeout(() => {
+            // This will be cleared on next render
+          }, 100);
+        }
+      }
+    }
 
-    // Drawing tools have been removed as requested
-    // Only core chart functionality remains - enable chart panning
+    // 🚨🚨🚨 NUCLEAR OPTION: PARALLEL CHANNEL MODE - NOTHING ELSE MATTERS! 🚨🚨🚨
+    if (isParallelChannelMode) {
+      console.log('�🔥🔥 PARALLEL CHANNEL CLICK - FORCE PROCESSING NOW!', { 
+        x, y, 
+        currentCount: currentChannelPoints.length,
+        clickNumber: clickDebugCount + 1 
+      });
+      
+      // NUCLEAR STOP - BLOCK EVERYTHING
+      e.preventDefault();
+      e.stopPropagation();
+      (e.nativeEvent as Event).stopImmediatePropagation?.();
+      
+      // Use EXACT same coordinate system as crosshair
+      const newPoint = screenToTimePriceCoordinates(x, y);
+      
+      // FORCE IMMEDIATE UPDATE - USE FUNCTIONAL STATE TO AVOID STALE CLOSURES
+      setCurrentChannelPoints(currentPoints => {
+        console.log('🎯 FORCE UPDATE - Current points before:', currentPoints.length);
+        
+        if (currentPoints.length === 0) {
+          console.log('🟢 POINT 1 FORCE PLACED!', newPoint);
+          setChannelDrawingStep(1);
+          return [newPoint];
+        } else if (currentPoints.length === 1) {
+          console.log('🟢 POINT 2 FORCE PLACED!', newPoint);
+          setChannelDrawingStep(2);
+          return [...currentPoints, newPoint];
+        } else if (currentPoints.length === 2) {
+          console.log('🟢 POINT 3 FORCE PLACED - CREATING CHANNEL!', newPoint);
+          const allPoints = [...currentPoints, newPoint];
+          
+          // IMMEDIATE CHANNEL CREATION
+          const newChannel: ParallelChannel = {
+            id: Date.now().toString(),
+            point1: allPoints[0],
+            point2: allPoints[1], 
+            point3: allPoints[2],
+            color: '#00BFFF',
+            lineWidth: 2,
+            lineStyle: 'solid',
+            fillOpacity: 0.1,
+            fillColor: '#00BFFF33',
+            showFill: true,
+            label: `Channel ${parallelChannels.length + 1}`
+          };
+          
+          // FORCE ADD CHANNEL
+          setParallelChannels(prev => [...prev, newChannel]);
+          setChannelDrawingStep(0);
+          setChannelPreviewPoint(null);
+          console.log('🏁 CHANNEL COMPLETE!', newChannel);
+          
+          if (!isDrawingLocked) {
+            activateToolExclusively('none'); // Clear all tools instead of just this one
+          }
+          
+          return []; // Clear points
+        }
+        
+        return currentPoints; // Fallback
+      });
+      
+      // NUCLEAR STOP - RETURN IMMEDIATELY
+      return;
+    }
+
+    // Check if we're in horizontal ray drawing mode
+    if (isHorizontalRayMode) {
+      // Use EXACT same coordinate system as crosshair
+      const price = screenToPrice(y);
+      
+      const newRay: HorizontalRay = {
+        id: Date.now().toString(),
+        price: price,
+        startX: x,
+        color: '#00ff00', // Simple green color
+        lineWidth: 2,
+        lineStyle: 'solid',
+        extendLeft: true,
+        extendRight: true,
+        label: `Ray ${horizontalRays.length + 1}`
+      };
+      
+      console.log('Creating ray at price:', price, 'y:', y);
+      setHorizontalRays(prev => [...prev, newRay]);
+      
+      if (!isDrawingLocked) {
+        activateToolExclusively('none'); // Clear all tools instead of just this one
+      }
+      
+      return;
+    }
+
+
+
+
+    // Drawing Brush mode - CLICK AND HOLD to draw (prepare for drawing)
+    if (isDrawingBrushMode) {
+      // Track that mouse is pressed and prepare for drawing
+      setIsMousePressed(true);
+      setIsBrushing(true);
+      setCurrentBrushStroke([]); // Start with empty stroke
+      setLastBrushTime(Date.now());
+      
+      console.log('🖌️ Brush prepared for drawing - mouse button pressed, waiting for movement');
+      console.log('🖌️ Current saved brushes count:', drawingBrushes.length);
+      console.log('🖌️ Current saved brushes:', drawingBrushes.map(b => b.label));
+      return;
+    }
+
+    // Check for horizontal ray hits (for editing/selecting)
+    for (const ray of horizontalRays) {
+      const rayY = priceToScreenForDrawings(ray.price);
+      if (Math.abs(y - rayY) <= 5) { // 5px tolerance
+        setSelectedRay(ray.id);
+        setIsEditingRay(true);
+        setRayDragStart({ x, y, originalPrice: ray.price });
+        return;
+      }
+    }
+
+    // Check for parallel channel hits (for editing/selecting)
+    for (const channel of parallelChannels) {
+      // Check if click is near any of the channel lines
+      const point1Y = priceToScreenForDrawings(channel.point1.price);
+      const point2Y = priceToScreenForDrawings(channel.point2.price);
+      const point3Y = priceToScreenForDrawings(channel.point3.price);
+      
+      // Calculate the parallel line (point4) coordinates
+      const deltaY = point2Y - point1Y;
+      const point4Y = point3Y + deltaY;
+      
+      // Check if click is near either channel line (5px tolerance)
+      const nearFirstLine = Math.abs(y - point1Y) <= 5 || Math.abs(y - point2Y) <= 5;
+      const nearSecondLine = Math.abs(y - point3Y) <= 5 || Math.abs(y - point4Y) <= 5;
+      
+      if (nearFirstLine || nearSecondLine) {
+        setSelectedChannel(channel.id);
+        setIsEditingChannel(true);
+        setChannelDragStart({ x, y, originalChannel: { ...channel } });
+        return;
+      }
+    }
+
+    // Clear selections if clicking on empty area
+    if (selectedRay) {
+      setSelectedRay(null);
+      setIsEditingRay(false);
+      setRayDragStart(null);
+    }
+    if (selectedChannel) {
+      setSelectedChannel(null);
+      setIsEditingChannel(false);
+      setChannelDragStart(null);
+    }
+
+    // Default chart panning behavior
     setIsDragging(true);
     setLastMouseX(x);
     setDragStartX(x);
     setDragStartOffset(scrollOffset);
-  }, [scrollOffset]);
+  }, [
+    isHorizontalRayMode, horizontalRays, rayProperties, scrollOffset, 
+    isParallelChannelMode, isDrawingBrushMode,
+    parallelChannels, isBrushing, isMousePressed,
+    drawingBrushes, dimensions, data, visibleCandleCount, isDrawingLocked,
+    screenToTimePriceCoordinates, screenToPrice, priceToScreenForDrawings, activateToolExclusively,
+    selectedRay, selectedChannel
+  ]);
 
   // ✨ NEW: Advanced Hit Detection System
   const getDrawingHandles = useCallback((drawing: Drawing): Array<{x: number, y: number, type: string, cursor: string}> => {
@@ -5388,6 +6491,106 @@ export default function TradingViewChart({
     // ALWAYS update crosshair position first
     setCrosshairPosition({ x, y });
 
+    // Handle horizontal ray dragging
+    if (isEditingRay && selectedRay && rayDragStart) {
+      const newPrice = screenToPrice(y);
+      setHorizontalRays(prev => 
+        prev.map(ray => 
+          ray.id === selectedRay 
+            ? { ...ray, price: newPrice }
+            : ray
+        )
+      );
+      return;
+    }
+
+    // Handle parallel channel dragging
+    if (isEditingChannel && selectedChannel && channelDragStart) {
+      // Calculate price change for vertical dragging
+      const newPrice = screenToPrice(y);
+      const originalPrice = screenToPrice(channelDragStart.y);
+      const deltaPrice = newPrice - originalPrice;
+      
+      // Calculate time change for horizontal dragging
+      const newTimestamp = screenToTimePriceCoordinates(x, y).timestamp;
+      const originalTimestamp = screenToTimePriceCoordinates(channelDragStart.x, channelDragStart.y).timestamp;
+      const deltaTime = newTimestamp - originalTimestamp;
+      
+      setParallelChannels(prev => 
+        prev.map(channel => 
+          channel.id === selectedChannel 
+            ? { 
+                ...channel,
+                point1: { 
+                  timestamp: channelDragStart.originalChannel.point1.timestamp + deltaTime,
+                  price: channelDragStart.originalChannel.point1.price + deltaPrice 
+                },
+                point2: { 
+                  timestamp: channelDragStart.originalChannel.point2.timestamp + deltaTime,
+                  price: channelDragStart.originalChannel.point2.price + deltaPrice 
+                },
+                point3: { 
+                  timestamp: channelDragStart.originalChannel.point3.timestamp + deltaTime,
+                  price: channelDragStart.originalChannel.point3.price + deltaPrice 
+                }
+              }
+            : channel
+        )
+      );
+      return;
+    }
+
+    // Handle drawing brush stroke - CLICK AND HOLD behavior
+    if (isBrushing && isDrawingBrushMode && isMousePressed) {
+      const now = Date.now();
+      
+      // Throttle brush points to prevent too many updates (max 60 FPS)
+      if (now - lastBrushTime < 16) {
+        return; // Skip this update
+      }
+      
+      // Use EXACT same coordinate system as crosshair for perfect alignment
+      const coords = screenToTimePriceCoordinates(x, y);
+      
+      // Add point to current brush stroke with smooth interpolation
+      setCurrentBrushStroke(prev => {
+        // If this is the first point (empty array), always add it to start drawing
+        if (prev.length === 0) {
+          console.log('🖌️ Brush stroke STARTED at:', coords);
+          return [coords];
+        }
+        
+        // For subsequent points, avoid duplicates that are too close together (less than 2 pixels distance)
+        const lastPoint = prev[prev.length - 1];
+        const lastX = timeToScreen(lastPoint.timestamp);
+        const lastY = priceToScreenForDrawings(lastPoint.price);
+        const distance = Math.sqrt(Math.pow(x - lastX, 2) + Math.pow(y - lastY, 2));
+        
+        // Only add point if it's far enough from the last point for smoother drawing
+        if (distance < 2) {
+          return prev;
+        }
+        
+        return [...prev, coords];
+      });
+      
+      setLastBrushTime(now);
+      console.log('🖌️ Brush stroke point added:', coords, 'Total points:', currentBrushStroke.length + 1);
+      // Note: Don't return here so crosshair continues to update
+    }
+
+    // Handle channel preview (show live preview as mouse moves) - use EXACT same coordinate system as crosshair
+    if (isParallelChannelMode && currentChannelPoints.length > 0) {
+      // Throttle preview updates to improve performance
+      const now = Date.now();
+      if (!lastPreviewUpdate || now - lastPreviewUpdate > 16) { // ~60fps throttling
+        const previewCoords = screenToTimePriceCoordinates(x, y);
+        setChannelPreviewPoint(previewCoords);
+        setLastPreviewUpdate(now);
+      }
+      // Note: Don't return here so crosshair continues to update
+    }
+
     // Track velocity for momentum scrolling (only when dragging)
     if (isDragging || isDraggingYAxis) {
       const now = Date.now();
@@ -5544,9 +6747,8 @@ export default function TradingViewChart({
 
     // Update crosshair info
     if (data.length > 0 && config.crosshair) {
-      // Calculate correct chart dimensions (matching renderChart function)
-      const timeAxisHeight = 25;
-      const priceChartHeight = dimensions.height - timeAxisHeight;
+      // Calculate correct chart dimensions (matching renderChart function EXACTLY)
+      const priceChartHeight = actualPriceChartHeight;
       
       // Calculate visible data range (matching renderChart function)
       const startIndex = Math.max(0, Math.floor(scrollOffset));
@@ -5617,7 +6819,7 @@ export default function TradingViewChart({
         }
       }
     }
-  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe]);
+  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight]);
 
   const handleMouseUp = useCallback(() => {
     // Handle box zoom completion
@@ -5681,6 +6883,63 @@ export default function TradingViewChart({
     setIsBoxZooming(false);
     setBoxZoomStart(null);
     setBoxZoomEnd(null);
+    
+    // Handle drawing brush stroke completion - CLICK AND HOLD behavior
+    if (isBrushing && currentBrushStroke.length > 0) {
+      console.log('🖌️ Brush stroke completed with', currentBrushStroke.length, 'points');
+      
+      // Only save if we have enough points for a meaningful stroke
+      if (currentBrushStroke.length >= 2) {
+        const newBrush: DrawingBrush = {
+          id: Date.now().toString(),
+          strokes: currentBrushStroke,
+          color: '#FF69B4',
+          lineWidth: 3,
+          opacity: 0.8,
+          label: `Brush ${drawingBrushes.length + 1}`
+        };
+        console.log('🖌️ Creating new brush:', newBrush.label);
+        setDrawingBrushes(prev => {
+          
+          const updated = [...prev, newBrush];
+          console.log('🖌️ Brush stroke saved:', newBrush.label, 'Total brushes:', updated.length);
+
+          
+          // Verify all brushes have valid stroke data
+          const validBrushes = updated.filter(b => b.strokes && b.strokes.length >= 2);
+          if (validBrushes.length !== updated.length) {
+            console.warn('� Some brushes have invalid stroke data!');
+          }
+          
+          return updated;
+        });
+      } else {
+        console.log('🖌️ Brush stroke too short, discarding');
+      }
+      
+      // Always clear current stroke and stop brushing
+      setCurrentBrushStroke([]);
+      setIsBrushing(false);
+      
+      // Keep brush tool active for multiple drawings unless drawing lock is disabled
+      if (!isDrawingLocked) {
+        // Don't clear the brush tool - keep it active for multiple drawings
+        // Only clear the current drawing state
+        console.log('🖌️ Brush stroke completed - tool remains active for next drawing');
+      }
+    }
+
+    // Always clear mouse pressed state on mouse up (critical for brush tool)
+    setIsMousePressed(false);
+
+    // Handle horizontal ray editing cleanup
+    setIsEditingRay(false);
+    setRayDragStart(null);
+
+    // Handle parallel channel editing cleanup
+    setIsEditingChannel(false);
+    setChannelDragStart(null);
+    
     // DON'T clear selectedDrawing here - it closes the Property Editor!
     // setSelectedDrawing(null);
   }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, isDraggingYAxis, velocity, startMomentumAnimation]);
@@ -5696,6 +6955,9 @@ export default function TradingViewChart({
   const handleMouseLeave = useCallback(() => {
     // Hide crosshair info when mouse leaves chart area
     setCrosshairInfo(prev => ({ ...prev, visible: false }));
+    
+    // Clear mouse pressed state when leaving canvas (important for brush tool)
+    setIsMousePressed(false);
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -5856,6 +7118,55 @@ export default function TradingViewChart({
     return (relativeIndex / visibleDataLength) * chartWidth;
   };
 
+
+
+  // Horizontal Ray Drawing Functions
+  const addHorizontalRay = (price: number, startX: number) => {
+    const newRay: HorizontalRay = {
+      id: `ray_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      price,
+      color: '#2196F3',
+      lineWidth: 2,
+      lineStyle: 'solid',
+      extendLeft: true,
+      extendRight: true,
+      label: '',
+      startX,
+      isSelected: false
+    };
+    
+    setHorizontalRays(prev => [...prev, newRay]);
+    console.log(`🎯 Added horizontal ray at price: $${price.toFixed(2)}`);
+  };
+
+  const selectHorizontalRay = (rayId: string) => {
+    setHorizontalRays(prev => prev.map(ray => ({
+      ...ray,
+      isSelected: ray.id === rayId
+    })));
+    setSelectedRay(rayId);
+  };
+
+  const updateHorizontalRayPrice = (rayId: string, newPrice: number) => {
+    setHorizontalRays(prev => prev.map(ray => 
+      ray.id === rayId ? { ...ray, price: newPrice } : ray
+    ));
+  };
+
+  const updateHorizontalRayStyle = (rayId: string, newStyle: Partial<HorizontalRay>) => {
+    setHorizontalRays(prev => prev.map(ray => 
+      ray.id === rayId ? { ...ray, ...newStyle } : ray
+    ));
+  };
+
+  const deleteHorizontalRay = (rayId: string) => {
+    setHorizontalRays(prev => prev.filter(ray => ray.id !== rayId));
+    if (selectedRay === rayId) {
+      setSelectedRay(null);
+      setIsEditingRay(false);
+    }
+  };
+
   // Enhanced Canvas Drawing Interaction Handlers
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     console.log('🔥 handleCanvasMouseDown called');
@@ -5866,61 +7177,69 @@ export default function TradingViewChart({
 
     console.log('🖱️ Mouse down at:', { x, y });
 
-    // Drawing tools have been removed as requested
-    // Only core chart functionality remains
+    // Handle horizontal ray mode
+    if (isHorizontalRayMode) {
+      // Calculate visible data range
+      const startIndex = Math.max(0, Math.floor(scrollOffset));
+      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+      const currentVisibleData = data.slice(startIndex, endIndex);
+      
+      if (!currentVisibleData.length) return;
+      
+      const timeAxisHeight = 25;
+      const volumeAreaHeight = isCPFlowActive ? 80 : 0;
+      const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight - (isCPFlowActive ? 320 : 0);
+      const minPrice = Math.min(...currentVisibleData.map(d => d.low));
+      const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
+      
+      // Convert canvas Y to price
+      const price = canvasToPrice(y, minPrice, maxPrice, chartHeight);
+      
+      // Add horizontal ray
+      addHorizontalRay(price, x);
+      
+      // If not locked, exit ray mode after placing one ray
+      if (!isDrawingLocked) {
+        setIsHorizontalRayMode(false);
+      }
+      
+      return;
+    }
+
+    // Check if clicking on existing horizontal ray
+    // Calculate visible data range
+    const startIndex = Math.max(0, Math.floor(scrollOffset));
+    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+    const currentVisibleData = data.slice(startIndex, endIndex);
+    
+    if (!currentVisibleData.length) return;
+    
+    const timeAxisHeight = 25;
+    const volumeAreaHeight = isCPFlowActive ? 80 : 0;
+    const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight - (isCPFlowActive ? 320 : 0);
+    const minPrice = Math.min(...currentVisibleData.map(d => d.low));
+    const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
+    
+    for (const ray of horizontalRays) {
+      const rayY = priceToCanvas(ray.price, minPrice, maxPrice, chartHeight);
+      
+      // Check if click is near the ray line (within 5 pixels)
+      if (Math.abs(y - rayY) <= 5 && x >= (ray.startX || 0)) {
+        selectHorizontalRay(ray.id);
+        setIsEditingRay(true);
+        return;
+      }
+    }
+
+    // If clicking elsewhere, deselect rays
+    setSelectedRay(null);
+    setIsEditingRay(false);
+    setHorizontalRays(prev => prev.map(ray => ({ ...ray, isSelected: false })));
+
     return;
   };
 
-  // Helper functions to convert between screen and data coordinates
-  // TradingView-style coordinate conversion: Screen → Time/Price
-  const screenToTimePriceCoordinates = (screenX: number, screenY: number): { timestamp: number; price: number } => {
-    const canvas = overlayCanvasRef.current;
-    if (!canvas || !data.length) return { timestamp: Date.now(), price: 0 };
-    
-    const rect = canvas.getBoundingClientRect();
-    const chartWidth = rect.width - 80; // Account for margins
-    const candleWidth = chartWidth / visibleCandleCount;
-    
-    // Convert screen X to actual timestamp
-    const relativeX = Math.max(0, screenX - 40); // Account for left margin
-    const visibleCandleIndex = Math.floor(relativeX / candleWidth);
-    const absoluteCandleIndex = scrollOffset + visibleCandleIndex;
-    const boundedIndex = Math.max(0, Math.min(absoluteCandleIndex, data.length - 1));
-    const timestamp = data[boundedIndex]?.timestamp || Date.now();
-    
-    // Convert screen Y to actual price using STABLE price range (for drawing creation)
-    const priceChartHeight = rect.height * 0.7;
-    const relativeY = screenY / priceChartHeight;
-    const stablePriceRange = getStablePriceRange();
-    const price = stablePriceRange.max - ((stablePriceRange.max - stablePriceRange.min) * relativeY);
-    
-    console.log('🎯 FIXED Screen to Time/Price:', { 
-      screenX, 
-      screenY, 
-      timestamp, 
-      price, 
-      candleIndex: boundedIndex,
-      visibleIndex: visibleCandleIndex,
-      priceRange: priceRange
-    });
-    
-    return { timestamp, price };
-  };
 
-  // Helper function to get STABLE chart price range (for drawings - doesn't change with scrolling)
-  const getStablePriceRange = (): { min: number; max: number } => {
-    if (!data || data.length === 0) return { min: 0, max: 100 };
-    
-    // Use ALL data to create a stable price range, not just visible data
-    const allPrices = data.flatMap(d => [d.high, d.low]);
-    const minPrice = Math.min(...allPrices);
-    const maxPrice = Math.max(...allPrices);
-    const padding = (maxPrice - minPrice) * 0.2; // More padding for stability
-    const adjustedMin = minPrice - padding;
-    const adjustedMax = maxPrice + padding;
-    
-    return { min: adjustedMin, max: adjustedMax };
-  };
 
   // Helper function to get current chart price range (for chart rendering - changes with scrolling)
   const getCurrentChartPriceRange = (): { min: number; max: number } => {
@@ -6304,12 +7623,40 @@ export default function TradingViewChart({
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // Just update crosshair position - don't clear overlay canvas
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    
+    // Update crosshair position - these coordinates should match exactly with drawing coordinates
     setCrosshairPosition({ x, y });
+
+    // Handle horizontal ray dragging
+    if (isEditingRay && selectedRay) {
+      // Use the exact same coordinate system as everything else
+      const newPrice = screenToPrice(y);
+      updateHorizontalRayPrice(selectedRay, newPrice);
+    }
+
+    // Change cursor when hovering over rays
+    let isOverRay = false;
+    for (const ray of horizontalRays) {
+      const rayY = priceToScreenForDrawings(ray.price);
+      if (Math.abs(y - rayY) <= 5 && x >= (ray.startX || 0)) {
+        isOverRay = true;
+        break;
+      }
+    }
+    
+    // Set cursor for parallel channel mode to precise crosshair for better alignment
+    canvas.style.cursor = isOverRay || isEditingRay ? 'ns-resize' : 
+                          (isHorizontalRayMode || isParallelChannelMode) ? 'crosshair' : 
+                          isDrawingBrushMode ? 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTMgMTdIMjFMMTMgOUwzIDE3WiIgZmlsbD0iIzAwMCIgc3Ryb2tlPSIjRkZGIiBzdHJva2Utd2lkdGg9IjIiLz4KPHN2Zz4K) 8 20, auto' :
+                          'default';
+  };
+
+  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsEditingRay(false);
   };
 
   // Helper function to draw arrow heads
@@ -6321,6 +7668,53 @@ export default function TradingViewChart({
     ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
     ctx.moveTo(toX, toY);
     ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+  };
+
+  // Fixed horizontal rays function - uses proper coordinate system
+  const drawHorizontalRays = (ctx: CanvasRenderingContext2D) => {
+    if (!horizontalRays.length) return;
+    
+    // Use the existing priceToScreen function for consistent coordinates
+    const chartWidth = dimensions.width - 80;
+    
+    horizontalRays.forEach(ray => {
+      // Use the same coordinate conversion as the main chart
+      const y = priceToScreen(ray.price);
+      
+      // Only draw if within visible area
+      if (y < 0 || y > dimensions.height) return;
+      
+      // Draw horizontal line across entire chart width
+      ctx.strokeStyle = ray.color || '#00ff00';
+      ctx.lineWidth = ray.lineWidth || 2;
+      
+      // Set line style based on ray properties
+      const lineStyle = ray.lineStyle || 'solid';
+      switch (lineStyle) {
+        case 'dashed':
+          ctx.setLineDash([10, 5]);
+          break;
+        case 'dotted':
+          ctx.setLineDash([2, 3]);
+          break;
+        default:
+          ctx.setLineDash([]);
+          break;
+      }
+      
+      ctx.beginPath();
+      ctx.moveTo(80, y); // Start from left margin
+      ctx.lineTo(dimensions.width - 80, y); // End at right margin
+      ctx.stroke();
+
+      // Price label on the right
+      const priceText = `$${ray.price.toFixed(2)}`;
+      ctx.font = '12px Arial';
+      ctx.fillStyle = ray.color || '#00ff00';
+      ctx.fillText(priceText, dimensions.width - 75, y - 5);
+    });
+    
+    ctx.setLineDash([]);
   };
 
   // TradingView-style drawing renderer: converts time+price coordinates to screen position
@@ -8809,20 +10203,56 @@ export default function TradingViewChart({
           {/* Live C/P Flow Button */}
           <div className="ml-4">
             <button
-              onClick={() => {
+              onClick={async () => {
+                console.log(`🔄 DEBUG: C/P Flow button clicked! Current timeframe: ${config.timeframe}, Current active state: ${isCPFlowActive}`);
+                
                 // Only allow C/P Flow on 30m or 5m timeframes for detail
                 if (config.timeframe !== '30m' && config.timeframe !== '5m') {
-                  console.log('⚠️ C/P Flow indicator only available on 30m or 5m timeframes');
-                  // You could add a toast notification here
+                  console.log(`⚠️ DEBUG: C/P Flow blocked - current timeframe is ${config.timeframe}, need 30m or 5m`);
+                  alert(`C/P Flow only available on 30m or 5m timeframes. Current: ${config.timeframe}`);
                   return;
                 }
                 
-                setIsCPFlowActive(!isCPFlowActive);
-                if (!isCPFlowActive) {
-                  console.log('📊 C/P Flow indicator activated');
-                  setCPFlowData(generateMockCPFlowData()); // Refresh data when activated
+                console.log(`✅ DEBUG: Timeframe check passed, toggling C/P Flow state...`);
+                
+                const newActiveState = !isCPFlowActive;
+                setIsCPFlowActive(newActiveState);
+                
+                if (newActiveState) {
+                  console.log('📊 DEBUG: C/P Flow indicator ACTIVATED - fetching real-time data');
+                  
+                  try {
+                    console.log(`🔄 DEBUG: About to call fetchRealCPFlowData for symbol: ${symbol}`);
+                    const realData = await fetchRealCPFlowData();
+                    console.log(`📊 DEBUG: Received ${realData.length} data points:`, realData.slice(0, 3));
+                    
+                    if (realData.length > 0) {
+                      console.log(`✅ DEBUG: Setting ${realData.length} C/P Flow data points to state`);
+                      setCPFlowData(realData);
+                      console.log(`✅ DEBUG: C/P Flow data set successfully! Force re-render...`);
+                      
+                      // Force chart re-render
+                      setTimeout(() => {
+                        console.log(`🔄 DEBUG: Triggering chart re-render after C/P Flow data set`);
+                        const canvas = chartCanvasRef.current;
+                        if (canvas) {
+                          const rect = canvas.getBoundingClientRect();
+                          // Trigger a resize event to force re-render
+                          canvas.dispatchEvent(new Event('resize'));
+                        }
+                      }, 100);
+                    } else {
+                      console.warn(`⚠️ DEBUG: No C/P Flow data received for ${symbol}`);
+                      alert(`No C/P Flow data found for ${symbol}. Make sure there are options trades for this symbol.`);
+                    }
+                  } catch (error) {
+                    console.error('❌ DEBUG: Error fetching C/P Flow data:', error);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    alert(`Error fetching C/P Flow data: ${errorMessage}`);
+                  }
                 } else {
-                  console.log('📊 C/P Flow indicator deactivated');
+                  console.log('📊 DEBUG: C/P Flow indicator DEACTIVATED');
+                  setCPFlowData([]); // Clear data when deactivated
                 }
               }}
               className={`btn-3d-carved relative group flex items-center space-x-2 text-white ${isCPFlowActive ? 'active' : ''} ${config.timeframe !== '30m' && config.timeframe !== '5m' ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -8857,22 +10287,114 @@ export default function TradingViewChart({
           }}></div>
 
           {/* Drawing Tools Button */}
-          <div className="ml-4">
+          <div className="ml-4 relative">
             <button
-              onClick={() => {
-                // TODO: Add Drawing Tools functionality
-                console.log('🎨 Drawing Tools button clicked');
-              }}
-              className="btn-3d-carved relative group flex items-center space-x-2 text-white"
+              ref={drawingsButtonRef}
+              onClick={() => setIsDrawingsDropdownOpen(!isDrawingsDropdownOpen)}
+              className={`btn-3d-carved relative group flex items-center space-x-2 text-white ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
               style={{
                 padding: '10px 14px',
                 fontWeight: '700',
                 fontSize: '13px',
                 borderRadius: '4px'
               }}
+              title="Drawing Tools"
             >
-              <span>DRAWING TOOLS</span>
+              <span>🎨 DRAWINGS</span>
+              <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
+                <div 
+                  className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
+                  style={{
+                    boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
+                    animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                  }}
+                />
+              )}
             </button>
+
+            {/* Dropdown Menu */}
+            {isDrawingsDropdownOpen && createPortal(
+              <div 
+                className="absolute w-48 bg-gray-800 border border-gray-600 rounded-md shadow-lg" 
+                style={{ 
+                  top: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().bottom + 4 : 100,
+                  left: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().left : 400,
+                  zIndex: 99999,
+                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                  background: 'rgba(40, 40, 40, 0.98)',
+                  backdropFilter: 'blur(10px)'
+                }}
+              >
+                <div className="py-1">
+                  <button
+                    onClick={() => {
+                      activateToolExclusively(isHorizontalRayMode ? 'none' : 'horizontal');
+                      setIsDrawingsDropdownOpen(false);
+                      console.log('🎨 Horizontal Ray mode:', !isHorizontalRayMode);
+                    }}
+                    className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isHorizontalRayMode ? 'bg-gray-700' : ''}`}
+                  >
+                    <span>📏</span>
+                    <span>Horizontal Ray</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      activateToolExclusively(isParallelChannelMode ? 'none' : 'channel');
+                      setIsDrawingsDropdownOpen(false);
+                      console.log('🎨 Parallel Channel mode:', !isParallelChannelMode);
+                    }}
+                    className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isParallelChannelMode ? 'bg-gray-700' : ''}`}
+                    title="Click 3 points: 1) Start trend line 2) End trend line 3) Define channel width"
+                  >
+                    <span>📊</span>
+                    <span>Parallel Channels</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      activateToolExclusively(isDrawingBrushMode ? 'none' : 'brush');
+                      setIsDrawingsDropdownOpen(false);
+                      console.log('🎨 Drawing Brush mode:', !isDrawingBrushMode);
+                    }}
+                    className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isDrawingBrushMode ? 'bg-gray-700' : ''}`}
+                    title="Hold and drag to draw freehand on the chart"
+                  >
+                    <span>🖌️</span>
+                    <span>Drawing Brush</span>
+                  </button>
+                </div>
+              </div>, 
+              document.body
+            )}
+
+            {/* Click outside to close dropdown */}
+            {isDrawingsDropdownOpen && createPortal(
+              <div 
+                className="fixed inset-0" 
+                style={{ zIndex: 99998 }}
+                onClick={() => setIsDrawingsDropdownOpen(false)}
+              />, 
+              document.body
+            )}
+            
+            {/* Drawing Lock Toggle */}
+            {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
+              <button
+                onClick={() => setIsDrawingLocked(!isDrawingLocked)}
+                className={`btn-3d-carved absolute top-0 -right-8 w-6 h-6 flex items-center justify-center text-xs ${isDrawingLocked ? 'active' : ''}`}
+                title={`Drawing Lock: ${isDrawingLocked ? 'ON - Tool stays active' : 'OFF - Tool deactivates after use'}`}
+                style={{
+                  backgroundColor: isDrawingLocked ? '#2196F3' : 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '3px'
+                }}
+              >
+                🔒
+              </button>
+            )}
           </div>
 
           {/* Glowing Orange Separator */}
@@ -9634,9 +11156,14 @@ export default function TradingViewChart({
         <canvas
           ref={overlayCanvasRef}
           className="absolute inset-0 z-20"
+          tabIndex={0}
           style={{ 
-            cursor: activeTool ? 'crosshair' : isDragging ? 'grabbing' : 'crosshair',
-            transition: 'cursor 0.1s ease'
+            cursor: isParallelChannelMode ? 'copy' : 
+                   isDrawingBrushMode ? 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjMiIGZpbGw9IiNGRjY5QjQiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIxIi8+Cjwvc3ZnPgo=) 8 8, crosshair' :
+                   activeTool ? 'crosshair' : 
+                   isDragging ? 'grabbing' : 'crosshair',
+            transition: 'cursor 0.1s ease',
+            outline: 'none'
           }}
           onMouseDown={handleUnifiedMouseDown}
         onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -10011,6 +11538,385 @@ export default function TradingViewChart({
           >
             🗑️ Clear
           </button>
+        </div>
+      )}
+
+      {/* Horizontal Ray Property Editor */}
+      {selectedRay && (
+        <div 
+          className="absolute top-32 right-6 bg-black border border-gray-700 rounded-xl shadow-2xl z-50 min-w-[300px] max-w-[350px]"
+          style={{ 
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)'
+          }}
+        >
+          {/* Header */}
+          <div className="flex justify-between items-center p-4 border-b border-gray-700">
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+              <h3 className="text-white font-semibold text-base">Horizontal Ray</h3>
+            </div>
+            <button
+              onClick={() => {
+                setIsEditingRay(false);
+                setSelectedRay(null);
+              }}
+              className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
+            >
+              ×
+            </button>
+          </div>
+
+          {(() => {
+            const ray = horizontalRays.find(r => r.id === selectedRay);
+            if (!ray) return null;
+
+            return (
+              <div className="p-4 space-y-5">
+                {/* Price Configuration Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <div className="w-4 h-0.5 bg-yellow-500"></div>
+                    <span className="text-white font-medium text-sm">Price Level</span>
+                  </div>
+                  
+                  {/* Price Input */}
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2 font-medium">Price Value</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={ray.price.toFixed(2)}
+                        onChange={(e) => {
+                          const newPrice = parseFloat(e.target.value);
+                          if (!isNaN(newPrice)) {
+                            updateHorizontalRayPrice(selectedRay, newPrice);
+                          }
+                        }}
+                        className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm font-mono focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-20 transition-all"
+                        step="0.01"
+                        placeholder="0.00"
+                      />
+                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs font-medium">
+                        USD
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Line Styling Section */}
+                <div className="space-y-3 border-t border-gray-700 pt-4">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <div className="w-4 h-0.5 bg-blue-500"></div>
+                    <span className="text-white font-medium text-sm">Line Styling</span>
+                  </div>
+                  
+                  {/* Color Picker */}
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2 font-medium">Color</label>
+                    <div className="grid grid-cols-6 gap-2">
+                      {['#FFD700', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'].map(color => (
+                        <button
+                          key={color}
+                          onClick={() => updateHorizontalRayStyle(selectedRay, { color })}
+                          className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${
+                            ray.color === color 
+                              ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50' 
+                              : 'border-gray-600 hover:border-gray-400'
+                          }`}
+                          style={{ backgroundColor: color }}
+                          title={`Select ${color}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Line Style */}
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2 font-medium">Style</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { type: 'solid', label: '━━━━━', title: 'Solid Line' },
+                        { type: 'dashed', label: '┅ ┅ ┅ ┅', title: 'Dashed Line' },
+                        { type: 'dotted', label: '⋯ ⋯ ⋯ ⋯', title: 'Dotted Line' }
+                      ].map(({ type, label, title }) => (
+                        <button
+                          key={type}
+                          onClick={() => updateHorizontalRayStyle(selectedRay, { lineStyle: type as any })}
+                          className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${
+                            ray.lineStyle === type 
+                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50' 
+                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+                          }`}
+                          title={title}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Line Thickness */}
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2 font-medium">Thickness</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[1, 2, 3].map(thickness => (
+                        <button
+                          key={thickness}
+                          onClick={() => updateHorizontalRayStyle(selectedRay, { lineWidth: thickness })}
+                          className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${
+                            ray.lineWidth === thickness 
+                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50' 
+                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+                          }`}
+                          title={`${thickness}px thickness`}
+                        >
+                          {thickness}px
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions Section */}
+                <div className="border-t border-gray-700 pt-4">
+                  <button
+                    onClick={() => {
+                      if (confirm('🗑️ Delete this horizontal ray?\n\nThis action cannot be undone.')) {
+                        deleteHorizontalRay(selectedRay);
+                      }
+                    }}
+                    className="w-full px-4 py-3 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-red-500/25"
+                  >
+                    <div className="flex items-center justify-center space-x-2">
+                      <span>🗑️</span>
+                      <span>Delete Ray</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Parallel Channel Property Editor */}
+      {selectedChannel && (
+        <div 
+          className="absolute top-32 right-6 bg-black border border-gray-700 rounded-xl shadow-2xl z-50 min-w-[300px] max-w-[350px]"
+          style={{ 
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)'
+          }}
+        >
+          {/* Header */}
+          <div className="flex justify-between items-center p-4 border-b border-gray-700">
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+              <h3 className="text-white font-semibold text-base">Parallel Channel</h3>
+            </div>
+            <button
+              onClick={() => {
+                setIsEditingChannel(false);
+                setSelectedChannel(null);
+              }}
+              className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
+            >
+              ×
+            </button>
+          </div>
+
+          {(() => {
+            const channel = parallelChannels.find(c => c.id === selectedChannel);
+            if (!channel) return null;
+
+            return (
+              <div className="p-4 space-y-5">
+                {/* Line Styling Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <div className="w-4 h-0.5 bg-blue-500"></div>
+                    <span className="text-white font-medium text-sm">Line Styling</span>
+                  </div>
+                  
+                  {/* Line Color */}
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2 font-medium">Color</label>
+                    <div className="grid grid-cols-6 gap-2">
+                      {['#00BFFF', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'].map(color => (
+                        <button
+                          key={color}
+                          onClick={() => {
+                            setParallelChannels(prev => 
+                              prev.map(ch => 
+                                ch.id === selectedChannel 
+                                  ? { ...ch, color }
+                                  : ch
+                              )
+                            );
+                          }}
+                          className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${
+                            channel.color === color 
+                              ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50' 
+                              : 'border-gray-600 hover:border-gray-400'
+                          }`}
+                          style={{ backgroundColor: color }}
+                          title={`Select ${color}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Line Style */}
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2 font-medium">Style</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { type: 'solid', label: '━━━━━', title: 'Solid Line' },
+                        { type: 'dashed', label: '┅ ┅ ┅ ┅', title: 'Dashed Line' },
+                        { type: 'dotted', label: '⋯ ⋯ ⋯ ⋯', title: 'Dotted Line' }
+                      ].map(({ type, label, title }) => (
+                        <button
+                          key={type}
+                          onClick={() => {
+                            setParallelChannels(prev => 
+                              prev.map(ch => 
+                                ch.id === selectedChannel 
+                                  ? { ...ch, lineStyle: type as any }
+                                  : ch
+                              )
+                            );
+                          }}
+                          className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${
+                            channel.lineStyle === type 
+                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50' 
+                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+                          }`}
+                          title={title}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Line Thickness */}
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2 font-medium">Thickness</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[1, 2, 3].map(thickness => (
+                        <button
+                          key={thickness}
+                          onClick={() => {
+                            setParallelChannels(prev => 
+                              prev.map(ch => 
+                                ch.id === selectedChannel 
+                                  ? { ...ch, lineWidth: thickness }
+                                  : ch
+                              )
+                            );
+                          }}
+                          className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${
+                            channel.lineWidth === thickness 
+                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50' 
+                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+                          }`}
+                          title={`${thickness}px thickness`}
+                        >
+                          {thickness}px
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fill Section */}
+                <div className="space-y-3 border-t border-gray-700 pt-4">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <div className="w-4 h-0.5 bg-purple-500"></div>
+                    <span className="text-white font-medium text-sm">Fill Styling</span>
+                  </div>
+
+                  {/* Show Fill Toggle */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-300 text-sm font-medium">Enable Fill</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={channel.showFill !== false}
+                        onChange={(e) => {
+                          setParallelChannels(prev => 
+                            prev.map(ch => 
+                              ch.id === selectedChannel 
+                                ? { ...ch, showFill: e.target.checked }
+                                : ch
+                            )
+                          );
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Fill Color */}
+                  {channel.showFill !== false && (
+                    <div>
+                      <label className="block text-gray-300 text-sm mb-2 font-medium">Fill Color</label>
+                      <div className="grid grid-cols-6 gap-2">
+                        {['#00BFFF33', '#2196F333', '#4CAF5033', '#FF980033', '#F4433633', '#9C27B033'].map((color, idx) => {
+                          const baseColors = ['#00BFFF', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'];
+                          return (
+                            <button
+                              key={color}
+                              onClick={() => {
+                                setParallelChannels(prev => 
+                                  prev.map(ch => 
+                                    ch.id === selectedChannel 
+                                      ? { ...ch, fillColor: color }
+                                      : ch
+                                  )
+                                );
+                              }}
+                              className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 relative overflow-hidden ${
+                                channel.fillColor === color 
+                                  ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50' 
+                                  : 'border-gray-600 hover:border-gray-400'
+                              }`}
+                              style={{ backgroundColor: baseColors[idx] }}
+                              title={`Fill with ${baseColors[idx]}`}
+                            >
+                              <div className="absolute inset-0 bg-current opacity-20"></div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions Section */}
+                <div className="border-t border-gray-700 pt-4">
+                  <button
+                    onClick={() => {
+                      if (confirm('🗑️ Delete this parallel channel?\n\nThis action cannot be undone.')) {
+                        setParallelChannels(prev => prev.filter(ch => ch.id !== selectedChannel));
+                        setSelectedChannel(null);
+                        setIsEditingChannel(false);
+                        setChannelDragStart(null);
+                      }
+                    }}
+                    className="w-full px-4 py-3 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-red-500/25"
+                  >
+                    <div className="flex items-center justify-center space-x-2">
+                      <span>🗑️</span>
+                      <span>Delete Channel</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </>

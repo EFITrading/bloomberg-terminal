@@ -1895,8 +1895,9 @@ export class OptionsFlowService {
   }
 
   private getTop1000Symbols(): string[] {
-    // Import and return the expanded symbols array (now 1800+ stocks)
-    return TOP_1800_SYMBOLS; // Use all 1800+ stocks for comprehensive coverage
+    // Import and return the expanded symbols array (now 1800+ stocks + major ETFs)
+    // SPY is now FIRST in the list for maximum priority
+    return TOP_1800_SYMBOLS; // Use all 1800+ stocks + ETFs for comprehensive coverage
   }
 
   // UTILITY: Chunk array into batches for batch processing
@@ -2057,10 +2058,12 @@ export class OptionsFlowService {
 
   private getSmartTickerBatch(): string[] {
     // Smart batching: prioritize most active options tickers first
-    // Take top 20 for much faster initial scan
+    // SPY FIRST - most important options ticker
     const priorityTickers = [
-      // ETFs and most active options
-      'SPY', 'QQQ', 'IWM', 'XLF', 'XLE', 'XLK', 'GDX', 'EEM', 'VXX',
+      // SPY - THE MOST IMPORTANT OPTIONS TICKER (always first)
+      'SPY',
+      // Other major ETFs
+      'QQQ', 'IWM', 'XLF', 'XLE', 'XLK', 'GDX', 'EEM', 'VXX',
       // Mega caps with high options volume
       'TSLA', 'AAPL', 'NVDA', 'AMZN', 'MSFT', 'GOOGL', 'META', 'AMD', 'NFLX', 'DIS'
     ];
