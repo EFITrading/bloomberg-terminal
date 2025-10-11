@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { getExpirationDates, getDaysUntilExpiration } from '../../lib/optionsExpirationUtils';
+import { calculateBlackScholesPrice as calculateBSPrice, calculateProfitLoss as calculatePnL } from '../../lib/blackScholesCalculator';
 
 interface OptionData {
   strike: number;
@@ -125,6 +126,16 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
 
   const [otmPercentage, setOtmPercentage] = useState(10); // Default 10% OTM range
   const [customPremium, setCustomPremium] = useState<number | null>(null); // User-editable premium price
+  
+  // Multi-leg options state
+  const [additionalLegs, setAdditionalLegs] = useState<Array<{
+    id: number;
+    strike: number | null;
+    expiration: string;
+    optionType: 'call' | 'put';
+    premium: number | null;
+    position: 'buy' | 'sell';
+  }>>([]);
   
   const riskFreeRate = 0.0408; // Current 10-year treasury rate
 
@@ -702,7 +713,97 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
     }
   }, [symbol]); // REMOVED fetchRealOptionsData dependency to prevent infinite loops
 
+  // Fetch individual option data for additional legs
+  const fetchIndividualOptionData = useCallback(async (strike: number, expiration: string, optionType: 'call' | 'put') => {
+    if (!symbol || !strike || !expiration || !optionType) return;
+    
+    const key = `${strike}-${expiration}-${optionType}`;
+    
+    // Skip if we already have this data
+    if (realOptionsData[key]) {
+      console.log(`✅ Already have data for ${key}`);
+      return;
+    }
+    
+    console.log(`🔍 Fetching individual option data for: ${key}`);
+    
+    try {
+      const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+      const upperSymbol = symbol.toUpperCase().trim();
+      
+      // Construct option ticker (standard format)
+      const dateStr = expiration.replace(/-/g, '').substring(2); // Convert 2024-01-19 to 240119
+      const strikeStr = (strike * 1000).toString().padStart(8, '0'); // Convert 100 to 00100000
+      const typeChar = optionType.toUpperCase().charAt(0); // C or P
+      const optionTicker = `O:${upperSymbol}${dateStr}${typeChar}${strikeStr}`;
+      
+      console.log(`📞 Fetching option ticker: ${optionTicker}`);
+      
+      // Get option data from Polygon
+      const optionUrl = `https://api.polygon.io/v3/snapshot/options/${upperSymbol}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+      const response = await fetch(optionUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch option data: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log(`� Individual option response:`, data);
+      
+      if (data.status === 'OK' && data.results) {
+        const result = data.results;
+        
+        // Calculate days to expiration
+        const expiry = new Date(expiration);
+        const now = new Date();
+        const daysToExp = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        
+        // Store the option data
+        const optionData = {
+          strike: strike,
+          expiration: expiration,
+          daysToExpiration: daysToExp,
+          type: optionType,
+          bid: result.market_status === 'open' ? (result.bid || 0) : 0,
+          ask: result.market_status === 'open' ? (result.ask || 0) : 0,
+          lastPrice: result.last_quote?.price || result.prev_day?.close || 0,
+          volume: result.volume || 0,
+          openInterest: result.open_interest || 0,
+          impliedVolatility: result.implied_volatility || 0.25,
+          ticker: optionTicker,
+          delta: result.greeks?.delta || null,
+          gamma: result.greeks?.gamma || null,
+          theta: result.greeks?.theta || null,
+          vega: result.greeks?.vega || null
+        };
+        
+        // Update realOptionsData with the new option
+        setRealOptionsData(prev => ({
+          ...prev,
+          [key]: optionData
+        }));
+        
+        console.log(`✅ Successfully fetched option data for ${key}:`, optionData);
+      } else {
+        console.warn(`⚠️ No data returned for ${key}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error fetching option data for ${key}:`, error);
+    }
+  }, [symbol, realOptionsData]);
 
+  // Fetch data for additional legs when they are configured
+  useEffect(() => {
+    additionalLegs.forEach(leg => {
+      if (leg.strike && leg.expiration && leg.optionType) {
+        const key = `${leg.strike}-${leg.expiration}-${leg.optionType}`;
+        if (!realOptionsData[key]) {
+          console.log(`🔄 Fetching missing data for leg ${leg.id}: ${key}`);
+          fetchIndividualOptionData(leg.strike, leg.expiration, leg.optionType);
+        }
+      }
+    });
+  }, [additionalLegs, fetchIndividualOptionData, realOptionsData]);
 
   // Professional Black-Scholes P&L Calculator using REAL Polygon data like OptionsStrat
   const calculateProfessionalPL = (stockPriceAtExpiry: number, daysToExp: number): number => {
@@ -1172,29 +1273,249 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
           </div>
         </div>
 
-        {/* Warning for selected option with no data */}
-        {selectedStrike && selectedExpiration && (() => {
-          const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
-          const realOption = realOptionsData[key];
-          const hasMarketData = realOption && (
-            (realOption.lastPrice > 0) || 
-            (realOption.ask > 0) ||
-            (realOption.bid > 0)
-          );
-          
-          if (!hasMarketData) {
-            return (
-              <div className="bg-yellow-900 border border-yellow-600 rounded-xl p-6 mb-8">
-                <h3 className="text-yellow-300 font-bold mb-2">⚠️ No Market Data for Selected Option</h3>
-                <p className="text-yellow-200 text-sm">
-                  Strike <strong>${selectedStrike}</strong> {optionType.toUpperCase()} expiring <strong>{selectedExpiration}</strong> has no current market data (bid/ask/last).
-                  Try selecting a different strike or expiration, or enter a custom premium to see calculations.
-                </p>
+        {/* ADD LEG SECTION */}
+        {additionalLegs.length < 3 && (
+          <div className="mb-6 text-center">
+            <button
+              onClick={() => {
+                const newLeg = {
+                  id: additionalLegs.length + 2, // Start from 2 since first leg is the main one
+                  strike: null,
+                  expiration: '',
+                  optionType: 'call' as const,
+                  premium: null,
+                  position: 'buy' as const
+                };
+                setAdditionalLegs([...additionalLegs, newLeg]);
+              }}
+              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-bold rounded-lg shadow-lg transition-all duration-200 transform hover:scale-105"
+            >
+              + Add Leg ({additionalLegs.length + 1}/4)
+            </button>
+          </div>
+        )}
+
+        {/* ADDITIONAL LEGS */}
+        {additionalLegs.map((leg) => (
+          <div key={leg.id} className="relative bg-gradient-to-br from-gray-950 via-black to-gray-900 border-4 border-blue-500 shadow-2xl overflow-hidden mb-6">
+            <div className="absolute inset-0 opacity-5">
+              <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-blue-600/10 to-transparent animate-pulse"></div>
+            </div>
+            
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white text-xl font-bold uppercase tracking-wider">
+                  LEG {leg.id} - {leg.position.toUpperCase()} {leg.optionType.toUpperCase()}
+                </h3>
+                <button
+                  onClick={() => setAdditionalLegs(additionalLegs.filter(l => l.id !== leg.id))}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded transition-colors"
+                >
+                  Remove Leg
+                </button>
               </div>
-            );
-          }
-          return null;
-        })()}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                {/* Position Toggle */}
+                <div className="relative group">
+                  <div className="relative bg-black border-2 border-gray-700 hover:border-blue-500 transition-all duration-300">
+                    <div className="bg-gradient-to-r from-blue-900/30 to-transparent p-2 border-b border-gray-700">
+                      <label className="text-white text-xs font-bold uppercase tracking-widest">POSITION</label>
+                    </div>
+                    <div className="p-4 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => {
+                          const updatedLegs = additionalLegs.map(l => 
+                            l.id === leg.id ? { ...l, position: 'buy' as const } : l
+                          );
+                          setAdditionalLegs(updatedLegs);
+                        }}
+                        className={`py-3 px-4 text-sm font-bold rounded transition-all ${
+                          leg.position === 'buy'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        BUY
+                      </button>
+                      <button
+                        onClick={() => {
+                          const updatedLegs = additionalLegs.map(l => 
+                            l.id === leg.id ? { ...l, position: 'sell' as const } : l
+                          );
+                          setAdditionalLegs(updatedLegs);
+                        }}
+                        className={`py-3 px-4 text-sm font-bold rounded transition-all ${
+                          leg.position === 'sell'
+                            ? 'bg-red-600 text-white'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        SELL
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Option Type Toggle */}
+                <div className="relative group">
+                  <div className="relative bg-black border-2 border-gray-700 hover:border-blue-500 transition-all duration-300">
+                    <div className="bg-gradient-to-r from-blue-900/30 to-transparent p-2 border-b border-gray-700">
+                      <label className="text-white text-xs font-bold uppercase tracking-widest">TYPE</label>
+                    </div>
+                    <div className="p-4 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => {
+                          const updatedLegs = additionalLegs.map(l => 
+                            l.id === leg.id ? { ...l, optionType: 'call' as const } : l
+                          );
+                          setAdditionalLegs(updatedLegs);
+                        }}
+                        className={`py-3 px-4 text-sm font-bold rounded transition-all ${
+                          leg.optionType === 'call'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        CALL
+                      </button>
+                      <button
+                        onClick={() => {
+                          const updatedLegs = additionalLegs.map(l => 
+                            l.id === leg.id ? { ...l, optionType: 'put' as const } : l
+                          );
+                          setAdditionalLegs(updatedLegs);
+                        }}
+                        className={`py-3 px-4 text-sm font-bold rounded transition-all ${
+                          leg.optionType === 'put'
+                            ? 'bg-red-600 text-white'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        PUT
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Strike Price */}
+                <div className="relative group">
+                  <div className="relative bg-black border-2 border-gray-700 hover:border-blue-500 transition-all duration-300">
+                    <div className="bg-gradient-to-r from-blue-900/30 to-transparent p-2 border-b border-gray-700">
+                      <label className="text-white text-xs font-bold uppercase tracking-widest">STRIKE</label>
+                    </div>
+                    <div className="p-4">
+                      <select
+                        value={leg.strike || ''}
+                        onChange={(e) => {
+                          const newStrike = e.target.value ? Number(e.target.value) : null;
+                          const updatedLegs = additionalLegs.map(l => 
+                            l.id === leg.id ? { ...l, strike: newStrike } : l
+                          );
+                          setAdditionalLegs(updatedLegs);
+                        }}
+                        className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-blue-500 transition-all duration-300"
+                      >
+                        <option value="">Select Strike</option>
+                        {strikes.map((strike) => (
+                          <option key={strike} value={strike}>${strike}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expiration */}
+                <div className="relative group">
+                  <div className="relative bg-black border-2 border-gray-700 hover:border-blue-500 transition-all duration-300">
+                    <div className="bg-gradient-to-r from-blue-900/30 to-transparent p-2 border-b border-gray-700">
+                      <label className="text-white text-xs font-bold uppercase tracking-widest">EXPIRATION</label>
+                    </div>
+                    <div className="p-4">
+                      <select
+                        value={leg.expiration}
+                        onChange={(e) => {
+                          const newExpiration = e.target.value;
+                          const updatedLegs = additionalLegs.map(l => 
+                            l.id === leg.id ? { ...l, expiration: newExpiration } : l
+                          );
+                          setAdditionalLegs(updatedLegs);
+                        }}
+                        className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-blue-500 transition-all duration-300"
+                      >
+                        <option value="">Select Date</option>
+                        {availableExpirations.map(exp => (
+                          <option key={exp.date} value={exp.date}>
+                            {exp.date} ({exp.days}d)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Premium */}
+                <div className="relative group">
+                  <div className="relative bg-black border-2 border-gray-700 hover:border-blue-500 transition-all duration-300 shadow-inner">
+                    <div className="bg-gradient-to-r from-blue-900/30 to-transparent p-2 border-b border-gray-700">
+                      <label className="text-white text-xs font-bold uppercase tracking-widest">PREMIUM</label>
+                    </div>
+                    <div className="p-4">
+                      <input
+                        type="number"
+                        value={leg.premium || ''}
+                        onChange={(e) => {
+                          const updatedLegs = additionalLegs.map(l => 
+                            l.id === leg.id ? { ...l, premium: e.target.value ? Number(e.target.value) : null } : l
+                          );
+                          setAdditionalLegs(updatedLegs);
+                        }}
+                        placeholder="6.9"
+                        step="0.01"
+                        min="0"
+                        className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-lg font-bold tabular-nums focus:outline-none focus:border-blue-500 focus:shadow-lg focus:shadow-blue-500/20 transition-all duration-300"
+                      />
+                      
+                      {/* Real Market Data - Same as original */}
+                      {leg.strike && leg.expiration && (
+                        <div className="mt-3 bg-gradient-to-r from-gray-900/50 to-black border-l-4 border-cyan-500 p-3">
+                          <div className="text-white text-xs font-medium uppercase tracking-wide">
+                            {(() => {
+                              const key = `${leg.strike}-${leg.expiration}-${leg.optionType}`;
+                              const realOption = realOptionsData[key];
+                              if (realOption) {
+                                const askPrice = realOption.ask > 0 ? realOption.ask : null;
+                                const lastPrice = realOption.lastPrice > 0 ? realOption.lastPrice : null;
+                                const bidPrice = realOption.bid > 0 ? realOption.bid : null;
+                                
+                                // Auto-fill premium with last price if not already set
+                                if (lastPrice && !leg.premium) {
+                                  const updatedLegs = additionalLegs.map(l => 
+                                    l.id === leg.id ? { ...l, premium: lastPrice } : l
+                                  );
+                                  setAdditionalLegs(updatedLegs);
+                                }
+                                
+                                if (!askPrice && !lastPrice && !bidPrice) {
+                                  return `🔴 NO MARKET DATA - Strike $${leg.strike} ${leg.optionType.toUpperCase()} ${leg.expiration}`;
+                                }
+                                
+                                return `Ask $${askPrice?.toFixed(2) || 'N/A'} | Last $${lastPrice?.toFixed(2) || 'N/A'} | Bid $${bidPrice?.toFixed(2) || 'N/A'}`;
+                              }
+                              return `🔴 NO OPTION DATA - Strike $${leg.strike} ${leg.optionType.toUpperCase()} ${leg.expiration}`;
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+
 
         {/* Real Data Status Warnings */}
         {availableExpirations.length === 0 && !loading && (
@@ -1247,7 +1568,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
               
               return (
                 <div className="mb-4 bg-gradient-to-r from-gray-900 to-black rounded-xl p-3 border border-orange-500 shadow-lg">
-                  <div className="grid grid-cols-4 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div className="bg-black rounded-md p-2 border-l-2 border-purple-500">
                       <div className="text-purple-300 text-xs font-medium mb-1">Delta:</div>
                       <div className="text-purple-400 text-lg font-bold">
@@ -1264,12 +1585,6 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
                       <div className="text-red-300 text-xs font-medium mb-1">Theta:</div>
                       <div className="text-red-400 text-lg font-bold">
                         {greeks.theta !== null ? greeks.theta.toFixed(2) : '--'}
-                      </div>
-                    </div>
-                    <div className="bg-black rounded-md p-2 border-l-2 border-cyan-500">
-                      <div className="text-cyan-300 text-xs font-medium mb-1">IV:</div>
-                      <div className="text-cyan-400 text-lg font-bold">
-                        {realOption ? `${(realOption.impliedVolatility * 100).toFixed(1)}%` : '--'}
                       </div>
                     </div>
                   </div>
@@ -1328,26 +1643,123 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
                             ${strike} {isATM && '★'}
                           </td>
                           
-                          {/* REMOVED ALL P&L CALCULATIONS - Just show empty cells */}
+                          {/* BLACK-SCHOLES P&L CALCULATIONS */}
                           {heatMapTimeSeries.map((timePoint) => {
+                            // Calculate P&L using Black-Scholes formula with live data
+                            let pnlData = { dollarPnL: 0, percentPnL: 0, optionPrice: 0 };
+                            let cellColor = 'bg-gray-800 text-gray-500';
+                            let displayText = '--';
+                            
+                            // Only calculate if we have all required data
+                            if (currentPrice > 0 && selectedStrike && customPremium && customPremium > 0) {
+                              try {
+                                // Get implied volatility from real options data
+                                const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
+                                const realOption = realOptionsData[key];
+                                const impliedVol = realOption?.impliedVolatility || 0.25; // Default 25% IV
+                                
+                                // Calculate current DTE for baseline
+                                const expDate = new Date(selectedExpiration);
+                                const today = new Date();
+                                const currentDTE = Math.max(0, Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+                                const currentTimeToExpiry = currentDTE / 365;
+                                
+                                // BASELINE: Calculate current option value at current stock price and current time
+                                const baselineOptionPrice = calculateBSPrice(
+                                  currentPrice,     // Current stock price (baseline)
+                                  selectedStrike,   // Strike price of your option
+                                  currentTimeToExpiry, // Current time remaining (baseline)
+                                  0.045,           // Risk-free rate 4.5%
+                                  impliedVol,      // Implied volatility from market data
+                                  0,               // Dividend yield
+                                  optionType === 'call'
+                                );
+                                
+                                // SIMULATION: Calculate what option would be worth if...
+                                // - Stock price moves to: $${strike} (this table row)
+                                // - Time passes to: ${timePoint.days} days remaining
+                                const timeToExpiry = timePoint.days / 365;
+                                const simulatedOptionPrice = calculateBSPrice(
+                                  strike,           // SIMULATED stock price (what if stock moves to this price)
+                                  selectedStrike,   // Strike price of your option
+                                  timeToExpiry,     // SIMULATED time remaining
+                                  0.045,           // Risk-free rate 4.5%
+                                  impliedVol,      // Implied volatility from market data
+                                  0,               // Dividend yield
+                                  optionType === 'call'
+                                );
+                                
+                                // P&L = (Simulated Option Price - Baseline Option Price)
+                                // This shows how much the option value changes from current state
+                                const { dollarPnL, percentPnL } = calculatePnL(simulatedOptionPrice, baselineOptionPrice, 1);
+                                
+                                pnlData = { dollarPnL, percentPnL, optionPrice: simulatedOptionPrice };
+                                
+                                // Enhanced color coding based on percentage P&L
+                                const absPercentPnL = Math.abs(percentPnL);
+                                
+                                if (percentPnL > 0) {
+                                  // Green gradient for profits
+                                  if (absPercentPnL >= 100) {
+                                    cellColor = 'bg-green-600 text-white font-bold'; // Very bright green for 100%+
+                                  } else if (absPercentPnL >= 50) {
+                                    cellColor = 'bg-green-700 text-green-100 font-semibold'; // Bright green for 50-100%
+                                  } else if (absPercentPnL >= 25) {
+                                    cellColor = 'bg-green-800 text-green-200'; // Medium green for 25-50%
+                                  } else if (absPercentPnL >= 10) {
+                                    cellColor = 'bg-green-900 text-green-300'; // Light green for 10-25%
+                                  } else if (absPercentPnL > 0) {
+                                    cellColor = 'bg-green-950 text-green-400'; // Very light green for 0-10%
+                                  }
+                                } else if (percentPnL < 0) {
+                                  // Red gradient for losses
+                                  if (absPercentPnL >= 100) {
+                                    cellColor = 'bg-red-600 text-white font-bold'; // Very bright red for 100%+ loss
+                                  } else if (absPercentPnL >= 50) {
+                                    cellColor = 'bg-red-700 text-red-100 font-semibold'; // Bright red for 50-100% loss
+                                  } else if (absPercentPnL >= 25) {
+                                    cellColor = 'bg-red-800 text-red-200'; // Medium red for 25-50% loss
+                                  } else if (absPercentPnL >= 10) {
+                                    cellColor = 'bg-red-900 text-red-300'; // Light red for 10-25% loss
+                                  } else if (absPercentPnL > 0) {
+                                    cellColor = 'bg-red-950 text-red-400'; // Very light red for 0-10% loss
+                                  }
+                                } else {
+                                  // Neutral for exactly 0%
+                                  cellColor = 'bg-gray-700 text-gray-300 font-medium';
+                                }
+                                
+                                // Format display text
+                                displayText = `$${dollarPnL.toFixed(0)}`;
+                                if (Math.abs(percentPnL) < 999) {
+                                  displayText += ` (${percentPnL > 0 ? '+' : ''}${percentPnL.toFixed(0)}%)`;
+                                }
+                                
+                              } catch (error) {
+                                console.error('Black-Scholes calculation error:', error);
+                                displayText = 'ERR';
+                                cellColor = 'bg-yellow-800 text-yellow-400';
+                              }
+                            }
+                            
                             return (
                               <td
                                 key={`${strike}-${timePoint.days}`}
-                                className={`h-12 border text-center text-xs font-bold cursor-pointer hover:opacity-80 transition-opacity bg-gray-800 text-gray-500 ${
+                                className={`h-12 border text-center text-xs font-bold cursor-pointer hover:opacity-80 transition-all duration-200 ${cellColor} ${
                                   isATM ? 'border-yellow-400 border-2' : 'border-gray-600'
                                 }`}
                                 onClick={() => {
-                                  console.log(`🎯 Heat map cell clicked: Strike $${strike}, Expiration: ${selectedExpiration}`);
+                                  console.log(`🎯 Heat map cell clicked: Strike $${strike}, Days ${timePoint.days}`);
                                   setSelectedStrike(strike);
                                   setCustomPremium(null);
                                 }}
-                                title={`Strike: $${strike}${isATM ? ' (ATM)' : ''}, Days: ${timePoint.days} - P&L Calculations Removed`}
+                                title={`Stock @ $${strike} | Strike $${selectedStrike} | ${timePoint.days}d | P&L: ${displayText} | Option Price: $${pnlData.optionPrice.toFixed(2)}`}
                               >
-                                <div className="text-xs text-gray-500">
-                                  --
+                                <div className="text-xs leading-tight">
+                                  {displayText}
                                 </div>
                               </td>
-                          );
+                            );
                           })}
                         </tr>
                       );
