@@ -1,7 +1,7 @@
 // Ultra-fast data batching service for Polygon API optimization
 import { NextRequest, NextResponse } from 'next/server';
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
 interface BatchRequest {
   tickers: string[];
@@ -128,7 +128,7 @@ async function executeBatch(batch: BatchedPolygonRequest, batchIndex: number): P
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'User-Agent': 'Bloomberg-Terminal-Batch/1.0'
+        'User-Agent': 'EFITrading-Batch/1.0'
       },
       signal: AbortSignal.timeout(15000) // 15s timeout for batches
     });

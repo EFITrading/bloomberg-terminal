@@ -1,0 +1,15 @@
+{
+  "functions": {
+    "src/app/api/live-options-flow/route.ts": {
+      "maxDuration": 180
+    },
+    "src/app/api/options-flow/route.ts": {
+      "maxDuration": 180
+    }
+  },
+  "build": {
+    "env": {
+      "NEXT_TELEMETRY_DISABLED": "1"
+    }
+  }
+}

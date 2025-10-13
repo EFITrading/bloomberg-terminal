@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
 // Type definitions for Polygon API
 interface PolygonDataItem {
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
         'Accept': 'application/json',
         'Connection': 'keep-alive',
         'Cache-Control': 'no-cache',
-        'User-Agent': 'Bloomberg-Terminal/1.0'
+        'User-Agent': 'EFITrading/1.0'
       },
       signal: controller.signal,
     });

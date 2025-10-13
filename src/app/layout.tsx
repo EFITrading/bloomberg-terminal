@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
-import Navigation from '@/components/terminal/Navigation'
+import ConditionalNavigation from '@/components/ConditionalNavigation'
 import Background from '@/components/terminal/Background'
 import BackgroundLoader from '@/components/BackgroundLoader'
 
@@ -27,7 +27,7 @@ export default function RootLayout({
         <div className="terminal-app">
           <BackgroundLoader />
           <Background />
-          <Navigation />
+          <ConditionalNavigation />
           <main className="main-content">
             {children}
           </main>

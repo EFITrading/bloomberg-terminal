@@ -108,7 +108,7 @@ interface WeeklyPattern {
   description: string;
 }
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 const BASE_URL = 'https://api.polygon.io';
 
 // Helper function to add aliases to seasonal patterns

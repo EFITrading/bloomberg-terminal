@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { polygonService } from '@/lib/polygonService';
 
 // Memoized price display component to prevent flickering
-const PriceDisplay = React.memo(({ 
+const PriceDisplay = React.memo(function PriceDisplay({ 
   spotPrice, 
   currentPrice, 
   isLoading, 
@@ -18,7 +18,7 @@ const PriceDisplay = React.memo(({
   currentPrice?: number; 
   isLoading?: boolean; 
   ticker: string; 
-}) => {
+}) {
   if (isLoading) {
     return <span className="text-gray-400 animate-pulse">Loading...</span>;
   }
@@ -92,9 +92,7 @@ interface OptionsFlowTableProps {
   loading?: boolean;
   onRefresh?: () => void;
   selectedTicker: string;
-  selectedDate: string;
   onTickerChange: (ticker: string) => void;
-  onDateChange: (date: string) => void;
   streamingStatus?: string;
   streamingProgress?: {current: number, total: number} | null;
 }
@@ -106,9 +104,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   loading = false,
   onRefresh,
   selectedTicker,
-  selectedDate,
   onTickerChange,
-  onDateChange,
   streamingStatus,
   streamingProgress
 }) => {
@@ -139,10 +135,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [optionsData, setOptionsData] = useState<Record<string, { volume: number; open_interest: number }>>({});
   const [optionsLoading, setOptionsLoading] = useState<Record<string, boolean>>({});
   
-  // Historical data state
-  const [isHistoricalMode, setIsHistoricalMode] = useState<boolean>(false);
-  const [historicalDate, setHistoricalDate] = useState<string>('');
-  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+
 
   // Debug: Monitor filter dialog state changes
   useEffect(() => {
@@ -170,7 +163,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Fetch current prices using the direct API call that works (anti-flicker)
   const fetchCurrentPrices = async (tickers: string[]) => {
     const uniqueTickers = [...new Set(tickers)];
-    console.log(`🚀 Fetching current prices for ${uniqueTickers.length} tickers:`, uniqueTickers);
+    console.log(`🚀 Fetching LIVE current prices for ${uniqueTickers.length} tickers:`, uniqueTickers);
     
     const pricesUpdate: Record<string, number> = {};
     const loadingUpdate: Record<string, boolean> = {};
@@ -181,23 +174,28 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     });
     setPriceLoadingState(prev => ({ ...prev, ...loadingUpdate }));
 
-    // Fetch all prices first, then update state once at the end
+    // Fetch all LIVE prices using snapshot endpoint for real-time data
     for (const ticker of uniqueTickers) {
       try {
-        console.log(`🔍 Fetching price for ${ticker}...`);
+        console.log(`🔍 Fetching LIVE price for ${ticker}...`);
         const response = await fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`
+          `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`
         );
         
         if (response.ok) {
           const data = await response.json();
           
-          if (data.status === 'OK' && data.results && data.results.length > 0) {
-            const price = data.results[0].c; // closing price
-            pricesUpdate[ticker] = price;
-            console.log(`✅ ${ticker}: $${price}`);
+          if (data.status === 'OK' && data.ticker) {
+            // Use live price from snapshot - this is the actual current market price
+            const livePrice = data.ticker.lastQuote?.P || data.ticker.lastTrade?.p || data.ticker.day?.c;
+            if (livePrice) {
+              pricesUpdate[ticker] = livePrice;
+              console.log(`✅ ${ticker}: LIVE $${livePrice} (was showing previous close)`);
+            } else {
+              console.log(`❌ No live price data for ${ticker}`);
+            }
           } else {
-            console.log(`❌ No data for ${ticker}`);
+            console.log(`❌ No snapshot data for ${ticker}`);
           }
         } else {
           console.error(`❌ HTTP error for ${ticker}:`, response.status);
@@ -213,7 +211,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
     
     // Single state update at the end - prevents flickering
-    console.log(`🏁 Updating all prices at once:`, pricesUpdate);
+    console.log(`🏁 Updating all LIVE prices at once:`, pricesUpdate);
     
     // Use requestAnimationFrame to ensure smooth UI updates
     requestAnimationFrame(() => {
@@ -1444,148 +1442,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                   </>
                 )}
               </button>
-              
-              {/* Historical Button */}
-              <div className="relative">
-                <button 
-                  onClick={() => {
-                    setIsHistoricalMode(!isHistoricalMode);
-                    setShowDatePicker(!showDatePicker);
-                    if (!isHistoricalMode) {
-                      // Clear historical date when switching to historical mode
-                      setHistoricalDate('');
-                    }
-                  }}
-                  className={`h-10 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none`}
-                  style={{
-                    paddingLeft: '16px',
-                    paddingRight: '16px',
-                    minWidth: '120px',
-                    width: 'auto',
-                    whiteSpace: 'nowrap',
-                    background: isHistoricalMode 
-                      ? 'linear-gradient(145deg, #000000, #0a0a0a)' 
-                      : 'linear-gradient(145deg, #000000, #0a0a0a)',
-                    border: isHistoricalMode ? '1px solid #8b5cf6' : '1px solid #1a1a1a',
-                    boxShadow: isHistoricalMode 
-                      ? 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(139, 92, 246, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)' 
-                      : 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    const target = e.target as HTMLButtonElement;
-                    if (isHistoricalMode) {
-                      target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(139, 92, 246, 0.4), 0 1px 2px rgba(255, 255, 255, 0.1)';
-                    } else {
-                      target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(139, 92, 246, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
-                      target.style.border = '1px solid #8b5cf6';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    const target = e.target as HTMLButtonElement;
-                    if (isHistoricalMode) {
-                      target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(139, 92, 246, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
-                    } else {
-                      target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
-                      target.style.border = '1px solid #1a1a1a';
-                    }
-                  }}
-                >
-                  <svg className={`w-4 h-4 ${isHistoricalMode ? 'animate-pulse text-purple-400' : 'animate-pulse text-purple-500'} drop-shadow-lg`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>Historical</span>
-                </button>
-                
-                {/* Date Picker Dropdown */}
-                {showDatePicker && (
-                  <div className="absolute top-12 left-0 z-50 bg-black border border-purple-500/50 rounded-lg p-4 shadow-xl min-w-[280px]">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-white font-bold text-sm">Select Historical Date</h3>
-                        <button 
-                          onClick={() => setShowDatePicker(false)}
-                          className="text-gray-400 hover:text-white text-lg font-bold"
-                        >
-                          ×
-                        </button>
-                      </div>
-                      
-                      <input
-                        type="date"
-                        value={historicalDate}
-                        onChange={(e) => setHistoricalDate(e.target.value)}
-                        max={new Date().toISOString().split('T')[0]} // No future dates
-                        className="bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
-                      />
-                      
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            // Apply historical date
-                            if (historicalDate) {
-                              onDateChange(historicalDate);
-                            }
-                            setShowDatePicker(false);
-                          }}
-                          disabled={!historicalDate}
-                          className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-bold py-2 px-4 rounded transition-colors"
-                        >
-                          Load Data
-                        </button>
-                        
-                        <button
-                          onClick={() => {
-                            // Clear selection and go back to current
-                            setHistoricalDate('');
-                            setIsHistoricalMode(false);
-                            setShowDatePicker(false);
-                            onDateChange(''); // Signal to use current date
-                          }}
-                          className="flex-1 bg-gray-600 hover:bg-gray-700 text-white text-sm font-bold py-2 px-4 rounded transition-colors"
-                        >
-                          Current
-                        </button>
-                      </div>
-                      
-                      {historicalDate && (
-                        <div className="text-xs text-gray-400 text-center">
-                          Data for {new Date(historicalDate).toLocaleDateString()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+
             </div>
             
             {/* Right Section */}
             <div className="flex items-center gap-3" style={{ flexShrink: 0, width: 'max-content', minWidth: '600px' }}>
-              {/* Admin List Button */}
-              <button 
-                onClick={() => {
-                  // TODO: Add admin list functionality
-                  console.log('Admin List clicked');
-                }}
-                className="h-10 px-6 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 min-w-[120px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none"
-                style={{
-                  background: 'linear-gradient(145deg, #000000, #0a0a0a)',
-                  border: '1px solid #1a1a1a',
-                  boxShadow: 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
-                }}
-                onMouseEnter={(e) => {
-                  const target = e.target as HTMLButtonElement;
-                  target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(255, 255, 255, 0.1)';
-                }}
-                onMouseLeave={(e) => {
-                  const target = e.target as HTMLButtonElement;
-                  target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
-                }}
-              >
-                <svg className="w-4 h-4 animate-bounce text-purple-500 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <span>Admin List</span>
-              </button>
 
               {/* Filter Button */}
               <button 

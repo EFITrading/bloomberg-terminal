@@ -3,10 +3,17 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Use PostgreSQL for production (Vercel compatible)
 datasource db {
-  provider = "sqlite"
-  url      = "file:./options_flow.db"
+  provider = "postgresql" 
+  url      = env("DATABASE_URL")
 }
+
+// Alternative: SQLite for local development only
+// datasource db {
+//   provider = "sqlite"
+//   url      = env("DATABASE_URL")
+// }
 
 model OptionsFlow {
   id                   Int      @id @default(autoincrement())

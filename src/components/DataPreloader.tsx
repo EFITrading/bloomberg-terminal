@@ -7,7 +7,7 @@ const DataPreloader: React.FC = () => {
   const [loadingStatus, setLoadingStatus] = useState('Starting...');
 
   useEffect(() => {
-    console.log('🚀 Bloomberg Terminal: Starting NON-BLOCKING data preloading...');
+    console.log('🚀 EFI Trading: Starting NON-BLOCKING data preloading...');
     
     // Use the BackgroundDataService for truly non-blocking loading
     const backgroundService = BackgroundDataService.getInstance();

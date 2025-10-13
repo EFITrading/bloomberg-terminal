@@ -33,7 +33,7 @@
                 "pattern": "$tsc",
                 "background": {
                     "activeOnStart": true,
-                    "beginsPattern": "^\\s*\\> bloomberg-terminal@.*dev$",
+                    "beginsPattern": "^\\s*\\> efitrading@.*dev$",
                     "endsPattern": "^\\s*✓ Ready in .*$"
                 }
             }

@@ -12,7 +12,11 @@ export function getApiBaseUrl(): string {
     return window.location.origin;
   }
   
-  // In server environment, use localhost:3000 as fallback
+  // In server environment, use Vercel URL or localhost fallback
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  
   return 'http://localhost:3000';
 }
 

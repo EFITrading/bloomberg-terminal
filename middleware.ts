@@ -1,13 +1,57 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-export function middleware(request: NextRequest) {
-  // Security headers
-  const response = NextResponse.next()
+// The password for accessing the site
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'efitrading2025';
 
+// Public paths that don't require authentication - ONLY landing page and essential assets
+const publicPaths = [
+  '/', // Only the main landing page
+  '/login', // Login page
+  '/favicon.ico', // Favicon
+  '/_next', // Next.js static assets
+  '/images', // Static images
+  '/api' // All API routes should be accessible
+];
+
+// Protected paths that require authentication (all navigation pages)
+const protectedPaths = [
+  '/market-overview',
+  '/analysis-suite', 
+  '/data-driven',
+  '/analytics',
+  '/ai-suite',
+  '/options-flow',
+  '/optionsflow', // Alternative spelling
+  '/seasonax',
+  '/terminal'
+];
+
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  
+  // Allow public paths and static assets (includes root path "/")
+  if (publicPaths.some(path => pathname === path || (path !== '/' && pathname.startsWith(path)))) {
+    return addSecurityHeaders(NextResponse.next());
+  }
+  
+  // All other paths require authentication
+  const authCookie = request.cookies.get('efi-auth');
+  
+  if (!authCookie || authCookie.value !== 'authenticated') {
+    // Redirect to login page with the current path as redirect parameter
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+  
+  return addSecurityHeaders(NextResponse.next());
+}
+
+function addSecurityHeaders(response: NextResponse) {
   // Log the request for security monitoring (optional)
   if (process.env.NODE_ENV === 'development') {
-    console.log(`Security middleware: ${request.method} ${request.url}`)
+    console.log(`EFI Security middleware active`)
   }
 
   // Content Security Policy

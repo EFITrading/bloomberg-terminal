@@ -25,6 +25,7 @@ interface PreloadStats {
 class DataPreloaderService {
   private isRunning = false;
   private preloadInterval: NodeJS.Timeout | null = null;
+  private config: PreloadConfig;
   private stats: PreloadStats = {
     totalSymbols: 0,
     loadedSymbols: 0,
@@ -34,21 +35,18 @@ class DataPreloaderService {
     cacheHitRate: 0
   };
 
-  // TOP 1000 STOCKS - Universal coverage for instant loading
-  private readonly TOP_1000_SYMBOLS = TOP_1000_SYMBOLS;
-
-  private readonly DEFAULT_CONFIG: PreloadConfig = {
-    symbols: this.TOP_1000_SYMBOLS,
-    dataTypes: ['historical', 'options', 'details', 'quotes'],
-    schedule: {
-      interval: 15, // Every 15 minutes for 1000 stocks
-      marketHours: true,
-      preMarket: true,
-      afterHours: false
-    }
-  };
-
-  constructor(private cache: typeof UltraFastCache, private config: PreloadConfig = this.DEFAULT_CONFIG) {
+  constructor(private cache: typeof UltraFastCache, config?: PreloadConfig) {
+    // Set default config if not provided
+    this.config = config || {
+      symbols: TOP_1000_SYMBOLS,
+      dataTypes: ['historical', 'options', 'details', 'quotes'],
+      schedule: {
+        interval: 15, // Every 15 minutes for 1000 stocks
+        marketHours: true,
+        preMarket: true,
+        afterHours: false
+      }
+    };
     console.log('🔄 DataPreloaderService initialized');
     this.updateStats();
   }

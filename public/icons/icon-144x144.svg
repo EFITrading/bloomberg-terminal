@@ -1,0 +1,5 @@
+<svg width="144" height="144" viewBox="0 0 144 144" xmlns="http://www.w3.org/2000/svg">
+  <rect width="144" height="144" fill="#000000"/>
+  <rect x="14.4" y="14.4" width="115.2" height="115.2" fill="#00ff00" stroke="#ffffff" stroke-width="2"/>
+  <text x="72" y="86.39999999999999" font-family="Arial, sans-serif" font-size="28.8" font-weight="bold" text-anchor="middle" fill="#000000">EFI</text>
+</svg>

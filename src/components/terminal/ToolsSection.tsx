@@ -77,7 +77,7 @@ export default function ToolsSection() {
           <div className="badge-dot"></div>
           <span>Professional Suite</span>
         </div>
-        <h2 className="section-title">Bloomberg-Grade Trading Arsenal</h2>
+        <h2 className="section-title">Professional-Grade Trading Arsenal</h2>
         <p className="section-subtitle">
           Enterprise-level analytics platform trusted by hedge funds, investment banks, and institutional traders worldwide
         </p>

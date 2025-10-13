@@ -6,6 +6,7 @@ import Link from 'next/link';
 
 export default function Navigation() {
   const [currentTime, setCurrentTime] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -27,6 +28,19 @@ export default function Navigation() {
     const interval = setInterval(updateClock, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Check authentication status
+  useEffect(() => {
+    const checkAuth = () => {
+      const cookies = document.cookie.split(';');
+      const authCookie = cookies.find(cookie => cookie.trim().startsWith('efi-auth='));
+      const isAuth = authCookie && authCookie.includes('authenticated');
+      setIsAuthenticated(!!isAuth);
+    };
+
+    checkAuth();
+    // Check auth status when pathname changes
+  }, [pathname]);
 
   const navLinks = [
     { name: 'Market Overview', path: '/market-overview' },
@@ -75,9 +89,34 @@ export default function Navigation() {
         <div className="nav-right">
           <div className="system-status">
             <div className="status-indicator"></div>
-            <span className="status-text">System Online</span>
+            <span className="status-text">System Secured</span>
           </div>
-          <button className="btn-login">Login</button>
+          {isAuthenticated ? (
+            <button 
+              className="btn-login"
+              onClick={async () => {
+                try {
+                  await fetch('/api/auth', { method: 'DELETE' });
+                  document.cookie = 'efi-auth=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+                  router.push('/login');
+                } catch (error) {
+                  console.error('Logout error:', error);
+                  window.location.href = '/login';
+                }
+              }}
+            >
+              Logout
+            </button>
+          ) : (
+            <button 
+              className="btn-login"
+              onClick={() => {
+                router.push('/login');
+              }}
+            >
+              Login
+            </button>
+          )}
         </div>
       </div>
     </nav>

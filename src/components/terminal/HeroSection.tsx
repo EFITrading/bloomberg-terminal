@@ -87,7 +87,7 @@ export default function HeroSection() {
         <div className="hero-content">
           <div className="hero-label">
             <div className="label-dot"></div>
-            <span className="label-text">Bloomberg Terminal Intelligence</span>
+            <span className="label-text">EFI Trading Intelligence</span>
           </div>
 
           <h1>

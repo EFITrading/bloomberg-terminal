@@ -157,10 +157,10 @@ export const generateTimeDecaySimulation = (
   dividendYield: number = 0,
   numContracts: number = 1
 ) => {
-  const results = [];
+  const results: any[] = [];
   
   // Generate time points from current DTE down to 0
-  const timePoints = [];
+  const timePoints: number[] = [];
   if (currentDTE > 30) {
     // For longer expirations, use larger steps
     for (let days = currentDTE; days >= 0; days -= Math.ceil(currentDTE / 20)) {

@@ -64,39 +64,17 @@ export default function OptionsFlowPage() {
   });
   const [loading, setLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedTicker, setSelectedTicker] = useState('ALL');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
   const [streamingProgress, setStreamingProgress] = useState<{current: number, total: number} | null>(null);
 
-  // Streaming options flow fetch
+  // Live options flow fetch
   const fetchOptionsFlowStreaming = async () => {
     setLoading(true);
     
     try {
-      // First, try to load from database for today
-      const today = new Date().toISOString().split('T')[0];
-      console.log(`📋 Checking database for existing streaming data for ${today}...`);
-      
-      const dbResponse = await fetch(`/api/historical-options-flow?date=${today}&ticker=${selectedTicker}`);
-      
-      if (dbResponse.ok) {
-        const dbResult = await dbResponse.json();
-        if (dbResult.success && dbResult.trades && dbResult.trades.length > 0) {
-          console.log(`💾 Found ${dbResult.trades.length} existing trades in database for ${today} - using cached data`);
-          setData(dbResult.trades);
-          setSummary(dbResult.summary);
-          if (dbResult.market_info) {
-            setMarketInfo(dbResult.market_info);
-          }
-          setLastUpdate(new Date().toLocaleString());
-          setLoading(false);
-          return; // Use cached data, don't stream fresh
-        }
-      }
-      
-      console.log(`🔄 No cached data found, starting fresh streaming...`);
-      setData([]); // Clear existing data only if streaming fresh
+      console.log(`� Fetching live streaming options flow data...`);
+      setData([]); // Clear existing data before streaming fresh data
       
     } catch (dbError) {
       console.warn('Error checking database, proceeding with streaming:', dbError);
@@ -170,84 +148,15 @@ export default function OptionsFlowPage() {
     }
   };
 
-  const fetchHistoricalFlow = async (date: string) => {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/historical-options-flow?date=${date}&ticker=${selectedTicker}`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        setData(result.trades);
-        setSummary(result.summary);
-        if (result.market_info) {
-          setMarketInfo(result.market_info);
-        }
-        setLastUpdate(new Date().toLocaleString());
-        
-        console.log(`📊 Historical Options Flow: ${result.trades.length} trades for ${date}, ${result.summary.total_premium} total premium`);
-      } else {
-        console.error('Failed to fetch historical options flow:', result.error);
-        // Set empty data on error
-        setData([]);
-        setSummary({
-          total_trades: 0,
-          total_premium: 0,
-          unique_symbols: 0,
-          trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, SPLIT: 0 },
-          call_put_ratio: { calls: 0, puts: 0 },
-          processing_time_ms: 0
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching historical options flow:', error);
-      // Set empty data on network error
-      setData([]);
-      setSummary({
-        total_trades: 0,
-        total_premium: 0,
-        unique_symbols: 0,
-        trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, SPLIT: 0 },
-        call_put_ratio: { calls: 0, puts: 0 },
-        processing_time_ms: 0
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const fetchOptionsFlow = async (saveToDb: boolean = true) => {
+
+  const fetchOptionsFlow = async () => {
     setLoading(true);
     try {
-      // First, try to load from database for today
-      const today = new Date().toISOString().split('T')[0];
-      console.log(`📋 Checking database for existing data for ${today}...`);
+      console.log(`� Fetching live options flow data...`);
       
-      const dbResponse = await fetch(`/api/historical-options-flow?date=${today}&ticker=${selectedTicker}`);
-      
-      if (dbResponse.ok) {
-        const dbResult = await dbResponse.json();
-        if (dbResult.success && dbResult.trades && dbResult.trades.length > 0) {
-          console.log(`💾 Found ${dbResult.trades.length} existing trades in database for ${today}`);
-          setData(dbResult.trades);
-          setSummary(dbResult.summary);
-          if (dbResult.market_info) {
-            setMarketInfo(dbResult.market_info);
-          }
-          setLastUpdate(new Date().toLocaleString());
-          setLoading(false);
-          return; // Use cached data, don't fetch fresh
-        }
-      }
-      
-      console.log(`🔄 No cached data found, fetching fresh options flow data...`);
-      
-      // If no cached data, fetch fresh data
-      const response = await fetch(`/api/live-options-flow?ticker=${selectedTicker}&saveToDb=${saveToDb}`);
+      // Fetch fresh live data only
+      const response = await fetch(`/api/live-options-flow?ticker=${selectedTicker}`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -297,66 +206,21 @@ export default function OptionsFlowPage() {
 
   // Initial load - fetch current date live data by default
   useEffect(() => {
-    const currentDate = new Date().toISOString().split('T')[0];
-    if (selectedDate === currentDate) {
-      // Current date selected - fetch live streaming data
-      fetchOptionsFlowStreaming();
-    } else {
-      // Historical date selected - fetch historical data
-      fetchHistoricalFlow(selectedDate);
-    }
-  }, [selectedDate, selectedTicker]);
+    // Always fetch live streaming data
+    fetchOptionsFlowStreaming();
+  }, [selectedTicker]);
 
 
 
   const handleRefresh = () => {
-    const currentDate = new Date().toISOString().split('T')[0];
-    if (selectedDate === currentDate) {
-      // Refresh current date with live streaming data
-      fetchOptionsFlowStreaming();
-    } else {
-      // Refresh historical date data
-      fetchHistoricalFlow(selectedDate);
-    }
+    // Always refresh with live streaming data
+    fetchOptionsFlowStreaming();
   };
 
   const handleDateChange = (newDate: string) => {
-    setSelectedDate(newDate);
-    
-    // Check if we should fetch historical data or current data
-    if (newDate && newDate !== '') {
-      // Historical date selected - fetch historical data
-      fetchHistoricalFlow(newDate);
-    } else {
-      // No date selected - check market status
-      const now = new Date();
-      const currentTime = now.getHours() * 100 + now.getMinutes(); // HHMM format
-      const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
-      const isMarketHours = isWeekday && currentTime >= 930 && currentTime <= 1600;
-      
-      if (isMarketHours) {
-        // Market is open - fetch live data
-        fetchOptionsFlowStreaming();
-      } else {
-        // Market is closed - show empty state
-        setData([]);
-        setSummary({
-          total_trades: 0,
-          total_premium: 0,
-          unique_symbols: 0,
-          trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, SPLIT: 0 },
-          call_put_ratio: { calls: 0, puts: 0 },
-          processing_time_ms: 0
-        });
-        setMarketInfo({
-          status: 'LAST_TRADING_DAY',
-          is_live: false,
-          data_date: new Date().toISOString().split('T')[0],
-          market_open: false
-        });
-        console.log('📅 Market is closed - showing empty state');
-      }
-    }
+    // For live data only, we ignore date changes and always fetch current data
+    console.log('Date change ignored - only showing live data');
+    fetchOptionsFlowStreaming();
   };
 
 
@@ -372,10 +236,7 @@ export default function OptionsFlowPage() {
           loading={loading}
           onRefresh={handleRefresh}
           selectedTicker={selectedTicker}
-          selectedDate={selectedDate}
           onTickerChange={setSelectedTicker}
-          onDateChange={handleDateChange}
-
           streamingStatus={streamingStatus}
           streamingProgress={streamingProgress}
         />

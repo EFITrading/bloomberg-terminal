@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMarketRegimeDataStreaming } from '@/lib/industryAnalysisService';
+import { IndustryAnalysisService } from '@/lib/industryAnalysisService';
 
 export async function GET(request: NextRequest) {
   console.log('🔧 DEBUG ENDPOINT: Starting Market Regimes test...');
   
   try {
     // Test the market regime service directly
-    const regimeData = await getMarketRegimeDataStreaming();
+    const regimeData = await IndustryAnalysisService.getMarketRegimeDataStreaming();
     
     console.log('✅ DEBUG ENDPOINT: Market regime data received:', {
       hasData: !!regimeData,

@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     console.log(`📊 DATABASE RESULT: Retrieved ${historicalData.length} records from database`);
 
     // Format data for frontend consumption
-    const formattedData = historicalData.map((trade: TradeData) => ({
+    const formattedData = historicalData.map((trade: any) => ({
       id: trade.id,
       ticker: trade.ticker,
       underlying_ticker: trade.underlying_ticker,
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       trade_size: trade.trade_size,
       premium_per_contract: trade.premium_per_contract,
       total_premium: trade.total_premium,
-      flow_type: trade.flow_type,
+      flow_type: trade.flow_type || '',
       trade_type: trade.trade_type,
       above_ask: trade.above_ask,
       below_bid: trade.below_bid,

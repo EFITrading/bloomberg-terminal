@@ -22,8 +22,11 @@ export async function GET(request: NextRequest) {
   try {
     console.log(`🔥 GEX: Getting ALL expiration data for ${symbol} like analysis suite`);
 
-    // Get all expiration dates
-    const allExpResponse = await fetch(`http://localhost:3000/api/options-chain?ticker=${symbol}`);
+    // Get all expiration dates - use current request host
+    const host = request.nextUrl.host;
+    const protocol = request.nextUrl.protocol;
+    const baseUrl = `${protocol}//${host}`;
+    const allExpResponse = await fetch(`${baseUrl}/api/options-chain?ticker=${symbol}`);
     const allExpResult = await allExpResponse.json();
 
     if (!allExpResult.success) {
@@ -58,7 +61,7 @@ export async function GET(request: NextRequest) {
     
     // Create all requests simultaneously for maximum speed
     const allRequests = validExpirations.map(expDate => 
-      fetch(`http://localhost:3000/api/options-chain?ticker=${symbol}&expiration=${expDate}`)
+      fetch(`${baseUrl}/api/options-chain?ticker=${symbol}&expiration=${expDate}`)
         .then(response => response.json())
         .then(result => ({ expDate, result }))
         .catch(error => ({ expDate, error }))

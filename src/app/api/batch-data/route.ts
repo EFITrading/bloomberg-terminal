@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
           headers: {
             'Accept': 'application/json',
             'Connection': 'keep-alive',
-            'User-Agent': 'Bloomberg-Terminal/1.0'
+            'User-Agent': 'EFITrading/1.0'
           },
           signal: AbortSignal.timeout(5000),
         });
