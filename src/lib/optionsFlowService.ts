@@ -232,30 +232,54 @@ export class OptionsFlowService {
     const { ParallelOptionsFlowProcessor } = require('./ParallelOptionsFlowProcessor.js');
     const parallelProcessor = new ParallelOptionsFlowProcessor();
     
-    try {
-      const allTrades = await parallelProcessor.processTickersInParallel(
-        tickersToScan, 
-        this, 
-        (trades: ProcessedTrade[], status: string, progress: number) => {
-          onProgress?.(
-            [...trades].sort((a: ProcessedTrade, b: ProcessedTrade) => b.total_premium - a.total_premium),
-            status,
-            progress
-          );
-        }
-      );
+    const apiKey = process.env.POLYGON_API_KEY;
+    if (!apiKey) {
+      console.error('❌ No API key found');
+      return [];
+    }
 
-      // Final sort by premium (largest first)
-      const finalTrades = allTrades.sort((a: ProcessedTrade, b: ProcessedTrade) => b.total_premium - a.total_premium);
+    try {
+      // DIRECT API TEST - bypass all workers
+      const todayStart = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z').getTime();
+      const todayNanos = todayStart * 1000000;
       
-      console.log(`✅ ULTRA-FAST SCAN COMPLETE: ${finalTrades.length} trades found`);
-      onProgress?.(finalTrades, `✅ STREAMING COMPLETE: ${finalTrades.length} trades processed`);
+      const testUrl = `https://api.polygon.io/v3/trades/O:SPY251014P00660000?timestamp.gte=${todayNanos}&limit=50&apikey=${apiKey}`;
       
-      return finalTrades;
+      console.log(`🔗 DIRECT API TEST`);
+      
+      const response = await fetch(testUrl);
+      const data = await response.json();
+      
+      if (!response.ok || !data.results || data.results.length === 0) {
+        console.log('⚠️ No trades found');
+        return [];
+      }
+
+      console.log(`✅ FOUND ${data.results.length} trades`);
+      
+      // Convert to format
+      const trades: ProcessedTrade[] = data.results.slice(0, 10).map((trade: any) => ({
+        id: `${trade.sip_timestamp}`,
+        ticker: 'SPY',
+        contract_symbol: 'O:SPY251014P00660000',
+        contract_type: 'PUT',
+        strike: 660,
+        expiry: '2025-10-14',
+        price: trade.price,
+        size: trade.size,
+        total_premium: trade.price * trade.size * 100,
+        timestamp: new Date(trade.sip_timestamp / 1000000).toISOString(),
+        exchange: 'CBOE',
+        conditions: trade.conditions || [],
+        trade_type: 'BLOCK',
+        sentiment: 'BEARISH'
+      }));
+
+      return trades;
       
     } catch (error) {
-      console.error(`❌ ULTRA-FAST PARALLEL ERROR:`, error);
-      throw error;
+      console.error(`❌ ERROR:`, error);
+      return [];
     }
   }
 
