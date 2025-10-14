@@ -7,8 +7,8 @@ export async function GET(request: NextRequest) {
     // Test what date we're actually using
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
     
-    // Test a specific SPY options contract with today's date
-    const testUrl = `https://api.polygon.io/v3/trades/O:SPY251014C00570000?timestamp.gte=${today}&apikey=${apiKey}`;
+    // Test $660 PUT options expiring today (10/14/25)
+    const testUrl = `https://api.polygon.io/v3/trades/O:SPY251014P00660000?timestamp.gte=${today}&apikey=${apiKey}`;
     
     const response = await fetch(testUrl);
     const data = await response.json();
