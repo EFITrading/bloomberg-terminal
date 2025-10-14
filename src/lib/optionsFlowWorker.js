@@ -4,13 +4,12 @@ const https = require('https');
 // Simple worker that makes direct API calls to avoid module resolution issues
 if (parentPort) {
   try {
-    const { batch, workerIndex } = workerData;
-    const apiKey = process.env.POLYGON_API_KEY;
+    const { batch, workerIndex, apiKey } = workerData;
     
     console.log(`🔧 Worker ${workerIndex}: Processing ${batch.length} tickers`);
     
     if (!apiKey) {
-      console.error(`❌ Worker ${workerIndex}: POLYGON_API_KEY not found in environment variables`);
+      console.error(`❌ Worker ${workerIndex}: POLYGON_API_KEY not provided to worker`);
       parentPort.postMessage({
         success: false,
         error: 'POLYGON_API_KEY not configured',

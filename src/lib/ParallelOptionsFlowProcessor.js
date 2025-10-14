@@ -51,7 +51,8 @@ class ParallelOptionsFlowProcessor {
       const worker = new Worker(workerPath, {
         workerData: {
           batch,
-          workerIndex
+          workerIndex,
+          apiKey: process.env.POLYGON_API_KEY
         }
       });
 
