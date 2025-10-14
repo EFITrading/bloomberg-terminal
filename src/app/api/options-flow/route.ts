@@ -33,8 +33,8 @@ export async function GET(request: NextRequest) {
     // Initialize the options flow service
     const optionsFlowService = new OptionsFlowService(polygonApiKey);
     
-    // Process the options flow - will scan market-wide if no ticker specified
-    const processedTrades = await optionsFlowService.fetchLiveOptionsFlow(ticker || undefined);
+    // Process the options flow with ultra-fast parallel scanning - will scan market-wide if no ticker specified
+    const processedTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(ticker || undefined);
     
     const processingTime = Date.now() - startTime;
     

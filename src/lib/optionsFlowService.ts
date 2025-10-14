@@ -207,6 +207,58 @@ export class OptionsFlowService {
     console.log(`✅ Options Flow Service initialized with API key: ${apiKey.substring(0, 8)}...`);
   }
 
+  // ULTRA-FAST PARALLEL VERSION - Uses all CPU cores for maximum speed
+  async fetchLiveOptionsFlowUltraFast(
+    ticker?: string,
+    onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
+  ): Promise<ProcessedTrade[]> {
+    console.log(`🚀 ULTRA-FAST PARALLEL OPTIONS FLOW SCANNER STARTING...`);
+    
+    // Determine which tickers to scan
+    let tickersToScan: string[];
+    
+    if (!ticker || ticker.toLowerCase() === 'all') {
+      tickersToScan = this.getTop1000Symbols();
+      console.log(`🎯 ULTRA-FAST SCAN: ${tickersToScan.length} symbols across all CPU cores`);
+    } else if (ticker && ticker.includes(',')) {
+      tickersToScan = ticker.split(',').map(t => t.trim().toUpperCase());
+      console.log(`📋 ULTRA-FAST SCAN: ${tickersToScan.length} specific tickers`);
+    } else {
+      tickersToScan = [ticker.toUpperCase()];
+      console.log(`🎯 Single ticker scan: ${ticker.toUpperCase()}`);
+    }
+
+    // Use parallel processor to scan all tickers using all CPU cores
+    const { ParallelOptionsFlowProcessor } = require('./ParallelOptionsFlowProcessor.js');
+    const parallelProcessor = new ParallelOptionsFlowProcessor();
+    
+    try {
+      const allTrades = await parallelProcessor.processTickersInParallel(
+        tickersToScan, 
+        this, 
+        (trades: ProcessedTrade[], status: string, progress: number) => {
+          onProgress?.(
+            [...trades].sort((a: ProcessedTrade, b: ProcessedTrade) => b.total_premium - a.total_premium),
+            status,
+            progress
+          );
+        }
+      );
+
+      // Final sort by premium (largest first)
+      const finalTrades = allTrades.sort((a: ProcessedTrade, b: ProcessedTrade) => b.total_premium - a.total_premium);
+      
+      console.log(`✅ ULTRA-FAST SCAN COMPLETE: ${finalTrades.length} trades found`);
+      onProgress?.(finalTrades, `✅ STREAMING COMPLETE: ${finalTrades.length} trades processed`);
+      
+      return finalTrades;
+      
+    } catch (error) {
+      console.error(`❌ ULTRA-FAST PARALLEL ERROR:`, error);
+      throw error;
+    }
+  }
+
   // Streaming version for progressive loading
   async fetchLiveOptionsFlowStreaming(
     ticker?: string, 

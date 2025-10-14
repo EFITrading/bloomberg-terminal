@@ -73,12 +73,12 @@ export default function OptionsFlowPage() {
     setLoading(true);
     
     try {
-      console.log(`� Fetching live streaming options flow data...`);
-      setData([]); // Clear existing data before streaming fresh data
+      console.log(`🔥 Fetching live streaming options flow data...`);
+      // Keep existing trades and add new ones as they stream in
       
     } catch (dbError) {
       console.warn('Error checking database, proceeding with streaming:', dbError);
-      setData([]); // Clear existing data
+      // Keep existing data on error
     }
     
     try {
@@ -95,8 +95,26 @@ export default function OptionsFlowPage() {
               break;
               
             case 'trades':
-              // Update data progressively as trades come in
-              setData(streamData.trades);
+              // Accumulate trades progressively as they come in (don't replace, append new ones)
+              if (streamData.trades && streamData.trades.length > 0) {
+                setData(prevData => {
+                  // Create a Set of existing trade identifiers to avoid duplicates
+                  const existingTradeIds = new Set(
+                    prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
+                  );
+                  
+                  // Only add truly new trades
+                  const newTrades = (streamData.trades as OptionsFlowData[]).filter((trade: OptionsFlowData) => {
+                    const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
+                    return !existingTradeIds.has(tradeId);
+                  });
+                  
+                  console.log(`📊 Stream Update: Adding ${newTrades.length} NEW trades (${streamData.trades.length} sent, ${prevData.length} existing)`);
+                  
+                  return [...prevData, ...newTrades];
+                });
+              }
+              
               setStreamingStatus(streamData.status);
               if (streamData.progress) {
                 setStreamingProgress({
@@ -104,7 +122,6 @@ export default function OptionsFlowPage() {
                   total: streamData.progress.total
                 });
               }
-              console.log(`📊 Stream Update: ${streamData.trades.length} trades - ${streamData.status}`);
               break;
               
             case 'complete':
@@ -217,6 +234,20 @@ export default function OptionsFlowPage() {
     fetchOptionsFlowStreaming();
   };
 
+  const handleClearData = () => {
+    // Clear existing data and start fresh
+    console.log('🗑️ Clearing all trades data');
+    setData([]);
+    setSummary({
+      total_trades: 0,
+      total_premium: 0,
+      unique_symbols: 0,
+      trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, SPLIT: 0 },
+      call_put_ratio: { calls: 0, puts: 0 },
+      processing_time_ms: 0
+    });
+  };
+
   const handleDateChange = (newDate: string) => {
     // For live data only, we ignore date changes and always fetch current data
     console.log('Date change ignored - only showing live data');
@@ -235,6 +266,7 @@ export default function OptionsFlowPage() {
           marketInfo={marketInfo}
           loading={loading}
           onRefresh={handleRefresh}
+          onClearData={handleClearData}
           selectedTicker={selectedTicker}
           onTickerChange={setSelectedTicker}
           streamingStatus={streamingStatus}

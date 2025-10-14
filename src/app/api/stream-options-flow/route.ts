@@ -69,8 +69,8 @@ export async function GET(request: NextRequest) {
           });
         };
 
-        // Start streaming flow scan
-        const finalTrades = await optionsFlowService.fetchLiveOptionsFlowStreaming(
+        // Start ultra-fast parallel flow scan
+        const finalTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
           ticker || undefined,
           streamingCallback
         );

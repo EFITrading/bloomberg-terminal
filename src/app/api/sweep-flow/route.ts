@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const apiKey = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
     const optionsFlowService = new OptionsFlowService(apiKey);
     
-    const sweepTrades = await optionsFlowService.fetchLiveOptionsFlow(ticker || undefined);
+    const sweepTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(ticker || undefined);
     
     console.log(`🌊 Found ${sweepTrades.length} sweep trades for ${ticker}`);
 

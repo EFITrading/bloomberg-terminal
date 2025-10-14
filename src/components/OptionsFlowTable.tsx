@@ -91,6 +91,7 @@ interface OptionsFlowTableProps {
   marketInfo?: MarketInfo;
   loading?: boolean;
   onRefresh?: () => void;
+  onClearData?: () => void;
   selectedTicker: string;
   onTickerChange: (ticker: string) => void;
   streamingStatus?: string;
@@ -103,6 +104,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   marketInfo,
   loading = false,
   onRefresh,
+  onClearData,
   selectedTicker,
   onTickerChange,
   streamingStatus,
@@ -1442,6 +1444,47 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                   </>
                 )}
               </button>
+
+              {/* Clear Data Button */}
+              {onClearData && (
+                <button 
+                  onClick={onClearData} 
+                  disabled={loading}
+                  className={`h-10 px-16 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 min-w-[150px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none ${
+                    loading 
+                      ? 'cursor-not-allowed opacity-60' 
+                      : ''
+                  }`}
+                  style={{
+                    background: loading 
+                      ? 'linear-gradient(145deg, #0a0a0a, #1a1a1a)' 
+                      : 'linear-gradient(145deg, #800000, #a00000)',
+                    border: loading ? '1px solid #1a1a1a' : '1px solid #a00000',
+                    boxShadow: loading 
+                      ? 'inset 0 2px 6px rgba(0, 0, 0, 0.4)' 
+                      : 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading) {
+                      const target = e.target as HTMLButtonElement;
+                      target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(220, 38, 127, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
+                      target.style.border = '1px solid #dc267f';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!loading) {
+                      const target = e.target as HTMLButtonElement;
+                      target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
+                      target.style.border = '1px solid #a00000';
+                    }
+                  }}
+                >
+                  <svg className="w-4 h-4 text-red-500 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  <span>Clear Data</span>
+                </button>
+              )}
 
             </div>
             
