@@ -5,9 +5,19 @@ const https = require('https');
 if (parentPort) {
   try {
     const { batch, workerIndex } = workerData;
-    const apiKey = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    const apiKey = process.env.POLYGON_API_KEY;
     
     console.log(`🔧 Worker ${workerIndex}: Processing ${batch.length} tickers`);
+    
+    if (!apiKey) {
+      console.error(`❌ Worker ${workerIndex}: POLYGON_API_KEY not found in environment variables`);
+      parentPort.postMessage({
+        success: false,
+        error: 'POLYGON_API_KEY not configured',
+        workerIndex: workerIndex
+      });
+      return;
+    }
     
     // Simple function to make Polygon API calls
     function makePolygonRequest(url) {
@@ -146,9 +156,9 @@ if (parentPort) {
     async function processBatch() {
       const results = [];
       const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
-      const marketOpenNanos = marketOpenTimestamp * 1000000; // Convert to nanoseconds
+      const today = new Date().toISOString().split('T')[0]; // Use YYYY-MM-DD format instead of nanoseconds
       
-      console.log(`📅 Worker ${workerIndex}: Using market open ${new Date(marketOpenTimestamp).toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+      console.log(`📅 Worker ${workerIndex}: Using date ${today} for trades`);
       
       for (const ticker of batch) {
         try {
@@ -223,7 +233,7 @@ if (parentPort) {
               // Process entire batch in parallel
               const batchPromises = contractBatch.map(async (contract) => {
                 try {
-                  const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenNanos}&limit=1000&apikey=${apiKey}`;
+                  const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${today}&limit=1000&apikey=${apiKey}`;
                   const tradesResponse = await makePolygonRequest(tradesUrl);
                   
                   if (tradesResponse.results && tradesResponse.results.length > 0) {
