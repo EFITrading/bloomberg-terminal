@@ -144,7 +144,7 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
       } else {
         const symbols = customSymbols
           .split(',')
-          .map(s => s.trim().toUpperCase())
+          .map(s => s && s.trim() ? s.trim().toUpperCase() : '')
           .filter(s => s.length > 0);
 
         if (symbols.length === 0) {

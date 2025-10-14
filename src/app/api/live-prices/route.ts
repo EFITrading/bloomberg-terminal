@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
       }, { status: 500 });
     }
 
-    const symbolList = symbols.split(',').map(s => s.trim().toUpperCase());
+    const symbolList = symbols.split(',').map(s => s && s.trim() ? s.trim().toUpperCase() : '').filter(s => s);
     const prices: { [symbol: string]: number } = {};
     
     // Fetch current prices for all symbols
