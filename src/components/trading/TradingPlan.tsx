@@ -665,7 +665,7 @@ const TradingPlan: React.FC = () => {
     const handleSubmit = () => {
       const tradeData = {
         ...formData,
-        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+        tags: formData.tags.split(',').map(tag => tag && tag.trim ? tag.trim() : '').filter(tag => tag),
         // Calculate options-specific values if it's an options trade
         ...(formData.isOptions && {
           daysToExpiry: formData.expiry ? Math.max(0, Math.ceil((new Date(formData.expiry).getTime() - Date.now()) / (24 * 60 * 60 * 1000))) : 0,

@@ -459,7 +459,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
     const monthlyData: { [month: number]: { tickerReturns: number[], spyReturns: number[] } } = {};
     
     Object.keys(monthlyReturns).forEach(monthYear => {
-      const [year, month] = monthYear.split('-').map(Number);
+      const parts = monthYear.split('-');
+      const [year, month] = [Number(parts[0]) || 0, Number(parts[1]) || 0];
       const monthNum = month;
       
       if (!monthlyData[monthNum]) {
