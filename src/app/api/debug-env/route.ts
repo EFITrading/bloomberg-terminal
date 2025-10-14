@@ -4,8 +4,11 @@ export async function GET(request: NextRequest) {
   try {
     const apiKey = process.env.POLYGON_API_KEY;
     
-    // Test if we can make a simple API call
-    const testUrl = `https://api.polygon.io/v2/aggs/ticker/SPY/prev?adjusted=true&apikey=${apiKey}`;
+    // Test what date we're actually using
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    // Test a specific SPY options contract with today's date
+    const testUrl = `https://api.polygon.io/v3/trades/O:SPY251014C00570000?timestamp.gte=${today}&apikey=${apiKey}`;
     
     const response = await fetch(testUrl);
     const data = await response.json();
@@ -15,10 +18,11 @@ export async function GET(request: NextRequest) {
       hasApiKey: !!apiKey,
       apiKeyLength: apiKey?.length || 0,
       apiKeyStart: apiKey?.substring(0, 8) + '...' || 'undefined',
-      testApiCall: {
+      dateUsed: today,
+      testOptionsCall: {
         status: response.status,
         data: data,
-        url: testUrl.replace(apiKey || '', 'HIDDEN_API_KEY')
+        url: testUrl.replace(apiKey || '', 'HIDDEN_KEY')
       }
     });
   } catch (error: any) {
