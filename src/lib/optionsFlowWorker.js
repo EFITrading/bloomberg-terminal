@@ -155,9 +155,10 @@ if (parentPort) {
     async function processBatch() {
       const results = [];
       const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
-      const today = new Date().toISOString().split('T')[0]; // Use YYYY-MM-DD format instead of nanoseconds
+      const todayStart = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z').getTime();
+      const todayNanos = todayStart * 1000000; // Convert to nanoseconds for Polygon API
       
-      console.log(`📅 Worker ${workerIndex}: Using date ${today} for trades`);
+      console.log(`📅 Worker ${workerIndex}: Using timestamp ${todayNanos} (nanoseconds) for trades`);
       
       for (const ticker of batch) {
         try {
@@ -232,7 +233,7 @@ if (parentPort) {
               // Process entire batch in parallel
               const batchPromises = contractBatch.map(async (contract) => {
                 try {
-                  const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${today}&limit=1000&apikey=${apiKey}`;
+                  const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${todayNanos}&limit=1000&apikey=${apiKey}`;
                   const tradesResponse = await makePolygonRequest(tradesUrl);
                   
                   if (tradesResponse.results && tradesResponse.results.length > 0) {
