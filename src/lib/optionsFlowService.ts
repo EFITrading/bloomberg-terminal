@@ -221,11 +221,11 @@ export class OptionsFlowService {
       tickersToScan = this.getTop1000Symbols();
       console.log(`🎯 ULTRA-FAST SCAN: ${tickersToScan.length} symbols across all CPU cores`);
     } else if (ticker && ticker.includes(',')) {
-      tickersToScan = ticker.split(',').map(t => t.trim().toUpperCase());
+      tickersToScan = ticker.split(',').map(t => t && t.trim() ? t.trim().toUpperCase() : '').filter(t => t);
       console.log(`📋 ULTRA-FAST SCAN: ${tickersToScan.length} specific tickers`);
     } else {
-      tickersToScan = [ticker.toUpperCase()];
-      console.log(`🎯 Single ticker scan: ${ticker.toUpperCase()}`);
+      tickersToScan = ticker ? [ticker.toUpperCase()] : [];
+      console.log(`🎯 Single ticker scan: ${ticker ? ticker.toUpperCase() : 'NONE'}`);
     }
 
     // Use parallel processor to scan all tickers using all CPU cores
@@ -291,7 +291,7 @@ export class OptionsFlowService {
     console.log(`🌊 STREAMING: Starting live options flow${ticker ? ` for ${ticker}` : ' market-wide scan'}`);
     
     const allTrades: ProcessedTrade[] = [];
-    const tickersToScan = ticker && ticker.toLowerCase() !== 'all' ? [ticker.toUpperCase()] : this.getTop1000Symbols();
+    const tickersToScan = ticker && ticker.toLowerCase() !== 'all' ? (ticker ? [ticker.toUpperCase()] : []) : this.getTop1000Symbols();
     
     onProgress?.([], `Starting scan of ${tickersToScan.length} tickers...`);
     
@@ -393,12 +393,12 @@ export class OptionsFlowService {
       console.log(`⚡ Using individual ticker processing - NO 'ALL' as single ticker`);
     } else if (ticker && ticker.includes(',')) {
       // Handle comma-separated tickers
-      tickersToScan = ticker.split(',').map(t => t.trim().toUpperCase());
+      tickersToScan = ticker.split(',').map(t => t && t.trim() ? t.trim().toUpperCase() : '').filter(t => t);
       console.log(`📋 SCANNING SPECIFIC TICKERS: ${tickersToScan.join(', ')}`);
     } else {
       // Single ticker
-      tickersToScan = [ticker.toUpperCase()];
-      console.log(`🎯 SCANNING SINGLE TICKER: ${ticker.toUpperCase()}`);
+      tickersToScan = ticker ? [ticker.toUpperCase()] : [];
+      console.log(`🎯 SCANNING SINGLE TICKER: ${ticker ? ticker.toUpperCase() : 'NONE'}`);
     }
     
     console.log(`🔍 DEBUG: Final tickersToScan.length = ${tickersToScan.length}`);
