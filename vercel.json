@@ -5,6 +5,9 @@
     },
     "src/app/api/options-flow/route.ts": {
       "maxDuration": 180
+    },
+    "src/app/api/gex-screener/route.ts": {
+      "maxDuration": 300
     }
   },
   "build": {
