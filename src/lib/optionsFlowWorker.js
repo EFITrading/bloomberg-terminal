@@ -4,12 +4,13 @@ const https = require('https');
 // Simple worker that makes direct API calls to avoid module resolution issues
 if (parentPort) {
   try {
-    const { batch, workerIndex, apiKey } = workerData;
+    const { batch, workerIndex } = workerData;
+    const apiKey = process.env.POLYGON_API_KEY;
     
     console.log(`🔧 Worker ${workerIndex}: Processing ${batch.length} tickers`);
     
     if (!apiKey) {
-      console.error(`❌ Worker ${workerIndex}: POLYGON_API_KEY not provided to worker`);
+      console.error(`❌ Worker ${workerIndex}: POLYGON_API_KEY not found in environment variables`);
       parentPort.postMessage({
         success: false,
         error: 'POLYGON_API_KEY not configured',
@@ -124,41 +125,83 @@ if (parentPort) {
       }
     }
 
-    // Get market open timestamp (9:30 AM ET) like the original service
-    function getTodaysMarketOpenTimestamp() {
+    // Smart timestamp logic for live vs historical scanning
+    function getSmartTimeRange() {
       try {
-        // Create a date for today at 9:30 AM ET
         const now = new Date();
-        const marketOpen = new Date();
-        marketOpen.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
-        marketOpen.setHours(9, 30, 0, 0);
+        const eastern = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+        const easternHour = eastern.getHours();
+        const easternMinute = eastern.getMinutes();
+        const currentTime = easternHour + (easternMinute / 60);
+        const day = eastern.getDay(); // 0 = Sunday, 6 = Saturday
         
-        // Adjust for weekends - get last trading day
-        const day = marketOpen.getDay();
+        // Market hours: 9:30 AM - 4:00 PM ET
+        const marketOpen = 9.5; // 9:30 AM
+        const marketClose = 16; // 4:00 PM
+        const isMarketOpen = (day >= 1 && day <= 5) && (currentTime >= marketOpen && currentTime < marketClose);
         
-        if (day === 0) { // Sunday - go to Friday
-          marketOpen.setDate(marketOpen.getDate() - 2);
-        } else if (day === 6) { // Saturday - go to Friday  
-          marketOpen.setDate(marketOpen.getDate() - 1);
+        if (isMarketOpen) {
+          // LIVE MODE: Market is open
+          const todayMarketOpen = new Date(eastern);
+          todayMarketOpen.setHours(9, 30, 0, 0);
+          const startTime = todayMarketOpen.getTime() * 1000000; // Convert to nanoseconds
+          const endTime = now.getTime() * 1000000; // Current time in nanoseconds
+          
+          console.log(`🔴 Worker ${workerIndex}: LIVE MODE - Market is OPEN`);
+          return { startTime, endTime, isLive: true, date: eastern.toISOString().split('T')[0] };
+        } else {
+          // HISTORICAL MODE: Market is closed
+          let tradingDate = new Date(eastern);
+          
+          // If today is weekday but after hours, scan today's session
+          if (day >= 1 && day <= 5 && currentTime >= marketClose) {
+            // Today was a trading day but market closed - scan today's full session
+            console.log(`📊 Worker ${workerIndex}: AFTER-HOURS MODE - Scanning today's completed session`);
+          } else {
+            // Weekend or before market open - find last trading day
+            if (day === 0) { // Sunday
+              tradingDate.setDate(tradingDate.getDate() - 2); // Friday
+            } else if (day === 6) { // Saturday
+              tradingDate.setDate(tradingDate.getDate() - 1); // Friday
+            } else if (currentTime < marketOpen) {
+              // Before market open on weekday - use previous day
+              tradingDate.setDate(tradingDate.getDate() - 1);
+              if (tradingDate.getDay() === 0) tradingDate.setDate(tradingDate.getDate() - 2); // Skip Sunday
+              if (tradingDate.getDay() === 6) tradingDate.setDate(tradingDate.getDate() - 1); // Skip Saturday
+            }
+            console.log(`📚 Worker ${workerIndex}: HISTORICAL MODE - Scanning last trading day`);
+          }
+          
+          // Create full trading day range (9:30 AM - 4:00 PM ET)
+          const marketOpenTime = new Date(tradingDate);
+          marketOpenTime.setHours(9, 30, 0, 0);
+          const marketCloseTime = new Date(tradingDate);
+          marketCloseTime.setHours(16, 0, 0, 0);
+          
+          const startTime = marketOpenTime.getTime() * 1000000; // Convert to nanoseconds
+          const endTime = marketCloseTime.getTime() * 1000000; // Convert to nanoseconds
+          
+          return { startTime, endTime, isLive: false, date: tradingDate.toISOString().split('T')[0] };
         }
-        
-        return marketOpen.getTime();
       } catch (error) {
-        console.error(`❌ Worker ${workerIndex}: Error calculating market open:`, error);
+        console.error(`❌ Worker ${workerIndex}: Error calculating time range:`, error);
+        // Fallback to today
         const fallback = new Date();
         fallback.setHours(9, 30, 0, 0);
-        return fallback.getTime();
+        const startTime = fallback.getTime() * 1000000;
+        const endTime = Date.now() * 1000000;
+        return { startTime, endTime, isLive: false, date: fallback.toISOString().split('T')[0] };
       }
     }
     
     // Process each ticker in the batch
     async function processBatch() {
       const results = [];
-      const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
-      const todayStart = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z').getTime();
-      const todayNanos = todayStart * 1000000; // Convert to nanoseconds for Polygon API
+      const timeRange = getSmartTimeRange();
       
-      console.log(`📅 Worker ${workerIndex}: Using timestamp ${todayNanos} (nanoseconds) for trades`);
+      console.log(`📅 Worker ${workerIndex}: ${timeRange.isLive ? 'LIVE' : 'HISTORICAL'} scan for ${timeRange.date}`);
+      console.log(`   • Start: ${new Date(timeRange.startTime / 1000000).toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+      console.log(`   • End: ${new Date(timeRange.endTime / 1000000).toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
       
       for (const ticker of batch) {
         try {
@@ -233,7 +276,7 @@ if (parentPort) {
               // Process entire batch in parallel
               const batchPromises = contractBatch.map(async (contract) => {
                 try {
-                  const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${todayNanos}&limit=1000&apikey=${apiKey}`;
+                  const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${timeRange.startTime}&timestamp.lte=${timeRange.endTime}&limit=1000&apikey=${apiKey}`;
                   const tradesResponse = await makePolygonRequest(tradesUrl);
                   
                   if (tradesResponse.results && tradesResponse.results.length > 0) {

@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
     
     // Get smart date range for market hours handling
-    const { currentDate, isLive } = getSmartDateRange();
-    const marketStatus = isLive ? 'LIVE' : 'LAST_TRADING_DAY';
+    const { currentDate, isLive, startTimestamp, endTimestamp } = getSmartDateRange();
+    const marketStatus = isLive ? 'LIVE_MARKET' : 'HISTORICAL_SESSION';
     
     const polygonApiKey = process.env.POLYGON_API_KEY;
     
@@ -120,7 +120,14 @@ export async function GET(request: NextRequest) {
         status: marketStatus,
         is_live: isLive,
         data_date: currentDate,
-        market_open: isMarketOpen()
+        market_open: isMarketOpen(),
+        scan_period: {
+          start: new Date(startTimestamp).toLocaleString('en-US', {timeZone: 'America/New_York'}),
+          end: new Date(endTimestamp).toLocaleString('en-US', {timeZone: 'America/New_York'}),
+          start_timestamp: startTimestamp,
+          end_timestamp: endTimestamp,
+          timezone: 'America/New_York'
+        }
       }
     });
 

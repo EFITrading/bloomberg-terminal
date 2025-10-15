@@ -94,22 +94,73 @@ export function getTodaysMarketOpenTimestamp(): number {
   }
 }
 
-export function getSmartDateRange(): { currentDate: string; isLive: boolean } {
+export function getSmartDateRange(): { currentDate: string; isLive: boolean; startTimestamp: number; endTimestamp: number } {
   const marketOpen = isMarketOpen();
+  const now = new Date();
+  const eastern = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
   
   if (marketOpen) {
-    // Use current date for live data
-    const today = new Date();
+    // LIVE MODE: Market is currently open, scan from market open until now
+    const todayMarketOpen = getTodaysMarketOpenTimestamp();
+    const currentTime = Date.now();
+    
+    console.log(`🔴 LIVE MODE: Market is OPEN, scanning from market open to now`);
+    console.log(`   • Start: ${new Date(todayMarketOpen).toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+    console.log(`   • End: ${new Date(currentTime).toLocaleString('en-US', {timeZone: 'America/New_York'})} ET (LIVE)`);
+    
     return {
-      currentDate: today.toISOString().split('T')[0],
-      isLive: true
+      currentDate: now.toISOString().split('T')[0],
+      isLive: true,
+      startTimestamp: todayMarketOpen,
+      endTimestamp: currentTime
     };
   } else {
-    // Use last trading day for historical data
-    return {
-      currentDate: getLastTradingDay(),
-      isLive: false
-    };
+    // HISTORICAL MODE: Market is closed, scan the most recent full trading day
+    const lastTradingDay = getLastTradingDay();
+    const historicalDate = new Date(lastTradingDay);
+    
+    // Create market open (9:30 AM ET) and close (4:00 PM ET) for the last trading day
+    const marketOpenTime = new Date(historicalDate);
+    marketOpenTime.setHours(9, 30, 0, 0);
+    
+    const marketCloseTime = new Date(historicalDate);
+    marketCloseTime.setHours(16, 0, 0, 0);
+    
+    // If today is a trading day but market is closed (after 4 PM), scan today's session
+    const today = now.toISOString().split('T')[0];
+    const easternHour = eastern.getHours();
+    const isWeekday = eastern.getDay() >= 1 && eastern.getDay() <= 5;
+    
+    if (isWeekday && today === lastTradingDay && easternHour >= 16) {
+      // Today was a trading day but market is now closed - scan today's full session
+      const todayMarketOpen = getTodaysMarketOpenTimestamp();
+      const todayMarketClose = new Date(todayMarketOpen);
+      todayMarketClose.setHours(16, 0, 0, 0);
+      
+      console.log(`📊 AFTER-HOURS MODE: Scanning today's completed session`);
+      console.log(`   • Date: ${today}`);
+      console.log(`   • Start: ${new Date(todayMarketOpen).toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+      console.log(`   • End: ${todayMarketClose.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+      
+      return {
+        currentDate: today,
+        isLive: false,
+        startTimestamp: todayMarketOpen,
+        endTimestamp: todayMarketClose.getTime()
+      };
+    } else {
+      // Weekend or holiday - scan last full trading day
+      console.log(`📚 HISTORICAL MODE: Scanning last trading day (${lastTradingDay})`);
+      console.log(`   • Start: ${marketOpenTime.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+      console.log(`   • End: ${marketCloseTime.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+      
+      return {
+        currentDate: lastTradingDay,
+        isLive: false,
+        startTimestamp: marketOpenTime.getTime(),
+        endTimestamp: marketCloseTime.getTime()
+      };
+    }
   }
 }
 
@@ -239,47 +290,43 @@ export class OptionsFlowService {
     }
 
     try {
-      // DIRECT API TEST - bypass all workers
-      const todayStart = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z').getTime();
-      const todayNanos = todayStart * 1000000;
+      // Use the parallel processor for real scanning
+      console.log(`🚀 PARALLEL PROCESSING: Starting scan of ${tickersToScan.length} tickers`);
       
-      const testUrl = `https://api.polygon.io/v3/trades/O:SPY251014P00660000?timestamp.gte=${todayNanos}&limit=50&apikey=${apiKey}`;
+      const allTrades = await parallelProcessor.processTickersInParallel(
+        tickersToScan,
+        this,
+        onProgress
+      );
       
-      console.log(`🔗 DIRECT API TEST`);
-      
-      const response = await fetch(testUrl);
-      const data = await response.json();
-      
-      if (!response.ok || !data.results || data.results.length === 0) {
-        console.log('⚠️ No trades found');
-        return [];
-      }
-
-      console.log(`✅ FOUND ${data.results.length} trades`);
-      
-      // Convert to format
-      const trades: ProcessedTrade[] = data.results.slice(0, 10).map((trade: any) => ({
-        id: `${trade.sip_timestamp}`,
-        ticker: 'SPY',
-        contract_symbol: 'O:SPY251014P00660000',
-        contract_type: 'PUT',
-        strike: 660,
-        expiry: '2025-10-14',
-        price: trade.price,
-        size: trade.size,
-        total_premium: trade.price * trade.size * 100,
-        timestamp: new Date(trade.sip_timestamp / 1000000).toISOString(),
-        exchange: 'CBOE',
-        conditions: trade.conditions || [],
-        trade_type: 'BLOCK',
-        sentiment: 'BEARISH'
-      }));
-
-      return trades;
+      console.log(`✅ ULTRA-FAST SCAN COMPLETE: Found ${allTrades.length} total trades`);
+      return allTrades;
       
     } catch (error) {
-      console.error(`❌ ERROR:`, error);
-      return [];
+      console.error(`❌ PARALLEL PROCESSING ERROR:`, error);
+      
+      // Fallback to single-threaded scanning if parallel fails
+      console.log(`🔄 FALLBACK: Using single-threaded scanning`);
+      
+      const fallbackTrades: ProcessedTrade[] = [];
+      const maxTickers = Math.min(tickersToScan.length, 50); // Limit fallback to prevent timeouts
+      
+      for (let i = 0; i < maxTickers; i++) {
+        const ticker = tickersToScan[i];
+        try {
+          onProgress?.([], `Fallback scan: ${ticker} (${i + 1}/${maxTickers})`);
+          
+          const tickerTrades = await this.fetchOptionsSnapshotRobust(ticker);
+          if (tickerTrades.length > 0) {
+            fallbackTrades.push(...tickerTrades);
+            console.log(`📈 Fallback: Found ${tickerTrades.length} trades for ${ticker}`);
+          }
+        } catch (tickerError) {
+          console.error(`⚠️ Fallback error for ${ticker}:`, tickerError);
+        }
+      }
+      
+      return fallbackTrades;
     }
   }
 
