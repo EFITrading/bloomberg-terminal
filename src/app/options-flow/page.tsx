@@ -74,6 +74,7 @@ export default function OptionsFlowPage() {
     
     try {
       console.log(`🔥 Fetching live streaming options flow data...`);
+      console.log(`🚀 Using Render API for parallel processing: https://bloomberg-api.onrender.com`);
       // Keep existing trades and add new ones as they stream in
       
     } catch (dbError) {
@@ -82,7 +83,8 @@ export default function OptionsFlowPage() {
     }
     
     try {
-      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${selectedTicker}`);
+      // Use Render API for parallel processing power
+      const eventSource = new EventSource(`https://bloomberg-api.onrender.com/api/stream-options-flow?ticker=${selectedTicker}`);
       
       eventSource.onmessage = (event) => {
         try {
