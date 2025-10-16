@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import SeasonalScreenerService from '@/lib/seasonalScreenerService';
+import SeasonalScreenerService from '@/lib/seasonalScreenerService_fixed';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -39,10 +39,33 @@ export async function GET(request: Request) {
           const statusData = `data: ${JSON.stringify(statusUpdate)}\n\n`;
           controller.enqueue(new TextEncoder().encode(statusData));
           
-          // Process this incremental batch
+          // Process this incremental batch with real-time streaming
           const batchSize = batch.end - batch.start;
           console.log(`🔍 Processing batch ${batch.label} with ${batchSize} companies (offset: ${batch.start})...`);
-          const opportunities = await screeningService.screenSeasonalOpportunities(years, batchSize, batch.start);
+          
+          const opportunities = await screeningService.screenSeasonalOpportunities(
+            years, 
+            batchSize, 
+            batch.start,
+            (processed, total, foundOpportunities, currentSymbol) => {
+              // Stream individual opportunities as they're found
+              if (currentSymbol && currentSymbol.includes('Found seasonal for')) {
+                const symbol = currentSymbol.replace('Found seasonal for ', '').replace('!', '');
+                const latestOpp = foundOpportunities[foundOpportunities.length - 1];
+                
+                if (latestOpp && latestOpp.symbol === symbol) {
+                  const oppData = `data: ${JSON.stringify({
+                    type: 'opportunity',
+                    data: latestOpp,
+                    processed: totalProcessed + processed,
+                    total: 1000,
+                    found: totalFound + foundOpportunities.length
+                  })}\n\n`;
+                  controller.enqueue(new TextEncoder().encode(oppData));
+                }
+              }
+            }
+          );
           
           console.log(`✅ Batch ${batch.label} returned ${opportunities.length} opportunities`);
           

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import PolygonService from '@/lib/polygonService';
-import SeasonalScreenerService from '@/lib/seasonalScreenerService';
+import SeasonalScreenerService from '@/lib/seasonalScreenerService_fixed';
 
 export async function GET(request: Request) {
   try {
@@ -17,17 +17,18 @@ export async function GET(request: Request) {
       // Use new seasonal screening service with smart batching
       const screeningService = new SeasonalScreenerService();
       
-      // Get requested batch size (default to 100 for faster response)
-      const batchSize = parseInt(searchParams.get('batchSize') || '100');
+      // Get requested batch size (FULL capability for unlimited API)
+      const batchSize = parseInt(searchParams.get('batchSize') || '500'); // LARGE default for unlimited API
       
-      console.log(`📊 Processing ${batchSize} top companies by market cap for faster response...`);
+      console.log(`📊 Processing ${batchSize} top companies using unlimited API with worker-based parallel processing...`);
       
-      // Add timeout protection with longer timeout for larger batches
-      const timeoutMs = Math.min(120000, Math.max(45000, batchSize * 200)); // 200ms per stock, min 45s, max 2min
+      // Extended timeout for large batches with unlimited API
+      const timeoutMs = Math.max(300000, batchSize * 500); // 500ms per stock, minimum 5 minutes
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs/1000} seconds`)), timeoutMs);
+        setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs/1000} seconds - unlimited API processing`)), timeoutMs);
       });
       
+      // Use FULL years as requested - unlimited API
       const screeningPromise = screeningService.screenSeasonalOpportunities(years, batchSize);
       const opportunities = await Promise.race([screeningPromise, timeoutPromise]) as any[];
       

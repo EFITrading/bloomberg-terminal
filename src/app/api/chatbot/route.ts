@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import quickSeasonalService from '../../../lib/quickSeasonalService';
 import RRGService from '../../../lib/rrgService';
-import SeasonalScreenerService from '../../../lib/seasonalScreenerService';
+import SeasonalScreenerService from '../../../lib/seasonalScreenerService_fixed';
 import { AIIntelligenceService } from '../../../lib/aiIntelligenceService';
 import { IndustryAnalysisService } from '../../../lib/industryAnalysisService';
 

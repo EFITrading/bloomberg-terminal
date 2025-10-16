@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import SeasonalScreenerService from '@/lib/seasonalScreenerService';
+import SeasonalScreenerService from '@/lib/seasonalScreenerService_fixed';
+import { createErrorResponse, displayError } from '@/lib/errorHandling';
 
 // Rate limiting store
 const rateLimiter = new Map<string, { count: number; resetTime: number }>();
@@ -78,9 +79,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const symbol = searchParams.get('symbol')?.toUpperCase();
     const sentiment = searchParams.get('sentiment')?.toLowerCase(); // 'bullish', 'bearish', or null for both
-    const years = parseInt(searchParams.get('years') || '15');
+    const years = parseInt(searchParams.get('years') || '15'); // FULL years - unlimited API
     const activeOnly = searchParams.get('active') === 'true'; // Filter for patterns starting soon
-    const batchSize = parseInt(searchParams.get('batchSize') || '50');
+    const batchSize = parseInt(searchParams.get('batchSize') || '200'); // FULL batch size - unlimited API
 
     console.log(`🔍 Fetching seasonal patterns: symbol=${symbol}, sentiment=${sentiment}, activeOnly=${activeOnly}`);
 
@@ -185,13 +186,18 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Seasonal Patterns API Error:', error);
-    return NextResponse.json(
-      { 
-        error: 'Failed to fetch seasonal patterns',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
+    // Display user-friendly error
+    displayError(error instanceof Error ? error : new Error(String(error)), 'Seasonal Patterns API');
+    
+    // Create user-friendly error response
+    const errorResponse = createErrorResponse(
+      error instanceof Error ? error : new Error(String(error)), 
+      'Seasonal Patterns API'
     );
+
+    // Return proper error response without fallback data
+    return NextResponse.json(errorResponse, { 
+      status: errorResponse.severity === 'error' ? 500 : 503
+    });
   }
 }
