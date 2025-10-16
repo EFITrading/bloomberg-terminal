@@ -388,11 +388,16 @@ class SeasonalScreenerService {
         await Promise.all(allPromises);
 
     } catch (error) {
-      console.error('âŒ Bulk screening failed:', error);
+      console.error('❌ Bulk screening failed:', error);
       
-      // Return mock data for testing if API fails
-      console.log('ðŸ”„ Returning test data for development...');
-      return this.getMockSeasonalData();
+      // Try to return partial results if we have any
+      if (opportunities.length > 0) {
+        console.log(`🔄 Returning ${opportunities.length} partial results despite error`);
+        return opportunities;
+      }
+      
+      // No fallback data - throw the error to be handled by the API layer
+      throw error;
     }
 
     // Remove any remaining duplicates by symbol (safety check)
@@ -410,79 +415,7 @@ class SeasonalScreenerService {
     return uniqueOpportunities;
   }
 
-  // Mock data for testing
-  private getMockSeasonalData(): SeasonalOpportunity[] {
-    const today = new Date('2025-09-04');
-    const todayDayOfYear = this.getDayOfYear(today);
-    
-    return [
-      {
-        symbol: 'AAPL',
-        companyName: 'Apple Inc.',
-        sentiment: 'Bullish' as const,
-        period: 'Sep 10 - Oct 9',
-        startDate: 'Sep 10',
-        endDate: 'Oct 9',
-        averageReturn: 4.21,
-        winRate: 68,
-        years: 15,
-        daysUntilStart: this.parseSeasonalDate('Sep 10') - todayDayOfYear,
-        isCurrentlyActive: true
-      },
-      {
-        symbol: 'MSFT',
-        companyName: 'Microsoft Corporation',
-        sentiment: 'Bullish' as const,
-        period: 'Sep 5 - Oct 4',
-        startDate: 'Sep 5',
-        endDate: 'Oct 4',
-        averageReturn: 3.89,
-        winRate: 72,
-        years: 15,
-        daysUntilStart: this.parseSeasonalDate('Sep 5') - todayDayOfYear,
-        isCurrentlyActive: true
-      },
-      {
-        symbol: 'GOOGL',
-        companyName: 'Alphabet Inc.',
-        sentiment: 'Bearish' as const,
-        period: 'Jun 7 - Jul 6',
-        startDate: 'Jun 7',
-        endDate: 'Jul 6',
-        averageReturn: -5.59,
-        winRate: 25,
-        years: 15,
-        daysUntilStart: this.parseSeasonalDate('Jun 7') - todayDayOfYear,
-        isCurrentlyActive: false
-      },
-      {
-        symbol: 'TSLA',
-        companyName: 'Tesla Inc.',
-        sentiment: 'Bullish' as const,
-        period: 'Sep 8 - Oct 7',
-        startDate: 'Sep 8',
-        endDate: 'Oct 7',
-        averageReturn: 6.12,
-        winRate: 61,
-        years: 10,
-        daysUntilStart: this.parseSeasonalDate('Sep 8') - todayDayOfYear,
-        isCurrentlyActive: true
-      },
-      {
-        symbol: 'NVDA',
-        companyName: 'NVIDIA Corporation',
-        sentiment: 'Bullish' as const,
-        period: 'Sep 12 - Oct 11',
-        startDate: 'Sep 12',
-        endDate: 'Oct 11',
-        averageReturn: 7.85,
-        winRate: 75,
-        years: 12,
-        daysUntilStart: this.parseSeasonalDate('Sep 12') - todayDayOfYear,
-        isCurrentlyActive: true
-      }
-    ].filter(opp => opp.isCurrentlyActive || this.isSeasonalCurrentlyActive(opp.startDate));
-  }
+  // Mock data method removed - no fallback data
 
   // Fallback method with smaller batches
   async screenSeasonalOpportunitiesBatched(years: number = 15): Promise<SeasonalOpportunity[]> {

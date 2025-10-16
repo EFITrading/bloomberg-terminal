@@ -44,41 +44,44 @@ class BackgroundDataService {
 
     this.isLoading = true;
     this.currentStep = 0;
-    console.log('🚀 Starting non-blocking progressive data loading...');
+    console.log('🚀 Starting staggered background data loading to prevent resource conflicts...');
 
     try {
       const polygonService = new PolygonService();
       const cache = GlobalDataCache.getInstance();
 
-      // Step 1: Load essential market data (non-blocking)
+      // Wait for watchlist to finish loading first (give it priority)
+      console.log('⏳ Waiting for watchlist data to load before starting background tasks...');
+      
+      // Step 1: Load essential market data (delayed to avoid conflicts)
       setTimeout(async () => {
         await this.loadEssentialData(polygonService, cache);
-      }, 100);
+      }, 5000); // 5 second delay
 
-      // Step 2: Load featured patterns (low priority)
+      // Step 2: Load featured patterns (low priority, further delayed)
       setTimeout(async () => {
         await this.loadFeaturedPatterns(polygonService, cache);
-      }, 2000);
+      }, 8000);
 
       // Step 3: Load weekly patterns (low priority)
       setTimeout(async () => {
         await this.loadWeeklyPatterns(polygonService, cache);
-      }, 4000);
+      }, 12000);
 
       // Step 4: Load sector patterns progressively
       setTimeout(async () => {
         await this.loadSectorPatterns(polygonService, cache);
-      }, 6000);
+      }, 16000);
 
       // Step 5: Load market indices (background)
       setTimeout(async () => {
         await this.loadMarketIndices(polygonService, cache);
-      }, 8000);
+      }, 20000);
 
       // Step 6: Load seasonal opportunities (very low priority)
       setTimeout(async () => {
         await this.loadSeasonalOpportunities(cache);
-      }, 10000);
+      }, 25000);
 
     } catch (error) {
       console.error('❌ Background loading error:', error);
@@ -91,8 +94,8 @@ class BackgroundDataService {
     try {
       this.updateStatus('Loading essential market data...');
       
-      // Load only the most critical data first
-      const essentialSymbols = ['SPY', 'QQQ', 'DIA'];
+      // Load only the most critical data first, one at a time with delays
+      const essentialSymbols = ['SPY', 'QQQ'];  // Further reduced to avoid conflicts
       const endDate = new Date().toISOString().split('T')[0];
       const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // Only 30 days
       
@@ -100,12 +103,16 @@ class BackgroundDataService {
         try {
           const cacheKey = GlobalDataCache.keys.HISTORICAL_DATA(symbol, startDate, endDate);
           if (!cache.get(cacheKey)) {
+            console.log(`🔄 Background loading essential data for ${symbol}...`);
             const data = await polygonService.getHistoricalData(symbol, startDate, endDate);
-            if (data) cache.set(cacheKey, data);
+            if (data) {
+              cache.set(cacheKey, data);
+              console.log(`✅ Background loaded essential data for ${symbol}`);
+            }
           }
           
-          // Add small delay to prevent blocking
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // Longer delay to prevent resource conflicts
+          await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (error) {
           console.warn(`⚠️ Failed to load essential data for ${symbol}:`, error);
         }
@@ -207,20 +214,23 @@ class BackgroundDataService {
         // Load only a subset initially, not all 600+ stocks to prevent blocking
         const screeningService = new SeasonalScreenerService();
         
-        // Load in smaller chunks to prevent blocking
+        // Load in parallel chunks for unlimited API - maximize speed
         let allOpportunities: any[] = [];
-        const chunkSize = 25; // Load 25 stocks at a time
-        const totalStocks = 100; // Start with 100 stocks instead of 600
+        const chunkSize = 100; // LARGE chunks for unlimited API
+        const totalStocks = 500; // FULL background loading capability
+        
+        console.log(`📊 Background loading seasonal data in ${Math.ceil(totalStocks / chunkSize)} parallel chunks of ${chunkSize} stocks...`);
         
         for (let offset = 0; offset < totalStocks; offset += chunkSize) {
           try {
-            const chunk = await screeningService.screenSeasonalOpportunities(10, chunkSize, offset);
+            const fullYears = 10; // Use 10 years for comprehensive background data
+            const chunk = await screeningService.screenSeasonalOpportunities(fullYears, chunkSize, offset);
             if (chunk && chunk.length > 0) {
               allOpportunities = allOpportunities.concat(chunk);
             }
             
-            // Add delay between chunks to prevent blocking
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Minimal delay for unlimited API - just prevent browser freeze
+            await new Promise(resolve => setTimeout(resolve, 200));
             
             this.updateStatus(`Loading seasonal opportunities... (${Math.min(offset + chunkSize, totalStocks)}/${totalStocks})`);
           } catch (error) {

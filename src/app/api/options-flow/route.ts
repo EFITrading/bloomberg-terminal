@@ -1,5 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OptionsFlowService, getSmartDateRange, isMarketOpen } from '@/lib/optionsFlowService';
+import { createErrorResponse, displayError } from '@/lib/errorHandling';
+
+// CORS headers
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+// Handle preflight CORS requests
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: corsHeaders,
+  });
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,7 +40,10 @@ export async function GET(request: NextRequest) {
         success: false,
         error: 'POLYGON_API_KEY not configured',
         source: 'config_error'
-      }, { status: 500 });
+      }, { 
+        status: 500,
+        headers: corsHeaders
+      });
     }
 
     console.log(`🚀 OPTIONS FLOW API: Starting ${ticker || 'MARKET-WIDE'} scan (Page ${page})`);
@@ -129,15 +148,25 @@ export async function GET(request: NextRequest) {
           timezone: 'America/New_York'
         }
       }
+    }, {
+      headers: corsHeaders
     });
 
   } catch (error) {
-    console.error('❌ Options flow API error:', error);
-    return NextResponse.json({
-      success: false,
-      error: 'Failed to fetch options flow',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    // Display user-friendly error
+    displayError(error instanceof Error ? error : new Error(String(error)), 'Options Flow API');
+    
+    // Create user-friendly error response
+    const errorResponse = createErrorResponse(
+      error instanceof Error ? error : new Error(String(error)), 
+      'Options Flow API'
+    );
+
+    // Return proper error response without fallback data
+    return NextResponse.json(errorResponse, { 
+      status: errorResponse.severity === 'error' ? 500 : 503,
+      headers: corsHeaders
+    });
   }
 }
 
@@ -150,7 +179,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         error: 'Invalid trades data'
-      }, { status: 400 });
+      }, { 
+        status: 400,
+        headers: corsHeaders
+      });
     }
 
     // Save trades to database
@@ -163,6 +195,8 @@ export async function POST(request: NextRequest) {
       success: true,
       saved_count: saved.count,
       timestamp: new Date().toISOString()
+    }, {
+      headers: corsHeaders
     });
 
   } catch (error) {
@@ -171,6 +205,9 @@ export async function POST(request: NextRequest) {
       success: false,
       error: 'Failed to save trades',
       details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    }, { 
+      status: 500,
+      headers: corsHeaders
+    });
   }
 }

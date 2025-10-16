@@ -33,20 +33,20 @@ export async function POST(request: NextRequest) {
 
     console.log(`🚀 BULK FETCH: Processing ${symbols.length} symbols from ${startDateStr} to ${endDateStr}`);
 
-    // Create promises for all symbols with intelligent concurrency control
-    const MAX_CONCURRENT = 20; // Professional plan can handle high concurrency
+    // OPTIMIZED: Higher concurrency for professional-grade performance  
+    const MAX_CONCURRENT = 50; // Unlimited API can handle massive concurrency
     const results = new Map<string, any>();
     const errors: string[] = [];
 
-    // Process symbols in batches to avoid overwhelming the API
+    // Process symbols in larger batches for better throughput
     for (let i = 0; i < symbols.length; i += MAX_CONCURRENT) {
       const batch = symbols.slice(i, i + MAX_CONCURRENT);
-      console.log(`📦 Processing batch ${Math.floor(i/MAX_CONCURRENT) + 1}/${Math.ceil(symbols.length/MAX_CONCURRENT)} (${batch.length} symbols)`);
+      console.log(`� Processing batch ${Math.floor(i/MAX_CONCURRENT) + 1}/${Math.ceil(symbols.length/MAX_CONCURRENT)} (${batch.length} symbols)`);
       
       const batchPromises = batch.map(async (symbol: string) => {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout per request
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // Shorter timeout for faster failure detection
           
           const response = await fetch(
             `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDateStr}/${endDateStr}?adjusted=true&sort=desc&limit=50000&apikey=${POLYGON_API_KEY}`,

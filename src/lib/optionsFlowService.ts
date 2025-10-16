@@ -1,4 +1,5 @@
 import { TOP_1800_SYMBOLS } from './Top1000Symbols';
+import { withCircuitBreaker } from './circuitBreaker';
 
 // Market hours utility functions
 export function isMarketOpen(): boolean {
@@ -263,9 +264,6 @@ export class OptionsFlowService {
     ticker?: string,
     onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
   ): Promise<ProcessedTrade[]> {
-    console.log(`🚀 ULTRA-FAST PARALLEL OPTIONS FLOW SCANNER STARTING...`);
-    
-    // Determine which tickers to scan
     let tickersToScan: string[];
     
     if (!ticker || ticker.toLowerCase() === 'all') {
@@ -304,9 +302,10 @@ export class OptionsFlowService {
       
     } catch (error) {
       console.error(`❌ PARALLEL PROCESSING ERROR:`, error);
+      console.error(`❌ ERROR DETAILS:`, error instanceof Error ? error.message : String(error));
       
       // Fallback to single-threaded scanning if parallel fails
-      console.log(`🔄 FALLBACK: Using single-threaded scanning`);
+      console.log(`🔄 FALLBACK: Using single-threaded scanning due to:`, error instanceof Error ? error.message : String(error));
       
       const fallbackTrades: ProcessedTrade[] = [];
       const maxTickers = Math.min(tickersToScan.length, 50); // Limit fallback to prevent timeouts
@@ -1059,14 +1058,19 @@ export class OptionsFlowService {
 
   // ROBUST FETCH WITH CONNECTION HANDLING AND RATE LIMITING
   private async robustFetch(url: string, maxRetries: number = 5): Promise<Response> {
-    let lastError: Error = new Error('Unknown error');
-    
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // Use circuit breaker for external API calls
+    return withCircuitBreaker('polygon', async () => {
+      let lastError: Error = new Error('Unknown error');
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+        const timeoutId = setTimeout(() => {
+          console.warn(`⏰ Aborting request after 15s timeout (attempt ${attempt}/${maxRetries})`);
+          controller.abort();
+        }, 15000); // Reduced timeout for faster failure detection
         
-        // Enhanced headers for better API compatibility
+        // Enhanced headers for better API compatibility with connection error handling
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
@@ -1076,42 +1080,47 @@ export class OptionsFlowService {
             'Accept-Language': 'en-US,en;q=0.9',
             'Connection': 'keep-alive',
             'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'cross-site'
-          }
+            'Pragma': 'no-cache'
+          },
+          // Add fetch options for better connection handling
+          keepalive: false,
+          redirect: 'follow'
         });
         
         clearTimeout(timeoutId);
         
-        // Handle different HTTP error codes
+        // Handle different HTTP error codes with enhanced logic
         if (!response.ok) {
           const errorMsg = `HTTP ${response.status}: ${response.statusText}`;
           
           // Log specific error details for debugging
           console.error(`❌ API Error: ${errorMsg} for URL: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
           
-          // Handle specific error codes
+          // Handle specific error codes with progressive backoff
           if (response.status === 403) {
             console.error(`🚫 HTTP 403 Forbidden - Check API key permissions and rate limits`);
-            // For 403 errors, wait longer before retry
             if (attempt < maxRetries) {
-              const delay = Math.pow(2, attempt) * 2000; // 4s, 8s, 16s, 32s
+              const delay = Math.min(Math.pow(2, attempt) * 2000, 30000); // Cap at 30s
               console.warn(`⏳ Waiting ${delay/1000}s before retry due to 403 error...`);
               await new Promise(resolve => setTimeout(resolve, delay));
               continue;
             }
           } else if (response.status === 429) {
-            console.error(`⏱️ HTTP 429 Rate Limited - Waiting before retry`);
+            console.error(`⏱️ HTTP 429 Rate Limited - Implementing exponential backoff`);
             if (attempt < maxRetries) {
-              const delay = Math.pow(2, attempt) * 5000; // 10s, 20s, 40s, 80s
+              const delay = Math.min(Math.pow(2, attempt) * 5000, 60000); // Cap at 60s
               console.warn(`⏳ Rate limit delay: ${delay/1000}s...`);
               await new Promise(resolve => setTimeout(resolve, delay));
               continue;
             }
-          } else if (response.status >= 500) {
-            console.error(`🔧 HTTP ${response.status} Server Error - Retrying...`);
+          } else if (response.status >= 500 && response.status < 600) {
+            console.error(`🔧 HTTP ${response.status} Server Error - Server is experiencing issues`);
+            if (attempt < maxRetries) {
+              const delay = Math.min(Math.pow(2, attempt) * 3000, 45000); // Cap at 45s
+              console.warn(`⏳ Server error delay: ${delay/1000}s...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            }
           }
           
           throw new Error(errorMsg);
@@ -1122,31 +1131,56 @@ export class OptionsFlowService {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('Unknown fetch error');
         
-        // More detailed error logging
+        // Enhanced error handling for connection issues
         if (error instanceof Error) {
           if (error.name === 'AbortError') {
-            console.warn(`⏰ Request timeout (attempt ${attempt}/${maxRetries}) for: ${url.substring(0, 100)}...`);
-          } else if (error.message.includes('Failed to fetch')) {
-            console.warn(`🌐 Network error (attempt ${attempt}/${maxRetries}): ${error.message}`);
+            console.warn(`⏰ Request timeout (attempt ${attempt}/${maxRetries}) - Network may be slow`);
+          } else if (error.message.includes('Failed to fetch') || 
+                     error.message.includes('ERR_CONNECTION_RESET') || 
+                     error.message.includes('ERR_CONNECTION_REFUSED') ||
+                     error.message.includes('net::ERR_CONNECTION_RESET') ||
+                     error.message.includes('net::ERR_CONNECTION_REFUSED')) {
+            console.warn(`🌐 Connection error (attempt ${attempt}/${maxRetries}): ${error.message}`);
+            console.warn(`🔄 This could indicate network issues or server downtime`);
+          } else if (error.message.includes('ERR_NETWORK') || error.message.includes('network')) {
+            console.warn(`🔌 Network connectivity issue (attempt ${attempt}/${maxRetries}): ${error.message}`);
           } else {
             console.warn(`🔄 Fetch attempt ${attempt}/${maxRetries} failed: ${error.message}`);
           }
         }
         
         if (attempt < maxRetries) {
-          // Progressive backoff with jitter to avoid thundering herd
-          const baseDelay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s, 8s
-          const jitter = Math.random() * 1000; // Add 0-1s random jitter
-          const delay = baseDelay + jitter;
+          // Enhanced progressive backoff with connection-specific delays
+          let baseDelay: number;
           
-          console.warn(`⏳ Retrying in ${(delay/1000).toFixed(1)}s...`);
+          // Different delay strategies based on error type
+          if (lastError.message.includes('ERR_CONNECTION_RESET') || 
+              lastError.message.includes('ERR_CONNECTION_REFUSED') ||
+              lastError.message.includes('net::ERR_CONNECTION')) {
+            // Longer delays for connection issues
+            baseDelay = Math.pow(2, attempt) * 2000; // 4s, 8s, 16s, 32s
+          } else if (lastError.name === 'AbortError') {
+            // Shorter delays for timeouts
+            baseDelay = Math.pow(2, attempt - 1) * 1500; // 1.5s, 3s, 6s, 12s
+          } else {
+            // Standard delays for other errors
+            baseDelay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s, 8s
+          }
+          
+          // Add jitter to prevent thundering herd
+          const jitter = Math.random() * 1000;
+          const delay = Math.min(baseDelay + jitter, 60000); // Cap total delay at 60s
+          
+          console.warn(`⏳ Retrying in ${(delay/1000).toFixed(1)}s... (${maxRetries - attempt} attempts remaining)`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     }
     
-    console.error(`❌ All ${maxRetries} attempts failed for: ${url.substring(0, 100)}...`);
-    throw lastError;
+    console.error(`❌ All ${maxRetries} attempts failed for URL: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
+    console.error(`❌ Final error: ${lastError.message}`);
+    throw new Error(`Network request failed after ${maxRetries} attempts: ${lastError.message}`);
+    });
   }
 
   // PROPER ALL-EXPIRATION STREAMING WITH 5% ITM FILTERING
@@ -1592,11 +1626,28 @@ export class OptionsFlowService {
   private async getCurrentStockPrice(ticker: string): Promise<number> {
     try {
       const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${this.polygonApiKey}`;
-      const response = await fetch(url);
+      console.log(`💰 Fetching current price for ${ticker}...`);
+      
+      const response = await this.robustFetch(url, 3); // Use robust fetch with 3 retries
+      
+      if (!response.ok) {
+        console.warn(`⚠️ Price API error for ${ticker}: ${response.status}`);
+        return 100; // Fallback price
+      }
+      
       const data = await response.json();
-      return data.results?.[0]?.c || 100; // Fallback to 100
-    } catch {
-      return 100;
+      const price = data.results?.[0]?.c;
+      
+      if (price && price > 0) {
+        console.log(`✅ ${ticker} current price: $${price}`);
+        return price;
+      } else {
+        console.warn(`⚠️ No valid price data for ${ticker}, using fallback`);
+        return 100;
+      }
+    } catch (error) {
+      console.warn(`❌ Failed to get current price for ${ticker}:`, error instanceof Error ? error.message : 'Unknown error');
+      return 100; // Fallback to prevent blocking
     }
   }
 

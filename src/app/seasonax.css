@@ -586,6 +586,23 @@
   transform: translateY(-2px);
 }
 
+/* Clickable opportunity cards */
+.opportunity-card[style*="cursor: pointer"] {
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.opportunity-card[style*="cursor: pointer"]:hover {
+  border-color: #00FF88;
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
+  transform: translateY(-3px) scale(1.02);
+}
+
+.opportunity-card[style*="cursor: pointer"]:active {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 0 25px rgba(0, 255, 136, 0.6);
+}
+
 .card-rank {
   position: absolute;
   top: 12px;

@@ -6,6 +6,7 @@
     "dev": "next dev --turbopack",
     "dev:safe": "cd /d \"%~dp0\" && npm run dev",
     "build": "next build --turbopack",
+    "vercel-build": "next build",
     "start": "next start",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
@@ -18,7 +19,7 @@
     "security:monitor": "npx snyk monitor",
     "deps:check": "npx depcheck",
     "deps:update": "npx npm-check-updates",
-    "prepare": "husky install"
+    "postinstall": "[ \"$VERCEL\" = \"1\" ] || (command -v husky >/dev/null 2>&1 && husky install || exit 0)"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",
@@ -40,7 +41,6 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@escape.tech/graphql-armor": "^3.1.7",
-    "@faker-js/faker": "^10.0.0",
     "@fingerprintjs/fingerprintjs-pro": "^3.12.0",
     "@fontsource/ibm-plex-mono": "^5.2.6",
     "@fontsource/inter": "^5.2.6",

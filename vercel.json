@@ -1,18 +1,62 @@
 {
+  "buildCommand": "npm run build",
+  "framework": "nextjs",
   "functions": {
-    "src/app/api/live-options-flow/route.ts": {
-      "maxDuration": 180
-    },
     "src/app/api/options-flow/route.ts": {
-      "maxDuration": 180
+      "maxDuration": 300
+    },
+    "src/app/api/live-options-flow/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/stream-options-flow/route.ts": {
+      "maxDuration": 300
     },
     "src/app/api/gex-screener/route.ts": {
       "maxDuration": 300
+    },
+    "src/app/api/sweep-flow/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/polygon-options/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/market-sentiment/route.ts": {
+      "maxDuration": 180
+    },
+    "src/app/api/preloader/route.ts": {
+      "maxDuration": 300
     }
+  },
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "devCommand": "npm run dev",
+  "regions": ["iad1"],
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
   },
   "build": {
     "env": {
-      "NEXT_TELEMETRY_DISABLED": "1"
+      "NEXT_TELEMETRY_DISABLED": "1",
+      "NODE_ENV": "production"
     }
-  }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods", 
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        }
+      ]
+    }
+  ]
 }

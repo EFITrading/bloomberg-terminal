@@ -1,5 +1,17 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { OptionsFlowService, getSmartDateRange } from '@/lib/optionsFlowService';
+
+// Handle preflight CORS requests
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
+}
 
 interface ProcessedTrade {
   ticker: string;
@@ -31,28 +43,69 @@ export async function GET(request: NextRequest) {
   const polygonApiKey = process.env.POLYGON_API_KEY;
   
   if (!polygonApiKey) {
-    return new Response('POLYGON_API_KEY not configured', { status: 500 });
+    return new Response('POLYGON_API_KEY not configured', { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'text/plain'
+      }
+    });
   }
 
-  // Create a readable stream for Server-Sent Events
+  // Enhanced headers for better EventSource compatibility
+  const headers = {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET',
+    'Access-Control-Allow-Headers': 'Cache-Control',
+    'X-Accel-Buffering': 'no' // Disable nginx buffering
+  };
+
+  // Create shared state for the stream
+  let streamState = {
+    isActive: true,
+    heartbeatInterval: null as NodeJS.Timeout | null
+  };
+
+  // Create a readable stream for Server-Sent Events with enhanced error handling
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
       
-      // Send initial status
+      // Enhanced data sending with error handling
       const sendData = (data: any) => {
-        const message = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(encoder.encode(message));
+        if (!streamState.isActive) return;
+        
+        try {
+          const message = `data: ${JSON.stringify(data)}\n\n`;
+          controller.enqueue(encoder.encode(message));
+        } catch (error) {
+          console.error('Error sending stream data:', error);
+          streamState.isActive = false;
+        }
       };
+
+      // Send heartbeat to keep connection alive
+      streamState.heartbeatInterval = setInterval(() => {
+        if (streamState.isActive) {
+          sendData({
+            type: 'heartbeat',
+            timestamp: new Date().toISOString()
+          });
+        }
+      }, 30000); // Every 30 seconds
 
       try {
         console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${ticker || 'MARKET-WIDE'} scan`);
         
-        // Send initial status
+        // Send initial status with connection confirmation
         sendData({
           type: 'status',
-          message: 'Starting options flow scan...',
-          timestamp: new Date().toISOString()
+          message: 'Connection established, starting options flow scan...',
+          timestamp: new Date().toISOString(),
+          connectionId: Math.random().toString(36).substring(7)
         });
 
         // Initialize the options flow service with streaming callback
@@ -109,26 +162,52 @@ export async function GET(request: NextRequest) {
         console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed`);
         
       } catch (error) {
-        console.error('Streaming error:', error);
-        sendData({
-          type: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error',
-          timestamp: new Date().toISOString()
-        });
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Streaming error:', errorMessage);
+        
+        // Send detailed error information
+        if (streamState.isActive) {
+          sendData({
+            type: 'error',
+            error: errorMessage,
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+            timestamp: new Date().toISOString(),
+            retryable: !errorMessage.includes('API key') && !errorMessage.includes('403')
+          });
+        }
       } finally {
-        controller.close();
+        // Cleanup resources
+        streamState.isActive = false;
+        if (streamState.heartbeatInterval) {
+          clearInterval(streamState.heartbeatInterval);
+          streamState.heartbeatInterval = null;
+        }
+        
+        // Send final close message
+        try {
+          sendData({
+            type: 'close',
+            message: 'Stream connection closing',
+            timestamp: new Date().toISOString()
+          });
+        } catch (closeError) {
+          console.error('Error sending close message:', closeError);
+        } finally {
+          controller.close();
+        }
+      }
+    },
+    
+    // Handle client disconnection
+    cancel() {
+      console.log('Client disconnected from options flow stream');
+      streamState.isActive = false;
+      if (streamState.heartbeatInterval) {
+        clearInterval(streamState.heartbeatInterval);
+        streamState.heartbeatInterval = null;
       }
     }
   });
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET',
-      'Access-Control-Allow-Headers': 'Cache-Control'
-    }
-  });
+  return new Response(stream, { headers });
 }

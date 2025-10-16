@@ -103,10 +103,12 @@ interface ChartSettings {
 interface SeasonalityChartProps {
   onBackToTabs?: () => void;
   autoStart?: boolean;
+  initialSymbol?: string;
+  onClose?: () => void;
 }
 
-const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoStart = false }) => {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('SPY');
+const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoStart = false, initialSymbol, onClose }) => {
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || 'SPY');
   const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null);
   const [electionData, setElectionData] = useState<ElectionCycleData | null>(null);
   const [isElectionMode, setIsElectionMode] = useState<boolean>(false);
@@ -146,6 +148,14 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
       loadSeasonalAnalysis(selectedSymbol);
     }
   }, [autoStart, selectedSymbol]);
+
+  // Update selected symbol when initialSymbol prop changes
+  useEffect(() => {
+    if (initialSymbol && initialSymbol !== selectedSymbol) {
+      console.log('🔄 Updating symbol from prop:', initialSymbol);
+      setSelectedSymbol(initialSymbol);
+    }
+  }, [initialSymbol]);
 
   const handleElectionModeToggle = async (isEnabled: boolean) => {
     console.log('Election mode toggled:', isEnabled);

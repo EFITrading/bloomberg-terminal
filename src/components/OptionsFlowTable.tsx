@@ -247,28 +247,61 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         });
         setOptionsLoading(prev => ({ ...prev, ...loadingUpdate }));
 
-        // Fetch all options for this ticker with pagination
+        // Fetch all options for this ticker using proper API endpoint with error handling
         let allOptions: any[] = [];
-        const baseUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?limit=250&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
         
         try {
-          const response: Response = await fetch(baseUrl);
+          // Use the backend API endpoint instead of direct Polygon call
+          const response: Response = await fetch(`/api/polygon-options?ticker=${ticker}`, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache'
+            },
+            // Add timeout for better error handling
+            signal: AbortSignal.timeout(10000) // 10 second timeout
+          });
+
           if (!response.ok) {
-            console.error(`❌ HTTP error for ${ticker}:`, response.status);
+            console.error(`❌ HTTP error for ${ticker}:`, response.status, response.statusText);
+            console.error(`❌ Options data unavailable for ${ticker} - API error`);
             continue;
           }
           
           const data: any = await response.json();
-          console.log(`📦 Got ${data.results?.length || 0} options for ${ticker}`);
+          console.log(`📦 Got options response for ${ticker}:`, data.success ? 'Success' : 'Failed');
           
-          if (data.status === 'OK' && data.results) {
-            allOptions = data.results;
+          if (data.success && data.volume !== undefined) {
+            // Convert single ticker response to expected format
+            allOptions = [{
+              details: {
+                strike_price: tickerTrades[0].strike,
+                expiration_date: tickerTrades[0].expiry,
+                contract_type: tickerTrades[0].type
+              },
+              day: {
+                volume: data.volume,
+                open_interest: data.open_interest || 0
+              }
+            }];
           }
           
-          // Rate limiting
-          await new Promise(resolve => setTimeout(resolve, 100));
+          // Rate limiting to prevent overwhelming the API
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
         } catch (fetchError) {
-          console.error(`❌ Fetch error for ${ticker}:`, fetchError);
+          if (fetchError instanceof Error) {
+            if (fetchError.name === 'AbortError') {
+              console.error(`⏰ Timeout error for ${ticker}`);
+            } else if (fetchError.message.includes('Failed to fetch') || 
+                       fetchError.message.includes('ERR_CONNECTION')) {
+              console.error(`🌐 Connection error for ${ticker}:`, fetchError.message);
+            } else {
+              console.error(`❌ Fetch error for ${ticker}:`, fetchError.message);
+            }
+          } else {
+            console.error(`❌ Unknown error for ${ticker}:`, fetchError);
+          }
           continue;
         }
 

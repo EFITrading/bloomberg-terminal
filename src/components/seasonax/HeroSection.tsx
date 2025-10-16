@@ -26,43 +26,31 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
   };
 
   return (
-    <div className="seasonax-hero">
-      <div className="hero-background">
-        <div className="hero-geometric-pattern"></div>
-      </div>
-      
-      <div className="hero-content">
-        <h1 className="hero-title">Seasonality Screener</h1>
-        <p className="hero-subtitle">
-          Find the best trading opportunity on a daily basis with one click!
-        </p>
-        
-        <div className="hero-additional-content">
-          <p className="hero-description">
-            Discover seasonal patterns and market opportunities with advanced analytics
-          </p>
+    <div className="pro-hero">
+      <div className="hero-container">
+        <div className="hero-header">
+          <h1 className="hero-title">SEASONAL PATTERNS</h1>
+          <div className="hero-subtitle">Real-Time Market Intelligence</div>
         </div>
         
         <div className="hero-controls">
-          <div className="market-selector">
-            <select 
-              value={selectedMarket}
-              onChange={(e) => setSelectedMarket(e.target.value)}
-              className="market-dropdown"
-            >
-              {markets.map((market) => (
-                <option key={market} value={market}>
-                  {market}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select 
+            value={selectedMarket}
+            onChange={(e) => setSelectedMarket(e.target.value)}
+            className="pro-market-select"
+          >
+            {markets.map((market) => (
+              <option key={market} value={market}>
+                {market}
+              </option>
+            ))}
+          </select>
           
           <button 
-            className="start-screener-btn"
+            className="pro-scan-btn"
             onClick={handleStartScreener}
           >
-            SEASONAL CHART <span className="btn-arrow">›</span>
+            START SCAN
           </button>
         </div>
       </div>

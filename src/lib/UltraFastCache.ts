@@ -216,9 +216,6 @@ class UltraFastDataCache {
 
   // Fetch and cache data
   private async fetchAndCache(symbol: string, dataType: string): Promise<any> {
-    // This would call your actual API endpoints
-    // Implementation depends on your specific endpoints
-    
     const key = `${dataType}:${symbol}`;
     const cached = this.get(key);
     
@@ -226,11 +223,7 @@ class UltraFastDataCache {
       return cached;
     }
     
-    // Mock implementation - replace with actual API calls
-    const mockData = { symbol, dataType, timestamp: Date.now() };
-    this.set(key, mockData, dataType as keyof typeof this.TTL_CONFIG);
-    
-    return mockData;
+    throw new Error(`Data unavailable for ${symbol} (${dataType}) - requires real API integration`);
   }
 
   // Smart cleanup - removes expired and least used entries

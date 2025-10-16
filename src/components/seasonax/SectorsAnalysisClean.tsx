@@ -179,56 +179,20 @@ const SectorsAnalysis: React.FC = () => {
     },
   ];
 
-  // Generate comprehensive weekly analysis data
+  // Weekly analysis requires real data
   const generateWeeklyAnalysis = (): WeeklyAnalysis[] => {
-    const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
-    const periods = ['Sep 2-6', 'Sep 9-13', 'Sep 16-20', 'Sep 23-27'];
-    
-    return weeks.map((week, index) => ({
-      week,
-      period: periods[index],
-      sentiment: Math.random() > 0.6 ? 'bullish' : Math.random() > 0.3 ? 'bearish' : 'neutral',
-      strength: Math.round((Math.random() - 0.5) * 200), // -100 to 100
-      confidence: Math.round(Math.random() * 100), // 0 to 100
-      volatility: Math.round(Math.random() * 50 + 10), // 10-60%
-      support: Math.round(Math.random() * 50 + 100), // Support levels
-      resistance: Math.round(Math.random() * 100 + 150), // Resistance levels
-    }));
+    throw new Error('Weekly analysis data unavailable - requires real financial data API');
   };
 
-  // Generate technical indicators
-  const generateTechnicals = (): TechnicalIndicators => ({
-    rsi: Math.round(Math.random() * 100),
-    macd: Math.round((Math.random() - 0.5) * 20 * 100) / 100,
-    ema20: Math.round(Math.random() * 200 + 50),
-    ema50: Math.round(Math.random() * 200 + 50),
-    bollingerUpper: Math.round(Math.random() * 250 + 100),
-    bollingerLower: Math.round(Math.random() * 150 + 50),
-  });
+  // Technical indicators require real data
+  const generateTechnicals = (): TechnicalIndicators => {
+    throw new Error('Technical indicators unavailable - requires real market data API');
+  };
 
   // Real-time data fetching function
   const fetchRealTimeData = useCallback(async () => {
     try {
-      // Simulate real API calls to financial data providers
-      const analysisData: SectorAnalysis[] = sectorsAndIndustries.map(sector => ({
-        sector: {
-          ...sector,
-          lastUpdated: getCurrentTimestamp(),
-          // Add some realistic price fluctuation
-          price: sector.price + (Math.random() - 0.5) * 2,
-          change: (Math.random() - 0.5) * 4,
-          changePercent: (Math.random() - 0.5) * 3,
-        },
-        weeklyData: generateWeeklyAnalysis(),
-        monthlyTrend: Math.random() > 0.5 ? 'up' : Math.random() > 0.25 ? 'down' : 'sideways',
-        riskLevel: Math.random() > 0.6 ? 'high' : Math.random() > 0.3 ? 'medium' : 'low',
-        technicals: generateTechnicals(),
-        momentum: Math.round((Math.random() - 0.5) * 200), // -100 to 100
-        seasonalPattern: Math.random() > 0.5 ? 'Seasonal Strength Expected' : 'Seasonal Weakness Pattern',
-        institutionalFlow: Math.round((Math.random() - 0.5) * 1000), // Millions in flow
-      }));
-      
-      setAnalysis(analysisData);
+      throw new Error('Sector analysis data unavailable - requires real financial data API integration');
     } catch (error) {
       console.error('Error fetching real-time data:', error);
     }

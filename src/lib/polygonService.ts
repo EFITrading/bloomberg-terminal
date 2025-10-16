@@ -1,3 +1,6 @@
+import { getPolygonWorker } from './PolygonAPIWorker';
+import { MarketDataProcessor } from './MarketDataProcessor';
+
 interface PolygonTickerData {
   ticker: string;
   name: string;
@@ -108,6 +111,8 @@ interface WeeklyPattern {
   description: string;
 }
 
+import { withCircuitBreaker } from './circuitBreaker';
+
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 const BASE_URL = 'https://api.polygon.io';
 
@@ -130,10 +135,14 @@ class PolygonService {
   private lastRequestTime: number = 0;
   private cache: Map<string, { data: any; expiry: number }> = new Map();
   private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache for bulk data
+  private worker: any;
+  private processor: MarketDataProcessor;
 
   constructor(apiKey: string = POLYGON_API_KEY) {
     this.apiKey = apiKey;
     this.baseUrl = BASE_URL;
+    this.worker = getPolygonWorker(apiKey);
+    this.processor = new MarketDataProcessor(apiKey);
   }
 
   private getCacheKey(endpoint: string): string {
@@ -340,235 +349,318 @@ class PolygonService {
     timespan: string = 'day',
     multiplier: number = 1
   ): Promise<PolygonAggregateData | null> {
-    try {
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setFullYear(endDate.getFullYear() - years);
+    // Use circuit breaker for historical data API calls
+    return withCircuitBreaker('historicalData', async () => {
+      const maxRetries = 3;
+      let lastError: Error | null = null;
 
-      const endDateStr = endDate.toISOString().split('T')[0];
-      const startDateStr = startDate.toISOString().split('T')[0];
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setFullYear(endDate.getFullYear() - years);
 
-      console.log(`📊 Fetching ${years} years of bulk data for ${symbol} (${startDateStr} to ${endDateStr})`);
+        const endDateStr = endDate.toISOString().split('T')[0];
+        const startDateStr = startDate.toISOString().split('T')[0];
 
-      // Use the same backend API endpoint as getHistoricalData
-      const endpoint = `/api/historical-data?symbol=${symbol}&startDate=${startDateStr}&endDate=${endDateStr}`;
-      
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache'
-        },
-      });
-      
-      if (!response.ok) {
-        // Log the error but don't throw - return null instead
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.warn(`⚠️ Bulk historical data API error for ${symbol}: ${errorData.error || `${response.status} ${response.statusText}`}`);
+        console.log(`📊 Fetching ${years} years of bulk data for ${symbol} (${startDateStr} to ${endDateStr}) - Attempt ${attempt}/${maxRetries}`);
+
+        // Use the backend API endpoint with enhanced error handling
+        const endpoint = `/api/historical-data?symbol=${symbol}&startDate=${startDateStr}&endDate=${endDateStr}`;
+        
+        // Add timeout and abort controller for better connection handling
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          console.warn(`⏰ Timing out bulk data request for ${symbol} after 15s`);
+          controller.abort();
+        }, 15000);
+
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+          },
+        });
+
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Failed to read error response');
+          let errorData;
+          
+          try {
+            errorData = JSON.parse(errorText);
+          } catch {
+            errorData = { error: errorText || `HTTP ${response.status}: ${response.statusText}` };
+          }
+
+          const errorMsg = errorData.error || `${response.status} ${response.statusText}`;
+          console.warn(`⚠️ Bulk historical data API error for ${symbol} (attempt ${attempt}/${maxRetries}): ${errorMsg}`);
+          
+          // Don't retry on client errors (4xx), only on server errors (5xx) and network issues
+          if (response.status >= 400 && response.status < 500) {
+            console.warn(`❌ Client error for ${symbol}, not retrying: ${response.status}`);
+            return null;
+          }
+          
+          throw new Error(errorMsg);
+        }
+        
+        const data = await response.json();
+        
+        if (data && data.results && Array.isArray(data.results)) {
+          if (data.results.length > 0) {
+            console.log(`✅ Retrieved ${data.results.length} data points for ${symbol}`);
+            return data;
+          } else {
+            console.warn(`⚠️ No data returned for ${symbol} in the requested time range`);
+            return null;
+          }
+        }
+
+        console.warn(`⚠️ Invalid data format received for ${symbol}`);
         return null;
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error');
+        
+        if (error instanceof Error) {
+          if (error.name === 'AbortError') {
+            console.warn(`⏰ Request timeout for ${symbol} (attempt ${attempt}/${maxRetries})`);
+          } else if (error.message.includes('Failed to fetch') || 
+                     error.message.includes('ERR_CONNECTION') ||
+                     error.message.includes('net::ERR_CONNECTION')) {
+            console.warn(`🌐 Connection error for ${symbol} (attempt ${attempt}/${maxRetries}): ${error.message}`);
+          } else {
+            console.warn(`❌ Error fetching bulk data for ${symbol} (attempt ${attempt}/${maxRetries}): ${error.message}`);
+          }
+        }
+
+        // Wait before retry with exponential backoff
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt - 1) * 2000; // 2s, 4s, 8s
+          console.log(`⏳ Retrying ${symbol} in ${delay/1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
+    }
+
+    console.error(`❌ Failed to get bulk historical data for ${symbol} after ${maxRetries} attempts. Last error:`, lastError?.message);
+    return null;
+    });
+  }
+
+  async getFeaturedPatterns(): Promise<SeasonalPattern[]> {
+    try {
+      console.log('🔄 [Featured Patterns] Using worker-based processing...');
+      const featuredSymbols = ['AAPL', 'TSLA', 'NVDA', 'SPY', 'QQQ'];
       
-      const data = await response.json();
+      // Use MarketDataProcessor for efficient batch processing
+      const patterns = await this.processor.calculateSeasonalPatterns(featuredSymbols, 5);
       
-      if (data && data.results) {
-        console.log(`✅ Retrieved ${data.results.length} data points for ${symbol}`);
+      console.log(`✅ [Featured Patterns] Generated ${patterns.length} patterns using real data`);
+      return patterns || [];
+      
+    } catch (error) {
+      console.error('❌ Error fetching featured patterns:', error);
+      throw new Error('Failed to fetch featured patterns from Polygon API');
+    }
+  }
+
+  async getMarketPatterns(market: string, years: number): Promise<SeasonalPattern[]> {
+    try {
+      console.log(`🔄 [Market Patterns] Processing ${market} with batched approach...`);
+      
+      // Define market constituents (reduced for performance)
+      const marketSymbols: { [key: string]: string[] } = {
+        'SP500': ['SPY', 'AAPL', 'MSFT', 'GOOGL', 'AMZN'],
+        'Technology': ['AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA'],
+        'Healthcare': ['JNJ', 'UNH', 'ABBV', 'TMO', 'PFE'],
+        'Financial': ['JPM', 'BAC', 'WFC', 'GS', 'MS']
+      };
+
+      const symbols = marketSymbols[market] || marketSymbols['SP500'];
+      
+      // Use processor for efficient batch processing
+      const patterns = await this.processor.calculateSeasonalPatterns(symbols, years);
+      
+      console.log(`✅ [Market Patterns] Generated ${patterns.length} patterns for ${market}`);
+      return patterns || [];
+      
+    } catch (error) {
+      console.error(`❌ Error fetching ${market} patterns:`, error);
+      throw new Error(`Failed to fetch ${market} patterns from Polygon API`);
+    }
+  }
+
+  /**
+   * Calculate seasonal patterns from historical price data
+   */
+  private calculateSeasonalPattern(priceData: any[], symbol: string): SeasonalPattern | null {
+    try {
+      if (!priceData || priceData.length < 252) return null; // Need at least 1 year of data
+
+      // Group data by month to find seasonal patterns
+      const monthlyReturns: { [month: number]: number[] } = {};
+      
+      for (let i = 1; i < priceData.length; i++) {
+        const currentBar = priceData[i];
+        const previousBar = priceData[i - 1];
+        
+        if (!currentBar || !previousBar) continue;
+        
+        const date = new Date(currentBar.t);
+        const month = date.getMonth() + 1; // 1-12
+        const monthlyReturn = ((currentBar.c - previousBar.c) / previousBar.c) * 100;
+        
+        if (!monthlyReturns[month]) monthlyReturns[month] = [];
+        monthlyReturns[month].push(monthlyReturn);
       }
 
-      return data;
+      // Find the strongest seasonal pattern
+      let bestMonth = 1;
+      let bestAvgReturn = 0;
+      let bestWinRate = 0;
+
+      for (const month in monthlyReturns) {
+        const returns = monthlyReturns[parseInt(month)];
+        if (returns.length < 3) continue; // Need at least 3 years of data
+        
+        const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
+        const winRate = (returns.filter(ret => ret > 0).length / returns.length) * 100;
+        
+        if (Math.abs(avgReturn) > Math.abs(bestAvgReturn)) {
+          bestMonth = parseInt(month);
+          bestAvgReturn = avgReturn;
+          bestWinRate = winRate;
+        }
+      }
+
+      const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const patternType = bestAvgReturn > 0 ? 'Bullish' : 'Bearish';
+      const monthName = monthNames[bestMonth];
+
+      return {
+        symbol,
+        companyName: `${symbol} Inc.`,
+        sector: 'Market',
+        pattern: `${monthName} ${patternType} Pattern`,
+        period: `${monthName} 1 - ${monthName} 31`,
+        startDate: `${monthName} 1`,
+        endDate: `${monthName} 31`,
+        avgReturn: Math.round(bestAvgReturn * 100) / 100,
+        winRate: Math.round(bestWinRate),
+        years: Math.floor(priceData.length / 252),
+        confidence: bestWinRate > 70 ? 'High' : bestWinRate > 50 ? 'Medium' : 'Low',
+        category: patternType as 'Bullish' | 'Bearish',
+        description: `Historical ${monthName} ${patternType.toLowerCase()} pattern based on ${Math.floor(priceData.length / 252)} years of data`,
+        riskLevel: Math.abs(bestAvgReturn) > 5 ? 'High' : Math.abs(bestAvgReturn) > 2 ? 'Medium' : 'Low',
+        currentPrice: priceData[priceData.length - 1]?.c || 0,
+        priceChange: 0,
+        priceChangePercent: 0
+      };
     } catch (error) {
-      console.error(`Failed to get bulk historical data for ${symbol}:`, error);
+      console.error(`❌ Error calculating seasonal pattern for ${symbol}:`, error);
       return null;
     }
   }
 
-  async getFeaturedPatterns(): Promise<SeasonalPattern[]> {
-    // Return mock featured patterns for now
-    const patterns = [
-      enrichSeasonalPattern({
-        symbol: 'AAPL',
-        companyName: 'Apple Inc.',
-        sector: 'Technology',
-        pattern: 'September Dip',
-        period: 'Sep 1 - Sep 30',
-        startDate: 'Sep 1',
-        endDate: 'Sep 30',
-        avgReturn: -3.2,
-        winRate: 68,
-        years: 10,
-        confidence: 'High',
-        category: 'Bearish',
-        description: 'Apple historically underperforms in September before iPhone launches',
-        riskLevel: 'Medium'
-      }),
-      enrichSeasonalPattern({
-        symbol: 'TSLA',
-        companyName: 'Tesla Inc.',
-        sector: 'Consumer Discretionary',
-        pattern: 'December Rally',
-        period: 'Dec 1 - Dec 31',
-        startDate: 'Dec 1',
-        endDate: 'Dec 31',
-        avgReturn: 8.5,
-        winRate: 75,
-        years: 8,
-        confidence: 'High',
-        category: 'Bullish',
-        description: 'Tesla typically rallies in December due to year-end deliveries',
-        riskLevel: 'High'
-      })
-    ];
-    
-    return patterns;
-  }
-
-  async getMarketPatterns(market: string, years: number): Promise<SeasonalPattern[]> {
-    console.log(`🔍 Loading comprehensive market analysis for ${market} from Polygon API...`);
-    
-    const patterns: SeasonalPattern[] = [];
-    
-    // Define comprehensive stock universe by market
-    const stocksByMarket: { [key: string]: Array<{ symbol: string; name: string; sector: string }> } = {
-      'SP500': [
-        { symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology' },
-        { symbol: 'MSFT', name: 'Microsoft Corporation', sector: 'Technology' },
-        { symbol: 'GOOGL', name: 'Alphabet Inc.', sector: 'Technology' },
-        { symbol: 'AMZN', name: 'Amazon.com Inc.', sector: 'Consumer Discretionary' },
-        { symbol: 'TSLA', name: 'Tesla Inc.', sector: 'Consumer Discretionary' },
-        { symbol: 'META', name: 'Meta Platforms Inc.', sector: 'Technology' },
-        { symbol: 'NVDA', name: 'NVIDIA Corporation', sector: 'Technology' },
-        { symbol: 'BRK.B', name: 'Berkshire Hathaway Inc.', sector: 'Financial Services' },
-        { symbol: 'JNJ', name: 'Johnson & Johnson', sector: 'Healthcare' },
-        { symbol: 'V', name: 'Visa Inc.', sector: 'Financial Services' },
-        { symbol: 'WMT', name: 'Walmart Inc.', sector: 'Consumer Staples' },
-        { symbol: 'JPM', name: 'JPMorgan Chase & Co.', sector: 'Financial Services' },
-        { symbol: 'MA', name: 'Mastercard Incorporated', sector: 'Financial Services' },
-        { symbol: 'PG', name: 'Procter & Gamble Company', sector: 'Consumer Staples' },
-        { symbol: 'UNH', name: 'UnitedHealth Group Incorporated', sector: 'Healthcare' },
-        { symbol: 'HD', name: 'Home Depot Inc.', sector: 'Consumer Discretionary' },
-        { symbol: 'BAC', name: 'Bank of America Corporation', sector: 'Financial Services' },
-        { symbol: 'ABBV', name: 'AbbVie Inc.', sector: 'Healthcare' },
-        { symbol: 'ADBE', name: 'Adobe Inc.', sector: 'Technology' },
-        { symbol: 'CRM', name: 'Salesforce Inc.', sector: 'Technology' },
-        { symbol: 'KO', name: 'Coca-Cola Company', sector: 'Consumer Staples' },
-        { symbol: 'PEP', name: 'PepsiCo Inc.', sector: 'Consumer Staples' },
-        { symbol: 'TMO', name: 'Thermo Fisher Scientific Inc.', sector: 'Healthcare' },
-        { symbol: 'COST', name: 'Costco Wholesale Corporation', sector: 'Consumer Staples' },
-        { symbol: 'AVGO', name: 'Broadcom Inc.', sector: 'Technology' }
-      ],
-      'Technology': [
-        { symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology' },
-        { symbol: 'MSFT', name: 'Microsoft Corporation', sector: 'Technology' },
-        { symbol: 'GOOGL', name: 'Alphabet Inc.', sector: 'Technology' },
-        { symbol: 'META', name: 'Meta Platforms Inc.', sector: 'Technology' },
-        { symbol: 'NVDA', name: 'NVIDIA Corporation', sector: 'Technology' },
-        { symbol: 'ADBE', name: 'Adobe Inc.', sector: 'Technology' },
-        { symbol: 'CRM', name: 'Salesforce Inc.', sector: 'Technology' },
-        { symbol: 'AVGO', name: 'Broadcom Inc.', sector: 'Technology' },
-        { symbol: 'ORCL', name: 'Oracle Corporation', sector: 'Technology' },
-        { symbol: 'IBM', name: 'International Business Machines Corporation', sector: 'Technology' }
-      ],
-      'Healthcare': [
-        { symbol: 'JNJ', name: 'Johnson & Johnson', sector: 'Healthcare' },
-        { symbol: 'UNH', name: 'UnitedHealth Group Incorporated', sector: 'Healthcare' },
-        { symbol: 'ABBV', name: 'AbbVie Inc.', sector: 'Healthcare' },
-        { symbol: 'TMO', name: 'Thermo Fisher Scientific Inc.', sector: 'Healthcare' },
-        { symbol: 'PFE', name: 'Pfizer Inc.', sector: 'Healthcare' },
-        { symbol: 'MRK', name: 'Merck & Co. Inc.', sector: 'Healthcare' },
-        { symbol: 'ABT', name: 'Abbott Laboratories', sector: 'Healthcare' },
-        { symbol: 'BMY', name: 'Bristol-Myers Squibb Company', sector: 'Healthcare' },
-        { symbol: 'LLY', name: 'Eli Lilly and Company', sector: 'Healthcare' },
-        { symbol: 'MDT', name: 'Medtronic plc', sector: 'Healthcare' }
-      ]
-    };
-
-    const stocks = stocksByMarket[market] || stocksByMarket['SP500'];
-    
-    if (!stocks || stocks.length === 0) {
-      throw new Error(`No seasonal patterns could be loaded for ${market} from Polygon API - check API key and subscription`);
-    }
-
-    // Generate sample patterns for the first few stocks
-    for (let i = 0; i < Math.min(5, stocks.length); i++) {
-      const stock = stocks[i];
-      
-      // Create seasonal patterns for each stock
-      const seasonalPatterns = [
-        {
-          pattern: 'January Effect',
-          period: 'Jan 1 - Jan 31',
-          startDate: 'Jan 1',
-          endDate: 'Jan 31',
-          avgReturn: 3.2 + Math.random() * 2,
-          winRate: 65 + Math.random() * 20,
-          category: 'Bullish' as const,
-          description: 'Strong January performance pattern'
-        },
-        {
-          pattern: 'Q4 Rally',
-          period: 'Oct 1 - Dec 31',
-          startDate: 'Oct 1',
-          endDate: 'Dec 31',
-          avgReturn: 5.1 + Math.random() * 3,
-          winRate: 70 + Math.random() * 15,
-          category: 'Bullish' as const,
-          description: 'Year-end rally pattern'
-        }
-      ];
-
-      for (const patternData of seasonalPatterns) {
-        patterns.push({
-          symbol: stock.symbol,
-          companyName: stock.name,
-          sector: stock.sector,
-          pattern: patternData.pattern,
-          period: patternData.period,
-          startDate: patternData.startDate,
-          endDate: patternData.endDate,
-          avgReturn: patternData.avgReturn,
-          winRate: patternData.winRate,
-          years: years,
-          confidence: patternData.winRate > 75 ? 'High' : patternData.winRate > 60 ? 'Medium' : 'Low',
-          category: patternData.category,
-          description: patternData.description,
-          riskLevel: patternData.avgReturn > 5 ? 'High' : patternData.avgReturn > 2 ? 'Medium' : 'Low',
-          currentPrice: 150 + Math.random() * 200,
-          priceChange: -5 + Math.random() * 10,
-          priceChangePercent: -2 + Math.random() * 4
-        });
-      }
-    }
-
-    console.log(`✅ Generated ${patterns.length} seasonal patterns for ${market}`);
-    return patterns;
-  }
-
   async getWeeklyPatterns(symbol?: string): Promise<WeeklyPattern[]> {
-    const patterns: WeeklyPattern[] = [];
-    const stocks = symbol ? [{ symbol, name: `${symbol} Inc.` }] : [
-      { symbol: 'SPY', name: 'SPDR S&P 500 ETF' },
-      { symbol: 'QQQ', name: 'Invesco QQQ Trust' },
-      { symbol: 'AAPL', name: 'Apple Inc.' }
-    ];
+    try {
+      const symbols = symbol ? [symbol] : ['SPY', 'QQQ', 'IWM', 'AAPL', 'TSLA', 'NVDA'];
+      const patterns: WeeklyPattern[] = [];
 
-    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+      for (const sym of symbols) {
+        try {
+          // Get 2 years of daily data to analyze weekly patterns
+          const endDate = new Date().toISOString().split('T')[0];
+          const startDate = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          
+          const url = `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apikey=${this.apiKey}`;
+          
+          const response = await fetch(url);
+          if (!response.ok) continue;
 
-    for (const stock of stocks) {
-      for (const day of daysOfWeek) {
-        patterns.push({
-          symbol: stock.symbol,
-          companyName: stock.name,
-          dayOfWeek: day,
-          avgReturn: -1 + Math.random() * 2,
-          winRate: 45 + Math.random() * 20,
-          confidence: Math.random() > 0.5 ? 'High' : 'Medium',
-          pattern: `${day} Pattern`,
-          years: 10,
-          description: `Historical ${day} performance pattern`
-        });
+          const data = await response.json();
+          if (data.results && data.results.length > 0) {
+            const weeklyPatterns = this.calculateWeeklyPatterns(data.results, sym);
+            patterns.push(...weeklyPatterns);
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 200));
+        } catch (error) {
+          console.error(`❌ Error processing weekly patterns for ${sym}:`, error);
+          continue;
+        }
       }
-    }
 
-    return patterns;
+      return patterns;
+    } catch (error) {
+      console.error('❌ Error fetching weekly patterns:', error);
+      throw new Error('Failed to fetch weekly patterns from Polygon API');
+    }
+  }
+
+  /**
+   * Calculate weekly patterns from historical data
+   */
+  private calculateWeeklyPatterns(priceData: any[], symbol: string): WeeklyPattern[] {
+    try {
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const dailyReturns: { [day: string]: number[] } = {};
+
+      // Initialize arrays for each day
+      dayNames.forEach(day => {
+        dailyReturns[day] = [];
+      });
+
+      // Calculate daily returns and group by day of week
+      for (let i = 1; i < priceData.length; i++) {
+        const currentBar = priceData[i];
+        const previousBar = priceData[i - 1];
+        
+        if (!currentBar || !previousBar) continue;
+        
+        const date = new Date(currentBar.t);
+        const dayOfWeek = dayNames[date.getDay()];
+        const dailyReturn = ((currentBar.c - previousBar.c) / previousBar.c) * 100;
+        
+        dailyReturns[dayOfWeek].push(dailyReturn);
+      }
+
+      // Create patterns for trading days only (Monday-Friday)
+      const patterns: WeeklyPattern[] = [];
+      const tradingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+      tradingDays.forEach(day => {
+        const returns = dailyReturns[day];
+        if (returns.length < 10) return; // Need sufficient data
+
+        const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
+        const winRate = (returns.filter(ret => ret > 0).length / returns.length) * 100;
+        const confidence = winRate > 65 ? 'High' : winRate > 45 ? 'Medium' : 'Low';
+
+        patterns.push({
+          symbol,
+          companyName: `${symbol} Inc.`,
+          dayOfWeek: day,
+          avgReturn: Math.round(avgReturn * 100) / 100,
+          winRate: Math.round(winRate),
+          confidence,
+          pattern: `${day} Pattern`,
+          years: Math.floor(priceData.length / 252),
+          description: `Historical ${day} performance: ${avgReturn > 0 ? 'positive' : 'negative'} bias with ${Math.round(winRate)}% win rate`
+        });
+      });
+
+      return patterns;
+    } catch (error) {
+      console.error(`❌ Error calculating weekly patterns for ${symbol}:`, error);
+      return [];
+    }
   }
 }
 

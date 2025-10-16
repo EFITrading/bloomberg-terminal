@@ -2341,6 +2341,9 @@ export default function TradingViewChart({
     performance: string;
     performanceColor: string;
   }}>({});
+  
+  // Loading state for watchlist data
+  const [watchlistLoading, setWatchlistLoading] = useState(true);
 
   // Market data for major indices and sectors
   const marketSymbols = {
@@ -2349,15 +2352,21 @@ export default function TradingViewChart({
     Special: []
   };
 
-  // Fetch real market data from Polygon API
+  // Fetch real market data from Polygon API using worker-based batching
   useEffect(() => {
-    const fetchRealMarketData = async () => {
-      const symbols = [
-        // Markets
-        'SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLY', 'XLC', 'XLRE', 'XLV', 'XLU', 'XLP', 'XLB', 'XLF', 'XLI', 'XLE',
-        // Industries
-        'IGV', 'SMH', 'XRT', 'KIE', 'KRE', 'GDX', 'ITA', 'TAN', 'XBI', 'ITB', 'XHB', 'XOP', 'OIH', 'XME', 'ARKK', 'IPO', 'VNQ', 'JETS', 'KWEB'
-      ];
+    const fetchRealMarketData = async (isInitialLoad = false) => {
+      if (isInitialLoad) {
+        setWatchlistLoading(true);
+      }
+      console.log('🔄 Loading real market data with worker-based batching...');
+      
+      // Prioritized symbols for efficient loading
+      const coreSymbols = ['SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLY', 'XLC', 'XLRE', 'XLV'];
+      const additionalSymbols = ['XLU', 'XLP', 'XLB', 'XLF', 'XLI', 'XLE', 'IGV', 'SMH', 'XRT'];
+      
+      // Load core symbols first, then additional if not initial load
+      const symbols = isInitialLoad ? coreSymbols : [...coreSymbols, ...additionalSymbols];
+      
       const processedData: {[symbol: string]: {
         price: number;
         change1d: number;
@@ -2369,96 +2378,104 @@ export default function TradingViewChart({
       }} = {};
 
       try {
-        console.log('🔄 Fetching watchlist data for symbols:', symbols);
+        console.log('🔄 Fetching watchlist data using batch processing for symbols:', symbols);
         
-        // For each symbol, fetch historical data and calculate metrics
-        for (const symbol of symbols) {
-          try {
-            console.log(`📊 Fetching data for ${symbol}...`);
-            
-            // Get recent historical data (expand to 90 days to ensure we get 21 trading days)
-            const endDate = new Date().toISOString().split('T')[0];
-            const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            
-            const url = createApiUrl('/api/historical-data', {
-              symbol,
-              startDate,
-              endDate
-            });
-            const response = await fetch(url);
-            
-            if (response.ok) {
-              const result = await response.json();
+        // Use batch processing for efficient API requests
+        const batchSize = 5; // Process 5 symbols at a time
+        const batches: string[][] = [];
+        
+        for (let i = 0; i < symbols.length; i += batchSize) {
+          batches.push(symbols.slice(i, i + batchSize));
+        }
+        
+        console.log(`📊 Processing ${symbols.length} symbols in ${batches.length} batches of ${batchSize}`);
+        
+        for (const batch of batches) {
+          const batchPromises = batch.map(async (symbol) => {
+            try {
+              console.log(`📊 Fetching data for ${symbol}...`);
               
-              // Use any available data instead of requiring 21 points
-              if (result?.results && Array.isArray(result.results) && result.results.length >= 1) {
-                const data = result.results;
-                const latest = data[data.length - 1];
-                const currentPrice = latest.c; // close price
+              // Get recent historical data (expand to 90 days to ensure we get 21 trading days)
+              const endDate = new Date().toISOString().split('T')[0];
+              const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+              
+              const url = createApiUrl('/api/historical-data', {
+                symbol,
+                startDate,
+                endDate
+              });
+              
+              // Add delay to prevent overwhelming the API
+              await new Promise(resolve => setTimeout(resolve, 100 * Math.random()));
+              
+              const response = await fetch(url);
+              
+              if (response.ok) {
+                const result = await response.json();
                 
-                console.log(`📊 ${symbol} - Data length: ${data.length}, Current price: ${currentPrice}`);
-                
-                // Calculate percentage changes safely - use available data points
-                // Fallback to current price if insufficient historical data
-                const dataLength = data.length;
-                const price1DayAgo = dataLength >= 2 ? data[dataLength - 2]?.c : currentPrice;
-                const price5DaysAgo = dataLength >= 6 ? data[dataLength - 6]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
-                const price13DaysAgo = dataLength >= 14 ? data[dataLength - 14]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
-                const price21DaysAgo = dataLength >= 22 ? data[dataLength - 22]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
+                // Use any available data instead of requiring 21 points
+                if (result?.results && Array.isArray(result.results) && result.results.length >= 1) {
+                  const data = result.results;
+                  const latest = data[data.length - 1];
+                  const currentPrice = latest.c; // close price
+                  
+                  console.log(`📊 ${symbol} - Data length: ${data.length}, Current price: ${currentPrice}`);
+                  
+                  // Calculate percentage changes safely - use available data points
+                  const dataLength = data.length;
+                  const price1DayAgo = dataLength >= 2 ? data[dataLength - 2]?.c : currentPrice;
+                  const price5DaysAgo = dataLength >= 6 ? data[dataLength - 6]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
+                  const price13DaysAgo = dataLength >= 14 ? data[dataLength - 14]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
+                  const price21DaysAgo = dataLength >= 22 ? data[dataLength - 22]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
 
-                console.log(`📈 ${symbol} Prices - Current: ${currentPrice}, 1D: ${price1DayAgo}, 5D: ${price5DaysAgo}, 13D: ${price13DaysAgo}, 21D: ${price21DaysAgo}`);
+                  const change1d = price1DayAgo ? ((currentPrice - price1DayAgo) / price1DayAgo) * 100 : 0;
+                  const change5d = price5DaysAgo ? ((currentPrice - price5DaysAgo) / price5DaysAgo) * 100 : 0;
+                  const change13d = price13DaysAgo ? ((currentPrice - price13DaysAgo) / price13DaysAgo) * 100 : 0;
+                  const change21d = price21DaysAgo ? ((currentPrice - price21DaysAgo) / price21DaysAgo) * 100 : 0;
 
-                const change1d = price1DayAgo ? ((currentPrice - price1DayAgo) / price1DayAgo) * 100 : 0;
-                const change5d = price5DaysAgo ? ((currentPrice - price5DaysAgo) / price5DaysAgo) * 100 : 0;
-                const change13d = price13DaysAgo ? ((currentPrice - price13DaysAgo) / price13DaysAgo) * 100 : 0;
-                const change21d = price21DaysAgo ? ((currentPrice - price21DaysAgo) / price21DaysAgo) * 100 : 0;
+                  console.log(`📊 ${symbol} Changes - 1D: ${change1d.toFixed(2)}%, 5D: ${change5d.toFixed(2)}%, 13D: ${change13d.toFixed(2)}%, 21D: ${change21d.toFixed(2)}%`);
 
-                console.log(`📊 ${symbol} Changes - 1D: ${change1d.toFixed(2)}%, 5D: ${change5d.toFixed(2)}%, 13D: ${change13d.toFixed(2)}%, 21D: ${change21d.toFixed(2)}%`);
-
-                let performance = 'Neutral';
-                let performanceColor = 'text-white';
-
-                // Store data first, then calculate relative performance after we have SPY data
-                const tempData = {
-                  price: currentPrice || 0,
-                  change1d,
-                  change5d,
-                  change13d,
-                  change21d,
-                  performance: 'Neutral',
-                  performanceColor: 'text-white'
-                };
-                
-                processedData[symbol] = tempData;
-
-                processedData[symbol] = {
-                  price: currentPrice || 0,
-                  change1d,
-                  change5d,
-                  change13d,
-                  change21d,
-                  performance,
-                  performanceColor
-                };
-                
-                console.log(`✅ ${symbol}: $${currentPrice?.toFixed(2)} (${change1d?.toFixed(2)}%) - ${performance}`);
+                  return {
+                    symbol,
+                    data: {
+                      price: currentPrice || 0,
+                      change1d,
+                      change5d,
+                      change13d,
+                      change21d,
+                      performance: 'Neutral',
+                      performanceColor: 'text-white'
+                    }
+                  };
+                } else {
+                  console.warn(`⚠️ No sufficient data for ${symbol} - got ${result?.results?.length || 0} data points`);
+                  return null;
+                }
               } else {
-                console.warn(`⚠️ No sufficient data for ${symbol} - got ${result?.results?.length || 0} data points`);
+                console.warn(`❌ Failed to fetch data for ${symbol}: HTTP ${response.status} ${response.statusText}`);
+                return null;
               }
-            } else {
-              console.warn(`❌ Failed to fetch data for ${symbol}: HTTP ${response.status} ${response.statusText}`);
-              if (response.status >= 500) {
-                console.warn(`🔧 Server error for ${symbol} - this may be an API configuration issue`);
-              } else if (response.status === 408) {
-                console.warn(`⏱️ Timeout for ${symbol} - API response too slow`);
-              }
+            } catch (symbolError) {
+              console.warn(`❌ Error fetching data for ${symbol}:`, symbolError);
+              return null;
             }
-          } catch (symbolError) {
-            console.warn(`❌ Error fetching data for ${symbol}:`, symbolError);
-            if (symbolError instanceof Error && symbolError.message.includes('fetch')) {
-              console.warn(`🌐 Network connection issue for ${symbol} - check if server is running on correct port`);
+          });
+          
+          // Wait for batch to complete before processing next batch
+          const batchResults = await Promise.all(batchPromises);
+          
+          // Process successful results from this batch
+          batchResults.forEach(result => {
+            if (result) {
+              processedData[result.symbol] = result.data;
             }
-            // Continue with next symbol instead of breaking the entire loop
+          });
+          
+          console.log(`✅ Completed batch with ${batchResults.filter(r => r !== null).length} successful symbols`);
+          
+          // Small delay between batches to prevent API overload
+          if (batches.indexOf(batch) < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 200));
           }
         }
 
@@ -2532,33 +2549,31 @@ export default function TradingViewChart({
           console.log(`✅ Successfully processed ${Object.keys(processedData).length} symbols for watchlist`);
           setWatchlistData(processedData);
         } else {
-          console.warn('❌ No watchlist data processed - using fallback data');
-          // Provide fallback data to prevent empty loading states
-          const fallbackData = {
-            'SPY': { price: 560.00, change1d: 0.5, change5d: 1.2, change13d: 2.1, change21d: 3.5, performance: 'Benchmark', performanceColor: 'text-blue-300' },
-            'QQQ': { price: 485.00, change1d: 0.8, change5d: 2.1, change13d: 3.2, change21d: 4.8, performance: 'Leader', performanceColor: 'text-green-400' },
-            'IWM': { price: 225.00, change1d: -0.2, change5d: 0.5, change13d: 1.8, change21d: 2.9, performance: 'Strong', performanceColor: 'text-green-400' }
-          };
-          setWatchlistData(fallbackData);
+          console.error('❌ No watchlist data processed - market data unavailable');
+          setWatchlistData({});
+        }
+        
+        // Always set loading to false after data processing
+        if (isInitialLoad) {
+          setWatchlistLoading(false);
         }
 
       } catch (error) {
         console.error('❌ Error in market data fetching:', error);
-        // Provide fallback data in case of complete failure
-        const fallbackData = {
-          'SPY': { price: 560.00, change1d: 0.5, change5d: 1.2, change13d: 2.1, change21d: 3.5, performance: 'Benchmark', performanceColor: 'text-blue-300' },
-          'QQQ': { price: 485.00, change1d: 0.8, change5d: 2.1, change13d: 3.2, change21d: 4.8, performance: 'Leader', performanceColor: 'text-green-400' },
-          'IWM': { price: 225.00, change1d: -0.2, change5d: 0.5, change13d: 1.8, change21d: 2.9, performance: 'Strong', performanceColor: 'text-green-400' }
-        };
-        setWatchlistData(fallbackData);
+        setWatchlistData({});
+        if (isInitialLoad) {
+          setWatchlistLoading(false);
+        }
       }
     };
 
     // Initial fetch
-    fetchRealMarketData();
+    fetchRealMarketData(true); // true = initial load, show spinner
     
-    // Set up interval for regular updates
-    const interval = setInterval(fetchRealMarketData, 30000); // Update every 30 seconds
+    // Set up interval for regular updates (don't show loading for updates)
+    const interval = setInterval(() => {
+      fetchRealMarketData(false); // false = update, no spinner
+    }, 30000); // Update every 30 seconds
     
     return () => clearInterval(interval);
   }, []); // Empty dependency array to run only once
@@ -8069,22 +8084,23 @@ export default function TradingViewChart({
   const WatchlistPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
     const currentSymbols = marketSymbols[activeTab as keyof typeof marketSymbols] || [];
     
-    // Use a simplified fallback data approach for now
+    // Check if watchlist data is still loading
     const hasWatchlistData = Object.keys(watchlistData).length > 0;
-    console.log('� Watchlist Panel - hasWatchlistData:', hasWatchlistData);
+    console.log('📊 Watchlist Panel - Loading:', watchlistLoading, 'HasData:', hasWatchlistData);
     
-    if (!hasWatchlistData) {
-      // Show loading or use fallback
-      const fallbackData = {
-        'SPY': { price: 663.47, change1d: -0.03, change5d: 1.2, change13d: 2.1, change21d: 3.5, performance: 'Benchmark', performanceColor: 'text-blue-300' },
-        'QQQ': { price: 599.69, change1d: 0.04, change5d: 2.1, change13d: 3.2, change21d: 4.8, performance: 'Leader', performanceColor: 'text-green-400' },
-        'IWM': { price: 243.21, change1d: 0.02, change5d: 0.5, change13d: 1.8, change21d: 2.9, performance: 'Strong', performanceColor: 'text-green-400' },
-        'DIA': { price: 462.94, change1d: 0.09, change5d: 1.1, change13d: 2.0, change21d: 3.2, performance: 'Strong', performanceColor: 'text-green-400' },
-        'XLK': { price: 278.99, change1d: 0.11, change5d: 1.8, change13d: 2.9, change21d: 4.1, performance: 'Leader', performanceColor: 'text-green-400' }
-      };
-      
-      // Temporarily assign fallback data to show something
-      Object.assign(watchlistData, fallbackData);
+    if (watchlistLoading || !hasWatchlistData) {
+      // Show loading state instead of error
+      return (
+        <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 h-96">
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-2"></div>
+              <p className="text-gray-400 text-sm">Loading real market data from Polygon API...</p>
+              <p className="text-gray-500 text-xs mt-1">No fake data - 100% real market feeds</p>
+            </div>
+          </div>
+        </div>
+      );
     }
     
     // Helper function to get performance status for a specific time period

@@ -6,6 +6,7 @@ import GlobalDataCache from '@/lib/GlobalDataCache';
 import HeroSection from './HeroSection';
 import MarketTabs from './MarketTabs';
 import OpportunityCard from './OpportunityCard';
+import SeasonalityModal from './SeasonalityModal';
 
 interface SeasonaxLandingProps {
   onStartScreener?: () => void;
@@ -21,12 +22,22 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
   const [showWebsite, setShowWebsite] = useState(false);
   const [progressStats, setProgressStats] = useState({ processed: 0, total: 1000, found: 0 });
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
+  
+  // Modal state for seasonality chart
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalSymbol, setModalSymbol] = useState<string>('');
+  const [modalCompanyName, setModalCompanyName] = useState<string>('');
 
   const marketTabs = [
     { id: 'SP500', name: 'S&P 500' },
     { id: 'NASDAQ100', name: 'NASDAQ 100' },
     { id: 'DOWJONES', name: 'Dow Jones' }
   ];
+
+  // Debug state changes
+  useEffect(() => {
+    console.log(`🔍 State Debug: opportunities=${opportunities.length}, loading=${loading}, showWebsite=${showWebsite}, error=${!!error}`);
+  }, [opportunities.length, loading, showWebsite, error]);
 
   const timePeriodOptions = [
     { id: '10Y', name: '10 Years', years: 10, description: 'Balanced - Market cycles' },
@@ -103,30 +114,135 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
       setError(null);
       setShowWebsite(false);
       setOpportunities([]);
-      setStreamStatus('🔄 Loading real seasonal data from 1000 stocks...');
-      setProgressStats({ processed: 0, total: 1000, found: 0 });
+      setStreamStatus('🔄 Loading real seasonal data from 1000 stocks with worker-based processing...');
+      setProgressStats({ processed: 0, total: 1000, found: 0 }); // FULL 1000 stocks as requested
       
       const selectedPeriod = timePeriodOptions.find(p => p.id === timePeriod);
-      const years = selectedPeriod?.years || 15;
+      const years = selectedPeriod?.years || 15; // FULL years as requested - no limits
       
       try {
-        // Load real data directly from the service
-        setStreamStatus('📊 Analyzing seasonal patterns...');
-        const realOpportunities = await seasonalService.screenSeasonalOpportunities(years, 1000, 0);
+        // Load FULL data using BLAZING FAST MASSIVE CONCURRENCY with REAL-TIME results
+        setStreamStatus('🚀 Starting 50 concurrent requests for BLAZING FAST seasonal analysis...');
+        
+        // Real-time progress callback to show results as they're found using WORKER THREADS
+        let lastUpdate = 0;
+        let realOpportunities;
+        
+        try {
+          // Try BLAZING FAST massive concurrency first
+          realOpportunities = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
+            years, 
+            1000, // Process more stocks with massive concurrency
+            50,   // Use 50 concurrent requests for BLAZING FAST performance
+            (processed, total, foundOpportunities, currentSymbol) => {
+            // Throttle updates to prevent UI overwhelming (update every 100ms max)
+            const now = Date.now();
+            const shouldUpdate = now - lastUpdate > 100 || foundOpportunities.length > opportunities.length;
+            
+            if (shouldUpdate) {
+              lastUpdate = now;
+              
+              // Update progress stats in real-time
+              setProgressStats({ 
+                processed, 
+                total, 
+                found: foundOpportunities.length 
+              });
+              
+              // Update status with current processing info - BLAZING FAST MASSIVE CONCURRENCY
+              if (currentSymbol) {
+                setStreamStatus(`🚀 BLAZING FAST: ${currentSymbol} - Found ${foundOpportunities.length} qualified opportunities (${processed}/${total})`);
+              } else {
+                setStreamStatus(`⚡ ${processed}/${total} processed with 50 concurrent requests - ${foundOpportunities.length} opportunities found`);
+              }
+              
+              // Show opportunities as they're found - REAL-TIME UPDATES
+              if (foundOpportunities.length > 0) {
+                const sortedOpportunities = foundOpportunities
+                  .sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+                
+                console.log(`🔄 Setting ${foundOpportunities.length} opportunities in state:`, sortedOpportunities.slice(0, 3));
+                console.log(`🔄 First opportunity structure:`, sortedOpportunities[0]);
+                setOpportunities(sortedOpportunities as unknown as SeasonalPattern[]);
+                
+                // DISMISS LOADING SCREEN immediately when first opportunities are found
+                if (foundOpportunities.length === 1) {
+                  console.log('🎉 First opportunity found! Dismissing loading screen and showing results...');
+                  setLoading(false);
+                  setShowWebsite(true); // Enable the results view
+                } else if (foundOpportunities.length > 1 && loading) {
+                  // Make sure loading is dismissed for subsequent opportunities too
+                  console.log(`🔄 ${foundOpportunities.length} opportunities found, ensuring loading screen is dismissed`);
+                  setLoading(false);
+                  setShowWebsite(true);
+                }
+              }
+            }
+          }
+        );
         
         if (realOpportunities && realOpportunities.length > 0) {
-          console.log(`✅ Loaded ${realOpportunities.length} REAL seasonal opportunities`);
+          console.log(`✅ BLAZING FAST Completed! Found ${realOpportunities.length} seasonal opportunities with 50 concurrent requests`);
           
-          // Cache the real data for future use
+          // Cache the final results
           cache.set(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES, realOpportunities);
           
-          // Set the real data
-          setOpportunities(realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)) as unknown as SeasonalPattern[]);
+          // Final sort and display
+          const finalSorted = realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+          setOpportunities(finalSorted as unknown as SeasonalPattern[]);
           setLoading(false);
-          setStreamStatus('✅ Real seasonal data loaded successfully!');
+          setStreamStatus('🚀 BLAZING FAST processing completed!');
           setProgressStats({ processed: 1000, total: 1000, found: realOpportunities.length });
         } else {
-          throw new Error('No seasonal opportunities found');
+          throw new Error('No seasonal opportunities found with blazing fast processing');
+        }
+        
+        } catch (blazingFastError) {
+          console.warn('⚠️ Blazing fast processing failed, falling back to regular processing:', blazingFastError);
+          setStreamStatus('🔄 50 concurrent requests unavailable, falling back to standard processing...');
+          
+          // Fallback to regular method
+          realOpportunities = await seasonalService.screenSeasonalOpportunities(
+            years, 
+            500, // Reduced count for regular processing
+            0, 
+            (processed, total, foundOpportunities, currentSymbol) => {
+              const now = Date.now();
+              const shouldUpdate = now - lastUpdate > 100 || foundOpportunities.length > opportunities.length;
+              
+              if (shouldUpdate) {
+                lastUpdate = now;
+                setProgressStats({ processed, total, found: foundOpportunities.length });
+                
+                if (currentSymbol) {
+                  setStreamStatus(`📊 Standard Processing: ${currentSymbol} - ${foundOpportunities.length} opportunities (${processed}/${total})`);
+                }
+                
+                if (foundOpportunities.length > 0) {
+                  const sortedOpportunities = foundOpportunities
+                    .sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+                  setOpportunities(sortedOpportunities as unknown as SeasonalPattern[]);
+                  
+                  if (foundOpportunities.length === 1) {
+                    setLoading(false);
+                    setShowWebsite(true);
+                  }
+                }
+              }
+            }
+          );
+          
+          if (realOpportunities && realOpportunities.length > 0) {
+            console.log(`✅ Fallback completed! Found ${realOpportunities.length} seasonal opportunities`);
+            cache.set(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES, realOpportunities);
+            const finalSorted = realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+            setOpportunities(finalSorted as unknown as SeasonalPattern[]);
+            setLoading(false);
+            setStreamStatus('✅ Standard processing completed!');
+            setProgressStats({ processed: 500, total: 500, found: realOpportunities.length });
+          } else {
+            throw new Error('No seasonal opportunities found in fallback mode');
+          }
         }
       } catch (serviceError) {
         console.error('❌ Direct service failed, falling back to streaming API:', serviceError);
@@ -245,6 +361,19 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
     setActiveMarket(tabId);
   };
 
+  const handleStockDoubleClick = (symbol: string, companyName?: string) => {
+    console.log(`🎯 Double-clicked on ${symbol}, opening seasonality chart...`);
+    setModalSymbol(symbol);
+    setModalCompanyName(companyName || '');
+    setModalOpen(true);
+  };
+
+  const handleModalClose = () => {
+    setModalOpen(false);
+    setModalSymbol('');
+    setModalCompanyName('');
+  };
+
   if (loading && !showWebsite) {
     return (
       <div className="seasonax-loading">
@@ -288,75 +417,163 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
         onStartScreener={onStartScreener}
       />
 
-      {/* Time Period Dropdown */}
-      <section className="time-period-section">
-        <div className="time-period-dropdown-container">
-          <label htmlFor="time-period-select" className="dropdown-label">
-            Historical Analysis Period:
-          </label>
+      {/* Controls Bar */}
+      <div className="pro-controls-bar">
+        <div className="control-group">
+          <label className="control-label">Analysis Period</label>
           <select
-            id="time-period-select"
             value={timePeriod}
             onChange={(e) => setTimePeriod(e.target.value)}
-            className="time-period-dropdown"
+            className="pro-select"
             disabled={loading}
           >
             {timePeriodOptions.map((option) => (
               <option key={option.id} value={option.id}>
-                {option.name} - {option.description}
+                {option.name}
               </option>
             ))}
           </select>
         </div>
-      </section>
-
-      {/* Live Seasonal Opportunities Grid */}
-      <section className="opportunities-section">
-        <div className="section-header">
-          <h2>Live Seasonal Stock Screening ({opportunities.length})</h2>
-          <p>Progressive analysis - Opportunities appear as they're discovered from top 500 companies by market cap</p>
-          {streamStatus && (
-            <div className="stream-status">
-              <p className="status-message">{streamStatus}</p>
-              <div className="progress-stats">
-                <span>📊 Scanned: {progressStats.processed}/{progressStats.total}</span>
-                <span>🎯 Found: {progressStats.found} opportunities</span>
-              </div>
-              {progressStats.processed < progressStats.total && (
-                <div className="progress-bar">
-                  <div 
-                    className="progress-fill" 
-                    style={{ width: `${(progressStats.processed / progressStats.total) * 100}%` }}
-                  ></div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
         
-        {error ? (
-          <div className="error-message">
-            <h3>Error Loading Data</h3>
-            <p>{error}</p>
-            <p>Please check your Polygon API key and rate limits.</p>
+        <div className="scan-stats">
+          <div className="stat-item">
+            <span className="stat-value">{progressStats.processed}</span>
+            <span className="stat-label">Scanned</span>
           </div>
-        ) : opportunities.length === 0 && showWebsite ? (
-          <div className="no-data-message">
-            <h3>Scanning for Seasonal Patterns...</h3>
-            <p>The system is progressively scanning stocks. Opportunities will appear here as they're found.</p>
+          <div className="stat-item">
+            <span className="stat-value">{opportunities.length}</span>
+            <span className="stat-label">Opportunities</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Progress Section */}
+      {streamStatus && (
+        <div className="pro-progress">
+          <div className="progress-header">
+            <span className="progress-text">{streamStatus}</span>
+            <span className="progress-percentage">
+              {((progressStats.processed / progressStats.total) * 100).toFixed(0)}%
+            </span>
+          </div>
+          <div className="progress-track">
+            <div 
+              className="progress-bar-fill" 
+              style={{ width: `${(progressStats.processed / progressStats.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Results Grid */}
+      <div className="pro-results">
+        {opportunities.length > 0 ? (
+          <div className="split-results-container">
+            {(() => {
+              // Split opportunities into bullish and bearish
+              const bullishOpps = opportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) >= 0);
+              const bearishOpps = opportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) < 0);
+              
+              const topBullish = bullishOpps.length > 0 ? 
+                bullishOpps.reduce((prev, curr) => {
+                  const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2;
+                  const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2;
+                  return currScore > prevScore ? curr : prev;
+                }) : null;
+              
+              const topBearish = bearishOpps.length > 0 ? 
+                bearishOpps.reduce((prev, curr) => {
+                  const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2;
+                  const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2;
+                  return currScore > prevScore ? curr : prev;
+                }) : null;
+
+              return (
+                <>
+                  {/* Bullish Section - Left Side */}
+                  <div className="bullish-section">
+                    <div className="section-header-split bullish-header">
+                      <div className="section-title">
+                        <span className="bull-icon">🔥</span>
+                        BULLISH OPPORTUNITIES
+                        <span className="count">({bullishOpps.length})</span>
+                      </div>
+                    </div>
+                    <div className="results-grid-split">
+                      {bullishOpps.map((opportunity, index) => {
+                        const isTopBullish = topBullish ? opportunity.symbol === topBullish.symbol : false;
+                        return (
+                          <OpportunityCard
+                            key={`bullish-${opportunity.symbol}-${index}`}
+                            pattern={opportunity}
+                            rank={index + 1}
+                            onDoubleClick={handleStockDoubleClick}
+                            isTopBullish={isTopBullish}
+                            isTopBearish={false}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Golden Vertical Separator */}
+                  <div className="golden-separator">
+                    <div className="separator-line"></div>
+                    <div className="separator-orb">
+                      <div className="orb-inner"></div>
+                    </div>
+                  </div>
+
+                  {/* Bearish Section - Right Side */}
+                  <div className="bearish-section">
+                    <div className="section-header-split bearish-header">
+                      <div className="section-title">
+                        <span className="bear-icon">🩸</span>
+                        BEARISH OPPORTUNITIES
+                        <span className="count">({bearishOpps.length})</span>
+                      </div>
+                    </div>
+                    <div className="results-grid-split">
+                      {bearishOpps.map((opportunity, index) => {
+                        const isTopBearish = topBearish ? opportunity.symbol === topBearish.symbol : false;
+                        return (
+                          <OpportunityCard
+                            key={`bearish-${opportunity.symbol}-${index}`}
+                            pattern={opportunity}
+                            rank={index + 1}
+                            onDoubleClick={handleStockDoubleClick}
+                            isTopBullish={false}
+                            isTopBearish={isTopBearish}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        ) : error ? (
+          <div className="pro-error">
+            <div className="error-icon">⚠</div>
+            <div className="error-text">Connection Error</div>
+            <div className="error-details">{error}</div>
           </div>
         ) : (
-          <div className="opportunities-grid top-10">
-            {opportunities.map((opportunity, index) => (
-              <OpportunityCard
-                key={`${opportunity.symbol}-${index}`}
-                pattern={opportunity}
-                rank={index + 1}
-              />
-            ))}
+          <div className="pro-loading">
+            <div className="loading-indicator"></div>
+            <div className="loading-text">Scanning Markets...</div>
           </div>
         )}
-      </section>
+      </div>
+
+      {/* Seasonality Chart Modal */}
+      <SeasonalityModal
+        isOpen={modalOpen}
+        onClose={handleModalClose}
+        symbol={modalSymbol}
+        companyName={modalCompanyName}
+      />
     </div>
   );
 };

@@ -1357,23 +1357,8 @@ export default function TradingChart({
       const priceRange = maxPrice - minPrice;
       const levels = 10;
       
-      for (let i = 0; i < levels; i++) {
-        // Bid levels (below current price)
-        const bidPrice = currentPrice - (priceRange * 0.01 * (i + 1));
-        const bidY = yScale(bidPrice);
-        const bidSize = Math.random() * 1000 + 100;
-        
-        ctx.fillStyle = 'rgba(46, 213, 115, 0.2)';
-        ctx.fillRect(margin.left, bidY - 1, (bidSize / 1100) * chartWidth * 0.1, 2);
-        
-        // Ask levels (above current price)
-        const askPrice = currentPrice + (priceRange * 0.01 * (i + 1));
-        const askY = yScale(askPrice);
-        const askSize = Math.random() * 1000 + 100;
-        
-        ctx.fillStyle = 'rgba(255, 99, 72, 0.2)';
-        ctx.fillRect(margin.left, askY - 1, (askSize / 1100) * chartWidth * 0.1, 2);
-      }
+      // Level II order book data unavailable - requires real market data API
+      console.error('❌ Level II order book data unavailable - requires real market data feed');
     }
 
     // Draw Bollinger Bands

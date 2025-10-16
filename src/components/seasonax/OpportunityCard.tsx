@@ -41,86 +41,126 @@ const SeasonalChart: React.FC<SeasonalChartProps> = ({ data, height = 40 }) => {
 interface OpportunityCardProps {
   pattern: SeasonalPattern;
   rank?: number;
+  onDoubleClick?: (symbol: string, companyName?: string) => void;
+  isTopBullish?: boolean;
+  isTopBearish?: boolean;
 }
 
-const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank }) => {
-  // Determine sentiment from the pattern type or sentiment field
-  const patternType = pattern.patternType || '';
-  const sentiment = (pattern as any).sentiment || 
-    (patternType.toLowerCase().includes('bullish') ? 'Bullish' : 
-     patternType.toLowerCase().includes('bearish') ? 'Bearish' : 
-     (pattern.averageReturn || pattern.avgReturn || 0) >= 0 ? 'Bullish' : 'Bearish');
-  
-  const isPositive = sentiment === 'Bullish';
+const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, onDoubleClick, isTopBullish, isTopBearish }) => {
+  const isPositive = (pattern.averageReturn || pattern.avgReturn || 0) >= 0;
+  const expectedReturn = (pattern.averageReturn || pattern.avgReturn || 0);
+  const correlation = (pattern as any).correlation || 0;
   const daysUntilStart = (pattern as any).daysUntilStart || 0;
   
-  // Format the timing information
-  const getTimingText = () => {
-    if (daysUntilStart === 0) return 'Starts Today';
-    if (daysUntilStart === 1) return 'Starts Tomorrow';
-    if (daysUntilStart > 0) return `Starts in ${daysUntilStart} days`;
-    if (daysUntilStart === -1) return 'Started Yesterday';
-    return `Started ${Math.abs(daysUntilStart)} days ago`;
+  // Calculate timing message
+  const getTimingMessage = () => {
+    if (daysUntilStart === 0) return 'STARTS TODAY';
+    if (daysUntilStart === 1) return 'STARTS TOMORROW';
+    if (daysUntilStart > 1) return `STARTS IN ${daysUntilStart} DAYS`;
+    if (daysUntilStart === -1) return 'STARTED YESTERDAY';
+    if (daysUntilStart < -1) return `STARTED ${Math.abs(daysUntilStart)} DAYS AGO`;
+    return 'ACTIVE PERIOD';
   };
   
+  const handleDoubleClick = () => {
+    if (onDoubleClick) {
+      onDoubleClick(pattern.symbol, pattern.company);
+    }
+  };
+
   return (
-    <div className="opportunity-card seasonal-card">
-      <div className="card-header">
-        {rank && (
-          <div className={`card-rank ${isPositive ? 'bullish' : 'bearish'}`}>
-            #{rank}
+    <div 
+      className="pro-opportunity-card"
+      onDoubleClick={handleDoubleClick}
+      style={{ cursor: onDoubleClick ? 'pointer' : 'default' }}
+    >
+      {/* Header with Company */}
+      <div className="card-header-pro">
+        <div className="company-section">
+          <div className="company-text">{pattern.company}</div>
+        </div>
+      </div>
+      
+      {/* Chart Section with Symbol */}
+      <div className={`chart-section ${isTopBullish ? 'top-bullish' : ''} ${isTopBearish ? 'top-bearish' : ''}`}>
+        {isTopBullish && (
+          <div className="fire-animation">
+            <div className="flame flame-1"></div>
+            <div className="flame flame-2"></div>
+            <div className="flame flame-3"></div>
+            <div className="flame flame-4"></div>
+            <div className="flame flame-5"></div>
+            <div className="flame flame-6"></div>
+            <div className="flame flame-7"></div>
+            <div className="flame flame-8"></div>
+            <div className="flame flame-9"></div>
+            <div className="flame flame-10"></div>
+            <div className="flame flame-11"></div>
+            <div className="flame flame-12"></div>
+            <div className="flame flame-13"></div>
+            <div className="flame flame-14"></div>
+            <div className="flame flame-15"></div>
           </div>
         )}
-        <div className={`sentiment-badge ${isPositive ? 'bullish' : 'bearish'}`}>
-          {sentiment.toUpperCase()}
-        </div>
-      </div>
-      
-      <div className="card-symbol-section">
-        <div className="card-symbol">{pattern.symbol}</div>
-        <div className="card-company">{pattern.company}</div>
-      </div>
-      
-      <div className="card-timing">
-        <div className="timing-text">{getTimingText()}</div>
-        <div className="card-period">{pattern.period}</div>
-      </div>
-      
-      <div className="card-chart">
-        <SeasonalChart data={pattern.chartData} />
-      </div>
-      
-      <div className="card-dates">
-        <span className="start-date">{pattern.startDate}</span>
-        <span className="date-separator">→</span>
-        <span className="end-date">{pattern.endDate}</span>
-      </div>
-      
-      <div className="card-metrics">
-        <div className="metric primary">
-          <div className={`metric-value ${(pattern.averageReturn || pattern.avgReturn || 0) >= 0 ? 'positive' : 'negative'}`}>
-            {(pattern.averageReturn || pattern.avgReturn || 0) >= 0 ? '+' : ''}{(pattern.averageReturn || pattern.avgReturn || 0).toFixed(1)}%
+        {isTopBearish && (
+          <div className="blood-animation">
+            <div className="blood-drop drop-1"></div>
+            <div className="blood-drop drop-2"></div>
+            <div className="blood-drop drop-3"></div>
+            <div className="blood-drop drop-4"></div>
+            <div className="blood-drop drop-5"></div>
+            <div className="blood-drop drop-6"></div>
+            <div className="blood-drop drop-7"></div>
+            <div className="blood-drop drop-8"></div>
+            <div className="blood-drop drop-9"></div>
+            <div className="blood-drop drop-10"></div>
           </div>
-          <div className="metric-label">Expected Return</div>
+        )}
+        <div className="chart-symbol-overlay">
+          <div className="symbol-text">{pattern.symbol}</div>
+        </div>
+        <SeasonalChart data={pattern.chartData} height={50} />
+      </div>
+      
+      {/* Period Display */}
+      <div className="period-section">
+        <span className="period-text">{pattern.period}</span>
+      </div>
+      
+      {/* Key Metrics */}
+      <div className="metrics-grid">
+        <div className="metric-card primary">
+          <div className={`metric-value-large ${isPositive ? 'positive' : 'negative'}`}>
+            {expectedReturn >= 0 ? '+' : ''}{expectedReturn.toFixed(1)}%
+          </div>
+          <div className="metric-label-small">Expected</div>
         </div>
         
-        <div className="metric">
+        <div className="metric-card">
           <div className={`metric-value ${pattern.winRate >= 50 ? 'positive' : 'negative'}`}>
             {pattern.winRate.toFixed(0)}%
           </div>
-          <div className="metric-label">Win Rate</div>
+          <div className="metric-label-small">Win Rate</div>
         </div>
         
-        <div className="metric">
+        <div className="metric-card">
+          <div className={`metric-value ${correlation >= 50 ? 'positive' : correlation >= 35 ? 'neutral' : 'negative'}`}>
+            {correlation}%
+          </div>
+          <div className="metric-label-small">Correlation</div>
+        </div>
+        
+        <div className="metric-card">
           <div className="metric-value neutral">
             {pattern.years}Y
           </div>
-          <div className="metric-label">Historical Data</div>
+          <div className="metric-label-small">History</div>
         </div>
       </div>
       
-      <div className="card-details">
-        {pattern.exchange} | {pattern.currency} | 30-day pattern
+      {/* Timing Information */}
+      <div className="timing-info">
+        {getTimingMessage()}
       </div>
     </div>
   );

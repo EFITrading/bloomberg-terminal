@@ -111,30 +111,10 @@ class GEXService {
   }
 
   /**
-   * Get options chain data (simulated for now - would use real options API)
+   * Get options chain data - requires real options API integration
    */
   private async getOptionsChain(symbol: string): Promise<any[]> {
-    // For now, we'll simulate options chain data
-    // In production, this would fetch real options data from Polygon or another provider
-    
-    const currentPrice = await this.getCurrentPrice(symbol);
-    const strikes = this.generateStrikePrices(currentPrice);
-    
-    return strikes.map(strike => ({
-      strike,
-      call: {
-        gamma: this.calculateGammaForStrike(strike, currentPrice, 'call'),
-        openInterest: Math.floor(Math.random() * 10000) + 1000,
-        volume: Math.floor(Math.random() * 5000),
-        impliedVol: 0.15 + Math.random() * 0.3
-      },
-      put: {
-        gamma: this.calculateGammaForStrike(strike, currentPrice, 'put'),
-        openInterest: Math.floor(Math.random() * 10000) + 1000,
-        volume: Math.floor(Math.random() * 5000),
-        impliedVol: 0.15 + Math.random() * 0.3
-      }
-    }));
+    throw new Error(`Options chain data unavailable for ${symbol} - requires real options API integration`);
   }
 
   /**
