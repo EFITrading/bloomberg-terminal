@@ -105,10 +105,10 @@ export async function GET(request: NextRequest) {
       total_premium: processedTrades.reduce((sum, trade) => sum + trade.total_premium, 0),
       unique_symbols: new Set(processedTrades.map(t => t.underlying_ticker)).size,
       trade_types: {
-        BLOCK: processedTrades.filter(t => t.trade_type === 'BLOCK').length,
         SWEEP: processedTrades.filter(t => t.trade_type === 'SWEEP').length,
-        'MULTI-LEG': processedTrades.filter(t => t.trade_type === 'MULTI-LEG').length,
-        SPLIT: processedTrades.filter(t => t.trade_type === 'SPLIT').length
+        BLOCK: processedTrades.filter(t => t.trade_type === 'BLOCK').length,
+        MINI: processedTrades.filter(t => t.trade_type === 'MINI').length,
+        'MULTI-LEG': processedTrades.filter(t => t.trade_type === 'MULTI-LEG').length
       },
       call_put_ratio: {
         calls: processedTrades.filter(t => t.type === 'call').length,

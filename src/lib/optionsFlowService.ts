@@ -40,23 +40,32 @@ export function getLastTradingDay(): string {
 
 export function getTodaysMarketOpenTimestamp(): number {
   try {
-    // Get current date in Eastern Time zone
+    // Simple approach: Create 9:30 AM Eastern for today's date
     const now = new Date();
-    const easternTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
     
-    // Create market open at 9:30 AM Eastern Time for today
-    const year = easternTime.getFullYear();
-    const month = easternTime.getMonth();
-    const date = easternTime.getDate();
+    // Get today's date in Eastern timezone
+    const easternDate = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+    const year = easternDate.getFullYear();
+    const month = easternDate.getMonth();
+    const date = easternDate.getDate();
     
-    // Create the market open time properly in Eastern timezone
-    const marketOpenEastern = new Date();
-    marketOpenEastern.setFullYear(year, month, date);
-    marketOpenEastern.setHours(9, 30, 0, 0);
+    // Create a date string for 9:30 AM Eastern and parse it
+    // This ensures proper timezone handling
+    const marketOpenString = `${month + 1}/${date}/${year} 9:30:00 AM`;
+    const marketOpenDate = new Date(marketOpenString + ' EST'); // Force Eastern Standard Time parsing
     
-    // Convert to proper timezone-aware timestamp
-    const easternOffset = easternTime.getTimezoneOffset() * 60000;
-    const marketOpenTimestamp = marketOpenEastern.getTime() - easternOffset;
+    let marketOpenTimestamp = marketOpenDate.getTime();
+    
+    // Validate the result by checking if the time displays as 9:30 AM ET
+    const validation = new Date(marketOpenTimestamp);
+    const easternValidation = validation.toLocaleString("en-US", {timeZone: "America/New_York"});
+    
+    if (!easternValidation.includes('9:30')) {
+      // Fallback: manually calculate Eastern timezone offset
+      const easternOffset = easternDate.getTimezoneOffset() * 60000;
+      const localTime = new Date(year, month, date, 9, 30, 0, 0);
+      marketOpenTimestamp = localTime.getTime() - easternOffset;
+    }
     
     // Adjust for weekends - get last trading day
     const marketOpen = new Date(marketOpenTimestamp);
@@ -192,7 +201,7 @@ interface ProcessedTrade {
   sequence_number?: number;
   conditions: number[];
   trade_timestamp: Date;
-  trade_type?: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'SPLIT';
+  trade_type?: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
   window_group?: string;
   related_trades?: string[];
   moneyness: 'ATM' | 'ITM' | 'OTM';
@@ -298,7 +307,19 @@ export class OptionsFlowService {
       );
       
       console.log(`✅ ULTRA-FAST SCAN COMPLETE: Found ${allTrades.length} total trades`);
-      return allTrades;
+      
+      // CRITICAL: Classify all trades after collection to enable proper SWEEP/BLOCK/MINI detection
+      console.log(`🔍 CLASSIFYING TRADES: Analyzing ${allTrades.length} trades for sweep patterns...`);
+      const classifiedTrades = this.classifyAllTrades(allTrades);
+      console.log(`✅ CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades`);
+      
+      // Send classified trades to frontend if callback provided
+      if (onProgress && classifiedTrades.length > 0) {
+        console.log(`📡 Streaming ${classifiedTrades.length} CLASSIFIED trades to frontend`);
+        onProgress(classifiedTrades, `✅ Classification complete - sending ${classifiedTrades.length} trades`);
+      }
+      
+      return classifiedTrades;
       
     } catch (error) {
       console.error(`❌ PARALLEL PROCESSING ERROR:`, error);
@@ -323,6 +344,14 @@ export class OptionsFlowService {
         } catch (tickerError) {
           console.error(`⚠️ Fallback error for ${ticker}:`, tickerError);
         }
+      }
+      
+      // Also classify fallback trades
+      if (fallbackTrades.length > 0) {
+        console.log(`🔍 CLASSIFYING FALLBACK TRADES: Analyzing ${fallbackTrades.length} trades...`);
+        const classifiedFallback = this.classifyAllTrades(fallbackTrades);
+        console.log(`✅ FALLBACK CLASSIFICATION COMPLETE: Classified ${classifiedFallback.length} trades`);
+        return classifiedFallback;
       }
       
       return fallbackTrades;
@@ -364,24 +393,22 @@ export class OptionsFlowService {
           const tickerTrades = await this.fetchLiveStreamingTradesRobust(currentTicker);
           
           if (tickerTrades.length > 0) {
-            // Apply filtering and classification immediately
-            const filteredTrades = this.filterAndClassifyTrades(tickerTrades, ticker);
-            
-            // Stream progressive results immediately
+            // DON'T classify yet - collect all trades first for proper SWEEP detection
+            // Stream raw results for progress updates
             onProgress?.(
-              [...allTrades, ...filteredTrades].sort((a, b) => b.total_premium - a.total_premium),
-              `Found ${filteredTrades.length} trades from ${currentTicker}`,
+              [...allTrades, ...tickerTrades].sort((a, b) => b.total_premium - a.total_premium),
+              `Found ${tickerTrades.length} raw trades from ${currentTicker}`,
               {
                 current: batchIndex + 1,
                 total: tickerBatches.length,
                 justProcessed: currentTicker,
-                newTrades: filteredTrades.length,
-                totalTrades: allTrades.length + filteredTrades.length,
+                newTrades: tickerTrades.length,
+                totalTrades: allTrades.length + tickerTrades.length,
                 progress: ((batchIndex * batchSize + batch.indexOf(currentTicker)) / tickersToScan.length * 100).toFixed(1)
               }
             );
             
-            return filteredTrades;
+            return tickerTrades; // Return raw trades for later classification
           }
           
           return [];
@@ -406,8 +433,13 @@ export class OptionsFlowService {
       // No delay needed with unlimited API
     }
     
-    onProgress?.(allTrades, `Scan complete: ${allTrades.length} total trades found`);
-    return allTrades.sort((a, b) => b.total_premium - a.total_premium);
+    onProgress?.(allTrades, `Classifying ${allTrades.length} trades for SWEEP/BLOCK/MINI detection...`);
+    
+    // NOW classify all trades together for proper cross-exchange SWEEP detection
+    const classifiedTrades = this.filterAndClassifyTrades(allTrades, ticker);
+    
+    onProgress?.(classifiedTrades, `Scan complete: ${classifiedTrades.length} classified trades found`);
+    return classifiedTrades.sort((a, b) => b.total_premium - a.total_premium);
   }
 
   async fetchLiveOptionsFlow(ticker?: string): Promise<ProcessedTrade[]> {
@@ -782,9 +814,10 @@ export class OptionsFlowService {
     return isWithinHours;
   }
 
-  // EXACT TIMESTAMP SWEEP DETECTION: Bundle trades executed at exact same time across exchanges
+  // YOUR SPECIFICATION: 3-SECOND WINDOW SWEEP DETECTION: Bundle trades executed within 3-second windows across exchanges
   private detectSweeps(trades: ProcessedTrade[]): ProcessedTrade[] {
-    console.log(`🔍 EXACT TIMESTAMP SWEEP DETECTION: Processing ${trades.length} trades...`);
+    console.log(`🔍 3-SECOND WINDOW SWEEP DETECTION: Processing ${trades.length} trades...`);
+    console.log(`🔍 DEBUG detectSweeps: Sample input trade:`, trades[0]);
     
     // Sort trades by timestamp
     trades.sort((a, b) => a.sip_timestamp - b.sip_timestamp);
@@ -793,10 +826,11 @@ export class OptionsFlowService {
     const exactTimeGroups = new Map<string, ProcessedTrade[]>();
     
     for (const trade of trades) {
-      // Use exact timestamp (millisecond precision) + contract as key for grouping
+      // YOUR SPECIFICATION: 3-second window grouping + contract as key for grouping
       const contractKey = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
-      const timeKey = Math.floor(trade.sip_timestamp / 1000); // Convert to milliseconds for grouping
-      const groupKey = `${contractKey}_${timeKey}`;
+      const timeInMs = Math.floor(trade.sip_timestamp / 1000000); // Convert nanoseconds to milliseconds
+      const threeSecondWindow = Math.floor(timeInMs / 3000) * 3000; // Group into 3-second windows
+      const groupKey = `${contractKey}_${threeSecondWindow}`;
       
       if (!exactTimeGroups.has(groupKey)) {
         exactTimeGroups.set(groupKey, []);
@@ -808,26 +842,26 @@ export class OptionsFlowService {
     let sweepCount = 0;
     let blockCount = 0;
     
-    // Process each exact time group - trades at same time become sweeps if multi-exchange
+    // Process each 3-second window group - trades within 3-second window become sweeps if multi-exchange
     exactTimeGroups.forEach((tradesInGroup, groupKey) => {
       const totalContracts = tradesInGroup.reduce((sum, t) => sum + t.trade_size, 0);
       const totalPremium = tradesInGroup.reduce((sum, t) => sum + t.total_premium, 0);
       const exchanges = [...new Set(tradesInGroup.map(t => t.exchange))];
       const representativeTrade = tradesInGroup[0];
       
-      // Debug: Show exact time grouping for significant trades
+      // Debug: Show 3-second window grouping for significant trades
       if (tradesInGroup.length > 1 && totalPremium >= 50000) {
-        const time = new Date(representativeTrade.sip_timestamp).toLocaleTimeString();
-        console.log(`\n🔍 EXACT TIME GROUP: ${tradesInGroup.length} trades at ${time}:`);
+        const time = new Date(representativeTrade.sip_timestamp / 1000000).toLocaleTimeString();
+        console.log(`\n🔍 3-SECOND WINDOW GROUP: ${tradesInGroup.length} trades within 3-second window at ~${time}:`);
         console.log(`   ${representativeTrade.ticker} $${representativeTrade.strike} ${representativeTrade.type.toUpperCase()}S - Total: ${totalContracts} contracts, $${totalPremium.toLocaleString()}`);
         tradesInGroup.forEach((trade, idx) => {
           console.log(`     ${idx+1}. ${trade.trade_size} contracts @$${trade.premium_per_contract.toFixed(2)} [${trade.exchange}]`);
         });
       }
       
-      // Classify this exact time group
-      if (tradesInGroup.length > 1 && exchanges.length > 1) {
-        // SWEEP: Multiple trades at exact same time across different exchanges
+      // YOUR EXACT LOGIC: Classify based on exchange count
+      if (exchanges.length >= 2) {
+        // SWEEP: 2+ exchanges involved (regardless of amounts)
         sweepCount++;
         const weightedPrice = tradesInGroup.reduce((sum, trade) => {
           return sum + (trade.premium_per_contract * trade.trade_size);
@@ -844,29 +878,35 @@ export class OptionsFlowService {
           related_trades: exchanges.map(ex => `${ex}`)
         };
         
-        console.log(`🧹 SWEEP DETECTED: ${sweepTrade.ticker} $${sweepTrade.strike} ${sweepTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} across ${tradesInGroup.length} fills`);
+        console.log(`🧹 SWEEP DETECTED: ${sweepTrade.ticker} $${sweepTrade.strike} ${sweepTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} across ${exchanges.length} exchanges`);
         categorizedTrades.push(sweepTrade);
         
-      } else {
-        // BLOCK or single trade: either one large trade or multiple on same exchange  
-        for (const trade of tradesInGroup) {
-          let tradeType: 'SWEEP' | 'BLOCK' = 'BLOCK';
-          if (trade.total_premium >= 100000) {
-            tradeType = 'SWEEP'; // Very large single trades can be sweeps
-            sweepCount++;
-          } else {
-            blockCount++;
-          }
-          
-          categorizedTrades.push({
-            ...trade,
-            trade_type: tradeType
-          });
+      } else if (exchanges.length === 1) {
+        // Single exchange: BLOCK if $50K+, MINI if <$50K
+        const combinedTrade: ProcessedTrade = {
+          ...representativeTrade,
+          trade_size: totalContracts,
+          premium_per_contract: totalPremium / totalContracts / 100, // Average price per contract
+          total_premium: totalPremium,
+          trade_type: totalPremium >= 50000 ? 'BLOCK' : 'MINI',
+          exchange_name: this.exchangeNames[exchanges[0]] || `Exchange ${exchanges[0]}`,
+          window_group: totalPremium >= 50000 ? `block_${groupKey}` : `mini_${groupKey}`,
+          related_trades: []
+        };
+        
+        if (totalPremium >= 50000) {
+          console.log(`🧱 BLOCK DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`);
+          blockCount++;
+        } else {
+          console.log(`💼 MINI DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`);
         }
+        
+        categorizedTrades.push(combinedTrade);
       }
     });
     
-    console.log(`✅ EXACT TIMESTAMP SWEEP DETECTION COMPLETE: Found ${sweepCount} sweeps and ${blockCount} blocks from ${trades.length} individual trades`);
+    const miniCount = categorizedTrades.filter(t => t.trade_type === 'MINI').length;
+    console.log(`✅ 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps, ${blockCount} blocks, and ${miniCount} minis from ${trades.length} individual trades`);
     return categorizedTrades;
   }
 
@@ -931,12 +971,19 @@ export class OptionsFlowService {
   private analyzeMultiLegPattern(trades: ProcessedTrade[]): boolean {
     if (trades.length < 2) return false;
     
+    // YOUR SPECIFICATION: Max 4 legs limit
+    if (trades.length > 4) return false;
+    
     // Since these trades have identical timestamps, they are simultaneous executions
     // Multi-leg criteria for simultaneous trades:
     const uniqueStrikes = new Set(trades.map(t => t.strike));
     const uniqueExpirations = new Set(trades.map(t => t.expiry));
     const uniqueTypes = new Set(trades.map(t => t.type));
     const totalPremium = trades.reduce((sum, t) => sum + t.total_premium, 0);
+    
+    // YOUR SPECIFICATION: 500+ contracts each requirement
+    const allLegsHave500Plus = trades.every(trade => trade.trade_size >= 500);
+    if (!allLegsHave500Plus) return false;
     
     // Multi-leg patterns (any of these indicate a multi-leg strategy):
     // 1. Different strikes (spreads)
@@ -954,9 +1001,10 @@ export class OptionsFlowService {
     const isMultiLeg = substantialPremium && (hasMultipleStrikes || hasMultipleTypes || hasMultipleExpirations);
     
     if (isMultiLeg) {
-      console.log(`🦵 Multi-leg detected: ${trades.length} legs, ` +
+      console.log(`🦵 Multi-leg detected: ${trades.length} legs (≤4), ` +
                   `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
-                  `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`);
+                  `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium, ` +
+                  `all legs 500+ contracts: ${allLegsHave500Plus}`);
     }
     
     return isMultiLeg;
@@ -1032,28 +1080,17 @@ export class OptionsFlowService {
 
 
   private classifyTradeType(trade: ProcessedTrade): ProcessedTrade {
-    // Correct classification:
-    // BLOCK = Large trade ($25k+) filled on ONE exchange only
-    // SWEEP = Trade filled across MULTIPLE exchanges simultaneously
-    let tradeType: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'SPLIT' | undefined;
+    // YOUR SPECIFICATION: Preserve classifications from detectSweeps() - don't override!
+    // SWEEP/BLOCK/MINI already determined by exchange count logic in detectSweeps()
     
-    // SWEEP: Already classified in detectSweeps() - multiple exchanges
-    if (trade.trade_type === 'SWEEP') {
-      tradeType = 'SWEEP';
-    }
-    // BLOCK: Single exchange trade with $25k+ premium (lowered threshold)
-    else if (trade.total_premium >= 25000 && !trade.window_group?.includes('exchanges')) {
-      tradeType = 'BLOCK';
-    }
-    // BLOCK: Also classify large single trades without window group as blocks
-    else if (trade.total_premium >= 25000 && !trade.window_group) {
-      tradeType = 'BLOCK';
+    // Only handle MULTI-LEG here (detected separately)
+    if (trade.trade_type === 'MULTI-LEG') {
+      return trade; // Keep MULTI-LEG classification
     }
     
-    return {
-      ...trade,
-      trade_type: tradeType
-    };
+    // For all other trades, preserve the classification from detectSweeps()
+    // Don't override SWEEP/BLOCK/MINI classifications!
+    return trade;
   }
 
   // ROBUST FETCH WITH CONNECTION HANDLING AND RATE LIMITING
@@ -1750,6 +1787,12 @@ export class OptionsFlowService {
     const parsed = this.parseOptionsTicker(rawTrade.ticker);
     if (!parsed) return null;
 
+    // YOUR SPECIFICATION: Minimum Total Premium $1,000 filter
+    const totalPremium = rawTrade.price * rawTrade.size * 100;
+    if (totalPremium < 1000) {
+      return null; // Filter out small retail trades under $1,000
+    }
+
     // Get real historical spot price at the exact time of the trade
     const tradeTimestamp = rawTrade.sip_timestamp / 1000000; // Convert to milliseconds
     const realSpotPrice = await this.getHistoricalSpotPrice(parsed.underlying, tradeTimestamp);
@@ -1767,7 +1810,7 @@ export class OptionsFlowService {
       type: parsed.type,
       trade_size: rawTrade.size,
       premium_per_contract: rawTrade.price,
-      total_premium: rawTrade.price * rawTrade.size * 100,
+      total_premium: totalPremium,
       spot_price: realSpotPrice,
       exchange: rawTrade.exchange,
       exchange_name: this.exchangeNames[rawTrade.exchange] || 'UNKNOWN',
@@ -1901,18 +1944,16 @@ export class OptionsFlowService {
         await new Promise(resolve => setTimeout(resolve, 10));
       }
 
-      console.log(`📊 Found ${allTrades.length} total trades, detecting sweeps and blocks...`);
+      console.log(`📊 Found ${allTrades.length} total trades, classifying as SWEEPS/BLOCKS/MINIS...`);
 
-      // Detect sweeps from all trades
-      const sweeps = this.detectSweeps(allTrades);
+      // YOUR 3-CATEGORY SYSTEM: detectSweeps() now handles ALL classification
+      const allFlowTrades = this.detectSweeps(allTrades);
       
-      // Also detect individual large block trades
-      const blocks = this.detectBlocks(allTrades);
+      const sweepCount = allFlowTrades.filter(t => t.trade_type === 'SWEEP').length;
+      const blockCount = allFlowTrades.filter(t => t.trade_type === 'BLOCK').length;
+      const miniCount = allFlowTrades.filter(t => t.trade_type === 'MINI').length;
       
-      // Combine sweeps and blocks
-      const allFlowTrades = [...sweeps, ...blocks];
-      
-      console.log(`🌊 Detected ${sweeps.length} sweep patterns and ${blocks.length} block trades`);
+      console.log(`� Final Classification: ${sweepCount} sweeps, ${blockCount} blocks, ${miniCount} minis`);
       
       return allFlowTrades.sort((a, b) => b.total_premium - a.total_premium);
 
@@ -1922,7 +1963,116 @@ export class OptionsFlowService {
     }
   }
 
-
+  /**
+   * Classify all trades into SWEEP, BLOCK, or MINI based on exchange distribution
+   * SWEEP: 2+ exchanges within 3-second window for same contract
+   * BLOCK: Single exchange with $50K+ premium  
+   * MINI: Single exchange with <$50K premium
+   */
+  private classifyAllTrades(allTrades: any[]): ProcessedTrade[] {
+    console.log(`🎯 Starting trade classification for ${allTrades.length} trades`);
+    
+    if (allTrades.length === 0) {
+      return [];
+    }
+    
+    console.log(`🔍 DEBUG: Sample trade structure:`, allTrades[0]);
+    
+    // Deduplicate trades using a unique identifier to prevent infinite loops
+    const seenTrades = new Set<string>();
+    const uniqueTrades: any[] = [];
+    
+    for (const trade of allTrades) {
+      // Create a unique identifier for each trade
+      const tradeId = `${trade.ticker || trade.option_ticker}_${trade.timestamp || trade.sip_timestamp}_${trade.total_premium}_${trade.exchange}`;
+      
+      if (!seenTrades.has(tradeId)) {
+        seenTrades.add(tradeId);
+        uniqueTrades.push(trade);
+      }
+    }
+    
+    console.log(`🔍 After deduplication: ${uniqueTrades.length} unique trades (removed ${allTrades.length - uniqueTrades.length} duplicates)`);
+    
+    // Convert raw trades to proper format first
+    const convertedTrades = uniqueTrades.map(trade => {
+      // If already a ProcessedTrade with classification, don't reprocess
+      if (trade.trade_timestamp instanceof Date && trade.trade_type !== undefined) {
+        console.log(`♻️ Trade already classified: ${trade.ticker} - ${trade.trade_type}`);
+        return trade as ProcessedTrade;
+      }
+      
+      // Convert worker trade to ProcessedTrade format
+      console.log(`🔄 Converting worker trade: ${trade.ticker || trade.option_ticker} - $${trade.total_premium}`);
+      return {
+        ticker: trade.ticker || trade.option_ticker,
+        underlying_ticker: trade.underlying_ticker,
+        strike: trade.strike,
+        expiry: trade.expiry,
+        type: trade.type,
+        trade_size: trade.trade_size,
+        premium_per_contract: trade.premium_per_contract,
+        total_premium: trade.total_premium,
+        spot_price: trade.spot_price,
+        exchange: trade.exchange,
+        exchange_name: trade.exchange_name,
+        sip_timestamp: trade.sip_timestamp,
+        conditions: trade.conditions || [],
+        trade_timestamp: trade.trade_timestamp instanceof Date ? trade.trade_timestamp : new Date(trade.timestamp),
+        trade_type: undefined, // Will be classified
+        moneyness: trade.moneyness,
+        days_to_expiry: trade.days_to_expiry
+      } as ProcessedTrade;
+    });
+    
+    // Step 1: Detect sweeps (must be done first to identify cross-exchange patterns)
+    console.log(`🔍 Step 1: Detecting sweeps across exchanges...`);
+    const sweeps = this.detectSweeps(convertedTrades);
+    console.log(`📊 Found ${sweeps.length} SWEEP trades`);
+    
+    // Step 2: Create set of sweep trade keys to avoid double-classification
+    const sweepKeys = new Set<string>();
+    sweeps.forEach(sweep => {
+      const key = `${sweep.ticker}_${sweep.strike}_${sweep.type}_${sweep.expiry}_${sweep.trade_timestamp?.getTime()}`;
+      sweepKeys.add(key);
+    });
+    
+    // Step 3: Classify remaining trades as BLOCK or MINI
+    console.log(`🔍 Step 2: Classifying remaining trades as BLOCK/MINI...`);
+    const remainingTrades = convertedTrades.filter(trade => {
+      const key = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp?.getTime()}`;
+      return !sweepKeys.has(key);
+    });
+    
+    const classifiedRemaining = remainingTrades.map(trade => {
+      // Classify based on premium threshold
+      const isBlock = trade.total_premium >= 50000;
+      return {
+        ...trade,
+        trade_type: isBlock ? 'BLOCK' : 'MINI'
+      } as ProcessedTrade;
+    });
+    
+    const blocks = classifiedRemaining.filter(t => t.trade_type === 'BLOCK');
+    const minis = classifiedRemaining.filter(t => t.trade_type === 'MINI');
+    
+    console.log(`📊 Classification summary:`);
+    console.log(`   • SWEEPS: ${sweeps.length}`);
+    console.log(`   • BLOCKS: ${blocks.length}`);
+    console.log(`   • MINIS: ${minis.length}`);
+    console.log(`   • Total: ${sweeps.length + blocks.length + minis.length}`);
+    
+    // Combine all classified trades
+    const allClassified = [...sweeps, ...classifiedRemaining];
+    
+    // Debug: Check final trade types
+    console.log(`🔍 FINAL DEBUG: Sample classified trades:`);
+    allClassified.slice(0, 3).forEach((trade, i) => {
+      console.log(`   ${i+1}. ${trade.ticker} - Type: '${trade.trade_type}' - Premium: $${trade.total_premium}`);
+    });
+    
+    return allClassified.sort((a, b) => b.total_premium - a.total_premium);
+  }
 
   private detectBlocks(allTrades: any[]): ProcessedTrade[] {
     const blocks: ProcessedTrade[] = [];

@@ -29,7 +29,7 @@ interface ProcessedTrade {
   sequence_number?: number;
   conditions: number[];
   trade_timestamp: Date;
-  trade_type?: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'SPLIT';
+  trade_type?: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
   window_group?: string;
   related_trades?: string[];
   moneyness: 'ATM' | 'ITM' | 'OTM';
@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
             BLOCK: finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'BLOCK').length,
             SWEEP: finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'SWEEP').length,
             'MULTI-LEG': finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'MULTI-LEG').length,
-            SPLIT: finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'SPLIT').length,
+            MINI: finalTrades.filter((t: ProcessedTrade) => t.trade_type === 'MINI').length,
           },
           call_put_ratio: {
             calls: finalTrades.filter((t: ProcessedTrade) => t.type === 'call').length,

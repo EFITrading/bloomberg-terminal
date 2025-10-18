@@ -4,16 +4,15 @@ const https = require('https');
 // Simple worker that makes direct API calls to avoid module resolution issues
 if (parentPort) {
   try {
-    const { batch, workerIndex } = workerData;
-    const apiKey = process.env.POLYGON_API_KEY;
+    const { batch, workerIndex, apiKey } = workerData;
     
     console.log(`🔧 Worker ${workerIndex}: Processing ${batch.length} tickers`);
     
     if (!apiKey) {
-      console.error(`❌ Worker ${workerIndex}: POLYGON_API_KEY not found in environment variables`);
+      console.error(`❌ Worker ${workerIndex}: API key not provided in workerData`);
       parentPort.postMessage({
         success: false,
-        error: 'POLYGON_API_KEY not configured',
+        error: 'API key not configured',
         workerIndex: workerIndex
       });
       return;
@@ -216,16 +215,26 @@ if (parentPort) {
             success: true
           });
           
-          // Get current stock price for 5% ITM filtering
-          const priceUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${apiKey}`;
+          // Get CURRENT stock price for accurate 5% ITM filtering
           let spotPrice = 100; // Fallback
           
           try {
-            const priceResponse = await makePolygonRequest(priceUrl);
-            spotPrice = priceResponse.results?.[0]?.c || 100;
-            console.log(`💰 Worker ${workerIndex}: ${ticker} spot price $${spotPrice}`);
+            // Try current price first (real-time or latest)
+            const currentPriceUrl = `https://api.polygon.io/v2/last/trade/${ticker}?apikey=${apiKey}`;
+            let priceResponse = await makePolygonRequest(currentPriceUrl);
+            
+            if (priceResponse.results?.P) {
+              spotPrice = priceResponse.results.P;
+              console.log(`💰 Worker ${workerIndex}: ${ticker} LIVE price $${spotPrice} (real-time)`);
+            } else {
+              // Fallback to previous close if real-time unavailable
+              const prevPriceUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${apiKey}`;
+              priceResponse = await makePolygonRequest(prevPriceUrl);
+              spotPrice = priceResponse.results?.[0]?.c || 100;
+              console.log(`💰 Worker ${workerIndex}: ${ticker} previous close $${spotPrice} (fallback)`);
+            }
           } catch (e) {
-            console.warn(`⚠️ Worker ${workerIndex}: Could not get ${ticker} price, using fallback`);
+            console.warn(`⚠️ Worker ${workerIndex}: Could not get ${ticker} price, using fallback $${spotPrice}`);
           }
           
           // Get options contracts first, then check for trades (like original service)
@@ -234,26 +243,30 @@ if (parentPort) {
           const contractsResponse = await makePolygonRequest(contractsUrl);
           
           if (contractsResponse.results && contractsResponse.results.length > 0) {
-            // Apply YOUR 5% ITM FILTER before processing trades
+            // Apply PRECISE 5% ITM FILTER using current spot price
             const validContracts = contractsResponse.results.filter(contract => {
               const strike = contract.strike_price;
               const contractType = contract.contract_type?.toLowerCase();
               
               if (!strike || !contractType || spotPrice <= 0) return false;
               
-              // YOUR EXACT 5% ITM RULE: Only 5% ITM max + ALL OTM contracts
+              // PRECISE 5% ITM CALCULATION based on current spot price
+              const pctFromMoney = (strike - spotPrice) / spotPrice;
+              
               if (contractType === 'call') {
-                const percentFromATM = (strike - spotPrice) / spotPrice;
-                return percentFromATM >= -0.05; // Only 5% ITM max, unlimited OTM
+                // For CALLS: Strike > Spot = OTM (positive %), Strike < Spot = ITM (negative %)
+                // Allow: ALL OTM (pctFromMoney > 0) + up to 5% ITM (pctFromMoney >= -0.05)
+                return pctFromMoney >= -0.05;
               } else if (contractType === 'put') {
-                const percentFromATM = (strike - spotPrice) / spotPrice;
-                return percentFromATM <= 0.05; // Only 5% ITM max, unlimited OTM
+                // For PUTS: Strike < Spot = OTM (negative %), Strike > Spot = ITM (positive %)
+                // Allow: ALL OTM (pctFromMoney < 0) + up to 5% ITM (pctFromMoney <= 0.05)
+                return pctFromMoney <= 0.05;
               }
               
               return false;
             });
             
-            console.log(`🎯 Worker ${workerIndex}: ${ticker} - ${contractsResponse.results.length} → ${validContracts.length} contracts after 5% ITM filter`);
+            console.log(`🎯 Worker ${workerIndex}: ${ticker} @ $${spotPrice} - ${contractsResponse.results.length} → ${validContracts.length} contracts after PRECISE 5% ITM filter`);
             
             // ULTRA-FAST: Process ALL contracts in PARALLEL batches
             const contractsToScan = validContracts;
@@ -314,7 +327,29 @@ if (parentPort) {
                       const tradeSize = trade.size || 1;
                       const totalPremium = tradePrice * tradeSize * 100; // Multiply by 100 for options contract multiplier
                       const strikePrice = contract.strike_price || 0;
-                      const expiryDate = contract.expiration_date || '';
+                      // Get CORRECTED expiry date (fix 2024 -> 2025/2026 issue)
+                      let expiryDate = contract.expiration_date || '';
+                      
+                      // Fix year issue: if expiry shows 2024 but we're in 2025, correct it
+                      if (expiryDate && expiryDate.includes('2024')) {
+                        const currentYear = new Date().getFullYear();
+                        if (currentYear >= 2025) {
+                          // Check if this is likely a current/future expiry that got mislabeled
+                          const expiryTest = new Date(expiryDate);
+                          const monthDay = expiryTest.getMonth() * 100 + expiryTest.getDate();
+                          const currentMonthDay = new Date().getMonth() * 100 + new Date().getDate();
+                          
+                          // If expiry month/day is current or future, update year
+                          if (monthDay >= currentMonthDay) {
+                            expiryDate = expiryDate.replace('2024', currentYear.toString());
+                            console.log(`📅 Worker ${workerIndex}: Corrected expiry ${contract.expiration_date} → ${expiryDate}`);
+                          } else {
+                            // If it's clearly a past date, use next year
+                            expiryDate = expiryDate.replace('2024', (currentYear + 1).toString());
+                            console.log(`📅 Worker ${workerIndex}: Corrected expiry ${contract.expiration_date} → ${expiryDate} (next year)`);
+                          }
+                        }
+                      }
                       
                       // Get ACTUAL trade timestamp (sip_timestamp is most accurate)
                       const actualTradeTimestamp = trade.sip_timestamp || trade.participant_timestamp || trade.timestamp;
@@ -323,32 +358,10 @@ if (parentPort) {
                       // Get HISTORICAL spot price at the EXACT time of the trade (cached for performance)
                       const tradeTimeSpotPrice = await getHistoricalSpotPrice(ticker, actualTradeTimestamp, spotPrice);
                       
-                      // Apply YOUR EXACT TIER SYSTEM - Same as passesInstitutionalCriteria()
-                      const institutionalTiers = [
-                        { name: 'Tier 1: Premium institutional', minPrice: 8.00, minSize: 80 },
-                        { name: 'Tier 2: High-value large volume', minPrice: 7.00, minSize: 100 },
-                        { name: 'Tier 3: Mid-premium bulk', minPrice: 5.00, minSize: 150 },
-                        { name: 'Tier 4: Moderate premium large', minPrice: 3.50, minSize: 200 },
-                        { name: 'Tier 5: Lower premium large', minPrice: 2.50, minSize: 200 },
-                        { name: 'Tier 6: Small premium massive', minPrice: 1.00, minSize: 800 },
-                        { name: 'Tier 7: Penny options massive', minPrice: 0.50, minSize: 2000 },
-                        { name: 'Tier 8: Premium bypass', minPrice: 0.01, minSize: 20, minTotal: 50000 }
-                      ];
+                      // COLLECT ALL TRADES - Tier filtering will happen AFTER aggregation in main service
+                      // This allows sweep detection to work properly by aggregating small trades first
                       
-                      // Check if trade passes YOUR tier criteria
-                      const passesTierCriteria = institutionalTiers.some(tier => {
-                        const passesPrice = tradePrice >= tier.minPrice;
-                        const passesSize = tradeSize >= tier.minSize;
-                        const passesTotal = tier.minTotal ? totalPremium >= tier.minTotal : true;
-                        return passesPrice && passesSize && passesTotal;
-                      });
-                      
-                      // Skip trades that don't meet YOUR criteria
-                      if (!passesTierCriteria) {
-                        return null; // Filter out trades that don't meet your tiers
-                      }
-                      
-                      // Calculate days to expiry
+                      // Calculate days to expiry using CORRECTED expiry date
                       const daysToExpiry = expiryDate ? Math.max(0, Math.ceil((new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24))) : 0;
                       
                       // Calculate proper moneyness using HISTORICAL spot price
@@ -372,7 +385,7 @@ if (parentPort) {
                         trade_size: tradeSize,
                         premium_per_contract: tradePrice,
                         total_premium: totalPremium,
-                        trade_type: totalPremium >= 25000 ? 'BLOCK' : undefined,
+                        trade_type: undefined, // Will be classified later based on exchange distribution
                         trade_timestamp: tradeDate, // ACTUAL trade time, not current time
                         timestamp: tradeDate.toISOString(),
                         sip_timestamp: actualTradeTimestamp, // Include original nanosecond timestamp

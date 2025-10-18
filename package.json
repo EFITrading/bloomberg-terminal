@@ -203,7 +203,7 @@
     "lottie-react": "^2.4.1",
     "lru-cache": "^11.1.0",
     "lucide-react": "^0.542.0",
-    "mathjs": "^14.6.0",
+    "mathjs": "^14.9.1",
     "maxmind": "^5.0.0",
     "memcached": "^2.2.2",
     "memory-cache": "^0.2.0",

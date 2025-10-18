@@ -55,7 +55,7 @@ interface OptionsFlowData {
   total_premium: number;
   spot_price: number;
   exchange_name: string;
-  trade_type: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'SPLIT';
+  trade_type: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
   trade_timestamp: string;
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
@@ -69,7 +69,7 @@ interface OptionsFlowSummary {
     BLOCK: number;
     SWEEP: number;
     'MULTI-LEG': number;
-    SPLIT: number;
+    MINI: number;
   };
   call_put_ratio: {
     calls: number;
@@ -623,8 +623,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
               return daysToExpiry <= 7;
             case 'MULTI_LEG_ONLY':
               return trade.trade_type === 'MULTI-LEG';
-            case 'SPLIT_ONLY':
-              return trade.trade_type === 'SPLIT';
+            case 'MINI_ONLY':
+              return trade.trade_type === 'MINI';
             default:
               return true;
           }
@@ -738,7 +738,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       'BLOCK': 'bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold shadow-lg border border-blue-500',
       'SWEEP': 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold shadow-lg border border-yellow-400',
       'MULTI-LEG': 'bg-gradient-to-r from-purple-600 to-purple-700 text-white font-bold shadow-lg border border-purple-500',
-      'SPLIT': 'bg-gradient-to-r from-orange-600 to-orange-700 text-white font-bold shadow-lg border border-orange-500'
+      'MINI': 'bg-gradient-to-r from-green-600 to-green-700 text-white font-bold shadow-lg border border-green-500'
     };
     return colors[tradeType as keyof typeof colors] || 'bg-gradient-to-r from-gray-600 to-gray-700 text-white font-bold shadow-lg border border-gray-500';
   };
@@ -1172,21 +1172,21 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                     <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
                       <input
                         type="checkbox"
-                        checked={selectedUniqueFilters.includes('SPLIT_ONLY')}
+                        checked={selectedUniqueFilters.includes('MINI_ONLY')}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedUniqueFilters(prev => [...prev, 'SPLIT_ONLY']);
+                            setSelectedUniqueFilters(prev => [...prev, 'MINI_ONLY']);
                           } else {
-                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'SPLIT_ONLY'));
+                            setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'MINI_ONLY'));
                           }
                         }}
-                        className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                        className="w-5 h-5 text-green-600 bg-black border-green-500 rounded focus:ring-green-500"
                       />
                       <span className={`ml-3 text-lg font-medium transition-all duration-200 ${
-                        selectedUniqueFilters.includes('SPLIT_ONLY') 
-                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                        selectedUniqueFilters.includes('MINI_ONLY') 
+                          ? 'text-green-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
-                      }`}>Split Only</span>
+                      }`}>Mini Only</span>
                     </label>
                   </div>
                 </div>

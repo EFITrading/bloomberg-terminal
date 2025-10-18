@@ -13,7 +13,7 @@ interface OptionsFlowData {
   total_premium: number;
   spot_price: number;
   exchange_name: string;
-  trade_type: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'SPLIT';
+  trade_type: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
   trade_timestamp: string;
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
