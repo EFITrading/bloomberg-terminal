@@ -206,6 +206,9 @@ interface ProcessedTrade {
   related_trades?: string[];
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
+  // Volume and Open Interest fields
+  volume?: number;
+  open_interest?: number;
   // Fill analysis fields
   bid_price?: number;
   ask_price?: number;
@@ -254,6 +257,9 @@ export class OptionsFlowService {
     { name: 'Tier 7: Penny options massive', minPrice: 0.50, minSize: 2000 },
     { name: 'Tier 8: Premium bypass', minPrice: 0.01, minSize: 20, minTotal: 50000 }
   ];
+
+  // Filter configuration
+  private readonly MIN_PREMIUM_FILTER = 1000; // $1k minimum total premium
 
   constructor(apiKey: string) {
     if (!apiKey || apiKey.trim() === '') {
@@ -313,9 +319,9 @@ export class OptionsFlowService {
       const classifiedTrades = this.classifyAllTrades(allTrades);
       console.log(`✅ CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades`);
       
-      // Send classified trades to frontend if callback provided
+      // Send classified trades to frontend immediately (without waiting for volume/OI)
       if (onProgress && classifiedTrades.length > 0) {
-        console.log(`📡 Streaming ${classifiedTrades.length} CLASSIFIED trades to frontend`);
+        console.log(`� Streaming ${classifiedTrades.length} CLASSIFIED trades to frontend`);
         onProgress(classifiedTrades, `✅ Classification complete - sending ${classifiedTrades.length} trades`);
       }
       
@@ -351,6 +357,12 @@ export class OptionsFlowService {
         console.log(`🔍 CLASSIFYING FALLBACK TRADES: Analyzing ${fallbackTrades.length} trades...`);
         const classifiedFallback = this.classifyAllTrades(fallbackTrades);
         console.log(`✅ FALLBACK CLASSIFICATION COMPLETE: Classified ${classifiedFallback.length} trades`);
+        
+        // Send fallback trades immediately and enhance in background
+        if (onProgress) {
+          onProgress(classifiedFallback, `✅ Fallback scan complete - ${classifiedFallback.length} trades`);
+        }
+        
         return classifiedFallback;
       }
       
@@ -768,6 +780,11 @@ export class OptionsFlowService {
     const putsAfterFilter = filtered.filter(t => t.type === 'put').length;
     const callsAfterFilter = filtered.filter(t => t.type === 'call').length;
     console.log(`🎯 After YOUR tier criteria filter: ${filtered.length} trades (${putsAfterFilter} puts, ${callsAfterFilter} calls)`);
+
+    // MINIMUM PREMIUM FILTER: Only trades with $1k+ total premium
+    const beforePremiumFilter = filtered.length;
+    filtered = filtered.filter(trade => trade.total_premium >= this.MIN_PREMIUM_FILTER);
+    console.log(`💰 After $${this.MIN_PREMIUM_FILTER}+ premium filter: ${filtered.length} trades (removed ${beforePremiumFilter - filtered.length})`);
 
     // Classify trade types (BLOCK, SWEEP, MULTI-LEG, SPLIT)
     filtered = filtered.map(trade => this.classifyTradeType(trade));
@@ -2554,4 +2571,5 @@ export class OptionsFlowService {
     console.log(`🎯 BULK OPTIMIZATION COMPLETE: ${allTrades.length} trades from ${contracts.length} contracts for ${ticker}`);
     return allTrades;
   }
+
 }

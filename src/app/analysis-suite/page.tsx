@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import OpenInterestChart from '../../components/analytics/OpenInterestChart';
 import GEXScreener from '../../components/analytics/GEXScreener';
+import PremiumImbalanceScanner from '../../components/analytics/PremiumImbalanceScanner';
 
 export default function AnalysisSuite() {
   // Pass ticker and expiration to OpenInterestChart and get them back
@@ -141,6 +142,17 @@ export default function AnalysisSuite() {
           overflow: 'hidden'
         }}>
           <GEXScreener />
+        </div>
+
+        {/* Premium Imbalance Scanner Panel */}
+        <div style={{
+          background: 'rgba(0, 0, 0, 0.95)',
+          borderRadius: '0px',
+          marginTop: '20px',
+          border: '1px solid #333',
+          overflow: 'hidden'
+        }}>
+          <PremiumImbalanceScanner />
         </div>
       </div>
     </div>

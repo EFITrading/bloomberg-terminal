@@ -2,8 +2,28 @@
 
 import '../terminal.css';
 import Footer from '@/components/terminal/Footer';
+import AlgoFlowScreener from '@/components/AlgoFlowScreener';
+import { useState } from 'react';
 
 function AISuiteContent() {
+  const [activeView, setActiveView] = useState<'overview' | 'algoflow'>('algoflow');
+
+  if (activeView === 'algoflow') {
+    return (
+      <div className="min-h-screen">
+        <div className="fixed top-4 left-4 z-50">
+          <button
+            onClick={() => setActiveView('overview')}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg border border-gray-600 transition-all duration-200"
+          >
+            ← Back to AI Suite
+          </button>
+        </div>
+        <AlgoFlowScreener />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 bg-gray-900 text-white rounded-lg max-w-6xl mx-auto">
       <div className="text-center mb-8">
@@ -16,6 +36,29 @@ function AISuiteContent() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* AlgoFlow - New Featured Tool */}
+        <div 
+          className="bg-gray-800 p-6 rounded-lg border border-orange-500/30 cursor-pointer hover:border-orange-500/60 transition-all duration-300 hover:scale-105"
+          onClick={() => setActiveView('algoflow')}
+        >
+          <div className="flex items-center mb-4">
+            <div className="w-3 h-3 bg-orange-500 rounded-full mr-3 animate-pulse"></div>
+            <h3 className="text-xl font-semibold text-orange-400">Algo Flow</h3>
+          </div>
+          <p className="text-gray-300 mb-4">
+            Real-time options sweeps & blocks detection using live Polygon data to identify institutional flow.
+          </p>
+          <div className="text-sm text-gray-400">
+            • Live options sweeps
+            • Block trade detection
+            • Institutional flow analysis
+            • Real-time scoring
+          </div>
+          <div className="mt-4 px-3 py-1 bg-orange-500/20 text-orange-400 text-xs rounded-full inline-block">
+            LIVE DATA
+          </div>
+        </div>
+
         {/* Market Analysis */}
         <div className="bg-gray-800 p-6 rounded-lg border border-blue-500/30">
           <div className="flex items-center mb-4">
@@ -95,22 +138,6 @@ function AISuiteContent() {
             • Correlation analysis
           </div>
         </div>
-
-        {/* Data Intelligence */}
-        <div className="bg-gray-800 p-6 rounded-lg border border-cyan-500/30">
-          <div className="flex items-center mb-4">
-            <div className="w-3 h-3 bg-cyan-500 rounded-full mr-3"></div>
-            <h3 className="text-xl font-semibold text-cyan-400">Data Intelligence</h3>
-          </div>
-          <p className="text-gray-300 mb-4">
-            Comprehensive data analysis and visualization with AI-powered insights.
-          </p>
-          <div className="text-sm text-gray-400">
-            • Data mining
-            • Pattern analysis
-            • Automated reporting
-          </div>
-        </div>
       </div>
 
       <div className="mt-8 p-6 bg-gray-800 rounded-lg border border-gray-600">
@@ -118,6 +145,9 @@ function AISuiteContent() {
           Available Tools
         </h4>
         <div className="text-center text-gray-300">
+          <p className="mb-2">
+            <strong className="text-orange-400">Algo Flow</strong> - Live options flow analysis with real Polygon data
+          </p>
           <p className="mb-2">
             For <strong>Options Probability Calculations</strong> and <strong>Expected Range Analysis</strong>, 
             visit the <span className="text-blue-400 font-semibold">Market Overview</span> page and click the 

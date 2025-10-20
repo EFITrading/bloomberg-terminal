@@ -829,15 +829,16 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
       return 0;
     }
     
-    // Use REAL implied volatility from Polygon market data (like OptionsStrat)
-    let impliedVolatility = 0.25; // Fallback
-    if (yourOption?.impliedVolatility > 0) {
-      impliedVolatility = yourOption.impliedVolatility;
-      console.log(`🔍 ✅ Using REAL Polygon IV: ${(impliedVolatility * 100).toFixed(1)}% for ${yourOptionKey}`);
-    } else {
-      console.log(`⚠️ ❌ No real IV from Polygon for ${yourOptionKey}, using fallback ${(impliedVolatility * 100).toFixed(1)}%`);
+    // Use REAL implied volatility from Polygon market data only
+    if (!yourOption?.impliedVolatility || yourOption.impliedVolatility <= 0) {
+      console.log(`⚠️ ❌ No real IV from Polygon for ${yourOptionKey}, cannot calculate without real data`);
       console.log(`🔍 Debug yourOption data:`, yourOption);
+      return 0; // Return 0 instead of using fake fallback data
     }
+    
+    const impliedVolatility = yourOption.impliedVolatility;
+    console.log(`🔍 ✅ Using REAL Polygon IV: ${(impliedVolatility * 100).toFixed(1)}% for ${yourOptionKey}`);
+    
     
     // Time to expiration in years
     const timeToExpiry = daysToExp / 365;
@@ -1653,10 +1654,17 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
                             // Only calculate if we have all required data
                             if (currentPrice > 0 && selectedStrike && customPremium && customPremium > 0) {
                               try {
-                                // Get implied volatility from real options data
+                                // Get implied volatility from real options data only
                                 const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
                                 const realOption = realOptionsData[key];
-                                const impliedVol = realOption?.impliedVolatility || 0.25; // Default 25% IV
+                                
+                                // Skip calculation if no real IV data available
+                                if (!realOption?.impliedVolatility || realOption.impliedVolatility <= 0) {
+                                  console.log(`⚠️ No real IV data for ${key}, skipping P&L calculation`);
+                                  return null; // Return null for missing IV data
+                                }
+                                
+                                const impliedVol = realOption.impliedVolatility;
                                 
                                 // Calculate current DTE for baseline
                                 const expDate = new Date(selectedExpiration);

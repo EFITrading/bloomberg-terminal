@@ -134,8 +134,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false);
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
-  const [optionsData, setOptionsData] = useState<Record<string, { volume: number; open_interest: number }>>({});
-  const [optionsLoading, setOptionsLoading] = useState<Record<string, boolean>>({});
   
 
 
@@ -222,146 +220,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     });
   };
 
-  // Fetch options volume and OI data for specific strikes/expirations
-  const fetchOptionsData = async (trades: OptionsFlowData[]) => {
-    console.log('🔍 Fetching options volume/OI data...');
-    
-    // Group trades by ticker to minimize API calls
-    const tickerGroups: Record<string, OptionsFlowData[]> = {};
-    trades.forEach(trade => {
-      if (!tickerGroups[trade.underlying_ticker]) {
-        tickerGroups[trade.underlying_ticker] = [];
-      }
-      tickerGroups[trade.underlying_ticker].push(trade);
-    });
-
-    for (const [ticker, tickerTrades] of Object.entries(tickerGroups)) {
-      try {
-        console.log(`📊 Fetching options data for ${ticker}...`);
-        
-        // Set loading state for all trades of this ticker
-        const loadingUpdate: Record<string, boolean> = {};
-        tickerTrades.forEach(trade => {
-          const key = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}`;
-          loadingUpdate[key] = true;
-        });
-        setOptionsLoading(prev => ({ ...prev, ...loadingUpdate }));
-
-        // Fetch all options for this ticker using proper API endpoint with error handling
-        let allOptions: any[] = [];
-        
-        try {
-          // Use the backend API endpoint instead of direct Polygon call
-          const response: Response = await fetch(`/api/polygon-options?ticker=${ticker}`, {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-              'Cache-Control': 'no-cache'
-            },
-            // Add timeout for better error handling
-            signal: AbortSignal.timeout(10000) // 10 second timeout
-          });
-
-          if (!response.ok) {
-            console.error(`❌ HTTP error for ${ticker}:`, response.status, response.statusText);
-            console.error(`❌ Options data unavailable for ${ticker} - API error`);
-            continue;
-          }
-          
-          const data: any = await response.json();
-          console.log(`📦 Got options response for ${ticker}:`, data.success ? 'Success' : 'Failed');
-          
-          if (data.success && data.volume !== undefined) {
-            // Convert single ticker response to expected format
-            allOptions = [{
-              details: {
-                strike_price: tickerTrades[0].strike,
-                expiration_date: tickerTrades[0].expiry,
-                contract_type: tickerTrades[0].type
-              },
-              day: {
-                volume: data.volume,
-                open_interest: data.open_interest || 0
-              }
-            }];
-          }
-          
-          // Rate limiting to prevent overwhelming the API
-          await new Promise(resolve => setTimeout(resolve, 200));
-          
-        } catch (fetchError) {
-          if (fetchError instanceof Error) {
-            if (fetchError.name === 'AbortError') {
-              console.error(`⏰ Timeout error for ${ticker}`);
-            } else if (fetchError.message.includes('Failed to fetch') || 
-                       fetchError.message.includes('ERR_CONNECTION')) {
-              console.error(`🌐 Connection error for ${ticker}:`, fetchError.message);
-            } else {
-              console.error(`❌ Fetch error for ${ticker}:`, fetchError.message);
-            }
-          } else {
-            console.error(`❌ Unknown error for ${ticker}:`, fetchError);
-          }
-          continue;
-        }
-
-        console.log(`📋 Total options fetched for ${ticker}: ${allOptions.length}`);
-
-        // Match options to trades
-        const optionsUpdate: Record<string, { volume: number; open_interest: number }> = {};
-        
-        tickerTrades.forEach(trade => {
-          const key = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}`;
-          
-          // Find matching option contract
-          const matchingOption = allOptions.find(option => {
-            if (!option.details) return false;
-            
-            const optionStrike = option.details.strike_price;
-            const optionExpiry = option.details.expiration_date;
-            const optionType = option.details.contract_type?.toLowerCase();
-            
-            return (
-              Math.abs(optionStrike - trade.strike) < 0.01 && // Strike match (allow small floating point diff)
-              optionExpiry === trade.expiry && // Exact expiry match
-              optionType === trade.type // Type match
-            );
-          });
-
-          if (matchingOption) {
-            optionsUpdate[key] = {
-              volume: matchingOption.day?.volume || 0,
-              open_interest: matchingOption.open_interest || 0
-            };
-            console.log(`✅ Found data for ${ticker} ${trade.strike} ${trade.type}: Vol=${matchingOption.day?.volume}, OI=${matchingOption.open_interest}`);
-          } else {
-            console.log(`❌ No match found for ${ticker} ${trade.strike} ${trade.type} ${trade.expiry}`);
-          }
-          
-          loadingUpdate[key] = false;
-        });
-
-        // Update state
-        setOptionsData(prev => ({ ...prev, ...optionsUpdate }));
-        setOptionsLoading(prev => ({ ...prev, ...loadingUpdate }));
-
-      } catch (error) {
-        console.error(`❌ Failed to fetch options data for ${ticker}:`, error);
-        
-        // Clear loading state on error
-        const errorUpdate: Record<string, boolean> = {};
-        tickerTrades.forEach(trade => {
-          const key = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}`;
-          errorUpdate[key] = false;
-        });
-        setOptionsLoading(prev => ({ ...prev, ...errorUpdate }));
-      }
-      
-      // Longer delay between tickers to reduce API load and prevent freezing
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  };
-
   // Fetch current prices when data changes (debounced)
   useEffect(() => {
     if (!data || data.length === 0) return;
@@ -372,11 +230,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       console.log(`📊 Starting API calls for ${tickers.length} unique tickers from ${data.length} trades`);
       
       fetchCurrentPrices(tickers);
-      
-      // Delay options data fetch to avoid overwhelming the API
-      setTimeout(() => {
-        fetchOptionsData(data);
-      }, 1000);
     }, 500); // 500ms debounce
     
     return () => clearTimeout(debounceTimer);
@@ -390,7 +243,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const interval = setInterval(() => {
       console.log('⏰ 5-minute timer: Refreshing stock prices...');
       const uniqueTickers = [...new Set(data.map(trade => trade.underlying_ticker))];
-      // Only refresh prices, not options data (too expensive)
+      // Only refresh prices
       fetchCurrentPrices(uniqueTickers);
     }, 5 * 60 * 1000); // 5 minutes
     
@@ -1342,6 +1195,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                 maxLength={10}
               />
             </div>
+            
             {/* Analysis Button */}
             <button
               onClick={() => {
@@ -1688,11 +1542,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                     Spot {'>>'}  Current {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="text-left p-6 bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black text-orange-400 font-bold text-xl border-r border-gray-700 shadow-lg shadow-black/50 backdrop-blur-sm"
-                  >
-                    VOL/OI
-                  </th>
-                  <th 
                     className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
                     onClick={() => handleSort('trade_type')}
                   >
@@ -1753,32 +1602,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                         isLoading={priceLoadingState[trade.underlying_ticker]}
                         ticker={trade.underlying_ticker}
                       />
-                    </td>
-                    <td className="p-6 text-xl text-white border-r border-gray-700/30">
-                      {optionsData[`${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}`] ? (
-                        (() => {
-                          const optionData = optionsData[`${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}`];
-                          const volume = optionData.volume || 0;
-                          const openInterest = optionData.open_interest || 0;
-                          const volHigher = volume > openInterest;
-                          const oiHigher = openInterest > volume;
-                          
-                          return (
-                            <div className="flex flex-col">
-                              <span className={`font-semibold ${volHigher ? 'text-yellow-400' : oiHigher ? 'text-purple-400' : 'text-blue-400'}`}>
-                                {volume.toLocaleString() || '--'}
-                              </span>
-                              <span className={`text-sm ${volHigher ? 'text-yellow-400' : oiHigher ? 'text-purple-400' : 'text-gray-400'}`}>
-                                {openInterest.toLocaleString() || '--'}
-                              </span>
-                            </div>
-                          );
-                        })()
-                      ) : optionsLoading[`${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}`] ? (
-                        <span className="text-gray-400 animate-pulse text-sm">Loading...</span>
-                      ) : (
-                        <span className="text-gray-500">--</span>
-                      )}
                     </td>
                     <td className="p-6">
                       <span className={`inline-block px-4 py-2 rounded-lg text-lg font-bold shadow-sm ${getTradeTypeColor(trade.trade_type)}`}>

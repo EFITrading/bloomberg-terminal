@@ -24,10 +24,10 @@ export async function GET(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Use Polygon's options snapshot endpoint for real-time volume and OI
+    // Use Polygon's options snapshot endpoint for options data
     const polygonUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${polygonApiKey}`;
     
-    console.log(`📊 Fetching Vol/OI for ${ticker} from Polygon snapshot API`);
+    console.log(`📊 Fetching options data for ${ticker} from Polygon snapshot API`);
     
     const response = await fetch(polygonUrl);
 
@@ -39,15 +39,10 @@ export async function GET(request: NextRequest) {
     const data = await response.json();
     console.log(`📊 Polygon response for ${ticker}:`, JSON.stringify(data, null, 2));
     
-    // Extract volume and open interest from Polygon snapshot response
-    const results = data.results;
-    const volume = results?.day?.volume || results?.last_quote?.volume || 0;
-    const open_interest = results?.open_interest || 0;
-
+    // Return the full options snapshot data
     return NextResponse.json({
       success: true,
-      volume,
-      open_interest,
+      data: data.results || [],
       ticker,
       source: 'polygon',
       timestamp: new Date().toISOString()

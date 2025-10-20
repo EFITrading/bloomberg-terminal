@@ -164,8 +164,14 @@ export default function GEXChart({
             if (result.success && result.data && result.data[expDate]) {
               const expirationData = result.data[expDate];
               
-              // Get current spot price (we'll use the first available strike as approximation)
-              const spotPrice = expirationData.underlying_price || 100; // fallback
+              // Get current spot price from real data only
+              const spotPrice = expirationData.underlying_price;
+              
+              // Skip if no real spot price available
+              if (!spotPrice) {
+                console.warn(`No real spot price for ${selectedTicker} on ${expDate}, skipping`);
+                continue;
+              }
               
               // Process calls for this expiration
               if (expirationData.calls) {

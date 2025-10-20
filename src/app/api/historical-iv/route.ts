@@ -46,34 +46,14 @@ export async function GET(request: NextRequest) {
     console.log(`Current average IV: ${currentIVPercent.toFixed(2)}%`);
     console.log(`Sample IVs: ${optionsWithIV.slice(0, 5).map((opt: any) => (opt.implied_volatility * 100).toFixed(1) + '%').join(', ')}`);
     
-    // Create historical data using this REAL current IV as endpoint
-    const historicalData = [];
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(endDate.getDate() - days);
-    
-    // Generate reasonable historical progression ending at real current IV
-    let runningIV = currentIVPercent;
-    
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() === 0 || d.getDay() === 6) continue;
-      
-      const dailyChange = (Math.random() - 0.5) * 0.8; // ±0.4% daily change
-      runningIV += dailyChange;
-      runningIV = Math.max(5, Math.min(100, runningIV)); // Keep reasonable bounds
-      
-      historicalData.push({
-        date: d.toISOString().split('T')[0],
-        iv30: Number(runningIV.toFixed(2)),
-        timestamp: d.getTime()
-      });
-    }
-    
-    // Ensure the last point is the REAL current IV
-    if (historicalData.length > 0) {
-      historicalData[historicalData.length - 1].iv30 = Number(currentIVPercent.toFixed(2));
-    }
-    
+    // Return only real current IV data - no fake historical generation
+    const today = new Date();
+    const historicalData = [{
+      date: today.toISOString().split('T')[0],
+      iv30: Number(currentIVPercent.toFixed(2)),
+      timestamp: today.getTime()
+    }];
+
     return NextResponse.json({
       success: true,
       data: historicalData,
@@ -83,7 +63,7 @@ export async function GET(request: NextRequest) {
         optionsAnalyzed: data.results.length,
         validIVOptions: optionsWithIV.length,
         dataPoints: historicalData.length,
-        note: `Real ${ticker} implied volatility from ${optionsWithIV.length} options contracts`
+        note: `Real ${ticker} current implied volatility from ${optionsWithIV.length} options contracts - no historical data generated`
       }
     });
     

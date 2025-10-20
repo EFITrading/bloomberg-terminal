@@ -112,7 +112,7 @@ allContracts.forEach((contract: any, index: number) => {
       lastPrice: 0, // Will be filled later with real pricing API
       volume: 0, // Will be filled later with real pricing API
       openInterest: 0, // Will be filled later with real pricing API
-      impliedVolatility: 0.25, // Fallback - will be updated with real pricing data
+      impliedVolatility: null, // Will be filled with real pricing data only
       ticker: contractTicker
     };
   }

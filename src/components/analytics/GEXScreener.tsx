@@ -47,19 +47,19 @@ export default function GEXScreener() {
   const [error, setError] = useState('');
   const [expirationFilter, setExpirationFilter] = useState('Default');
   
-  // Auto-refresh when expiration filter changes
-  useEffect(() => {
-    if (gexData.length > 0) { // Only auto-refresh if we already have data
-      fetchGEXData();
-    }
-  }, [expirationFilter]);
+  // Disabled auto-refresh on filter change to prevent flickering - user can manually refresh
+  // useEffect(() => {
+  //   if (gexData.length > 0) { // Only auto-refresh if we already have data
+  //     fetchGEXData();
+  //   }
+  // }, [expirationFilter]);
   
   // Function to fetch real GEX data with streaming updates
   const fetchGEXData = async () => {
     setLoading(true);
     setError('');
     setAnimationClass('animate-pulse');
-    setGexData([]); // Clear existing data
+    // Don't clear existing data to prevent flickering
     
     try {
       console.log(`🔄 Starting real-time GEX screener scan with ${expirationFilter} expiration filter...`);
@@ -79,6 +79,7 @@ export default function GEXScreener() {
 
       let buffer = '';
       const currentResults: GEXScreenerData[] = [];
+      let isNewScan = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -100,6 +101,9 @@ export default function GEXScreener() {
                 case 'start':
                   console.log(`📊 Starting scan of ${messageData.total} symbols...`);
                   setScanProgress({ current: 0, total: messageData.total });
+                  isNewScan = true;
+                  // Clear results only when a new scan starts
+                  currentResults.length = 0;
                   break;
                   
                 case 'result':
@@ -127,7 +131,11 @@ export default function GEXScreener() {
                   
                   // Sort and update display by GEX Impact Score (highest impact first)
                   const sortedResults = [...currentResults].sort((a, b) => (b.gexImpactScore || 0) - (a.gexImpactScore || 0));
-                  setGexData(sortedResults);
+                  
+                  // Only update if this is a new scan or if we have no existing data
+                  if (isNewScan || gexData.length === 0) {
+                    setGexData(sortedResults);
+                  }
                   
                   const wallInfo = messageData.data.largestWall 
                     ? messageData.data.largestWall.cluster 
@@ -140,6 +148,9 @@ export default function GEXScreener() {
                 case 'complete':
                   console.log(`✅ GEX screener completed with ${messageData.count} results`);
                   setScanProgress({ current: messageData.count, total: messageData.count });
+                  // Set final sorted results
+                  const finalSortedResults = [...currentResults].sort((a, b) => (b.gexImpactScore || 0) - (a.gexImpactScore || 0));
+                  setGexData(finalSortedResults);
                   setLoading(false);
                   setAnimationClass('');
                   break;
@@ -194,15 +205,16 @@ export default function GEXScreener() {
     fetchGEXData();
   }, []);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (liveUpdate) {
-        // Refresh data every 5 minutes
-        fetchGEXData();
-      }
-    }, 300000); // 5 minutes
-    return () => clearInterval(interval);
-  }, [liveUpdate]);
+  // Disabled auto-refresh to prevent flickering - user can manually refresh
+  // useEffect(() => {
+  //   const interval = setInterval(() => {
+  //     if (liveUpdate) {
+  //       // Refresh data every 5 minutes
+  //       fetchGEXData();
+  //     }
+  //   }, 300000); // 5 minutes
+  //   return () => clearInterval(interval);
+  // }, [liveUpdate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-900 text-white">
@@ -504,6 +516,30 @@ export default function GEXScreener() {
         {/* Support/Resistance View */}
         {activeTab === 'support' && (
           <div>
+            {/* Loading Progress - Above Headers */}
+            {loading && (
+              <div className="text-center py-6 mb-4 bg-gray-900/50 rounded-lg mx-6">
+                <div className="space-y-4">
+                  <div className="text-orange-400 font-bold">
+                    🔄 Scanning for support/resistance walls... ({filteredGexData.filter(item => item.largestWall).length} walls found)
+                  </div>
+                  {scanProgress.total > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-sm text-gray-400">
+                        Progress: {scanProgress.current} / {scanProgress.total} ({Math.round((scanProgress.current / scanProgress.total) * 100)}%)
+                      </div>
+                      <div className="w-full bg-gray-800 rounded-full h-2 mx-auto max-w-md">
+                        <div 
+                          className="bg-gradient-to-r from-orange-500 to-orange-400 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${(scanProgress.current / scanProgress.total) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
             {/* Column Headers */}
             <div className="px-6 py-4 mb-4 border-b border-gray-700/30">
               <div className="flex items-center gap-8">
@@ -536,28 +572,6 @@ export default function GEXScreener() {
             </div>
 
             <div className="space-y-3">
-              {loading && (
-                <div className="text-center py-8">
-                  <div className="space-y-4">
-                    <div className="text-orange-400 font-bold">
-                      🔄 Scanning for support/resistance walls... ({filteredGexData.filter(item => item.largestWall).length} walls found)
-                    </div>
-                    {scanProgress.total > 0 && (
-                      <div className="space-y-2">
-                        <div className="text-sm text-gray-400">
-                          Progress: {scanProgress.current} / {scanProgress.total} ({Math.round((scanProgress.current / scanProgress.total) * 100)}%)
-                        </div>
-                        <div className="w-full bg-gray-800 rounded-full h-2 mx-auto max-w-md">
-                          <div 
-                            className="bg-gradient-to-r from-orange-500 to-orange-400 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${(scanProgress.current / scanProgress.total) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
               {error && (
                 <div className="text-center py-8">
                   <div className="text-red-400 font-bold">❌ {error}</div>
