@@ -447,7 +447,7 @@ export default function AlgoFlowScreener() {
     const ticker = trades[0].underlying_ticker;
     const currentPrice = trades[0].spot_price;
 
-    // Convert to ProcessedTrade format for your classification system
+    // Convert to ProcessedTrade format - PRESERVE API CLASSIFICATION
     const processedTrades = trades.map(trade => ({
       ticker: trade.underlying_ticker + trade.strike + trade.expiry + (trade.type === 'call' ? 'C' : 'P'),
       underlying_ticker: trade.underlying_ticker,
@@ -458,12 +458,12 @@ export default function AlgoFlowScreener() {
       premium_per_contract: trade.premium_per_contract,
       total_premium: trade.total_premium,
       spot_price: trade.spot_price,
-      exchange: trade.exchange_name ? 1 : 0, // Default exchange for classification
+      exchange: trade.exchange || 0,
       exchange_name: trade.exchange_name || 'UNKNOWN',
       sip_timestamp: Date.now() * 1000000,
       conditions: [],
       trade_timestamp: new Date(trade.trade_timestamp),
-      trade_type: trade.trade_type,
+      trade_type: trade.trade_type, // PRESERVE from API
       moneyness: trade.moneyness,
       days_to_expiry: trade.days_to_expiry
     }));
@@ -506,8 +506,9 @@ export default function AlgoFlowScreener() {
       return { ...trade, tier };
     });
 
-    // YOUR SWEEP vs BLOCK vs MINI DETECTION using 3-second window
-    const classifiedTrades = detectSweepsAndBlocks(tieredTrades);
+    // SKIP CLIENT-SIDE CLASSIFICATION - API already classified as SWEEP/BLOCK/MINI
+    // Use API's classification directly instead of reclassifying
+    const classifiedTrades = tieredTrades;
 
     // BID/ASK EXECUTION ANALYSIS - Analyze ALL trades for bullish/bearish execution
     const tradesWithExecution = await analyzeBidAskExecutionLightning(classifiedTrades);
