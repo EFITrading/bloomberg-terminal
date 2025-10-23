@@ -1442,118 +1442,91 @@ export class OptionsFlowService {
 
  // LIVE STREAMING METHOD: Get only TODAY's real-time trades, no fallback
  async fetchLiveStreamingTrades(ticker: string): Promise<ProcessedTrade[]> {
- console.log(` LIVE STREAMING: Fetching ${ticker} real-time options trades`);
+ console.log(` LIVE STREAMING: Fetching ALL ${ticker} options trades from today`);
  
- // Get today's market open timestamp
  const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
- const todayStart = new Date(marketOpenTimestamp);
- const now = new Date();
- 
- console.log(` Live data range: ${todayStart.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET → ${now.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+ const todayDateStr = new Date(marketOpenTimestamp).toISOString().split('T')[0];
+ const now = Date.now();
  
  try {
- // Use Polygon's aggregates endpoint for TODAY's options activity
- const todayDateStr = todayStart.toISOString().split('T')[0]; // YYYY-MM-DD format
+ // CORRECT APPROACH: Get snapshot first to find active contracts, then batch fetch their trades
+ const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`;
  
- // Get options chains with proper API limits
- const chainUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&apikey=${this.polygonApiKey}`;
+ const snapshotResponse = await fetch(snapshotUrl);
+ const snapshotData = await snapshotResponse.json();
  
- console.log(` Fetching options chain for ${ticker}...`);
- const chainResponse = await fetch(chainUrl);
- const chainData = await chainResponse.json();
- 
- if (!chainData.results || chainData.results.length === 0) {
- console.log(` No options contracts found for ${ticker}`);
+ if (!snapshotData.results || snapshotData.results.length === 0) {
+ console.log(` No options contracts for ${ticker}`);
  return [];
  }
  
+ console.log(` Found ${snapshotData.results.length} active contracts for ${ticker}`);
+ 
+ // Filter to contracts with recent activity (volume > 0 or open interest > 0)
+ const activeContracts = snapshotData.results.filter((opt: any) => 
+ (opt.day?.volume || 0) > 0 || (opt.open_interest || 0) > 0
+ );
+ 
+ console.log(` ${activeContracts.length} contracts have activity today`);
+ 
  const liveTradesResults: ProcessedTrade[] = [];
  
- // Process ALL contracts - no artificial expiration or count limits
- const allContracts = chainData.results.filter((contract: any) => {
- // Only filter out expired contracts
- const expiry = new Date(contract.expiration_date);
- const daysToExpiry = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
- return daysToExpiry > 0; // Not expired
- });
+ // Batch process active contracts - 5 at a time for Vercel
+ const BATCH_SIZE = 5;
+ for (let i = 0; i < activeContracts.length; i += BATCH_SIZE) {
+ const batch = activeContracts.slice(i, i + BATCH_SIZE);
  
- console.log(` Processing ALL ${allContracts.length} active contracts for ${ticker} (all expirations)...`);
- 
- // FIXED: Process contracts in PARALLEL batches of 50 to avoid Vercel 10s timeout
- const BATCH_SIZE = 50;
- const batches = [];
- for (let i = 0; i < allContracts.length; i += BATCH_SIZE) {
- batches.push(allContracts.slice(i, i + BATCH_SIZE));
- }
- 
- console.log(` Processing ${allContracts.length} contracts in ${batches.length} parallel batches...`);
- 
- // Process all batches in parallel
- for (const batch of batches) {
- const batchPromises = batch.map(async (contract: any) => {
+ const batchPromises = batch.map(async (option: any) => {
  try {
- // Use trades endpoint with TODAY's timestamp filter
- const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp * 1000000}&apikey=${this.polygonApiKey}`;
+ const contractTicker = option.details.ticker;
+ const tradesUrl = `https://api.polygon.io/v3/trades/${contractTicker}?timestamp.gte=${marketOpenTimestamp * 1000000}&limit=500&apikey=${this.polygonApiKey}`;
  
  const tradesResponse = await fetch(tradesUrl);
  const tradesData = await tradesResponse.json();
  
  if (tradesData.results && tradesData.results.length > 0) {
- console.log(` ${contract.ticker}: Found ${tradesData.results.length} live trades`);
- 
- // Process each trade from today
- const contractTrades: ProcessedTrade[] = [];
- for (const trade of tradesData.results) {
- const tradeTime = new Date(trade.sip_timestamp / 1000000); // Convert nanoseconds
- 
- // Double-check this trade is from today
- if (tradeTime.getTime() >= marketOpenTimestamp) {
- const processedTrade: ProcessedTrade = {
- ticker: contract.ticker,
+ const contractTrades: ProcessedTrade[] = tradesData.results.map((trade: any) => ({
+ ticker: contractTicker,
  underlying_ticker: ticker,
- strike: contract.strike_price,
- expiry: contract.expiration_date,
- type: contract.contract_type.toLowerCase() as 'call' | 'put',
+ strike: option.details.strike_price,
+ expiry: option.details.expiration_date,
+ type: option.details.contract_type.toLowerCase() as 'call' | 'put',
  trade_size: trade.size,
  premium_per_contract: trade.price,
- total_premium: trade.price * trade.size * 100, // Options multiplier
- spot_price: 0, // Will be fetched separately if needed
+ total_premium: trade.price * trade.size * 100,
+ spot_price: 0,
  exchange: trade.exchange || 0,
  exchange_name: 'POLYGON',
  trade_type: 'SWEEP',
- trade_timestamp: tradeTime,
+ trade_timestamp: new Date(trade.sip_timestamp / 1000000),
  sip_timestamp: trade.sip_timestamp,
  conditions: trade.conditions || [],
  moneyness: 'OTM' as const,
- days_to_expiry: Math.ceil((new Date(contract.expiration_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
- };
+ days_to_expiry: Math.ceil((new Date(option.details.expiration_date).getTime() - now) / (1000 * 60 * 60 * 24))
+ }));
  
- contractTrades.push(processedTrade);
- }
- }
  return contractTrades;
  }
  return [];
- 
- } catch (error) {
- console.error(` Error fetching trades for contract ${contract.ticker}:`, error);
+ } catch (err) {
+ console.error(` Error fetching trades for contract:`, err);
  return [];
  }
  });
  
- // Wait for this batch to complete before moving to next batch
  const batchResults = await Promise.all(batchPromises);
  liveTradesResults.push(...batchResults.flat());
+ 
+ console.log(` Processed batch ${Math.floor(i / BATCH_SIZE) + 1}: ${liveTradesResults.length} total trades so far`);
  }
  
- // Sort by most recent first
  liveTradesResults.sort((a, b) => new Date(b.trade_timestamp).getTime() - new Date(a.trade_timestamp).getTime());
  
- console.log(` LIVE RESULT: Found ${liveTradesResults.length} real-time trades for ${ticker} from today`);
+ console.log(` FINAL: ${liveTradesResults.length} trades from ${activeContracts.length} active contracts for ${ticker}`);
  return liveTradesResults;
  
  } catch (error) {
- console.error(` Error in live streaming trades for ${ticker}:`, error);
+ console.error(` Error fetching trades for ${ticker}:`, error);
  return [];
  }
  }
