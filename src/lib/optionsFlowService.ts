@@ -1479,8 +1479,18 @@ export class OptionsFlowService {
  
  console.log(` Processing ALL ${allContracts.length} active contracts for ${ticker} (all expirations)...`);
  
- // Fetch trades for each contract from TODAY only
- for (const contract of allContracts) {
+ // FIXED: Process contracts in PARALLEL batches of 50 to avoid Vercel 10s timeout
+ const BATCH_SIZE = 50;
+ const batches = [];
+ for (let i = 0; i < allContracts.length; i += BATCH_SIZE) {
+ batches.push(allContracts.slice(i, i + BATCH_SIZE));
+ }
+ 
+ console.log(` Processing ${allContracts.length} contracts in ${batches.length} parallel batches...`);
+ 
+ // Process all batches in parallel
+ for (const batch of batches) {
+ const batchPromises = batch.map(async (contract: any) => {
  try {
  // Use trades endpoint with TODAY's timestamp filter
  const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp * 1000000}&apikey=${this.polygonApiKey}`;
@@ -1492,6 +1502,7 @@ export class OptionsFlowService {
  console.log(` ${contract.ticker}: Found ${tradesData.results.length} live trades`);
  
  // Process each trade from today
+ const contractTrades: ProcessedTrade[] = [];
  for (const trade of tradesData.results) {
  const tradeTime = new Date(trade.sip_timestamp / 1000000); // Convert nanoseconds
  
@@ -1517,17 +1528,22 @@ export class OptionsFlowService {
  days_to_expiry: Math.ceil((new Date(contract.expiration_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
  };
  
- liveTradesResults.push(processedTrade);
+ contractTrades.push(processedTrade);
  }
  }
+ return contractTrades;
  }
- 
- // Small delay to avoid rate limiting
- // No delay with unlimited API
+ return [];
  
  } catch (error) {
  console.error(` Error fetching trades for contract ${contract.ticker}:`, error);
+ return [];
  }
+ });
+ 
+ // Wait for this batch to complete before moving to next batch
+ const batchResults = await Promise.all(batchPromises);
+ liveTradesResults.push(...batchResults.flat());
  }
  
  // Sort by most recent first
