@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, ReferenceLine } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, ReferenceLine, Tooltip, Legend } from 'recharts';
 import TradingViewChart from './trading/TradingViewChart';
 
 // Polygon API key for bid/ask analysis
@@ -115,6 +115,7 @@ interface OptionsFlowData {
   trade_timestamp: string;
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
+  fill_style?: 'A' | 'B' | 'AA' | 'BB' | 'N/A';
   volume?: number;
   open_interest?: number;
 }
@@ -159,64 +160,119 @@ interface AlgoFlowAnalysis {
   tier6Count: number;
   tier7Count: number;
   tier8Count: number;
+  // Trades with fill_style
+  trades: any[];
 }
 
 // BID/ASK EXECUTION ANALYSIS - Same logic as OptionsFlowTable intentions button
 // Lightning-fast analysis for massive datasets using pure statistical inference
 const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> => {
-  console.log(`⚡ LIGHTNING MODE: Instant analysis for ${trades.length} trades using AI inference`);
+  console.log(`⚡ REAL BID/ASK ANALYSIS: Fetching quotes for ${trades.length} trades`);
   
   if (trades.length === 0) return trades;
   
-  // For truly massive datasets (>10k trades), use pure statistical inference
-  if (trades.length > 10000) {
-    console.log(`🧠 MEGA DATASET DETECTED: Using pure AI inference (no API calls needed)`);
+  const tradesWithFillStyle: any[] = [];
+  
+  // Process in batches to avoid rate limiting
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+    const batch = trades.slice(i, i + BATCH_SIZE);
     
-    return trades.map(trade => {
-      // Advanced heuristics based on market behavior patterns
-      const premiumSize = trade.total_premium;
-      const tradeSize = trade.trade_size;
-      const moneyness = Math.abs(trade.strike - trade.spot_price) / trade.spot_price;
-      const premiumPerContract = trade.premium_per_contract;
-      
-      // Large institutional trades tend to be more aggressive
-      const isInstitutional = premiumSize > 500000 || tradeSize > 1000;
-      const isNearMoney = moneyness < 0.05;
-      const isHighPremium = premiumPerContract > 5.0;
-      
-      // Time-based patterns
-      const tradeHour = new Date(trade.trade_timestamp).getHours();
-      const isMarketOpen = tradeHour >= 9 && tradeHour <= 16;
-      const isOpeningBell = tradeHour === 9;
-      const isClosingTime = tradeHour >= 15;
-      
-      let executionType = 'NEUTRAL';
-      
-      if (isInstitutional && isNearMoney) {
-        // Large near-the-money trades are usually directional
-        executionType = 'BULLISH';
-      } else if (isHighPremium && isMarketOpen) {
-        // High premium trades during market hours tend to be aggressive
-        executionType = trade.type === 'call' ? 'BULLISH' : 'BEARISH';
-      } else if (isOpeningBell || isClosingTime) {
-        // Opening and closing tend to have more aggressive execution
-        if (premiumSize > 100000) {
-          executionType = 'BULLISH';
+    const batchPromises = batch.map(async (trade, index) => {
+      try {
+        // Create option ticker format
+        const expiry = trade.expiry.replace(/-/g, '').slice(2); // Convert 2025-10-10 to 251010
+        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+        const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+        
+        // Parse trade time and get quote at exact trade timestamp
+        const tradeTime = new Date(trade.trade_timestamp);
+        const checkTimestamp = tradeTime.getTime() * 1000000; // Convert to nanoseconds
+        
+        // Get quote at exact trade timestamp
+        const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+        
+        if (index === 0) {
+          console.log(`🔍 Sample request: ${optionTicker}`, {
+            expiry: trade.expiry,
+            strike: trade.strike,
+            ticker: trade.underlying_ticker,
+            timestamp: checkTimestamp
+          });
         }
-      } else if (moneyness > 0.15) {
-        // Far OTM trades are often speculative (neutral)
-        executionType = 'NEUTRAL';
-      } else if (premiumSize > 200000) {
-        // Large trades tend to be more directional
-        executionType = 'BULLISH';
+        
+        const response = await fetch(quotesUrl);
+        const data = await response.json();
+        
+        if (index === 0) {
+          console.log(`📊 Sample response:`, data);
+        }
+        
+        if (data.results && data.results.length > 0) {
+          const quote = data.results[0];
+          const bid = quote.bid_price;
+          const ask = quote.ask_price;
+          const fillPrice = trade.premium_per_contract;
+          
+          if (bid && ask && fillPrice) {
+            let fillStyle = 'N/A';
+            
+            // Calculate spread and midpoint
+            const spread = ask - bid;
+            const midpoint = (bid + ask) / 2;
+            
+            // Check for above ask (aggressive buying)
+            if (fillPrice > ask) {
+              fillStyle = 'AA'; // Above ask
+            }
+            // Check for below bid (aggressive selling)
+            else if (fillPrice < bid) {
+              fillStyle = 'BB'; // Below bid
+            }
+            // Midpoint rounding logic - round up to ask or down to bid
+            else {
+              // If fill is at midpoint or above, classify as Ask
+              if (fillPrice >= midpoint) {
+                fillStyle = 'A'; // At ask (midpoint rounds up)
+              } else {
+                fillStyle = 'B'; // At bid (below midpoint)
+              }
+            }
+            
+            if (index === 0) {
+              console.log(`✅ Fill style determined: ${fillStyle}`, { bid, ask, fillPrice, midpoint, spread });
+            }
+            
+            return { ...trade, fill_style: fillStyle };
+          }
+        }
+        
+        if (index === 0) {
+          console.log(`⚠️ No quote data found`);
+        }
+        
+        return { ...trade, fill_style: 'N/A' };
+      } catch (error) {
+        console.error(`Error analyzing trade ${trade.underlying_ticker}:`, error);
+        return { ...trade, fill_style: 'N/A' };
       }
-      
-      return { ...trade, executionType };
     });
+    
+    const batchResults = await Promise.all(batchPromises);
+    tradesWithFillStyle.push(...batchResults);
+    
+    // Small delay between batches to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
   
-  // For smaller datasets, use the advanced parallel analysis
-  return analyzeBidAskExecutionAdvanced(trades);
+  console.log(`✅ Analysis complete. Sample trades with fill_style:`, tradesWithFillStyle.slice(0, 3).map(t => ({
+    ticker: t.underlying_ticker,
+    fill_style: t.fill_style,
+    premium: t.premium_per_contract
+  })));
+  
+  return tradesWithFillStyle;
 };
 const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => {
   console.log(`� Starting ULTRA-FAST parallel bid/ask analysis for ${trades.length} trades`);
@@ -439,6 +495,12 @@ export default function AlgoFlowScreener() {
   const [error, setError] = useState('');
   const [streamStatus, setStreamStatus] = useState('');
   const [timeInterval, setTimeInterval] = useState<'5min' | '15min' | '30min' | '1hour'>('1hour');
+  
+  // Pagination and sorting state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortColumn, setSortColumn] = useState<string>('trade_timestamp');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const TRADES_PER_PAGE = 50;
 
   // Calculate algo flow analysis using YOUR REAL tier system and SWEEP/BLOCK detection
   const calculateAlgoFlowAnalysis = async (trades: OptionsFlowData[]): Promise<AlgoFlowAnalysis | null> => {
@@ -458,7 +520,7 @@ export default function AlgoFlowScreener() {
       premium_per_contract: trade.premium_per_contract,
       total_premium: trade.total_premium,
       spot_price: trade.spot_price,
-      exchange: trade.exchange || 0,
+      exchange: 0, // Not used for API-classified trades
       exchange_name: trade.exchange_name || 'UNKNOWN',
       sip_timestamp: Date.now() * 1000000,
       conditions: [],
@@ -787,7 +849,9 @@ export default function AlgoFlowScreener() {
       tier5Count,
       tier6Count,
       tier7Count,
-      tier8Count
+      tier8Count,
+      // Return trades with fill_style
+      trades: tradesWithExecution
     };
   };
 
@@ -923,52 +987,41 @@ export default function AlgoFlowScreener() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">AlgoFlow Screener</h1>
-          <p className="text-zinc-400">Analyze options flow for specific tickers</p>
-        </div>
-      </div>
-
-      {/* Ticker Search */}
-      <Card className="bg-zinc-900/50 border-zinc-800">
+      {/* Ticker Search - Enhanced */}
+      <Card className="bg-black border-2 border-white/20">
         <CardContent className="p-6">
           <div className="flex gap-4 items-center">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-zinc-300 mb-2">
-                Enter Ticker Symbol
-              </label>
               <input
                 type="text"
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value.toUpperCase())}
                 onKeyPress={handleKeyPress}
-                placeholder="e.g., AAPL, TSLA, SPY..."
-                className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                placeholder="Enter Ticker Symbol"
+                className="w-full px-6 py-4 bg-black border-2 border-white/40 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 font-black text-xl tracking-wider"
                 disabled={loading}
               />
             </div>
-            <div className="pt-7">
+            <div>
               <button
                 onClick={handleSearch}
                 disabled={loading || !ticker.trim()}
-                className="px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-500 text-white rounded-lg font-medium hover:from-orange-700 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="px-10 py-4 bg-gradient-to-r from-orange-600 to-orange-500 text-white rounded-lg font-black text-lg tracking-wider hover:from-orange-700 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-500/50"
               >
-                {loading ? (isAnalyzing ? 'Analyzing Bid/Ask Execution...' : 'Finding Trades...') : 'Analyze Flow'}
+                {loading ? (isAnalyzing ? 'ANALYZING...' : 'SCANNING...') : 'ANALYZE FLOW'}
               </button>
             </div>
           </div>
           
           {streamStatus && (
-            <div className="mt-3 text-sm text-zinc-400">
-              Status: {streamStatus}
+            <div className="mt-3 text-sm text-white font-bold">
+              Status: <span className="text-orange-500">{streamStatus}</span>
             </div>
           )}
           
           {error && (
-            <div className="mt-3 text-sm text-red-400">
-              Error: {error}
+            <div className="mt-3 text-sm text-red-400 font-bold">
+              {error}
             </div>
           )}
         </CardContent>
@@ -1058,164 +1111,333 @@ export default function AlgoFlowScreener() {
               </Card>
             </div>
 
-            {/* Professional TradingView Stock Price Chart */}
+            {/* AlgoFlow Premium Flow Chart */}
             <Card className="bg-black border-zinc-700">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-white text-lg">{analysis.ticker}</CardTitle>
-                  <span className="text-blue-400 text-sm font-mono">${analysis.currentPrice.toFixed(2)}</span>
-                </div>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white text-2xl font-bold text-center">
+                  AlgoFlow Premium Analysis - {analysis.ticker} (${analysis.currentPrice.toFixed(2)})
+                </CardTitle>
               </CardHeader>
-              <CardContent className="bg-black p-0">
-                <div className="h-[400px] w-full relative">
-                  <TradingViewChart 
-                    symbol={analysis.ticker}
-                    initialTimeframe={timeInterval === '5min' ? '5m' : 
-                                    timeInterval === '15min' ? '15m' : 
-                                    timeInterval === '30min' ? '30m' : '1h'}
-                    height={400}
-                    onTimeframeChange={(tf) => {
-                      // Map TradingView timeframes back to our format
-                      if (tf === '5m') setTimeInterval('5min');
-                      else if (tf === '15m') setTimeInterval('15min');
-                      else if (tf === '30m') setTimeInterval('30min');
-                      else if (tf === '1h') setTimeInterval('1hour');
-                    }}
-                  />
+              <CardContent className="bg-black p-4">
+                <div className="h-[400px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={analysis.chartData}>
+                      <XAxis 
+                        dataKey="timeLabel" 
+                        stroke="#fff"
+                        tick={{ fill: '#fff', fontSize: 16 }}
+                        angle={-45}
+                        textAnchor="end"
+                        height={60}
+                        domain={['dataMin', 'dataMax']}
+                        allowDataOverflow={false}
+                      />
+                      <YAxis 
+                        stroke="#fff"
+                        tick={{ fill: '#fff', fontSize: 16 }}
+                        tickFormatter={(value) => {
+                          if (value >= 1000000) {
+                            return `$${(value / 1000000).toFixed(1)}M`;
+                          } else if (value >= 1000) {
+                            return `$${(value / 1000).toFixed(0)}K`;
+                          }
+                          return `$${value}`;
+                        }}
+                      />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '4px' }}
+                        labelStyle={{ color: '#fff' }}
+                        formatter={(value: any) => {
+                          const num = Number(value);
+                          if (num >= 1000000) {
+                            return `$${(num / 1000000).toFixed(2)}M`;
+                          } else if (num >= 1000) {
+                            return `$${(num / 1000).toFixed(1)}K`;
+                          }
+                          return `$${num.toLocaleString()}`;
+                        }}
+                      />
+                      <Legend 
+                        wrapperStyle={{ color: '#fff' }}
+                        iconType="line"
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="callsPlus" 
+                        stroke="#22c55e" 
+                        strokeWidth={2}
+                        name="Bullish Calls"
+                        dot={false}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="callsMinus" 
+                        stroke="#ef4444" 
+                        strokeWidth={2}
+                        name="Bearish Calls"
+                        dot={false}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="putsPlus" 
+                        stroke="#3b82f6" 
+                        strokeWidth={2}
+                        name="Bullish Puts"
+                        dot={false}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="putsMinus" 
+                        stroke="#f59e0b" 
+                        strokeWidth={2}
+                        name="Bearish Puts"
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Live C/P Flow Chart */}
-            <Card className="bg-black border-zinc-700">
-              <CardHeader className="flex flex-col items-center justify-center pb-4">
-                {/* Premium Title */}
-                <div className="flex flex-col items-center gap-2 mb-4">
-                  <CardTitle className="text-2xl font-bold tracking-wider text-center bg-gradient-to-r from-white via-gray-100 to-white bg-clip-text text-transparent drop-shadow-lg">
-                    LIVE C/P FLOW
-                  </CardTitle>
-                  <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-white to-transparent opacity-60"></div>
-                </div>
-                
-                {/* Legend and Controls Row */}
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-6 text-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-1 rounded-full" style={{backgroundColor: '#00FF00'}}></div>
-                      <span className="text-white font-medium">Calls+</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-1 rounded-full" style={{backgroundColor: '#8A2BE2'}}></div>
-                      <span className="text-white font-medium">Calls-</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-1 rounded-full" style={{backgroundColor: '#FF0000'}}></div>
-                      <span className="text-white font-medium">Puts+</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-1 rounded-full" style={{backgroundColor: '#FFFF00'}}></div>
-                      <span className="text-white font-medium">Puts-</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-white font-bold text-sm tracking-wide">INTERVAL:</span>
-                    <div className="flex bg-gradient-to-r from-slate-900 to-zinc-900 border-2 border-white/20 rounded-xl p-1 shadow-2xl backdrop-blur-sm">
-                      {(['5min', '15min', '30min', '1hour'] as const).map((interval) => (
-                        <button
-                          key={interval}
-                          onClick={() => setTimeInterval(interval)}
-                          className={`px-5 py-2.5 text-sm font-bold uppercase tracking-wider rounded-lg transition-all duration-300 transform ${
-                            timeInterval === interval 
-                              ? 'bg-gradient-to-r from-white to-gray-100 text-black shadow-xl scale-105 border-2 border-white/30' 
-                              : 'text-white/90 hover:text-white hover:bg-gradient-to-r hover:from-white/10 hover:to-white/5 hover:scale-102 hover:shadow-lg border-2 border-transparent hover:border-white/20'
-                          }`}
-                        >
-                          {interval}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+            {/* AlgoFlow Trades Table */}
+            <Card className="bg-black border-2 border-white/20">
+              <CardHeader className="bg-black border-b-2 border-white/20">
+                <CardTitle className="text-3xl font-black tracking-wider text-center text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
+                  ALGO FLOW TRADES
+                </CardTitle>
               </CardHeader>
               <CardContent className="bg-black p-0">
-                <div className="h-[1000px] w-full relative">
-                  <ResponsiveContainer width="100%" height={1000} minHeight={1000}>
-                    <AreaChart 
-                      data={analysis.chartData} 
-                      margin={{ top: 20, right: 10, left: 10, bottom: 80 }}
-                      style={{ backgroundColor: '#000000' }}
-                    >
-                      <YAxis 
-                        stroke="#FFFFFF"
-                        fontSize={12}
-                        tickFormatter={formatCurrency}
-                        domain={['dataMin', 'dataMax']}
-                        orientation="left"
-                        tickLine={true}
-                        axisLine={true}
-                        tick={{ fill: '#FFFFFF', fontSize: 11 }}
-                        width={70}
-                      />
-                      <XAxis 
-                        dataKey="time" 
-                        stroke="#FFFFFF"
-                        fontSize={12}
-                        tickLine={true}
-                        axisLine={true}
-                        tick={{ fill: '#FFFFFF', fontSize: 11 }}
-                        interval="preserveStartEnd"
-                        tickFormatter={(time: any) => {
-                          // Show more granular time formatting
-                          const date = new Date(time);
-                          const hours = date.getHours().toString().padStart(2, '0');
-                          const minutes = date.getMinutes().toString().padStart(2, '0');
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead className="bg-black sticky top-0 z-10">
+                      <tr className="border-b-2 border-white">
+                        <th 
+                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
+                          onClick={() => {
+                            if (sortColumn === 'trade_timestamp') {
+                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortColumn('trade_timestamp');
+                              setSortDirection('desc');
+                            }
+                          }}
+                        >
+                          TIME {sortColumn === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th 
+                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
+                          onClick={() => {
+                            if (sortColumn === 'underlying_ticker') {
+                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortColumn('underlying_ticker');
+                              setSortDirection('asc');
+                            }
+                          }}
+                        >
+                          SYMBOL {sortColumn === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th className="text-left p-4 text-white font-black text-base tracking-wider">TYPE</th>
+                        <th 
+                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
+                          onClick={() => {
+                            if (sortColumn === 'strike') {
+                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortColumn('strike');
+                              setSortDirection('desc');
+                            }
+                          }}
+                        >
+                          STRIKE {sortColumn === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th 
+                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
+                          onClick={() => {
+                            if (sortColumn === 'trade_size') {
+                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortColumn('trade_size');
+                              setSortDirection('desc');
+                            }
+                          }}
+                        >
+                          CONTRACT {sortColumn === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th 
+                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
+                          onClick={() => {
+                            if (sortColumn === 'total_premium') {
+                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortColumn('total_premium');
+                              setSortDirection('desc');
+                            }
+                          }}
+                        >
+                          PREMIUM {sortColumn === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th 
+                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
+                          onClick={() => {
+                            if (sortColumn === 'spot_price') {
+                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortColumn('spot_price');
+                              setSortDirection('desc');
+                            }
+                          }}
+                        >
+                          SPOT {sortColumn === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th className="text-left p-4 text-white font-black text-base tracking-wider">EXPIRY</th>
+                        <th className="text-left p-4 text-white font-black text-base tracking-wider">STYLE</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-black">
+                      {(() => {
+                        // Get trades to display
+                        const tradesToDisplay = analysis?.trades || flowData;
+                        
+                        // Sort trades
+                        const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
+                          let aVal = a[sortColumn];
+                          let bVal = b[sortColumn];
                           
-                          // Show every 15 minutes for better granularity
-                          if (minutes === '00' || minutes === '15' || minutes === '30' || minutes === '45') {
-                            return `${hours}:${minutes}`;
+                          // Handle timestamp sorting
+                          if (sortColumn === 'trade_timestamp') {
+                            aVal = new Date(aVal).getTime();
+                            bVal = new Date(bVal).getTime();
                           }
-                          return '';
-                        }}
-                        height={70}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="callsPlus"
-                        stroke="#00FF00"
-                        fill="none"
-                        strokeWidth={3}
-                        strokeOpacity={1}
-                        name="Calls+ (Bullish)"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="callsMinus"
-                        stroke="#8A2BE2"
-                        fill="none"
-                        strokeWidth={3}
-                        strokeOpacity={1}
-                        name="Calls- (Bearish)"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="putsPlus"
-                        stroke="#FF0000"
-                        fill="none"
-                        strokeWidth={3}
-                        strokeOpacity={1}
-                        name="Puts+ (Bullish)"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="putsMinus"
-                        stroke="#FFFF00"
-                        fill="none"
-                        strokeWidth={3}
-                        strokeOpacity={1}
-                        name="Puts- (Bearish)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                          
+                          if (sortDirection === 'asc') {
+                            return aVal > bVal ? 1 : -1;
+                          } else {
+                            return aVal < bVal ? 1 : -1;
+                          }
+                        });
+                        
+                        // Paginate trades
+                        const startIndex = (currentPage - 1) * TRADES_PER_PAGE;
+                        const endIndex = startIndex + TRADES_PER_PAGE;
+                        const paginatedTrades = sortedTrades.slice(startIndex, endIndex);
+                        
+                        return paginatedTrades.map((trade, idx) => {
+                          const tradeTypeColors = {
+                            'SWEEP': 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold',
+                            'BLOCK': 'bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold',
+                            'MINI': 'bg-gradient-to-r from-gray-500 to-gray-600 text-white font-bold',
+                            'MULTI-LEG': 'bg-gradient-to-r from-purple-500 to-purple-600 text-white font-bold'
+                          };
+
+                          // Fill style colors
+                          const fillColors: Record<string, string> = {
+                            'A': 'text-green-400 font-bold',
+                            'B': 'text-red-400 font-bold', 
+                            'AA': 'text-green-300 font-bold',
+                            'BB': 'text-red-300 font-bold',
+                            'N/A': 'text-gray-500'
+                          };
+                          
+                          return (
+                            <tr key={idx} className="border-b border-white/10 hover:bg-white/5 transition-colors">
+                              <td className="p-4 text-white font-medium">
+                                {new Date(trade.trade_timestamp).toLocaleTimeString('en-US', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                  timeZone: 'America/New_York'
+                                })}
+                              </td>
+                              <td className="p-4 text-white font-bold text-base">{trade.underlying_ticker}</td>
+                              <td className="p-4">
+                                <span className={`px-3 py-1.5 rounded-md ${trade.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'} font-bold text-sm`}>
+                                  {trade.type.toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="p-4 text-white font-bold">${trade.strike}</td>
+                              <td className="p-4 text-white font-bold">
+                                {trade.trade_size.toLocaleString()} @${trade.premium_per_contract.toFixed(2)} <span className={fillColors[trade.fill_style || 'N/A']}>{trade.fill_style || 'N/A'}</span>
+                              </td>
+                              <td className="p-4 text-white font-bold">${trade.total_premium.toLocaleString()}</td>
+                              <td className="p-4 text-white font-bold">${trade.spot_price?.toFixed(2) || 'N/A'}</td>
+                              <td className="p-4 text-white">
+                                {trade.expiry.split('T')[0]}
+                              </td>
+                              <td className="p-4">
+                                <span className={`px-3 py-1.5 rounded-md ${tradeTypeColors[trade.trade_type as keyof typeof tradeTypeColors] || tradeTypeColors['MINI']} text-sm`}>
+                                  {trade.trade_type || 'MINI'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                  
+                  {/* Pagination Controls */}
+                  {(() => {
+                    const tradesToDisplay = analysis?.trades || flowData;
+                    const totalPages = Math.ceil(tradesToDisplay.length / TRADES_PER_PAGE);
+                    
+                    if (totalPages > 1) {
+                      return (
+                        <div className="flex items-center justify-between p-4 border-t-2 border-white/20">
+                          <div className="text-white text-sm">
+                            Showing {((currentPage - 1) * TRADES_PER_PAGE) + 1} to {Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} of {tradesToDisplay.length} trades
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                              disabled={currentPage === 1}
+                              className="px-4 py-2 bg-white/10 text-white rounded hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Previous
+                            </button>
+                            <div className="flex gap-1">
+                              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                let pageNum;
+                                if (totalPages <= 5) {
+                                  pageNum = i + 1;
+                                } else if (currentPage <= 3) {
+                                  pageNum = i + 1;
+                                } else if (currentPage >= totalPages - 2) {
+                                  pageNum = totalPages - 4 + i;
+                                } else {
+                                  pageNum = currentPage - 2 + i;
+                                }
+                                
+                                return (
+                                  <button
+                                    key={pageNum}
+                                    onClick={() => setCurrentPage(pageNum)}
+                                    className={`px-3 py-2 rounded ${currentPage === pageNum ? 'bg-blue-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                                  >
+                                    {pageNum}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <button
+                              onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                              disabled={currentPage === totalPages}
+                              className="px-4 py-2 bg-white/10 text-white rounded hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                  
+                  {flowData.length === 0 && (
+                    <div className="p-12 text-center text-white/50 text-lg">
+                      No trades found. Search for a ticker to see algo flow trades.
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

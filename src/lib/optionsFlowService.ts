@@ -319,13 +319,17 @@ export class OptionsFlowService {
       const classifiedTrades = this.classifyAllTrades(allTrades);
       console.log(`✅ CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades`);
       
-      // Send classified trades to frontend immediately (without waiting for volume/OI)
-      if (onProgress && classifiedTrades.length > 0) {
-        console.log(`� Streaming ${classifiedTrades.length} CLASSIFIED trades to frontend`);
-        onProgress(classifiedTrades, `✅ Classification complete - sending ${classifiedTrades.length} trades`);
+      // Apply institutional filters (premium, ITM, market hours, etc.)
+      console.log(`🔍 FILTERING: Applying institutional criteria to ${classifiedTrades.length} trades...`);
+      const filteredTrades = this.filterAndClassifyTrades(classifiedTrades, ticker);
+      console.log(`✅ FILTERING COMPLETE: ${filteredTrades.length} trades passed filters`);
+      
+      // Send filtered trades to frontend
+      if (onProgress && filteredTrades.length > 0) {
+        onProgress(filteredTrades, `✅ Classification complete - sending ${filteredTrades.length} trades`);
       }
       
-      return classifiedTrades;
+      return filteredTrades;
       
     } catch (error) {
       console.error(`❌ PARALLEL PROCESSING ERROR:`, error);
@@ -758,15 +762,21 @@ export class OptionsFlowService {
       console.log(`📊 ALL ticker request - no ticker filtering applied`);
     }
     
-    // SWEEP DETECTION: Detect trades across multiple exchanges within time windows
-    console.log(`🔍 SWEEP DETECTION: Analyzing ${filtered.length} trades for sweep patterns...`);
-    filtered = this.detectSweeps(filtered);
-    console.log(`🧹 After sweep detection: ${filtered.length} trades with sweep classification`);
-    
-    // MULTI-LEG DETECTION: Detect complex options strategies
-    console.log(`🔍 MULTI-LEG DETECTION: Analyzing ${filtered.length} trades for multi-leg patterns...`);
-    filtered = this.detectMultiLegTrades(filtered);
-    console.log(`🦵 After multi-leg detection: ${filtered.length} trades with multi-leg classification`);
+    // Skip classification if trades are already classified (have trade_type)
+    const alreadyClassified = filtered.every(t => t.trade_type !== undefined);
+    if (!alreadyClassified) {
+      // SWEEP DETECTION: Detect trades across multiple exchanges within time windows
+      console.log(`🔍 SWEEP DETECTION: Analyzing ${filtered.length} trades for sweep patterns...`);
+      filtered = this.detectSweeps(filtered);
+      console.log(`🧹 After sweep detection: ${filtered.length} trades with sweep classification`);
+      
+      // MULTI-LEG DETECTION: Detect complex options strategies
+      console.log(`🔍 MULTI-LEG DETECTION: Analyzing ${filtered.length} trades for multi-leg patterns...`);
+      filtered = this.detectMultiLegTrades(filtered);
+      console.log(`🦵 After multi-leg detection: ${filtered.length} trades with multi-leg classification`);
+    } else {
+      console.log(`⏩ Trades already classified - skipping sweep/multi-leg detection`);
+    }
     
     // Count puts vs calls before institutional filtering
     const putsBeforeFilter = filtered.filter(t => t.type === 'put').length;
@@ -786,9 +796,11 @@ export class OptionsFlowService {
     filtered = filtered.filter(trade => trade.total_premium >= this.MIN_PREMIUM_FILTER);
     console.log(`💰 After $${this.MIN_PREMIUM_FILTER}+ premium filter: ${filtered.length} trades (removed ${beforePremiumFilter - filtered.length})`);
 
-    // Classify trade types (BLOCK, SWEEP, MULTI-LEG, SPLIT)
-    filtered = filtered.map(trade => this.classifyTradeType(trade));
-    console.log(`🏷️ After trade type classification: ${filtered.length} trades`);
+    // Classify trade types ONLY if not already classified
+    if (!alreadyClassified) {
+      filtered = filtered.map(trade => this.classifyTradeType(trade));
+      console.log(`🏷️ After trade type classification: ${filtered.length} trades`);
+    }
 
     // Filter out after-hours trades (market hours: 9:30 AM - 4:00 PM ET)
     filtered = filtered.filter(trade => this.isWithinMarketHours(trade.trade_timestamp));

@@ -140,13 +140,26 @@ if (parentPort) {
  const isMarketOpen = (day >= 1 && day <= 5) && (currentTime >= marketOpen && currentTime < marketClose);
  
  if (isMarketOpen) {
- // LIVE MODE: Market is open
- const todayMarketOpen = new Date(eastern);
- todayMarketOpen.setHours(9, 30, 0, 0);
+ // LIVE MODE: Market is open - Get 9:30 AM ET today
+ const year = eastern.getFullYear();
+ const month = eastern.getMonth() + 1;
+ const dayOfMonth = eastern.getDate();
+ 
+ // Determine if we're in EDT or EST
+ const isDST = now.toLocaleString('en-US', {
+ timeZone: 'America/New_York',
+ timeZoneName: 'short'
+ }).includes('EDT');
+ 
+ const tzOffset = isDST ? '-0400' : '-0500';
+ const dateStr = `${year}-${month.toString().padStart(2, '0')}-${dayOfMonth.toString().padStart(2, '0')} 09:30:00 GMT${tzOffset}`;
+ 
+ const todayMarketOpen = new Date(dateStr);
  const startTime = todayMarketOpen.getTime() * 1000000; // Convert to nanoseconds
  const endTime = now.getTime() * 1000000; // Current time in nanoseconds
  
  console.log(` Worker ${workerIndex}: LIVE MODE - Market is OPEN`);
+ console.log(` • Market Open: ${todayMarketOpen.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
  return { startTime, endTime, isLive: true, date: eastern.toISOString().split('T')[0] };
  } else {
  // HISTORICAL MODE: Market is closed
@@ -172,13 +185,29 @@ if (parentPort) {
  }
  
  // Create full trading day range (9:30 AM - 4:00 PM ET)
- const marketOpenTime = new Date(tradingDate);
- marketOpenTime.setHours(9, 30, 0, 0);
- const marketCloseTime = new Date(tradingDate);
- marketCloseTime.setHours(16, 0, 0, 0);
+ const year = tradingDate.getFullYear();
+ const month = tradingDate.getMonth() + 1;
+ const dayOfMonth = tradingDate.getDate();
+ 
+ // Determine if we're in EDT or EST for this date
+ const isDST = tradingDate.toLocaleString('en-US', {
+ timeZone: 'America/New_York',
+ timeZoneName: 'short'
+ }).includes('EDT');
+ 
+ const tzOffset = isDST ? '-0400' : '-0500';
+ 
+ const marketOpenStr = `${year}-${month.toString().padStart(2, '0')}-${dayOfMonth.toString().padStart(2, '0')} 09:30:00 GMT${tzOffset}`;
+ const marketCloseStr = `${year}-${month.toString().padStart(2, '0')}-${dayOfMonth.toString().padStart(2, '0')} 16:00:00 GMT${tzOffset}`;
+ 
+ const marketOpenTime = new Date(marketOpenStr);
+ const marketCloseTime = new Date(marketCloseStr);
  
  const startTime = marketOpenTime.getTime() * 1000000; // Convert to nanoseconds
  const endTime = marketCloseTime.getTime() * 1000000; // Convert to nanoseconds
+ 
+ console.log(` • Historical start: ${marketOpenTime.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
+ console.log(` • Historical end: ${marketCloseTime.toLocaleString('en-US', {timeZone: 'America/New_York'})} ET`);
  
  return { startTime, endTime, isLive: false, date: tradingDate.toISOString().split('T')[0] };
  }
