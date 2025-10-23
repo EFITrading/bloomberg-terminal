@@ -1,7 +1,7 @@
 // API endpoint to show top 1000 preload status
 import { NextRequest, NextResponse } from 'next/server';
 import preloaderService from '@/lib/DataPreloaderService';
-import UltraFastCache from '@/lib/UltraFastCache';
+import DataCache from '@/lib/DataCache';
 import { TOP_1800_SYMBOLS, TOP_1000_SYMBOLS, PRELOAD_TIERS } from '@/lib/Top1000Symbols';
 
 export async function GET(request: NextRequest) {
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
  tier_4_background: PRELOAD_TIERS.TIER_4_BACKGROUND.length
  },
  preloader_stats: preloaderService.getStats(),
- cache_stats: UltraFastCache.getStats(),
+ cache_stats: DataCache.getStats(),
  benefits: {
  instant_loading: `${PRELOAD_TIERS.TIER_1_INSTANT.length} stocks load in <0.1s`,
  fast_loading: `${PRELOAD_TIERS.TIER_2_FAST.length} stocks load in <0.5s`,
@@ -70,11 +70,9 @@ export async function GET(request: NextRequest) {
  const missingSymbols = [];
 
  for (const symbol of TOP_1000_SYMBOLS.slice(0, 100)) { // Check first 100
- const key = UltraFastCache.constructor.name.includes('UltraFastDataCache') 
- ? `details:${symbol}` 
- : `details:${symbol}`;
+ const key = `details_${symbol}`;
  
- const cached = UltraFastCache.get(key);
+ const cached = DataCache.get(key);
  if (cached) {
  cachedSymbols.push(symbol);
  } else {
@@ -103,8 +101,8 @@ export async function GET(request: NextRequest) {
  const startTime = Date.now();
  
  // Check if cached
- const key = `details:${symbol}`;
- const cached = UltraFastCache.get(key);
+ const key = `details_${symbol}`;
+ const cached = DataCache.get(key);
  
  const loadTime = Date.now() - startTime;
  

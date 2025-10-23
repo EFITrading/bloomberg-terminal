@@ -1,5 +1,5 @@
 // Background data preloader service - fetches popular data before users request it
-import UltraFastCache, { UltraFastDataCache } from './UltraFastCache';
+import DataCache from './DataCache';
 import { TOP_1800_SYMBOLS, TOP_1000_SYMBOLS, PRELOAD_TIERS } from './Top1000Symbols';
 
 interface PreloadConfig {
@@ -35,7 +35,7 @@ class DataPreloaderService {
  cacheHitRate: 0
  };
 
- constructor(private cache: typeof UltraFastCache, config?: PreloadConfig) {
+ constructor(private cache: typeof DataCache, config?: PreloadConfig) {
  // Set default config if not provided
  this.config = config || {
  symbols: TOP_1000_SYMBOLS,
@@ -201,37 +201,37 @@ class DataPreloaderService {
 
  switch (dataType) {
  case 'historical':
- key = UltraFastDataCache.keys.HISTORICAL(symbol, '1d', '1y');
+ key = `historical_${symbol}_1d_1y`;
  apiEndpoint = `/api/historical-data?symbol=${symbol}&startDate=${this.getDateString(365)}&endDate=${this.getDateString(0)}`;
  break;
 
  case 'options':
- key = UltraFastDataCache.keys.OPTIONS(symbol);
+ key = `options_${symbol}`;
  apiEndpoint = `/api/polygon-options?ticker=${symbol}`;
  break;
 
  case 'details':
- key = UltraFastDataCache.keys.DETAILS(symbol);
+ key = `details_${symbol}`;
  apiEndpoint = `/api/ticker-details?symbol=${symbol}`;
  break;
 
  case 'quotes':
- key = UltraFastDataCache.keys.QUOTES(symbol);
+ key = `quotes_${symbol}`;
  apiEndpoint = `/api/realtime-quotes?symbol=${symbol}`;
  break;
 
  case 'seasonal':
- key = UltraFastDataCache.keys.SEASONAL(symbol, 5);
+ key = `seasonal_${symbol}_5`;
  apiEndpoint = `/api/seasonal-data?symbol=${symbol}&years=5`;
  break;
 
  case 'gex':
- key = UltraFastDataCache.keys.GEX(symbol);
+ key = `gex_${symbol}`;
  apiEndpoint = `/api/gex?symbol=${symbol}`;
  break;
 
  case 'flow':
- key = UltraFastDataCache.keys.FLOW(symbol);
+ key = `flow_${symbol}`;
  apiEndpoint = `/api/options-flow?symbol=${symbol}`;
  break;
 
@@ -371,7 +371,7 @@ class DataPreloaderService {
 }
 
 // Create singleton instance
-const preloaderService = new DataPreloaderService(UltraFastCache);
+const preloaderService = new DataPreloaderService(DataCache);
 
 export default preloaderService;
 export { DataPreloaderService };
