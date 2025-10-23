@@ -1829,7 +1829,7 @@ body * {
 .back-btn {
   padding: 12px 24px;
   background: #000000 !important;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 2px solid rgba(255, 255, 255, 0.3);
   color: #ffffff !important;
   border-radius: 8px;
   cursor: pointer;
@@ -1840,10 +1840,14 @@ body * {
   letter-spacing: 1px;
   margin-right: 15px;
   position: relative;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  will-change: background, border-color, box-shadow;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .back-btn:hover {
-  background: #111111;
+  background: rgba(20, 20, 20, 0.95) !important;
   border-color: rgba(255, 255, 255, 0.5);
 }
 
@@ -3702,34 +3706,21 @@ div.correlation-display div.correlation-strength-text {
 
 /* Advanced Chart Interaction - Hover effects disabled */
 
-/* Premium Button Interactions */
+/* Premium Button Interactions - STABLE (no movement) */
 .back-btn:hover,
 .compare-btn:hover {
-  transform: translateY(-3px) scale(1.05);
   box-shadow: 
-    0 15px 40px rgba(0, 0, 0, 0.6),
-    0 8px 25px rgba(255, 255, 255, 0.1),
-    inset 0 2px 0 rgba(255, 255, 255, 0.3);
-  background: 
-    linear-gradient(135deg, 
-      rgba(0, 0, 0, 0.95) 0%, 
-      rgba(30, 30, 30, 0.9) 25%, 
-      rgba(0, 0, 0, 0.95) 50%, 
-      rgba(40, 40, 40, 0.85) 75%, 
-      rgba(0, 0, 0, 0.95) 100%
-    );
-  background-size: 200% 200%;
-  animation: 
-    buttonHover 0.6s ease-out,
-    shimmer 1.5s ease-in-out infinite;
-  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    0 8px 25px rgba(255, 255, 255, 0.15),
+    inset 0 2px 0 rgba(255, 255, 255, 0.2);
+  background: rgba(20, 20, 20, 0.95);
+  transition: background 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
   border: 2px solid rgba(255, 255, 255, 0.4);
 }
 
 .back-btn:active,
 .compare-btn:active {
-  transform: translateY(-1px) scale(1.02);
-  transition: all 0.1s ease-out;
+  background: rgba(10, 10, 10, 0.95);
+  transition: background 0.1s ease-out;
 }
 
 @keyframes buttonHover {
@@ -3804,9 +3795,8 @@ div.correlation-display div.correlation-strength-text {
   position: relative;
 }
 
-.monthly-return-item::after,
-.back-btn::after,
-.compare-btn::after {
+/* REMOVED animated ::after effects to prevent flickering on buttons */
+.monthly-return-item::after {
   content: '';
   position: absolute;
   width: 0;
@@ -3818,9 +3808,7 @@ div.correlation-display div.correlation-strength-text {
   z-index: -1;
 }
 
-.monthly-return-item:hover::after,
-.back-btn:hover::after,
-.compare-btn:hover::after {
+.monthly-return-item:hover::after {
   width: 100px;
   height: 100px;
   top: 50%;
@@ -4516,10 +4504,15 @@ h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
   text-transform: uppercase;
   letter-spacing: 1px;
   box-shadow: 0 4px 20px rgba(255, 74, 0, 0.3);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+  will-change: background, box-shadow;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .pro-scan-btn:hover {
   background: var(--premium-orange-bright);
+  box-shadow: 0 6px 25px rgba(255, 74, 0, 0.5);
 }
 
 /* PREMIUM CONTROLS BAR */

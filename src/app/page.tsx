@@ -4,11 +4,11 @@ import ToolsSection from '@/components/terminal/ToolsSection';
 import Footer from '@/components/terminal/Footer';
 
 export default function Home() {
-  return (
-    <>
-      <HeroSection />
-      <ToolsSection />
-      <Footer />
-    </>
-  );
+ return (
+ <>
+ <HeroSection />
+ <ToolsSection />
+ <Footer />
+ </>
+ );
 }
