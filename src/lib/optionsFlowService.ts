@@ -259,7 +259,7 @@ export class OptionsFlowService {
   ];
 
   // Filter configuration
-  private readonly MIN_PREMIUM_FILTER = 1000; // $1k minimum total premium
+  private readonly MIN_PREMIUM_FILTER = 500; // $500 minimum total premium to show more mini trades
 
   constructor(apiKey: string) {
     if (!apiKey || apiKey.trim() === '') {
@@ -915,7 +915,7 @@ export class OptionsFlowService {
         const combinedTrade: ProcessedTrade = {
           ...representativeTrade,
           trade_size: totalContracts,
-          premium_per_contract: totalPremium / totalContracts / 100, // Average price per contract
+          premium_per_contract: totalPremium / totalContracts, // Fixed: Remove division by 100
           total_premium: totalPremium,
           trade_type: totalPremium >= 50000 ? 'BLOCK' : 'MINI',
           exchange_name: this.exchangeNames[exchanges[0]] || `Exchange ${exchanges[0]}`,
@@ -1045,12 +1045,12 @@ export class OptionsFlowService {
     const tradeSize = trade.trade_size;
     const totalPremium = trade.total_premium;
 
-    // Debug logging for puts
-    if (trade.type === 'put' && totalPremium > 5000) {
-      console.log(`🔍 PUT ANALYSIS: ${trade.ticker} - $${tradePrice.toFixed(2)} × ${tradeSize} = $${totalPremium.toFixed(0)} premium`);
+    // Debug logging for all trades to see what's being filtered
+    if (totalPremium > 500) {
+      console.log(`🔍 TRADE ANALYSIS: ${trade.ticker} - $${tradePrice.toFixed(2)} × ${tradeSize} = $${totalPremium.toFixed(0)} premium`);
     }
 
-    // YOUR EXACT TIER SYSTEM
+    // ENHANCED TIER SYSTEM - More permissive for mini trades
     const institutionalTiers = [
       // Tier 1: Premium institutional trades
       { name: 'Tier 1: Premium institutional', minPrice: 8.00, minSize: 80 },
@@ -1067,7 +1067,13 @@ export class OptionsFlowService {
       // Tier 7: Penny options massive volume
       { name: 'Tier 7: Penny options massive', minPrice: 0.50, minSize: 2000 },
       // Tier 8: Premium bypass (any size if $50K+ total)
-      { name: 'Tier 8: Premium bypass', minPrice: 0.01, minSize: 20, minTotal: 50000 }
+      { name: 'Tier 8: Premium bypass', minPrice: 0.01, minSize: 20, minTotal: 50000 },
+      // NEW TIER 9: Mini trade friendly - smaller trades that still show institutional interest
+      { name: 'Tier 9: Mini institutional', minPrice: 1.00, minSize: 50 },
+      // NEW TIER 10: Very small but significant volume
+      { name: 'Tier 10: Small but significant', minPrice: 0.50, minSize: 100 },
+      // NEW TIER 11: Lower barrier for showing sweeps/blocks
+      { name: 'Tier 11: Sweep/Block friendly', minPrice: 0.25, minSize: 200 }
     ];
     
     const passes = institutionalTiers.some(tier => {
@@ -1082,9 +1088,9 @@ export class OptionsFlowService {
       return false;
     });
 
-    // Debug logging for failed puts
-    if (trade.type === 'put' && totalPremium > 5000 && !passes) {
-      console.log(`❌ PUT FAILED: ${trade.ticker} - $${tradePrice.toFixed(2)} × ${tradeSize} = $${totalPremium.toFixed(0)} - doesn't meet any tier`);
+    // Debug logging for failed trades to understand filtering
+    if (totalPremium > 500 && !passes) {
+      console.log(`❌ FILTERED OUT: ${trade.ticker} - $${tradePrice.toFixed(2)} × ${tradeSize} = $${totalPremium.toFixed(0)} - doesn't meet any tier`);
     }
 
     return passes;

@@ -7,6 +7,110 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 // Import your existing Polygon service
 import { polygonService } from '@/lib/polygonService';
 
+// Polygon API key for bid/ask analysis
+const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+// BID/ASK EXECUTION ANALYSIS - OPTIMIZED FOR HIGH VOLUME
+const analyzeBidAskExecutionLightning = async (
+  trades: any[], 
+  updateCallback: (results: any[]) => void
+): Promise<any[]> => {
+  if (trades.length === 0) return trades;
+  
+  const BATCH_SIZE = 50; // Increased from 10 to 50 for speed
+  const BATCH_DELAY = 50; // Reduced delay to 50ms
+  const batches = [];
+  
+  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+    batches.push(trades.slice(i, i + BATCH_SIZE));
+  }
+  
+  console.log(`🚀 Processing ${trades.length} trades in ${batches.length} batches of ${BATCH_SIZE}`);
+  
+  const allResults = [];
+  
+  // Process batches sequentially to avoid overwhelming the network
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    
+    if (batchIndex % 100 === 0) {
+      console.log(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex/batches.length)*100)}% complete)`);
+    }
+    
+    const batchResults = await Promise.all(
+      batch.map(async (trade, tradeIndex) => {
+        // Minimal stagger - 5ms each instead of 20ms
+        await new Promise(resolve => setTimeout(resolve, tradeIndex * 5));
+        
+        try {
+          const expiry = trade.expiry.replace(/-/g, '').slice(2);
+          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+          
+          const tradeTime = new Date(trade.trade_timestamp);
+          const checkTimestamp = tradeTime.getTime() * 1000000;
+          
+          const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${POLYGON_API_KEY}`;
+          
+          const response = await fetch(quotesUrl);
+          const data = await response.json();
+          
+          if (data.results && data.results.length > 0) {
+            const quote = data.results[0];
+            const bid = quote.bid_price;
+            const ask = quote.ask_price;
+            const fillPrice = trade.premium_per_contract;
+            
+            if (bid && ask && fillPrice) {
+              let fillStyle = 'N/A';
+              const midpoint = (bid + ask) / 2;
+              
+              // Above Ask: Must be at least 1 cent above ask price
+              if (fillPrice >= ask + 0.01) {
+                fillStyle = 'AA';
+              // Below Bid: Must be at least 1 cent below bid price  
+              } else if (fillPrice <= bid - 0.01) {
+                fillStyle = 'BB';
+              // At Ask: Exactly at ask price
+              } else if (fillPrice === ask) {
+                fillStyle = 'A';
+              // At Bid: Exactly at bid price
+              } else if (fillPrice === bid) {
+                fillStyle = 'B';
+              // Between bid and ask: Use midpoint logic
+              } else if (fillPrice >= midpoint) {
+                fillStyle = 'A';
+              } else {
+                fillStyle = 'B';
+              }
+              
+              return { ...trade, fill_style: fillStyle };
+            }
+          }
+          
+          return { ...trade, fill_style: 'N/A' };
+        } catch (error) {
+          return { ...trade, fill_style: 'N/A' };
+        }
+      })
+    );
+    
+    allResults.push(...batchResults);
+    
+    // Update the UI with processed trades in real-time
+    updateCallback([...allResults]);
+    
+    // Add delay between batches to prevent overwhelming the API
+    if (batchIndex < batches.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+    }
+  }
+  
+  console.log(`✅ Fill style analysis complete: ${allResults.length} trades processed`);
+  return allResults;
+};
+
 // Memoized price display component to prevent flickering
 const PriceDisplay = React.memo(function PriceDisplay({ 
  spotPrice, 
@@ -59,6 +163,7 @@ interface OptionsFlowData {
  trade_timestamp: string;
  moneyness: 'ATM' | 'ITM' | 'OTM';
  days_to_expiry: number;
+ fill_style?: 'A' | 'AA' | 'B' | 'BB' | 'N/A';
 }
 
 interface OptionsFlowSummary {
@@ -122,9 +227,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  const [expirationStartDate, setExpirationStartDate] = useState<string>('');
  const [expirationEndDate, setExpirationEndDate] = useState<string>('');
  const [blacklistedTickers, setBlacklistedTickers] = useState<string[]>(['', '', '', '', '']);
- const [intentionFilter, setIntentionFilter] = useState<'all' | 'buy' | 'sell'>('all');
- const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
- const [tradeAnalysis, setTradeAnalysis] = useState<Record<string, string>>({});
  const [selectedTickerFilter, setSelectedTickerFilter] = useState<string>('');
  const [inputTicker, setInputTicker] = useState<string>(selectedTicker);
  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
@@ -134,6 +236,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false);
  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
  const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
+ const [tradesWithFillStyles, setTradesWithFillStyles] = useState<OptionsFlowData[]>([]);
 
  // Debug: Monitor filter dialog state changes
  useEffect(() => {
@@ -334,78 +437,15 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  }
  };
 
- // Function to analyze bid/ask execution for visible trades
- const analyzeBidAskExecution = async () => {
- setIsAnalyzing(true);
- const analysisResults: Record<string, string> = {};
- 
- try {
- // Get currently filtered trades
- const visibleTrades = filteredAndSortedData;
- 
- for (const trade of visibleTrades) {
- try {
- // Create option ticker format
- const expiry = trade.expiry.replace(/-/g, '').slice(2); // Convert 2025-10-10 to 251010
- const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
- const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
- const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
- 
- // Parse trade time and get 1 second before
- const tradeTime = new Date(trade.trade_timestamp);
- const checkTime = new Date(tradeTime.getTime() - 1000); // 1 second before
- const checkTimestamp = checkTime.getTime() * 1000000; // Convert to nanoseconds
- 
- // Get quote 1 second before trade
- const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
- 
- const response = await fetch(quotesUrl);
- const data = await response.json();
- 
- if (data.results && data.results.length > 0) {
- const quote = data.results[0];
- const bid = quote.bid_price;
- const ask = quote.ask_price;
- const fillPrice = trade.premium_per_contract;
- 
- if (bid && ask && fillPrice) {
- const tolerance = 0.02; // 2 cent tolerance
- const mid = (bid + ask) / 2;
- 
- if (Math.abs(fillPrice - ask) <= tolerance) {
- analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'A'; // At ask
- } else if (Math.abs(fillPrice - bid) <= tolerance) {
- analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'B'; // At bid
- } else if (fillPrice > ask + tolerance) {
- analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'AA'; // Above ask
- } else if (fillPrice < bid - tolerance) {
- analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'bb'; // Below bid
- } else {
- analysisResults[`${trade.underlying_ticker}-${trade.trade_timestamp}`] = 'X'; // Mid-point
- }
- }
- }
- } catch (error) {
- console.error(`Error analyzing trade ${trade.underlying_ticker}:`, error);
- // Continue with next trade on error
- }
- 
- // Small delay to avoid rate limiting
- await new Promise(resolve => setTimeout(resolve, 50));
- }
- 
- setTradeAnalysis(analysisResults);
- } catch (error) {
- console.error('Error in bid/ask analysis:', error);
- } finally {
- setIsAnalyzing(false);
- }
- };
+
 
  const filteredAndSortedData = useMemo(() => {
+ // Use fill style data if available, otherwise use original data
+ const sourceData = tradesWithFillStyles.length > 0 ? tradesWithFillStyles : data;
+ 
  // Step 1: Fast deduplication using Set (O(n) instead of O(n²))
  const seen = new Set<string>();
- const deduplicatedData = data.filter(trade => {
+ const deduplicatedData = sourceData.filter(trade => {
  const tradeKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_size}-${trade.total_premium}-${trade.spot_price}-${trade.trade_timestamp}-${trade.exchange_name}`;
  
  if (seen.has(tradeKey)) {
@@ -416,9 +456,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  });
  
  // Log deduplication results only when needed
- if (data.length !== deduplicatedData.length) {
- const duplicatesRemoved = data.length - deduplicatedData.length;
- console.log(` Removed ${duplicatesRemoved} duplicate trades (${data.length} → ${deduplicatedData.length})`);
+ if (sourceData.length !== deduplicatedData.length) {
+ const duplicatesRemoved = sourceData.length - deduplicatedData.length;
+ console.log(` Removed ${duplicatesRemoved} duplicate trades (${sourceData.length} → ${deduplicatedData.length})`);
  }
  
  let filtered = deduplicatedData;
@@ -566,7 +606,42 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  });
 
  return filtered;
- }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers]);
+ }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles]);
+
+ // Automatically analyze fill styles when new data comes in
+ useEffect(() => {
+ const analyzeAutomatically = async () => {
+ if (!data || data.length === 0) {
+ setTradesWithFillStyles([]);
+ return;
+ }
+
+ console.log('🚀 STARTING FILL STYLE ANALYSIS FOR', data.length, 'TRADES');
+ try {
+ const tradesWithStyles = await analyzeBidAskExecutionLightning(data, setTradesWithFillStyles);
+ setTradesWithFillStyles(tradesWithStyles);
+ console.log('✅ FILL STYLE ANALYSIS COMPLETE');
+ } catch (error) {
+ console.error('Error analyzing fill styles:', error);
+ }
+ };
+
+ analyzeAutomatically();
+ }, [data]);
+
+ // Manual trigger for fill style analysis
+ const triggerFillStyleAnalysis = async () => {
+ if (!data || data.length === 0) return;
+ 
+ console.log('🔥 MANUAL FILL STYLE ANALYSIS TRIGGERED FOR', data.length, 'TRADES');
+ try {
+ const tradesWithStyles = await analyzeBidAskExecutionLightning(data, setTradesWithFillStyles);
+ setTradesWithFillStyles(tradesWithStyles);
+ console.log('✅ MANUAL ANALYSIS COMPLETE');
+ } catch (error) {
+ console.error('Manual analysis error:', error);
+ }
+ };
 
  // Pagination logic
  const paginatedData = useMemo(() => {
@@ -1229,45 +1304,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  />
  </div>
  
- {/* Analysis Button */}
- <button
- onClick={() => {
- setIntentionFilter('all');
- analyzeBidAskExecution();
- }}
- disabled={isAnalyzing}
- className="h-10 text-white text-sm font-bold rounded-xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2.5 transform hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none"
- style={{
- paddingLeft: '16px',
- paddingRight: '16px',
- minWidth: '120px',
- width: 'auto',
- whiteSpace: 'nowrap',
- background: isAnalyzing 
- ? 'linear-gradient(145deg, #0a0a0a, #1a1a1a)' 
- : 'linear-gradient(145deg, #000000, #0a0a0a)',
- border: '1px solid #1a1a1a',
- boxShadow: isAnalyzing 
- ? 'inset 0 2px 6px rgba(0, 0, 0, 0.4)' 
- : 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
- }}
- onMouseEnter={(e) => {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(139, 92, 246, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
- target.style.border = '1px solid #8b5cf6';
- }}
- onMouseLeave={(e) => {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
- target.style.border = '1px solid #1a1a1a';
- }}
- >
- <svg className={`w-4 h-4 ${isAnalyzing ? 'animate-spin text-violet-400' : 'animate-pulse text-violet-500'} drop-shadow-lg`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
- <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
- </svg>
- <span>{isAnalyzing ? 'Analyzing...' : 'Intention'}</span>
- </button>
- 
  {/* EFI Highlights Toggle */}
  <button
  onClick={() => setEfiHighlightsActive(!efiHighlightsActive)}
@@ -1363,6 +1399,23 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <span>Refresh Flow</span>
  </>
  )}
+ </button>
+
+ {/* Fill Style Analysis Button */}
+ <button 
+ onClick={triggerFillStyleAnalysis}
+ disabled={loading || !data || data.length === 0}
+ className="h-10 px-16 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 min-w-[150px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none"
+ style={{
+ background: 'linear-gradient(145deg, #059669, #10b981)',
+ border: '1px solid #10b981',
+ boxShadow: 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(16, 185, 129, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
+ }}
+ >
+ <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+ <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+ </svg>
+ <span>Analyze Fill Styles</span>
  </button>
 
  {/* Clear Data Button */}
@@ -1618,12 +1671,18 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <span className="text-cyan-400 font-bold">{trade.trade_size.toLocaleString()}</span> 
  <span className="text-slate-400"> @ </span>
  <span className="text-yellow-400 font-bold">{trade.premium_per_contract.toFixed(2)}</span>
- </div>
- {tradeAnalysis[`${trade.underlying_ticker}-${trade.trade_timestamp}`] && (
- <span className="inline-block px-2 py-1 rounded text-sm font-bold bg-slate-700 text-orange-400 w-fit">
- {tradeAnalysis[`${trade.underlying_ticker}-${trade.trade_timestamp}`]}
+ {(trade as any).fill_style && (
+ <span className={`ml-2 px-2 py-0.5 rounded-md text-sm font-bold ${
+ (trade as any).fill_style === 'A' ? 'text-green-400 bg-green-400/10 border border-green-400/30' :
+ (trade as any).fill_style === 'AA' ? 'text-green-300 bg-green-300/10 border border-green-300/30' :
+ (trade as any).fill_style === 'B' ? 'text-red-400 bg-red-400/10 border border-red-400/30' :
+ (trade as any).fill_style === 'BB' ? 'text-red-300 bg-red-300/10 border border-red-300/30' :
+ 'text-gray-500 bg-gray-500/10 border border-gray-500/30'
+ }`}>
+ {(trade as any).fill_style}
  </span>
  )}
+ </div>
  </div>
  </td>
  <td className="p-6 font-bold text-xl text-green-400 border-r border-gray-700/30">{formatCurrency(trade.total_premium)}</td>

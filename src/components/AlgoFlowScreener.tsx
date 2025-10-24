@@ -194,7 +194,7 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
         const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
         
         if (index === 0) {
-          console.log(`🔍 Sample request: ${optionTicker}`, {
+          console.log(`🔍 REAL API REQUEST: ${optionTicker}`, {
             expiry: trade.expiry,
             strike: trade.strike,
             ticker: trade.underlying_ticker,
@@ -206,7 +206,7 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
         const data = await response.json();
         
         if (index === 0) {
-          console.log(`📊 Sample response:`, data);
+          console.log(`📊 REAL API RESPONSE:`, data);
         }
         
         if (data.results && data.results.length > 0) {
@@ -266,7 +266,7 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   
-  console.log(`✅ Analysis complete. Sample trades with fill_style:`, tradesWithFillStyle.slice(0, 3).map(t => ({
+  console.log(`✅ Analysis complete. REAL trades with fill_style:`, tradesWithFillStyle.slice(0, 3).map(t => ({
     ticker: t.underlying_ticker,
     fill_style: t.fill_style,
     premium: t.premium_per_contract
@@ -633,21 +633,19 @@ export default function AlgoFlowScreener() {
         default: intervalMinutes = 60;
       }
       
-      // Market hours: 9:30 AM (570 minutes from midnight) to 4:00 PM (960 minutes from midnight)
+      // Market hours: 9:30 AM to 4:00 PM ET
       const marketOpenMinutes = 9 * 60 + 30; // 570 minutes = 9:30 AM
       const marketCloseMinutes = 16 * 60;    // 960 minutes = 4:00 PM
       
-      // Generate time slots from market open to market close
-      for (let totalMinutes = marketOpenMinutes; totalMinutes <= marketCloseMinutes; totalMinutes += intervalMinutes) {
+      // Generate time slots from market open through market close
+      for (let totalMinutes = marketOpenMinutes; totalMinutes < marketCloseMinutes; totalMinutes += intervalMinutes) {
         const hour = Math.floor(totalMinutes / 60);
         const minute = totalMinutes % 60;
-        
-        // Stop if we've reached or passed market close
-        if (totalMinutes > marketCloseMinutes) break;
-        
         const timeKey = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
         slots.push(timeKey);
       }
+      // Always add the final market close slot (4:00 PM)
+      slots.push('16:00');
       
       console.log(`📊 Generated ${slots.length} time slots for ${interval}:`, slots.slice(0, 5), '...', slots.slice(-2));
       return slots;
@@ -716,113 +714,119 @@ export default function AlgoFlowScreener() {
     });
 
     const chartData = Object.entries(intervalData)
-      .map(([time, data]) => {
+      // Cumulative sum logic
+      .sort(([aTime], [bTime]) => {
+        // Sort by time ascending
+        const [aHours, aMinutes] = aTime.split(':').map(Number);
+        const [bHours, bMinutes] = bTime.split(':').map(Number);
+        return (aHours * 60 + aMinutes) - (bHours * 60 + bMinutes);
+      })
+      .reduce((acc, [time, data], idx) => {
         // Convert time string "HH:MM" to proper Date object for chart
         const [hours, minutes] = time.split(':').map(Number);
         const today = new Date();
         const timeDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
-        
-        return {
-          time: timeDate.getTime(), // Use timestamp for proper sorting and formatting
-          timeLabel: time, // Keep original time string for reference
-          callsPlus: data.callsPlus,       // Bullish call buying
-          callsMinus: data.callsMinus,     // Bearish call selling  
-          putsPlus: data.putsPlus,         // Bullish put buying
-          putsMinus: data.putsMinus,       // Bearish put selling
-          netFlow: (data.callsPlus - data.callsMinus) - (data.putsPlus - data.putsMinus)  // Net bullish vs bearish flow
-        };
-      })
-      .sort((a, b) => a.time - b.time);
 
-    // Generate OHLC price data for candlestick chart
-    console.log(`🔍 Generating OHLC data for ${timeSlots.length} time slots, current price: $${currentPrice}`);
-    
-    // Initialize OHLC data with current price as baseline
-    const ohlcData = timeSlots.map((timeSlot, index) => {
-      // Convert time string "HH:MM" to proper Date object
-      const [hours, minutes] = timeSlot.split(':').map(Number);
-      const today = new Date();
-      const timeDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
-      
-      // Add slight variation to make the chart visible
-      const variation = (Math.sin(index * 0.5) * 0.01 + 1); // Small sine wave variation
-      const basePrice = currentPrice * variation;
-      
-      return {
-        time: timeDate.getTime(), // Use timestamp
-        open: basePrice,
-        high: basePrice * 1.002,
-        low: basePrice * 0.998,
-        close: basePrice * (1 + (Math.random() - 0.5) * 0.004) // Random close within range
-      };
-    });
-    
-    console.log(`🔍 Sample OHLC data:`, ohlcData.slice(0, 2));
-    
-    // Try to get real OHLC data from trades if available
-    const pricesBySlot: Record<string, number[]> = {};
-    timeSlots.forEach(slot => {
-      pricesBySlot[slot] = [];
-    });
-    
-    classifiedTrades.forEach((trade: any) => {
-      if (!trade.spot_price || !trade.trade_timestamp) return;
-      
-      const tradeDate = new Date(trade.trade_timestamp);
-      const etTime = new Date(tradeDate.toLocaleString("en-US", {timeZone: "America/New_York"}));
-      const hour = etTime.getHours();
-      const minute = etTime.getMinutes();
-      
-      // Only process trades during market hours
-      if (hour < 9 || hour > 16 || (hour === 9 && minute < 30)) return;
-      
-      // Calculate total minutes from midnight
-      const totalMinutes = hour * 60 + minute;
-      const marketOpenMinutes = 9 * 60 + 30; // 570 minutes = 9:30 AM
-      
-      // Calculate which time slot this trade belongs to
-      const minutesSinceOpen = totalMinutes - marketOpenMinutes;
-      let intervalMinutes: number;
-      switch (timeInterval) {
-        case '5min': intervalMinutes = 5; break;
-        case '15min': intervalMinutes = 15; break;
-        case '30min': intervalMinutes = 30; break;
-        case '1hour': intervalMinutes = 60; break;
-        default: intervalMinutes = 60;
-      }
-      
-      // Find the appropriate time slot
-      const slotIndex = Math.floor(minutesSinceOpen / intervalMinutes);
-      const slotMinutesFromOpen = slotIndex * intervalMinutes;
-      const slotTotalMinutes = marketOpenMinutes + slotMinutesFromOpen;
-      const slotHour = Math.floor(slotTotalMinutes / 60);
-      const slotMinute = slotTotalMinutes % 60;
-      const timeKey = `${slotHour.toString().padStart(2, '0')}:${slotMinute.toString().padStart(2, '0')}`;
-      
-      // Collect all prices for this time slot
-      if (pricesBySlot[timeKey]) {
-        pricesBySlot[timeKey].push(trade.spot_price);
-      }
-    });
-    
-    // Generate OHLC for each time slot
-    const finalPriceData = ohlcData.map(slot => {
-      const prices = pricesBySlot[slot.time];
-      if (prices && prices.length > 0) {
-        // Sort prices to get OHLC
-        prices.sort((a, b) => a - b);
-        return {
-          ...slot,
-          open: prices[0],                    // First price (chronologically)
-          high: Math.max(...prices),         // Highest price
-          low: Math.min(...prices),          // Lowest price
-          close: prices[prices.length - 1]   // Last price (chronologically)
+        // Format time label as AM/PM
+        let hour12 = hours % 12 === 0 ? 12 : hours % 12;
+        let ampm = hours < 12 ? 'AM' : 'PM';
+        const timeLabel = `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+
+        // Get previous cumulative values
+        const prev = acc.length > 0 ? acc[acc.length - 1] : {
+          callsPlus: 0,
+          callsMinus: 0,
+          putsPlus: 0,
+          putsMinus: 0
         };
-      }
-      return slot; // Use baseline if no trades
-    });
+
+        // Add current to previous for cumulative sum
+        const cumulative = {
+          time: timeDate.getTime(),
+          timeLabel,
+          callsPlus: prev.callsPlus + data.callsPlus,
+          callsMinus: prev.callsMinus + data.callsMinus,
+          putsPlus: prev.putsPlus + data.putsPlus,
+          putsMinus: prev.putsMinus + data.putsMinus,
+        };
+        cumulative.netFlow = (cumulative.callsPlus - cumulative.callsMinus) - (cumulative.putsPlus - cumulative.putsMinus);
+        acc.push(cumulative);
+        return acc;
+      }, []);
+
+    // 🚨 FETCH REAL PRICE DATA FROM POLYGON API - NO FAKE DATA!
+    console.log(`� FETCHING REAL OHLC DATA from Polygon API for ${ticker}...`);
     
-    console.log(`🔍 OHLC data generated:`, finalPriceData.slice(0, 3), `... total: ${finalPriceData.length} candles`);
+    let finalPriceData: Array<{
+      time: number;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+    }> = [];
+    
+    try {
+      // Determine interval multiplier and timespan for Polygon API
+      let multiplier = 1;
+      let timespan = 'minute';
+      
+      switch (timeInterval) {
+        case '5min':
+          multiplier = 5;
+          timespan = 'minute';
+          break;
+        case '15min':
+          multiplier = 15;
+          timespan = 'minute';
+          break;
+        case '30min':
+          multiplier = 30;
+          timespan = 'minute';
+          break;
+        case '1hour':
+          multiplier = 60;
+          timespan = 'minute';
+          break;
+        default:
+          multiplier = 60;
+          timespan = 'minute';
+      }
+      
+      // Get today's date
+      const today = new Date();
+      const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      // Fetch REAL aggregated bars from Polygon
+      const polygonUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${dateStr}/${dateStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
+      
+      console.log(`📈 REAL DATA REQUEST: ${ticker} ${multiplier}${timespan} bars for ${dateStr}`);
+      
+      const response = await fetch(polygonUrl);
+      const data = await response.json();
+      
+      if (data.results && data.results.length > 0) {
+        console.log(`✅ REAL DATA RECEIVED: ${data.results.length} candlesticks from Polygon API`);
+        
+        // Convert Polygon results to our chart format
+        finalPriceData = data.results.map((bar: any) => ({
+          time: bar.t, // Polygon timestamp in milliseconds
+          open: bar.o,
+          high: bar.h,
+          low: bar.l,
+          close: bar.c
+        }));
+        
+        console.log(`✅ REAL OHLC DATA LOADED: ${finalPriceData.length} real candlesticks`, finalPriceData.slice(0, 3));
+        
+      } else {
+        console.warn(`⚠️ NO REAL DATA from Polygon for ${ticker} on ${dateStr} - chart will be empty`);
+        finalPriceData = [];
+      }
+      
+    } catch (error) {
+      console.error(`❌ FAILED TO FETCH REAL PRICE DATA for ${ticker}:`, error);
+      finalPriceData = [];
+    }
 
     return {
       ticker,
@@ -856,6 +860,16 @@ export default function AlgoFlowScreener() {
   };
 
   // Analysis state to handle async bid/ask analysis
+  type ChartDataPoint = {
+    time: number;
+    timeLabel: string;
+    callsPlus: number;
+    callsMinus: number;
+    putsPlus: number;
+    putsMinus: number;
+    netFlow: number;
+  };
+
   const [analysis, setAnalysis] = useState<AlgoFlowAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 });
