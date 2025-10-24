@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, ReferenceLine, Tooltip, Legend } from 'recharts';
 import TradingViewChart from './trading/TradingViewChart';
+import { useSPYFlow } from '@/hooks/useSPYFlow';
 
 // Polygon API key for bid/ask analysis
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
@@ -488,13 +489,16 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
 };
 
 export default function AlgoFlowScreener() {
-  const [ticker, setTicker] = useState('');
-  const [searchTicker, setSearchTicker] = useState('');
+  const [ticker, setTicker] = useState('SPY');
+  const [searchTicker, setSearchTicker] = useState('SPY');
   const [loading, setLoading] = useState(false);
   const [flowData, setFlowData] = useState<OptionsFlowData[]>([]);
   const [error, setError] = useState('');
   const [streamStatus, setStreamStatus] = useState('');
   const [timeInterval, setTimeInterval] = useState<'5min' | '15min' | '30min' | '1hour'>('1hour');
+  
+  // SPY Flow hook for cached data
+  const spyFlow = useSPYFlow();
   
   // Pagination and sorting state
   const [currentPage, setCurrentPage] = useState(1);
@@ -898,6 +902,15 @@ export default function AlgoFlowScreener() {
     performAnalysis();
   }, [flowData, timeInterval]);
 
+  // Auto-load SPY data on component mount
+  useEffect(() => {
+    if (ticker === 'SPY' && spyFlow.data && spyFlow.data.rawData && Array.isArray(spyFlow.data.rawData)) {
+      console.log('📊 Loading cached SPY data automatically:', spyFlow.data.rawData.length, 'trades');
+      setFlowData(spyFlow.data.rawData);
+      setSearchTicker('SPY');
+    }
+  }, [spyFlow.data, ticker]);
+
   // Fetch flow data for specific ticker
   const fetchTickerFlow = async (tickerToSearch: string) => {
     if (!tickerToSearch.trim()) return;
@@ -1040,6 +1053,56 @@ export default function AlgoFlowScreener() {
           )}
         </CardContent>
       </Card>
+
+      {/* SPY Cache Status - Show when SPY is selected */}
+      {ticker === 'SPY' && (
+        <Card className={`${spyFlow.error ? 'bg-red-900/20 border-red-500/30' : 'bg-green-900/20 border-green-500/30'}`}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${
+                  spyFlow.error ? 'bg-red-500' : 
+                  spyFlow.loading ? 'bg-yellow-500 animate-pulse' :
+                  spyFlow.isFromCache ? 'bg-green-500 animate-pulse' : 'bg-blue-500'
+                }`}></div>
+                <div className="text-sm">
+                  <span className={`font-semibold ${spyFlow.error ? 'text-red-400' : 'text-green-400'}`}>
+                    SPY AlgoFlow {spyFlow.error ? 'Error' : 'Cache'}
+                  </span>
+                  {spyFlow.error && (
+                    <span className="text-red-300 ml-2">• {spyFlow.error}</span>
+                  )}
+                  {spyFlow.isFromCache && spyFlow.data && !spyFlow.error && (
+                    <span className="text-gray-300 ml-2">
+                      • {spyFlow.data.totalTrades} trades • ${(spyFlow.data.totalPremium / 1000000).toFixed(1)}M premium • {spyFlow.cacheAge}min ago
+                    </span>
+                  )}
+                  {spyFlow.loading && !spyFlow.error && (
+                    <span className="text-yellow-400 ml-2">• Loading fresh data...</span>
+                  )}
+                  {!spyFlow.loading && !spyFlow.error && !spyFlow.data && (
+                    <span className="text-gray-400 ml-2">• No data available yet</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                {spyFlow.isFromCache && !spyFlow.error && (
+                  <div className="text-xs text-green-400 px-2 py-1 bg-green-500/20 rounded">
+                    CACHED ({spyFlow.cacheAge}min old)
+                  </div>
+                )}
+                <button
+                  onClick={spyFlow.refresh}
+                  disabled={spyFlow.loading}
+                  className="text-xs px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded disabled:opacity-50"
+                >
+                  {spyFlow.loading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Analysis Results */}
       {isAnalyzing && flowData.length > 0 && (

@@ -1,5 +1,15 @@
 {
   "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/background-screeners",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/spy-algoflow",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "functions": {
     "src/app/api/options-flow/route.ts": {
       "maxDuration": 300
@@ -23,6 +33,12 @@
       "maxDuration": 180
     },
     "src/app/api/preloader/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/cron/background-screeners/route.ts": {
+      "maxDuration": 600
+    },
+    "src/app/api/cron/spy-algoflow/route.ts": {
       "maxDuration": 300
     }
   },
