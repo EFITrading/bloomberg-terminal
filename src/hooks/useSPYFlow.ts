@@ -155,6 +155,22 @@ export function useSPYFlow(): UseSPYFlowResult {
         processingTime: 0
       };
       
+      // Store fresh SPY data in cache for next time
+      try {
+        await fetch('/api/cache/store-screener-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'spy-algoflow',
+            data: processedData,
+            ttl: 5 * 60 * 1000 // 5 minutes TTL for SPY flow
+          })
+        });
+        console.log('✅ Cached fresh SPY AlgoFlow data');
+      } catch (cacheError) {
+        console.warn('Failed to cache SPY data:', cacheError);
+      }
+      
       setData(processedData);
       setIsFromCache(false);
       setLastUpdated(processedData.generatedAt);

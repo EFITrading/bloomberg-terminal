@@ -70,6 +70,23 @@ export function useCachedScreener(
         const fallbackResponse = await fetch(fallbackApiUrl);
         if (fallbackResponse.ok) {
           const fallbackData = await fallbackResponse.json();
+          
+          // Store the fresh data in cache for next time
+          try {
+            await fetch('/api/cache/store-screener-data', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: type,
+                data: fallbackData,
+                ttl: 10 * 60 * 1000 // 10 minutes TTL
+              })
+            });
+            console.log(`✅ Cached fresh data for ${type}`);
+          } catch (cacheError) {
+            console.warn(`Failed to cache data for ${type}:`, cacheError);
+          }
+          
           setData(fallbackData);
           setCacheStatus('fallback');
           setLastUpdated(new Date().toISOString());
