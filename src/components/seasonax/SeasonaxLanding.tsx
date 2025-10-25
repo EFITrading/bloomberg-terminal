@@ -10,13 +10,19 @@ import SeasonalityModal from './SeasonalityModal';
 
 interface SeasonaxLandingProps {
  onStartScreener?: () => void;
+ precomputedData?: any; // Cached data from background screener
+ loadingFromCache?: boolean; // Whether we're loading from cache
 }
 
-const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) => {
+const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ 
+  onStartScreener, 
+  precomputedData, 
+  loadingFromCache = false 
+}) => {
  const [activeMarket, setActiveMarket] = useState('SP500');
  const [timePeriod, setTimePeriod] = useState('15Y'); // Changed default from 5Y to 15Y
  const [opportunities, setOpportunities] = useState<SeasonalPattern[]>([]);
- const [loading, setLoading] = useState(true);
+ const [loading, setLoading] = useState(!precomputedData); // Don't show loading if we have precomputed data
  const [error, setError] = useState<string | null>(null);
  const [streamStatus, setStreamStatus] = useState<string>('');
  const [showWebsite, setShowWebsite] = useState(false);
@@ -45,8 +51,23 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ onStartScreener }) =>
  ];
 
  useEffect(() => {
+ // Use precomputed data if available (from background cache)
+ if (precomputedData && precomputedData.opportunities) {
+   console.log('🚀 Using precomputed data from background screener');
+   setOpportunities(precomputedData.opportunities);
+   setLoading(false);
+   setStreamStatus('📊 Loaded from background cache - Ready!');
+   setProgressStats({ 
+     processed: precomputedData.totalScanned || precomputedData.opportunities.length, 
+     total: precomputedData.totalScanned || precomputedData.opportunities.length, 
+     found: precomputedData.opportunities.length 
+   });
+   return;
+ }
+ 
+ // Fallback to live data loading
  loadMarketData();
- }, [timePeriod]); // Only reload when time period changes
+ }, [timePeriod, precomputedData]); // React to both time period and precomputed data changes
 
  // Cleanup EventSource on component unmount
  useEffect(() => {
