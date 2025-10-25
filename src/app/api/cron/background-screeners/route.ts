@@ -24,13 +24,7 @@ interface ScreenerResult {
  */
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
-  const authHeader = request.headers.get('authorization');
   
-  // Verify cron job authentication (Vercel sets this)
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   console.log('🔄 Starting background screener refresh...');
   
   const results: ScreenerResult[] = [];

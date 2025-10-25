@@ -10,13 +10,6 @@ export async function GET(request: NextRequest) {
   console.log('🚀 SPY AlgoFlow background scan started');
   
   try {
-    // Verify cron secret
-    const authHeader = request.headers.get('authorization');
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      console.log('❌ SPY AlgoFlow cron: Unauthorized');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const startTime = Date.now();
     
     console.log('📊 Fetching SPY options flow data...');
