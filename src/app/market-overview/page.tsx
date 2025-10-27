@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import '../mobile-trading.css';
 
 // Dynamically import TradingViewChart to avoid SSR issues
 const TradingViewChart = dynamic(
@@ -24,8 +25,10 @@ export default function MarketPage() {
  document.documentElement.style.overflow = 'hidden';
  
  const updateHeight = () => {
- const navHeight = 120; // Account for the navigation bar height + more padding for chart toolbar
- setChartHeight(window.innerHeight - navHeight);
+ const isMobile = window.innerWidth <= 768;
+ const navHeight = isMobile ? 80 : 120; // Smaller nav height on mobile
+ const calculatedHeight = window.innerHeight - navHeight;
+ setChartHeight(Math.max(400, calculatedHeight)); // Minimum height of 400px
  };
 
  updateHeight();
@@ -52,8 +55,8 @@ export default function MarketPage() {
  };
 
  return (
- <div className="h-screen bg-[#0a0a0a] text-white overflow-hidden fixed inset-0" style={{ paddingTop: '120px' }}>
- <div className="w-full h-full">
+ <div className="market-overview-container h-screen bg-[#0a0a0a] text-white overflow-hidden fixed inset-0" style={{ paddingTop: '120px' }}>
+ <div className="chart-container w-full h-full">
  <TradingViewChart
  symbol={selectedSymbol}
  initialTimeframe={selectedTimeframe}
@@ -64,10 +67,34 @@ export default function MarketPage() {
  />
  </div>
  
- {/* AI Trading Chatbot */}
+ {/* Mobile AI Button */}
+ {!showChatbot && (
+ <button
+ onClick={handleAIButtonClick}
+ className="fixed bottom-4 right-4 z-[1001] bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white flex items-center justify-center transition-all duration-300 hover:scale-105 rounded-full shadow-lg"
+ style={{ 
+ width: '48px', 
+ height: '48px',
+ fontSize: '14px',
+ fontWeight: 'bold'
+ }}
+ >
+ AI
+ </button>
+ )}
+
+ {/* AI Trading Chatbot - Mobile Optimized */}
  {showChatbot && (
- <div className="fixed bottom-6 right-6 z-[1001] drop-shadow-2xl">
- <div className="relative">
+ <div className="fixed inset-0 z-[1001] bg-black bg-opacity-50 flex items-end justify-center md:items-center md:justify-end md:inset-auto md:bottom-6 md:right-6">
+ <div className="relative w-full max-w-md mx-4 mb-4 md:w-96 md:mx-0 md:mb-0">
+ {/* Close button for mobile */}
+ <button
+ onClick={() => setShowChatbot(false)}
+ className="absolute top-2 right-2 z-10 w-8 h-8 bg-gray-800 hover:bg-gray-700 text-white rounded-full flex items-center justify-center text-lg font-bold border border-gray-600"
+ >
+ ×
+ </button>
+ 
  {/* Glow effect */}
  <div className="absolute -inset-2 bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-400 rounded-xl blur-lg opacity-30 animate-pulse"></div>
  <div className="relative z-10">

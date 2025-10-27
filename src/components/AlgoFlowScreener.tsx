@@ -76,10 +76,15 @@ const detectSweepsAndBlocks = (trades: any[]): any[] => {
       
     } else if (exchanges.length === 1) {
       // Single exchange: BLOCK if $50K+, MINI if <$50K - COMBINE INTO SINGLE TRADE
+      // Calculate proper weighted average price per contract
+      const correctWeightedPrice = tradesInGroup.reduce((sum, trade) => {
+        return sum + (trade.premium_per_contract * trade.trade_size);
+      }, 0) / totalContracts;
+      
       const combinedTrade = {
         ...representativeTrade,
         trade_size: totalContracts,
-        premium_per_contract: totalPremium / totalContracts,
+        premium_per_contract: correctWeightedPrice,
         total_premium: totalPremium,
         trade_type: totalPremium >= 50000 ? 'BLOCK' : 'MINI',
         exchange_name: representativeTrade.exchange_name || `Exchange ${exchanges[0]}`,

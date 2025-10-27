@@ -2,117 +2,172 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
 
-// Top 1000 symbols to screen - comprehensive market coverage
+// Top symbols to screen - comprehensive market coverage (1,451 symbols)
 const TOP_SCREENER_SYMBOLS = [
- // Mega Cap Technology (Top 50)
- 'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'TSLA', 'META', 'AVGO', 'ORCL',
- 'CRM', 'ADBE', 'AMD', 'INTC', 'CSCO', 'NFLX', 'TXN', 'QCOM', 'INTU', 'IBM',
- 'MU', 'AMAT', 'LRCX', 'ADI', 'KLAC', 'MRVL', 'SNPS', 'CDNS', 'FTNT', 'PANW',
- 'CRWD', 'ZS', 'DDOG', 'NET', 'SNOW', 'PLTR', 'RBLX', 'U', 'DOCN', 'FSLY',
- 'TWLO', 'ZM', 'OKTA', 'WORK', 'TEAM', 'ATLASSIAN', 'SHOP', 'SQ', 'PYPL', 'V',
- 
- // Financial Services (50)
- 'JPM', 'BAC', 'WFC', 'GS', 'MS', 'C', 'USB', 'TFC', 'PNC', 'COF',
- 'SCHW', 'BLK', 'SPGI', 'ICE', 'CME', 'MCO', 'MSCI', 'TRV', 'AXP', 'MA',
- 'BRK.B', 'BRK.A', 'AIG', 'MET', 'PRU', 'AFL', 'ALL', 'PGR', 'CB', 'AON',
- 'MMC', 'WTW', 'BRO', 'AJG', 'RE', 'L', 'RGA', 'MKL', 'Y', 'AFG',
- 'CINF', 'PFG', 'FNF', 'NTRS', 'STT', 'BK', 'FITB', 'HBAN', 'RF', 'CFG',
- 
- // Healthcare & Pharma (100)
- 'UNH', 'JNJ', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'LLY', 'BMY', 'AMGN',
- 'GILD', 'MDT', 'DHR', 'SYK', 'BSX', 'EW', 'ISRG', 'ZBH', 'BAX', 'BDX',
- 'ANTM', 'CI', 'CVS', 'HUM', 'CNC', 'MOH', 'EXC', 'BIIB', 'REGN', 'VRTX',
- 'ILMN', 'MRNA', 'BNTX', 'PFE', 'NVAX', 'JNJ', 'AZN', 'NVO', 'ROCHE', 'SNY',
- 'GSK', 'BMY', 'LLY', 'MRK', 'ABBV', 'GILD', 'AMGN', 'BIIB', 'CELG', 'VRTX',
- 'REGN', 'ILMN', 'TMO', 'DHR', 'ABT', 'SYK', 'BSX', 'MDT', 'ZBH', 'BAX',
- 'BDX', 'EW', 'ISRG', 'DXCM', 'ALGN', 'IDXX', 'MTD', 'IQV', 'PKI', 'A',
- 'WAT', 'TECH', 'QGEN', 'MKTX', 'VEEV', 'ZTS', 'CTLT', 'HOLX', 'WST', 'TFX',
- 'XRAY', 'STE', 'PODD', 'TDOC', 'HALO', 'TWST', 'PACB', 'BEAM', 'CRSP', 'EDIT',
- 'NTLA', 'BLUE', 'SAGE', 'IONS', 'SRPT', 'RARE', 'FOLD', 'ARWR', 'MDGL', 'INCY',
- 
- // Consumer & Retail (100)
- 'AMZN', 'TSLA', 'HD', 'WMT', 'PG', 'KO', 'PEP', 'COST', 'NKE', 'MCD',
- 'SBUX', 'TGT', 'LOW', 'TJX', 'INTU', 'CRM', 'DIS', 'NFLX', 'CMCSA', 'T',
- 'VZ', 'TMUS', 'CHTR', 'EA', 'ATVI', 'TTWO', 'ZNGA', 'PINS', 'TWTR', 'SNAP',
- 'UBER', 'LYFT', 'ABNB', 'DASH', 'ETSY', 'EBAY', 'MELI', 'SE', 'BABA', 'JD',
- 'PDD', 'TME', 'BILI', 'DOYU', 'HUYA', 'YY', 'MOMO', 'WB', 'SOHU', 'SINA',
- 'F', 'GM', 'TSLA', 'NIO', 'XPEV', 'LI', 'RIVN', 'LCID', 'GOEV', 'NKLA',
- 'HYLN', 'RIDE', 'WKHS', 'SOLO', 'AYRO', 'BLNK', 'CHPT', 'EVGO', 'PLUG', 'FCEL',
- 'BE', 'CLNE', 'GEVO', 'KTOS', 'MVIS', 'VLDR', 'LAZR', 'LIDR', 'OUST', 'AEYE',
- 'KMX', 'AN', 'LAD', 'ABG', 'PAG', 'SAH', 'LKQ', 'AAP', 'AZO', 'ORLY',
- 'WSM', 'RH', 'BBBY', 'BIG', 'DKS', 'HIBB', 'JWN', 'M', 'KSS', 'GPS',
- 
- // Energy & Materials (80)
- 'XOM', 'CVX', 'COP', 'EOG', 'SLB', 'PSX', 'VLO', 'MPC', 'KMI', 'WMB',
- 'OKE', 'EPD', 'ET', 'MPLX', 'PAA', 'EQT', 'DVN', 'FANG', 'MRO', 'APA',
- 'OVV', 'PXD', 'CXO', 'MTDR', 'SM', 'RRC', 'AR', 'CLR', 'WLL', 'MUR',
- 'CNX', 'SWN', 'EQT', 'RICE', 'GPOR', 'CTRA', 'MGY', 'CRGY', 'NEXT', 'VNOM',
- 'BHP', 'RIO', 'VALE', 'FCX', 'NEM', 'GOLD', 'AEM', 'KGC', 'AU', 'EGO',
- 'PAAS', 'CDE', 'HL', 'SSRM', 'AGI', 'WPM', 'FNV', 'RGLD', 'SAND', 'MAG',
- 'AA', 'CENX', 'ACH', 'STLD', 'NUE', 'X', 'CLF', 'MT', 'TX', 'SCHN',
- 'RS', 'WOR', 'ZEUS', 'MLM', 'VMC', 'NWL', 'APD', 'LIN', 'SHW', 'PPG',
- 
- // Industrial & Infrastructure (100)
- 'BA', 'CAT', 'DE', 'MMM', 'HON', 'UNP', 'UPS', 'FDX', 'LMT', 'RTX',
- 'GE', 'EMR', 'ITW', 'PH', 'CMI', 'ETN', 'JCI', 'IR', 'DOV', 'XYL',
- 'FLR', 'JEC', 'PWR', 'PCAR', 'WAB', 'CAJ', 'OSK', 'MTZ', 'ALK', 'CHRW',
- 'EXPD', 'JBHT', 'KNX', 'LSTR', 'ODFL', 'SAIA', 'XPO', 'GXO', 'ARCB', 'CVLG',
- 'HTLD', 'MRTN', 'SNDR', 'WERN', 'YELL', 'HUBG', 'MATX', 'RAIL', 'NSC', 'CSX',
- 'CP', 'CNI', 'KSU', 'GWR', 'GATX', 'FWRD', 'AL', 'APG', 'AIT', 'DCI',
- 'GFF', 'MLI', 'MSM', 'RXO', 'SNCY', 'TFII', 'TRN', 'UHAL', 'MRTN', 'BWXT',
- 'BWA', 'APTV', 'ADNT', 'AXL', 'CPS', 'DAN', 'DORM', 'FOX', 'FOXA', 'GT',
- 'LEA', 'MOG.A', 'MOG.B', 'MTOR', 'SUP', 'SMP', 'THRM', 'VC', 'WOLF', 'XRAY',
- 'AIR', 'B', 'BALL', 'CCK', 'CLH', 'CSL', 'DOOR', 'GPC', 'IEX', 'MSA',
- 
- // Real Estate & REITs (50)
- 'AMT', 'PLD', 'CCI', 'EQIX', 'SPG', 'O', 'WELL', 'DLR', 'PSA', 'EXR',
- 'AVB', 'EQR', 'VTR', 'VICI', 'WY', 'SLG', 'BXP', 'ARE', 'HST', 'HOST',
- 'REG', 'FRT', 'KIM', 'MAC', 'PEI', 'SKT', 'SPG', 'TCO', 'UDR', 'CPT',
- 'ESS', 'MAA', 'AIV', 'NNN', 'STOR', 'ADC', 'CUZ', 'EPR', 'GTY', 'IRT',
- 'KRG', 'LXP', 'NHI', 'OHI', 'PEAK', 'PK', 'ROIC', 'SAFE', 'SBRA', 'UE',
- 
- // Communications & Media (50)
- 'T', 'VZ', 'TMUS', 'CHTR', 'CMCSA', 'DIS', 'NFLX', 'GOOGL', 'META', 'TWTR',
- 'SNAP', 'PINS', 'MTCH', 'BMBL', 'ZM', 'DOCU', 'CRM', 'NOW', 'WDAY', 'ADSK',
- 'ANSS', 'CDNS', 'SNPS', 'ORCL', 'VMW', 'CTSH', 'ACN', 'IBM', 'EPAM', 'GLOB',
- 'LUMN', 'CTL', 'FYBR', 'CABO', 'SHEN', 'COGN', 'VMEO', 'FUBO', 'ROKU', 'PARA',
- 'WBD', 'FOX', 'FOXA', 'NWSA', 'NWS', 'NYT', 'GOOG', 'GOOGL', 'AMZN', 'AAPL',
- 
- // Utilities & Energy Infrastructure (50)
- 'NEE', 'SO', 'DUK', 'AEP', 'EXC', 'XEL', 'WEC', 'ED', 'ETR', 'PPL',
- 'FE', 'EIX', 'ES', 'CMS', 'DTE', 'NI', 'LNT', 'EVRG', 'PNW', 'ATO',
- 'CNP', 'NJR', 'SJI', 'SR', 'SWX', 'UGI', 'UTL', 'WGL', 'AWK', 'WTRG',
- 'CWT', 'MSEX', 'SBS', 'YORW', 'CDZI', 'CWCO', 'GWRS', 'ARTNA', 'AWR', 'CALIF',
- 'CTWS', 'HWKN', 'MSEX', 'PCYO', 'SJW', 'WTR', 'BKH', 'MDU', 'NWE', 'OGS',
- 
- // Biotechnology & Life Sciences (50)
- 'AMGN', 'GILD', 'BIIB', 'REGN', 'VRTX', 'ILMN', 'MRNA', 'BNTX', 'NVAX', 'CRSP',
- 'EDIT', 'NTLA', 'BEAM', 'BLUE', 'SAGE', 'IONS', 'SRPT', 'RARE', 'FOLD', 'ARWR',
- 'MDGL', 'INCY', 'HALO', 'TWST', 'PACB', 'TDOC', 'VEEV', 'ZTS', 'CTLT', 'HOLX',
- 'WST', 'TFX', 'XRAY', 'STE', 'PODD', 'DXCM', 'ALGN', 'IDXX', 'MTD', 'IQV',
- 'PKI', 'A', 'WAT', 'TECH', 'QGEN', 'MKTX', 'TMO', 'DHR', 'ABT', 'SYK',
- 
- // Emerging & Growth Stocks (200)
- 'PLTR', 'SNOW', 'CRWD', 'ZS', 'DDOG', 'NET', 'OKTA', 'TWLO', 'ZM', 'DOCU',
- 'U', 'DOCN', 'FSLY', 'WORK', 'TEAM', 'SHOP', 'SQ', 'HOOD', 'SOFI', 'UPST',
- 'AFRM', 'LC', 'COIN', 'MSTR', 'TSLA', 'RIVN', 'LCID', 'NIO', 'XPEV', 'LI',
- 'GOEV', 'NKLA', 'HYLN', 'RIDE', 'WKHS', 'SOLO', 'AYRO', 'BLNK', 'CHPT', 'EVGO',
- 'PLUG', 'FCEL', 'BE', 'CLNE', 'GEVO', 'KTOS', 'MVIS', 'VLDR', 'LAZR', 'LIDR',
- 'OUST', 'AEYE', 'GME', 'AMC', 'BBBY', 'BB', 'NOK', 'SNDL', 'TLRY', 'CGC',
- 'ACB', 'APHA', 'CRON', 'HEXO', 'OGI', 'WEED', 'KERN', 'VFF', 'GRWG', 'IIPR',
- 'SMG', 'HYFM', 'CUTR', 'JUSHF', 'TCNNF', 'GTBIF', 'CRLBF', 'GNLN', 'MSOS', 'YOLO',
- 'THCX', 'POTX', 'MJ', 'CNBS', 'TOKE', 'MJUS', 'BUDZ', 'LEAF', 'BUZZ', 'HMMJ',
- 'RBLX', 'UNITY', 'APP', 'DT', 'PLAN', 'SMAR', 'BILL', 'S', 'CRM', 'NOW',
- 'WDAY', 'ADSK', 'ANSS', 'CDNS', 'SNPS', 'ORCL', 'VMW', 'CTSH', 'ACN', 'IBM',
- 'EPAM', 'GLOB', 'TWTR', 'SNAP', 'PINS', 'MTCH', 'BMBL', 'UBER', 'LYFT', 'ABNB',
- 'DASH', 'ETSY', 'EBAY', 'MELI', 'SE', 'BABA', 'JD', 'PDD', 'TME', 'BILI',
- 'DOYU', 'HUYA', 'YY', 'MOMO', 'WB', 'SOHU', 'SINA', 'NTES', 'BIDU', 'IQ',
- 'VIPS', 'WDC', 'STX', 'NTAP', 'PSTG', 'PURE', 'HPE', 'DELL', 'HPQ', 'XEROX',
- 'LOGI', 'CRSR', 'HEAR', 'GPRO', 'SONO', 'VUZI', 'KOPN', 'HIMX', 'FEIM', 'PIX',
- 'IMMR', 'INVZ', 'OLED', 'KOSS', 'VUZIX', 'WISA', 'CETX', 'DGLY', 'MARK', 'VISL',
- 'XELA', 'BBIG', 'PROG', 'ATER', 'CEI', 'GREE', 'SPRT', 'IRNT', 'OPAD', 'TMC',
- 'RIDE', 'GOEV', 'NKLA', 'HYLN', 'WKHS', 'SOLO', 'AYRO', 'IDEX', 'ELMS', 'ARVL',
- 'PSNY', 'PTRA', 'CHPT', 'BLNK', 'EVGO', 'DCFC', 'WBX', 'STEM', 'RUN', 'SEDG'
+ 'A', 'AA', 'AAL', 'AAOI', 'AAON', 'AAPG', 'AAP', 'AAPL', 'AAUC', 'AB', 'ABBV', 'ABCB',
+ 'ABEV', 'ABG', 'ABM', 'ABNB', 'ABR', 'ABTC', 'ABT', 'ABVX', 'ACA', 'ACAD', 'ACGL',
+ 'ACGLN', 'ACGLO', 'ACHC', 'ACHR', 'ACI', 'ACIW', 'ACLS', 'ACLX', 'ACM', 'ACMR', 'ACN',
+ 'ACT', 'AD', 'ADAMI', 'ADAML', 'ADAMM', 'ADAMN', 'ADBE', 'ADC', 'ADI', 'ADMA', 'ADM',
+ 'ADP', 'ADPT', 'ADSK', 'ADT', 'ADUS', 'AEE', 'AEG', 'AEIS', 'AEM', 'AEO', 'AEP',
+ 'AER', 'AES', 'AFG', 'AFL', 'AFRM', 'AG', 'AGCO', 'AGIO', 'AGI', 'AGNC', 'AGNCL',
+ 'AGNCM', 'AGNCN', 'AGNCO', 'AGNCP', 'AGNCZ', 'AGO', 'AGX', 'AGYS', 'AHL', 'AHR',
+ 'AI', 'AIG', 'AIR', 'AIT', 'AIZ', 'AJG', 'AKAM', 'AKR', 'AKRO', 'AL', 'ALAB',
+ 'ALB', 'ALC', 'ALE', 'ALG', 'ALGM', 'ALGN', 'ALH', 'ALHC', 'ALK', 'ALL', 'ALLE',
+ 'ALLY', 'ALKS', 'ALKT', 'ALSN', 'ALNY', 'ALRM', 'ALV', 'ALVO', 'AM', 'AMAT', 'AMBA',
+ 'AMBP', 'AMCR', 'AMD', 'AME', 'AMG', 'AMGN', 'AMH', 'AMKR', 'AMP', 'AMR', 'AMRC',
+ 'AMRX', 'AMRZ', 'AMSC', 'AMT', 'AMTM', 'AMZN', 'AMX', 'AN', 'ANET', 'ANF', 'ANIP',
+ 'AON', 'AORT', 'AOS', 'APA', 'APAM', 'APD', 'APGE', 'APG', 'APH', 'APLE', 'APLD',
+ 'APLS', 'APO', 'APOS', 'APP', 'APPF', 'APPN', 'APTV', 'AQN', 'AQNB', 'AR', 'ARCC',
+ 'ARDT', 'ARE', 'ARES', 'ARGX', 'ARLP', 'ARLO', 'ARM', 'ARMK', 'ARMN', 'AROC', 'ARQT', 'ARWR',
+ 'ARW', 'ARX', 'AS', 'ASAN', 'ASB', 'ASBA', 'ASGN', 'ASH', 'ASML', 'ASND', 'ASO',
+ 'ASR', 'ASTS', 'ASX', 'ATAT', 'ATEC', 'ATGE', 'ATHM', 'ATHS', 'ATI', 'ATKR', 'ATMU',
+ 'ATO', 'ATR', 'ATS', 'AU', 'AUB', 'AUGO', 'AUR', 'AVA', 'AVAL', 'AVAV', 'AVB',
+ 'AVGO', 'AVNT', 'AVPT', 'AVT', 'AVTR', 'AVY', 'AWI', 'AWK', 'AWR', 'AX', 'AXON',
+ 'AXP', 'AXSM', 'AXS', 'AXTA', 'AYI', 'AZN', 'AZO', 'AZZ', 'B', 'BA', 'BABA',
+ 'BAC', 'BAH', 'BALL', 'BAM', 'BANC', 'BANF', 'BANR', 'BAP', 'BATRA', 'BATRK', 'BAX',
+ 'BB', 'BBAI', 'BBAR', 'BBD', 'BBDO', 'BBIO', 'BBT', 'BBU', 'BBUC', 'BBVA', 'BBWI',
+ 'BBY', 'BC', 'BCC', 'BCE', 'BCH', 'BCO', 'BCPC', 'BCS', 'BDC', 'BDX', 'BE',
+ 'BEAM', 'BEKE', 'BEN', 'BEP', 'BEPC', 'BEPH', 'BEPI', 'BEPJ', 'BFAM', 'BFH', 'BG',
+ 'BGC', 'BHC', 'BHF', 'BHP', 'BIDU', 'BIIB', 'BILI', 'BILL', 'BIO', 'BIP', 'BIPC',
+ 'BIPH', 'BIPJ', 'BIRK', 'BITF', 'BJ', 'BK', 'BKD', 'BKE', 'BKH', 'BKNG', 'BKR',
+ 'BKU', 'BL', 'BLCO', 'BLD', 'BLDR', 'BLK', 'BLKB', 'BLSH', 'BLTE', 'BMA', 'BMI',
+ 'BMO', 'BMRN', 'BMNR', 'BMY', 'BN', 'BNH', 'BNJ', 'BNL', 'BNS', 'BNT', 'BNTX', 'BOH',
+ 'BOKF', 'BOOT', 'BOX', 'BP', 'BPOP', 'BPYPM', 'BPYPN', 'BPYPO', 'BPYPP', 'BR', 'BRBR',
+ 'BRC', 'BRK/A', 'BRK/B', 'BRKR', 'BRKRP', 'BRO', 'BROS', 'BRSL', 'BRX', 'BRZE', 'BSAC',
+ 'BSBR', 'BSM', 'BSX', 'BSY', 'BTDR', 'BTI', 'BTSG', 'BTSGU', 'BTG', 'BTU', 'BUD', 'BULL',
+ 'BULLW', 'BUR', 'BURL', 'BUSE', 'BUSEP', 'BVN', 'BWA', 'BWIN', 'BWNB', 'BWSN', 'BWXT',
+ 'BX', 'BXMT', 'BXP', 'BYD', 'BZ', 'C', 'CAAP', 'CACI', 'CACC', 'CADE', 'CAE',
+ 'CAG', 'CAH', 'CAI', 'CAKE', 'CALM', 'CALX', 'CAMT', 'CAR', 'CARG', 'CARR', 'CART',
+ 'CASY', 'CAT', 'CATY', 'CAVA', 'CB', 'CBRE', 'CBSH', 'CBT', 'CBU', 'CBZ', 'CC',
+ 'CCCS', 'CCEP', 'CCI', 'CCOI', 'CCJ', 'CCK', 'CCL', 'CCZ', 'CDE', 'CDP', 'CDNS',
+ 'CDTX', 'CDW', 'CE', 'CEG', 'CET', 'CELC', 'CELH', 'CENT', 'CENX', 'CERT', 'CF', 'CFG',
+ 'CFLT', 'CFR', 'CG', 'CGABL', 'CGAU', 'CGNX', 'CGON', 'CHA', 'CHD', 'CHDN', 'CHE',
+ 'CHEF', 'CHH', 'CHKP', 'CHRD', 'CHRW', 'CHT', 'CHTR', 'CHWY', 'CHYM', 'CI', 'CIB',
+ 'CIEN', 'CIFR', 'CIFRW', 'CIG', 'CIGI', 'CII', 'CIMN', 'CINF', 'CIVI', 'CL', 'CLBT',
+ 'CLF', 'CLH', 'CLS', 'CLSK', 'CLVT', 'CLX', 'CM', 'CMA', 'CMBT', 'CMC', 'CMCM',
+ 'CMCSA', 'CME', 'CMG', 'CMI', 'CMPO', 'CMS', 'CMSA', 'CMSC', 'CMSD', 'CNA', 'CNC',
+ 'CNH', 'CNI', 'CNK', 'CNM', 'CNO', 'CNP', 'CNQ', 'CNR', 'CNS', 'CNTA', 'CNXC',
+ 'CNX', 'COCO', 'COF', 'COGT', 'COHR', 'COIN', 'COKE', 'COLB', 'COLD', 'COLM', 'COMM',
+ 'COMP', 'CON', 'COO', 'COP', 'COR', 'CORT', 'CORZ', 'CORZW', 'CORZZ', 'COST', 'COTY',
+ 'CP', 'CPA', 'CPAY', 'CPB', 'PCH', 'CPK', 'CPNG', 'CPRI', 'CPRT', 'CPRX', 'CPT',
+ 'CQP', 'CR', 'CRBG', 'CRC', 'CRCL', 'CRDO', 'CRGY', 'CRH', 'CRK', 'CRL', 'CRM',
+ 'CRNX', 'CROX', 'CRS', 'CRSP', 'CRUS', 'CRVL', 'CRWD', 'CRWV', 'CSAN', 'CSCO', 'CSGP',
+ 'CSL', 'CSQ', 'CSTM', 'CSW', 'CSX', 'CTAS', 'CTSH', 'CTRA', 'CTRE', 'CTVA', 'CUBE',
+ 'CUBI', 'CUK', 'CURB', 'CUZ', 'CVBF', 'CVCO', 'CVE', 'CVI', 'CVLT', 'CVNA', 'CVS',
+ 'CVX', 'CW', 'CWAN', 'CWEN', 'CWK', 'CWST', 'CWT', 'CX', 'CXT', 'CXW', 'CYBR',
+ 'CYTK', 'CZR', 'D', 'DAL', 'DAN', 'DAR', 'DASH', 'DAVE', 'DAY', 'DB', 'DBD',
+ 'DBRG', 'DBX', 'DCI', 'DD', 'DDOG', 'DDS', 'DE', 'DECK', 'DEI', 'DELL', 'DEO',
+ 'DFH', 'DG', 'DGNX', 'DGX', 'DHCNI', 'DHCNL', 'DHI', 'DHR', 'DHT', 'DINO', 'DIOD',
+ 'DIS', 'DJT', 'DK', 'DKNG', 'DKL', 'DKS', 'DLB', 'DLO', 'DLR', 'DLTR', 'DNLI', 'DNN',
+ 'DOC', 'DOCN', 'DOCS', 'DOCU', 'DOOO', 'DORM', 'DOV', 'DOW', 'DOX', 'DPZ', 'DRD',
+ 'DRI', 'DRS', 'DRVN', 'DSGX', 'DT', 'DTB', 'DTE', 'DTG', 'DTM', 'DTW', 'DUK',
+ 'DUKB', 'DUOL', 'DVA', 'DVN', 'DXC', 'DXCM', 'DY', 'DYN', 'E', 'EA', 'EAI',
+ 'EAT', 'EBAY', 'EBC', 'EBR', 'EC', 'ECCF', 'ECG', 'ECL', 'ED', 'EDU', 'EE',
+ 'EEFT', 'EFX', 'EG', 'EGO', 'EGP', 'EHC', 'EIX', 'EL', 'ELAN', 'ELC', 'ELF',
+ 'ELP', 'ELPC', 'ELS', 'ELV', 'EMA', 'EME', 'EMN', 'EMP', 'EMR', 'ENB', 'ENIC',
+ 'ENJ', 'ENLT', 'ENO', 'ENPH', 'ENS', 'ENSG', 'ENTG', 'ENVA', 'ENVX', 'EOG', 'EOSE',
+ 'EPAC', 'EPAM', 'EPD', 'EPR', 'EPRT', 'EQH', 'EQIX', 'EQNR', 'EQR', 'EQT', 'EQX', 'ERIC',
+ 'ERIE', 'ERJ', 'ERO', 'ES', 'ESAB', 'ESE', 'ESI', 'ESLT', 'ESNT', 'ESS', 'ESTC',
+ 'ETHA', 'ETNB', 'ETOR', 'ET', 'ETN', 'ETR', 'ETSY', 'EVCM', 'EVR', 'EVRG', 'EW',
+ 'EWBC', 'EXAS', 'EXC', 'EXE', 'EXEEL', 'EXEL', 'EXK', 'EXLS', 'EXP', 'EXPD', 'EXPE',
+ 'EXPO', 'EXR', 'EXTR', 'EYE', 'F', 'FA', 'FAF', 'FANG', 'FAST', 'FBIN', 'FBNC',
+ 'FBK', 'FBP', 'FCFS', 'FCNCA', 'FCN', 'FCPT', 'FCX', 'FDX', 'FE', 'FELE', 'FER',
+ 'FERG', 'FFBC', 'FFIN', 'FFIV', 'FG', 'FGN', 'FHB', 'FHI', 'FHN', 'FI', 'FIBK',
+ 'FICO', 'FIG', 'FIGR', 'FIHL', 'FIS', 'FITB', 'FITBI', 'FITBO', 'FITBP', 'FIVE', 'FIX',
+ 'FIZZ', 'FLEX', 'FLG', 'FLNC', 'FLO', 'FLR', 'FLS', 'FLUT', 'FLY', 'FMC', 'FMS',
+ 'FMX', 'FN', 'FNB', 'FND', 'FNF', 'FNV', 'FOLD', 'FORM', 'FORTY', 'FOUR', 'FOX',
+ 'FOXA', 'FR', 'FRHC', 'FRME', 'FRMI', 'FRO', 'FROG', 'FRPT', 'FRSH', 'FRT', 'FSLR',
+ 'FSK', 'FSM', 'FSS', 'FSV', 'FTAI', 'FTAIM', 'FTAIN', 'FTDR', 'FTI', 'FTNT', 'FTS',
+ 'FTV', 'FUL', 'FULT', 'FULTP', 'FUN', 'FUTU', 'FWONA', 'FWONK', 'FYBR', 'G', 'GAP',
+ 'GATX', 'GBCI', 'GBDC', 'GBTG', 'GCMG', 'GD', 'GDDY', 'GDS', 'GDV', 'GE', 'GEF',
+ 'GEHC', 'GEMI', 'GEN', 'GENI', 'GENVR', 'GEO', 'GEV', 'GFF', 'GFI', 'GFL', 'GFS',
+ 'GGAL', 'GGB', 'GGG', 'GH', 'GHC', 'GIB', 'GILD', 'GIL', 'GIS', 'GKOS', 'GL',
+ 'GLBE', 'GLOB', 'GLNG', 'GLPG', 'GLPI', 'GLW', 'GLXY', 'GM', 'GMAB', 'GME', 'GMED',
+ 'GNRC', 'GNTX', 'GNW', 'GOLF', 'GOOG', 'GOOGL', 'GPC', 'GPI', 'GPK', 'GPN', 'GPOR',
+ 'GRAB', 'GRAL', 'GRBK', 'GRFS', 'GRMN', 'GRND', 'GS', 'GSAT', 'GSHD', 'GSK', 'GT',
+ 'GTLB', 'GTLS', 'GTM', 'GTX', 'GVA', 'GWRE', 'GWW', 'GXO', 'H', 'HAE', 'HAFN',
+ 'HAL', 'HALO', 'HAS', 'HASI', 'HBAN', 'HBANL', 'HBANM', 'HBANP', 'HBI', 'HBM', 'HCA',
+ 'HCC', 'HCM', 'HCI', 'HCXY', 'HD', 'HDB', 'HE', 'HEI', 'HESM', 'HGTY', 'HGV',
+ 'HHH', 'HI', 'HIG', 'HII', 'HIMS', 'HIW', 'HL', 'HLI', 'HLNE', 'HLN', 'HLT',
+ 'HMC', 'HMY', 'HNGE', 'HNI', 'HOG', 'HOLX', 'HOMB', 'HON', 'HOOD', 'HP', 'HPE',
+ 'HPQ', 'HQY', 'HR', 'HRB', 'HRI', 'HRL', 'HSAI', 'HSBC', 'HSIC', 'HST', 'HSY',
+ 'HTFL', 'HTGC', 'HTHT', 'HTH', 'HUBB', 'HUBG', 'HUBS', 'HUM', 'HURN', 'HUT', 'HWC',
+ 'HWCPZ', 'HWKN', 'HWM', 'HXL', 'IAC', 'IAG', 'IBIT', 'IBM', 'IBKR', 'IBN', 'IBOC',
+ 'IBRX', 'IBP', 'ICE', 'ICLR', 'ICL', 'ICUI', 'IDA', 'IDCC', 'IDXX', 'IDYA', 'IEP', 'IE',
+ 'IESC', 'IEX', 'IFF', 'IFS', 'IHG', 'IHS', 'ILMN', 'IMO', 'IMVT', 'INCY', 'INDB', 'INDV',
+ 'INFA', 'INFY', 'ING', 'INGM', 'INGR', 'INOD', 'INSM', 'INSP', 'INSW', 'INTA', 'INTC',
+ 'INTR', 'INTU', 'INVH', 'IONQ', 'IONS', 'IOT', 'IPAR', 'IP', 'IPG', 'IPGP', 'IQ',
+ 'IQV', 'IR', 'IREN', 'IRM', 'IRON', 'IRTC', 'IRT', 'ISRG', 'IT', 'ITGR', 'ITRI',
+ 'ITT', 'ITUB', 'ITW', 'IVT', 'IVZ', 'IX', 'J', 'JAZZ', 'JBL', 'JBHT', 'JBS',
+ 'JBTM', 'JCI', 'JD', 'JEF', 'JHG', 'JHX', 'JKHY', 'JLL', 'JNJ', 'JOBY', 'JOE',
+ 'JOYY', 'JPM', 'JXN', 'K', 'KAI', 'KAR', 'KB', 'KBH', 'KBR', 'KC', 'KD',
+ 'KDP', 'KEN', 'KEP', 'KEX', 'KEY', 'KEYS', 'KFY', 'KGC', 'KGS', 'KHC', 'KIM',
+ 'KKR', 'KKRS', 'KLAC', 'KLAR', 'KLIC', 'KMB', 'KMI', 'KMPR', 'KMX', 'KN', 'KNF',
+ 'KNSA', 'KNSL', 'KNTK', 'KNX', 'KO', 'KOF', 'KR', 'KRC', 'KRG', 'KRMN', 'KRYS',
+ 'KSPI', 'KT', 'KTB', 'KTOS', 'KVUE', 'KVYO', 'KWR', 'KYIV', 'KYMR', 'L', 'LAD',
+ 'LAMR', 'LAUR', 'LAZ', 'LB', 'LBRDA', 'LBRDK', 'LBRDP', 'LBRT', 'LBTYA', 'LBTYB', 'LBTYK',
+ 'LC', 'LCID', 'LCII', 'LDOS', 'LEA', 'LECO', 'LEGN', 'LEU', 'LEN', 'LEVI', 'LFST', 'LFUS',
+ 'LGN', 'LGND', 'LH', 'LHX', 'LI', 'LIF', 'LII', 'LIN', 'LINE', 'LITE', 'LIVN',
+ 'LKQ', 'LLYVA', 'LLYVK', 'LLY', 'LMAT', 'LMND', 'LMT', 'LNC', 'LNG', 'LNT', 'LNTH',
+ 'LNW', 'LOAR', 'LOGI', 'LOPE', 'LOW', 'LPLA', 'LPL', 'LPX', 'LRCX', 'LRN', 'LSCC',
+ 'LSTR', 'LTH', 'LTM', 'LU', 'LULU', 'LUMN', 'LUNR', 'LUV', 'LVS', 'LW', 'LXP',
+ 'LYB', 'LYFT', 'LYG', 'LYV', 'M', 'MA', 'MAA', 'MAC', 'MAIN', 'MANH', 'MANU',
+ 'MAR', 'MARA', 'MAS', 'MASI', 'MAT', 'MATX', 'MBLY', 'MC', 'MCHB', 'MCHP', 'MCHPP',
+ 'MCD', 'MCK', 'MCO', 'MCY', 'MDB', 'MDGL', 'MDLZ', 'MDT', 'MDU', 'MEDP', 'MELI',
+ 'MENS', 'MEOH', 'MESO', 'META', 'METC', 'MET', 'MFAN', 'MFAO', 'MFC', 'MFICL', 'MFG',
+ 'MGA', 'MGEE', 'MGM', 'MGNI', 'MGRC', 'MGY', 'MH', 'MHK', 'MHO', 'MIAX', 'MIDD',
+ 'MIR', 'MIRM', 'MKC', 'MKL', 'MKSI', 'MKTX', 'MLI', 'MLCO', 'MLM', 'MLYS', 'MMC',
+ 'MMM', 'MMS', 'MMSI', 'MMYT', 'MNDY', 'MNSO', 'MNST', 'MO', 'MOD', 'MOH', 'MORN',
+ 'MOS', 'MP', 'MPC', 'MPLX', 'MPWR', 'MPW', 'MQ', 'MRCY', 'MRK', 'MRNA', 'MRP',
+ 'MRUS', 'MRVL', 'MRX', 'MS', 'MSA', 'MSCI', 'MSFT', 'MSGE', 'MSGS', 'MSI', 'MSM',
+ 'MSTR', 'MT', 'MTB', 'MTCH', 'MTD', 'MTDR', 'MTG', 'MTH', 'MTN', 'MTRN', 'MTSI',
+ 'MTSR', 'MTZ', 'MU', 'MUFG', 'MUR', 'MUSA', 'MWA', 'MYRG', 'MZTI', 'NAMS', 'NAMSW',
+ 'NAN', 'NATL', 'NBIS', 'NBIX', 'NBTB', 'NCLH', 'NCNO', 'NDAQ', 'NDSN', 'NE', 'NEE',
+ 'NEM', 'NET', 'NEU', 'NG', 'NFLX', 'NFG', 'NGG', 'NGD', 'NGVT', 'NHI', 'NI', 'NICE', 'NIO',
+ 'NIQ', 'NJR', 'NKE', 'NLY', 'NMFCZ', 'NMIH', 'NMRK', 'NMR', 'NNN', 'NNNN', 'NNI',
+ 'NOC', 'NOG', 'NOK', 'NOV', 'NOVT', 'NOW', 'NP', 'NPO', 'NRG', 'NSA', 'NSC',
+ 'NSIT', 'NTAP', 'NTES', 'NTLA', 'NTNX', 'NTRA', 'NTR', 'NTRS', 'NTRSO', 'NTSK', 'NU',
+ 'NUE', 'NUVL', 'NVAWW', 'NVDA', 'NVMI', 'NVO', 'NVST', 'NVTS', 'NVR', 'NVS', 'NVT',
+ 'NWE', 'NWG', 'NWL', 'NWS', 'NWSA', 'NXE', 'NXPI', 'NXST', 'NXT', 'NYT', 'O',
+ 'OBDC', 'OC', 'ODD', 'ODFL', 'OGE', 'OGN', 'OGS', 'OHI', 'OII', 'OKE', 'OKLO',
+ 'OKTA', 'OLED', 'OLN', 'OLLI', 'OMAB', 'OMC', 'OMF', 'ON', 'ONB', 'ONBPO', 'ONBPP',
+ 'ONC', 'ONON', 'ONTO', 'OPCH', 'OPEN', 'OR', 'ORA', 'ORCL', 'ORI', 'ORLA', 'ORLY', 'OSCR',
+ 'OS', 'OSIS', 'OSK', 'OSW', 'OTEX', 'OTF', 'OTIS', 'OTTR', 'OUST', 'OUT', 'OVV',
+ 'OWL', 'OXLC', 'OXLCL', 'OXLCN', 'OXLCO', 'OXLCP', 'OXLCZ', 'OXY', 'OZK', 'PAA',
+ 'PAAS', 'PAC', 'PAG', 'PAGP', 'PAGS', 'PAM', 'PANW', 'PARR', 'PATH', 'PATK', 'PAX',
+ 'PAY', 'PAYC', 'PAYO', 'PAYX', 'PB', 'PBA', 'PBF', 'PBH', 'PBI', 'PBR', 'PCAR',
+ 'PCG', 'PCH', 'PCOR', 'PCT', 'PCTY', 'PCVX', 'PDD', 'PDI', 'PECO', 'PEG', 'PEGA',
+ 'PEN', 'PENN', 'PEP', 'PFE', 'PFG', 'PFGC', 'PFH', 'PFS', 'PFSI', 'PG', 'PGR',
+ 'PGY', 'PH', 'PHG', 'PHI', 'PHIN', 'PHM', 'PI', 'PII', 'PINC', 'PINS', 'PIPR',
+ 'PJT', 'PK', 'PKG', 'PKX', 'PL', 'PLBL', 'PLD', 'PLMR', 'PLNT', 'PLTR', 'PLUG',
+ 'PLXS', 'PM', 'PMTU', 'PNC', 'PNFP', 'PNR', 'PNW', 'PODD', 'PONY', 'POOL', 'POR',
+ 'POST', 'POWI', 'POWL', 'POWWP', 'PPC', 'PPG', 'PPL', 'PPTA', 'PR', 'PRAX', 'PRCH',
+ 'PRDO', 'PRGO', 'PRH', 'PRI', 'PRIM', 'PRKS', 'PRK', 'PRM', 'PRMB', 'PRS', 'PRU', 'PRVA',
+ 'PSA', 'PSKY', 'PSMT', 'PSN', 'PSO', 'PSTG', 'PSX', 'PTC', 'PTCT', 'PTEN', 'PTGX',
+ 'PTON', 'PTRN', 'PUK', 'PVH', 'PWR', 'PYPL', 'QBTS', 'QCOM', 'QDEL', 'QFIN', 'QGEN',
+ 'QLYS', 'QRVO', 'QS', 'QSR', 'QTWO', 'QUBT', 'QURE', 'QXO', 'R', 'RACE', 'RAL',
+ 'RARE', 'RBA', 'RBC', 'RBLX', 'RBRK', 'RCB', 'RCC', 'RCI', 'RCL', 'RDDT', 'RDN',
+ 'RDNT', 'RDY', 'REG', 'REGCO', 'REGCP', 'REGN', 'RELX', 'RELY', 'REVG', 'REXR', 'REYN',
+ 'REZI', 'RF', 'RGA', 'RGC', 'RGEN', 'RGLD', 'RGTI', 'RGTIW', 'RH', 'RHI', 'RIOT',
+ 'RIVN', 'RKLB', 'RMBS', 'RNA', 'RNW', 'ROAD', 'ROCK', 'ROIV', 'ROKU', 'ROP', 'ROST',
+ 'RPRX', 'RRR', 'RUM', 'RUN', 'RUSHA', 'RUSHB', 'RVMD', 'RXRX', 'RYAAY', 'RYTM', 'SAIA',
+ 'SAIC', 'SAIL', 'SANM', 'SATS', 'SBAC', 'SBCF', 'SBET', 'SBLK', 'SBRA', 'SBUX', 'SEDG',
+ 'SEB', 'SEIC', 'SEZL', 'SFD', 'SFM', 'SFNC', 'SGRY', 'SHC', 'SHOO', 'SHOP', 'SIGI',
+ 'SIM', 'SIMO', 'SIRI', 'SITM', 'SKYW', 'SLAB', 'SLM', 'SLMBP', 'SLNO', 'SMCI', 'SMMT',
+ 'SMPL', 'SMTC', 'SNDK', 'SNEX', 'SNPS', 'SNY', 'SOFI', 'SOLSV', 'SONO', 'SOUN', 'SOUNW',
+ 'SPNS', 'SPSC', 'SRAD', 'SRPT', 'SRRK', 'SSNC', 'SSRM', 'STEP', 'STLD', 'STNE', 'STRA',
+ 'STRC', 'STRD', 'STRF', 'STRK', 'STRL', 'STX', 'SUPN', 'SWKS', 'SYBT', 'SYM', 'SYNA',
+ 'TARS', 'TBBK', 'TCBI', 'TCOM', 'TEAM', 'TECH', 'TEM', 'TENB', 'TER', 'TFSL', 'TGTX',
+ 'TIGO', 'TLN', 'TLX', 'TMC', 'TMDX', 'TMUS', 'TOWN', 'TPG', 'TPGXL', 'TRI', 'TRMB',
+ 'TRMD', 'TRMK', 'TROW', 'TSCO', 'TSEM', 'TSLA', 'TTAN', 'TTD', 'TTEK', 'TTMI', 'TTWO',
+ 'TVTX', 'TW', 'TWST', 'TXN', 'TXRH', 'UAL', 'UBSI', 'UEC', 'UFPI', 'ULTA', 'UMBF',
+ 'UMBFO', 'UPST', 'UPWK', 'URBN', 'USAR', 'USLM', 'UTHR', 'UUUU', 'VC', 'VCTR', 'VCYT',
+ 'VEON', 'VERX', 'VFS', 'VIAV', 'VICR', 'VKTX', 'VLY', 'VLYPN', 'VLYPO', 'VLYPP', 'VNET',
+ 'VNOM', 'VOD', 'VRNS', 'VRRM', 'VRSK', 'VRSN', 'VRTX', 'VSAT', 'VSEC', 'VTRS', 'WAFD',
+ 'WAY', 'WB', 'WBD', 'WBTN', 'WDAY', 'WDC', 'WDFC', 'WFRD', 'WGS', 'WING', 'WIX',
+ 'WMG', 'WRD', 'WSBC', 'WSBCO', 'WSBCP', 'WSC', 'WSFS', 'WTFC', 'WTW', 'WULF', 'WWD',
+ 'WYNN', 'XEL', 'XENE', 'XMTR', 'XNET', 'XP', 'XRAY', 'Z', 'ZBRA', 'ZG', 'ZION',
+ 'ZIONP', 'ZLAB', 'ZM', 'ZS'
 ];
 
 interface GEXData {
@@ -191,24 +246,34 @@ function calculateGEXImpactScore(gexValue: number, marketCap: number): number {
  return Math.round(impactScore);
 }
 
-// Get options data using the same method as the working GEX endpoint
-async function getOptionsData(symbol: string, baseUrl: string): Promise<any> {
+// Get options data using the same method as the working GEX endpoint with TIMEOUT
+async function getOptionsData(symbol: string, baseUrl: string, timeoutMs: number = 5000): Promise<any> {
  try {
- const response = await fetch(`${baseUrl}/api/options-chain?ticker=${symbol}`);
+ // Create abort controller for timeout - 5 seconds max
+ const controller = new AbortController();
+ const timeout = setTimeout(() => controller.abort(), timeoutMs);
+ 
+ const response = await fetch(`${baseUrl}/api/options-chain?ticker=${symbol}`, {
+ signal: controller.signal
+ });
+ 
+ clearTimeout(timeout);
  
  if (!response.ok) {
- throw new Error(`Failed to fetch options chain for ${symbol}`);
+ return null;
  }
  
  const result = await response.json();
  
  if (!result.success) {
- throw new Error(`Options chain API error for ${symbol}`);
+ return null;
  }
  
  return result;
  } catch (error) {
- console.error(`Error fetching options data for ${symbol}:`, error);
+ if (error instanceof Error && error.name === 'AbortError') {
+ console.log(`⏱️ ${symbol}: TIMEOUT - SKIPPING`);
+ }
  return null;
  }
 }
@@ -521,13 +586,15 @@ async function calculateSymbolGEX(symbol: string, baseUrl: string, expirationFil
  }
 }
 
-// Process symbols in parallel batches with proper concurrency control
-async function processBatchParallel(symbols: string[], baseUrl: string, expirationFilter: string = 'Default', maxConcurrency: number = 10): Promise<GEXData[]> {
+// ⚡ OPTIMIZED: Process symbols in parallel batches with HIGH concurrency
+async function processBatchParallel(symbols: string[], baseUrl: string, expirationFilter: string = 'Default', maxConcurrency: number = 30): Promise<GEXData[]> {
  const results: GEXData[] = [];
  
- // Process in chunks of maxConcurrency
+ // Process in chunks of maxConcurrency (default 30 for maximum speed)
  for (let i = 0; i < symbols.length; i += maxConcurrency) {
  const batch = symbols.slice(i, i + maxConcurrency);
+ const batchStartTime = Date.now();
+ 
  const batchPromises = batch.map(symbol => calculateSymbolGEX(symbol, baseUrl, expirationFilter));
  
  const batchResults = await Promise.allSettled(batchPromises);
@@ -540,7 +607,10 @@ async function processBatchParallel(symbols: string[], baseUrl: string, expirati
  
  results.push(...validResults);
  
- // Small delay between batches to avoid overwhelming APIs
+ const batchTime = Date.now() - batchStartTime;
+ console.log(`⚡ Parallel batch ${Math.floor(i / maxConcurrency) + 1}: Processed ${batch.length} symbols in ${batchTime}ms (${i + batch.length}/${symbols.length})`);
+ 
+ // Minimal delay between batches - just enough to avoid API throttling
  if (i + maxConcurrency < symbols.length) {
  await new Promise(resolve => setTimeout(resolve, 50));
  }
@@ -551,7 +621,7 @@ async function processBatchParallel(symbols: string[], baseUrl: string, expirati
 
 // Legacy function for backward compatibility
 async function processBatch(symbols: string[], baseUrl: string, expirationFilter: string = 'Default'): Promise<GEXData[]> {
- return processBatchParallel(symbols, baseUrl, expirationFilter, 5);
+ return processBatchParallel(symbols, baseUrl, expirationFilter, 15);
 }
 
 export async function GET(request: NextRequest) {
@@ -561,22 +631,22 @@ export async function GET(request: NextRequest) {
  const streaming = searchParams.get('stream') === 'true';
  const expirationFilter = searchParams.get('expirationFilter') || 'Default';
  
- // If not streaming, use optimized parallel batch processing
+ // If not streaming, use optimized parallel batch processing with MAXIMUM SPEED
  if (!streaming) {
  // Get base URL for internal API calls
  const host = request.nextUrl.host;
  const protocol = request.nextUrl.protocol;
  const baseUrl = `${protocol}//${host}`;
  
- // Process all 1000 symbols with higher concurrency for non-streaming
+ // Process all symbols with HIGH concurrency for non-streaming (50 parallel requests!)
  const symbolsToProcess = TOP_SCREENER_SYMBOLS.slice(0, Math.min(limit, 1000));
- console.log(` Processing ${symbolsToProcess.length} symbols in parallel batches for ${expirationFilter} filter`);
+ console.log(`⚡ Processing ${symbolsToProcess.length} symbols with 50 parallel requests for ${expirationFilter} filter`);
  
  const startTime = Date.now();
- const allResults = await processBatchParallel(symbolsToProcess, baseUrl, expirationFilter, 15); // Higher concurrency
+ const allResults = await processBatchParallel(symbolsToProcess, baseUrl, expirationFilter, 50); // MAX SPEED: 50 concurrent
  const processingTime = Date.now() - startTime;
  
- console.log(` Processed ${symbolsToProcess.length} symbols in ${processingTime}ms (${Math.round(symbolsToProcess.length / (processingTime / 1000))} symbols/sec)`);
+ console.log(`✅ Processed ${symbolsToProcess.length} symbols in ${processingTime}ms (${Math.round(symbolsToProcess.length / (processingTime / 1000))} symbols/sec)`);
 
  // Sort by GEX Impact Score (highest impact relative to market cap first)
  const sortedResults = allResults
@@ -594,7 +664,7 @@ export async function GET(request: NextRequest) {
  });
  }
 
- // Streaming response for real-time updates
+ // Streaming response with PARALLEL BATCH PROCESSING for speed
  const encoder = new TextEncoder();
  const stream = new ReadableStream({
  async start(controller) {
@@ -614,32 +684,57 @@ export async function GET(request: NextRequest) {
  timestamp: new Date().toISOString()
  })}\n\n`));
  
- // Process symbols one by one for real-time updates
- for (let i = 0; i < symbolsToProcess.length; i++) {
- const symbol = symbolsToProcess[i];
+ // ⚡ PARALLEL BATCH PROCESSING - Process 10 symbols at once (reduced from 25 for stability)
+ const BATCH_SIZE = 10; // Smaller batches = less wait time if one symbol is slow
+ const BATCH_DELAY = 50; // Reduced delay between batches
+ const SYMBOL_TIMEOUT = 12000; // 12 second timeout per symbol (prevent stalls)
  
- try {
- const result = await calculateSymbolGEX(symbol, baseUrl, expirationFilter);
+ for (let i = 0; i < symbolsToProcess.length; i += BATCH_SIZE) {
+ const batch = symbolsToProcess.slice(i, i + BATCH_SIZE);
+ const batchStartTime = Date.now();
  
- if (result && result.dealerSweat !== 0) {
- allResults.push(result);
+ // Process entire batch in parallel with Promise.allSettled
+ const batchPromises = batch.map(symbol => 
+ // Wrap in timeout promise to prevent individual symbols from blocking
+ Promise.race([
+ calculateSymbolGEX(symbol, baseUrl, expirationFilter),
+ new Promise<null>((resolve) => 
+ setTimeout(() => {
+ console.log(`⏱️ ${symbol}: Skipping due to timeout`);
+ resolve(null);
+ }, SYMBOL_TIMEOUT)
+ )
+ ]).catch(error => {
+ console.error(`❌ Error processing ${symbol}:`, error);
+ return null;
+ })
+ );
+ 
+ const batchResults = await Promise.allSettled(batchPromises);
+ 
+ // Extract successful results and send updates
+ batchResults.forEach((result, batchIdx) => {
+ if (result.status === 'fulfilled' && result.value && result.value.dealerSweat !== 0) {
+ allResults.push(result.value);
  
  // Send individual result
  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
  type: 'result',
- data: result,
- progress: i + 1,
+ data: result.value,
+ progress: i + batchIdx + 1,
  total: symbolsToProcess.length,
  timestamp: new Date().toISOString()
  })}\n\n`));
  }
- } catch (error) {
- console.error(`Error processing ${symbol}:`, error);
- }
+ });
  
- // Small delay to avoid overwhelming - reduced for faster processing
- if (i < symbolsToProcess.length - 1) {
- await new Promise(resolve => setTimeout(resolve, 25));
+ const batchTime = Date.now() - batchStartTime;
+ const successCount = batchResults.filter(r => r.status === 'fulfilled' && r.value).length;
+ console.log(`⚡ Batch ${Math.floor(i / BATCH_SIZE) + 1}: Processed ${batch.length} symbols in ${batchTime}ms (${successCount} successful) - Progress: ${i + batch.length}/${symbolsToProcess.length}`);
+ 
+ // Small delay between batches to avoid overwhelming the API
+ if (i + BATCH_SIZE < symbolsToProcess.length) {
+ await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
  }
  }
  
@@ -654,6 +749,7 @@ export async function GET(request: NextRequest) {
  timestamp: new Date().toISOString()
  })}\n\n`));
  
+ console.log(`✅ GEX Screener complete: ${sortedResults.length} results from ${symbolsToProcess.length} symbols`);
  controller.close();
  } catch (error) {
  controller.enqueue(encoder.encode(`data: ${JSON.stringify({

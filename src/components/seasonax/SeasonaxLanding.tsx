@@ -10,19 +10,15 @@ import SeasonalityModal from './SeasonalityModal';
 
 interface SeasonaxLandingProps {
  onStartScreener?: () => void;
- precomputedData?: any; // Cached data from background screener
- loadingFromCache?: boolean; // Whether we're loading from cache
 }
 
 const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ 
-  onStartScreener, 
-  precomputedData, 
-  loadingFromCache = false 
+  onStartScreener
 }) => {
  const [activeMarket, setActiveMarket] = useState('SP500');
  const [timePeriod, setTimePeriod] = useState('15Y'); // Changed default from 5Y to 15Y
  const [opportunities, setOpportunities] = useState<SeasonalPattern[]>([]);
- const [loading, setLoading] = useState(!precomputedData); // Don't show loading if we have precomputed data
+ const [loading, setLoading] = useState(true); // Always start with loading
  const [error, setError] = useState<string | null>(null);
  const [streamStatus, setStreamStatus] = useState<string>('');
  const [showWebsite, setShowWebsite] = useState(false);
@@ -51,23 +47,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  ];
 
  useEffect(() => {
- // Use precomputed data if available (from background cache)
- if (precomputedData && precomputedData.opportunities) {
-   console.log('🚀 Using precomputed data from background screener');
-   setOpportunities(precomputedData.opportunities);
-   setLoading(false);
-   setStreamStatus('📊 Loaded from background cache - Ready!');
-   setProgressStats({ 
-     processed: precomputedData.totalScanned || precomputedData.opportunities.length, 
-     total: precomputedData.totalScanned || precomputedData.opportunities.length, 
-     found: precomputedData.opportunities.length 
-   });
-   return;
- }
- 
- // Fallback to live data loading
+ // Load fresh data every time
  loadMarketData();
- }, [timePeriod, precomputedData]); // React to both time period and precomputed data changes
+ }, [timePeriod]); // React to time period changes
 
  // Cleanup EventSource on component unmount
  useEffect(() => {
@@ -81,50 +63,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
  const loadMarketData = async () => {
  try {
- const cache = GlobalDataCache.getInstance();
- 
- // FORCE CLEAR ALL CACHED DATA (especially election cycle data)
- console.log(' Clearing ALL cached data to fix election cycle issues...');
- cache.clear(); // Clear everything
- 
- // Also clear browser storage
- try {
- localStorage.clear();
- sessionStorage.clear();
- console.log(' Browser storage cleared');
- } catch (e) {
- console.log(' Browser storage clear failed (likely in SSR)');
- }
- 
- // Check for cached seasonal opportunities from DataPreloader
- const cachedOpportunities = cache.get(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES);
- if (cachedOpportunities && cachedOpportunities.length > 0) {
- // Validate data integrity (has required fields)
- const isRealData = cachedOpportunities.every((opp: SeasonalPattern) => 
- opp.symbol && opp.companyName && 
- typeof opp.averageReturn === 'number' && typeof opp.winRate === 'number'
- );
- 
- if (isRealData) {
- // Additional deduplication safety check
- const uniqueOpportunities = cachedOpportunities.filter((opp: SeasonalPattern, index: number, array: SeasonalPattern[]) => 
- array.findIndex((o: SeasonalPattern) => o.symbol === opp.symbol) === index
- );
- 
- console.log(` Using cached REAL seasonal opportunities (${uniqueOpportunities.length} unique items) - instant load!`);
- setOpportunities(uniqueOpportunities.sort((a: SeasonalPattern, b: SeasonalPattern) => Math.abs(b.averageReturn || b.avgReturn) - Math.abs(a.averageReturn || a.avgReturn)));
- setLoading(false);
- setStreamStatus(' Data loaded from cache - Ready!');
- setProgressStats({ processed: 1000, total: 1000, found: uniqueOpportunities.length });
- return;
- } else {
- console.warn(' Cache contains invalid data, forcing refresh...');
- cache.clear(); // Clear all cache to force fresh data
- }
- }
- 
- // If no valid cache, try to load from the SeasonalScreenerService directly
- console.log('� No valid cache found, loading fresh data from SeasonalScreenerService...');
+ // Load fresh data directly from SeasonalScreenerService
+ console.log('📊 Loading fresh seasonal data...');
  
  // Import and use the real service
  const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService');
@@ -134,8 +74,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  setError(null);
  setShowWebsite(false);
  setOpportunities([]);
- setStreamStatus(' Loading real seasonal data from 1000 stocks with worker-based processing...');
- setProgressStats({ processed: 0, total: 1000, found: 0 }); // FULL 1000 stocks as requested
+ setStreamStatus('⚡ Loading real seasonal data from 1000 stocks with worker-based processing...');
+ setProgressStats({ processed: 0, total: 1000, found: 0 });
  
  const selectedPeriod = timePeriodOptions.find(p => p.id === timePeriod);
  const years = selectedPeriod?.years || 15; // FULL years as requested - no limits
@@ -202,19 +142,16 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  );
  
  if (realOpportunities && realOpportunities.length > 0) {
- console.log(` BLAZING FAST Completed! Found ${realOpportunities.length} seasonal opportunities with 50 concurrent requests`);
- 
- // Cache the final results
- cache.set(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES, realOpportunities);
+ console.log(`✅ Completed! Found ${realOpportunities.length} seasonal opportunities with 50 concurrent requests`);
  
  // Final sort and display
  const finalSorted = realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
  setOpportunities(finalSorted as unknown as SeasonalPattern[]);
  setLoading(false);
- setStreamStatus(' BLAZING FAST processing completed!');
+ setStreamStatus('✅ Processing completed!');
  setProgressStats({ processed: 1000, total: 1000, found: realOpportunities.length });
  } else {
- throw new Error('No seasonal opportunities found with blazing fast processing');
+ throw new Error('No seasonal opportunities found');
  }
  
  } catch (blazingFastError) {
@@ -253,12 +190,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  );
  
  if (realOpportunities && realOpportunities.length > 0) {
- console.log(` Fallback completed! Found ${realOpportunities.length} seasonal opportunities`);
- cache.set(GlobalDataCache.keys.SEASONAL_OPPORTUNITIES, realOpportunities);
+ console.log(`✅ Fallback completed! Found ${realOpportunities.length} seasonal opportunities`);
  const finalSorted = realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
  setOpportunities(finalSorted as unknown as SeasonalPattern[]);
  setLoading(false);
- setStreamStatus(' Standard processing completed!');
+ setStreamStatus('✅ Standard processing completed!');
  setProgressStats({ processed: 500, total: 500, found: realOpportunities.length });
  } else {
  throw new Error('No seasonal opportunities found in fallback mode');

@@ -38,7 +38,19 @@ export default function GEXChart({
  const [zoomTransform, setZoomTransform] = useState<any>(null);
  const [showNetGamma, setShowNetGamma] = useState<boolean>(true); // Default to NET view
  const [showGEX, setShowGEX] = useState<boolean>(true); // Toggle between GEX and DEX
+ const [isMobile, setIsMobile] = useState<boolean>(false);
  const svgRef = useRef<SVGSVGElement>(null);
+
+ // Mobile detection
+ useEffect(() => {
+ const checkMobile = () => {
+ setIsMobile(window.innerWidth <= 768);
+ };
+ 
+ checkMobile();
+ window.addEventListener('resize', checkMobile);
+ return () => window.removeEventListener('resize', checkMobile);
+ }, []);
 
  /**
  * Calculate real Gamma using Black-Scholes formula
@@ -433,9 +445,11 @@ export default function GEXChart({
  const svg = d3.select(svgRef.current);
  svg.selectAll('*').remove();
 
- const margin = { top: 60, right: 180, bottom: 80, left: 100 };
- const width = 1500 - margin.left - margin.right;
- const height = 600 - margin.top - margin.bottom;
+ const margin = isMobile 
+ ? { top: 50, right: 30, bottom: 80, left: 50 }
+ : { top: 60, right: 180, bottom: 80, left: 100 };
+ const width = (isMobile ? 350 : 1500) - margin.left - margin.right;
+ const height = (isMobile ? 415 : 600) - margin.top - margin.bottom;
 
  const container = svg
  .append('g')
@@ -504,7 +518,7 @@ export default function GEXChart({
  .attr('height', (d: any) => Math.abs(newYScale(getCurrentExposure(d)) - newYScale(0)));
  
  // Update X-axis with visible strikes only
- const maxVisibleLabels = 15;
+ const maxVisibleLabels = isMobile ? 9 : 15; // Mobile: 9 strikes, Desktop: 15 strikes
  const visibleTickInterval = Math.max(1, Math.ceil(visibleStrikes.length / maxVisibleLabels));
  const filteredVisibleTicks = visibleStrikes.filter((_, index) => index % visibleTickInterval === 0);
  
@@ -514,11 +528,13 @@ export default function GEXChart({
  const xAxisUpdate = container.select('.x-axis') as d3.Selection<SVGGElement, unknown, null, undefined>;
  xAxisUpdate.call(customVisibleXAxis);
  
- // Calculate dynamic font size for visible ticks (larger sizes)
- const visibleFontSize = Math.max(14, Math.min(18, 250 / filteredVisibleTicks.length));
+ // Calculate dynamic font size for visible ticks - keep consistent with initial render
+ const visibleFontSize = isMobile 
+   ? Math.max(10, Math.min(12, 150 / filteredVisibleTicks.length))
+   : Math.max(14, Math.min(18, 250 / filteredVisibleTicks.length));
  
  xAxisUpdate.selectAll('text')
- .style('fill', 'white')
+ .style('fill', '#ff9900')
  .style('font-size', `${visibleFontSize}px`)
  .attr('transform', 'rotate(-35)')
  .style('text-anchor', 'end')
@@ -526,7 +542,7 @@ export default function GEXChart({
  .attr('dy', '0.5em');
  
  xAxisUpdate.selectAll('path, line')
- .style('stroke', 'white')
+ .style('stroke', '#ff9900')
  .style('stroke-width', '1px');
  
  // Update Y-axis with new scale
@@ -541,11 +557,11 @@ export default function GEXChart({
  }) as any);
  
  yAxisUpdate.selectAll('text')
- .style('fill', 'white')
+ .style('fill', '#ff9900')
  .style('font-size', '14px');
  
  yAxisUpdate.selectAll('path, line')
- .style('stroke', 'white')
+ .style('stroke', '#ff9900')
  .style('stroke-width', '1px');
 
  // Update zero line
@@ -586,7 +602,7 @@ export default function GEXChart({
  });
 
  // Create axes with intelligent tick filtering
- const maxLabels = 15; // Maximum number of labels to show
+ const maxLabels = isMobile ? 9 : 15; // Mobile: 9 strikes, Desktop: 15 strikes
  const tickInterval = Math.max(1, Math.ceil(uniqueStrikes.length / maxLabels));
  
  // Create filtered tick values - show every nth strike
@@ -607,8 +623,10 @@ export default function GEXChart({
  });
 
  // Add X axis
- // Calculate dynamic font size based on number of visible ticks (larger sizes)
- const fontSize = Math.max(14, Math.min(18, 250 / filteredTicks.length));
+ // Calculate dynamic font size based on number of visible ticks - match OpenInterest logic
+ const fontSize = isMobile 
+   ? Math.max(10, Math.min(12, 150 / filteredTicks.length))
+   : Math.max(14, Math.min(18, 250 / filteredTicks.length));
  
  container
  .append('g')
@@ -616,9 +634,9 @@ export default function GEXChart({
  .attr('transform', `translate(0,${height})`) // Position at bottom of chart
  .call(xAxis)
  .selectAll('text')
- .style('font-family', '"SF Mono", Consolas, monospace')
+ .style('font-family', '"SF Pro Display", sans-serif')
  .style('font-size', `${fontSize}px`)
- .style('fill', '#ffffff')
+ .style('fill', '#ff9900')
  .attr('transform', 'rotate(-35)')
  .style('text-anchor', 'end')
  .attr('dx', '-0.5em')
@@ -630,9 +648,9 @@ export default function GEXChart({
  .attr('class', 'y-axis')
  .call(yAxis)
  .selectAll('text')
- .style('font-family', '"SF Mono", Consolas, monospace')
+ .style('font-family', '"SF Pro Display", sans-serif')
  .style('font-size', '14px')
- .style('fill', '#ffffff');
+ .style('fill', '#ff9900');
 
  // Add zero line
  container
@@ -728,82 +746,12 @@ export default function GEXChart({
  tooltip
  .style('left', (event.pageX + 15) + 'px')
  .style('top', (event.pageY - 10) + 'px');
-
- // Add crosshair and notify parent for synchronization
- const [mouseX, mouseY] = d3.pointer(event, container.node());
- 
- // We're hovering over this specific bar, so use its strike
- const hoveredStrike = d.strike;
- 
- // Add local crosshair for this chart only
- container.selectAll('.crosshair').remove();
- container.selectAll('.strike-label').remove();
- 
- // Add vertical crosshair line
- container
- .append('line')
- .attr('class', 'crosshair')
- .attr('x1', mouseX)
- .attr('x2', mouseX)
- .attr('y1', 0)
- .attr('y2', height)
- .style('stroke', '#ff9900') // Orange color for GEX chart
- .style('stroke-width', 1)
- .style('stroke-dasharray', '3,3')
- .style('pointer-events', 'none');
- 
- // Add horizontal crosshair line
- container
- .append('line')
- .attr('class', 'crosshair')
- .attr('x1', 0)
- .attr('x2', width)
- .attr('y1', mouseY)
- .attr('y2', mouseY)
- .style('stroke', '#ff9900')
- .style('stroke-width', 1)
- .style('stroke-dasharray', '3,3')
- .style('pointer-events', 'none');
- 
- // Add strike price label with background
- // First add background rectangle
- container
- .append('rect')
- .attr('class', 'strike-label')
- .attr('x', mouseX - 30) // Center the background around the crosshair
- .attr('y', height + 5)
- .attr('width', 60)
- .attr('height', 28)
- .style('fill', '#000000')
- .style('stroke', '#ff9900')
- .style('stroke-width', 2)
- .style('rx', 4) // Rounded corners
- .style('ry', 4)
- .style('pointer-events', 'none');
- 
- // Add text on top of background
- container
- .append('text')
- .attr('class', 'strike-label')
- .attr('x', mouseX)
- .attr('y', height + 24) // Position text in center of background
- .attr('text-anchor', 'middle')
- .style('fill', '#ff9900')
- .style('font-family', '"SF Mono", Consolas, monospace')
- .style('font-size', '16px')
- .style('font-weight', 'bold')
- .style('pointer-events', 'none')
- .text(`$${hoveredStrike}`);
  })
  .on('mouseout', function() {
  d3.select(this)
  .style('opacity', 1.0)
  .style('stroke-width', 1);
  d3.selectAll('.gex-tooltip').remove();
- 
- // Remove local crosshair on mouseout
- container.selectAll('.crosshair').remove();
- container.selectAll('.strike-label').remove();
  });
 
  // Add current price vertical line (same logic as OpenInterest chart)
@@ -863,10 +811,11 @@ export default function GEXChart({
  .style('font-family', '"SF Pro Display", sans-serif')
  .style('font-size', '16px')
  .style('font-weight', '600')
- .style('fill', '#ffffff')
+ .style('fill', '#ff9900')
  .text(showGEX ? `Gamma Exposure (GEX)` : `Delta Exposure (DEX)`);
 
- // Add Y axis label
+ // Add Y axis label - hide on mobile
+ if (!isMobile) {
  container
  .append('text')
  .attr('transform', 'rotate(-90)')
@@ -875,7 +824,7 @@ export default function GEXChart({
  .style('text-anchor', 'middle')
  .style('font-family', '"SF Pro Display", sans-serif')
  .style('font-size', '14px')
- .style('fill', '#ffffff')
+ .style('fill', '#ff9900')
  .text(showGEX ? 'Gamma Exposure' : 'Delta Exposure');
 
  // Add X axis label - positioned at the bottom
@@ -887,99 +836,11 @@ export default function GEXChart({
  .style('font-family', '"SF Pro Display", sans-serif')
  .style('font-size', '14px')
  .style('font-weight', '500')
- .style('fill', '#ffffff')
+ .style('fill', '#ff9900')
  .text('Strike Price');
-
- // Interactive Legend in original top-right position (Static SVG with React click overlays)
- const legendBox = container
- .append('g')
- .attr('transform', `translate(${width - 180}, 10)`);
-
- // Legend background box
- legendBox
- .append('rect')
- .attr('x', 0)
- .attr('y', 0)
- .attr('width', 170)
- .attr('height', 70)
- .style('fill', '#000000')
- .style('stroke', '#333333')
- .style('stroke-width', 1)
- .style('rx', 6)
- .style('ry', 6)
- .style('opacity', 0.95);
-
- // Positive gamma legend item (Visual only - click handled by React overlay)
- legendBox
- .append('rect')
- .attr('x', 12)
- .attr('y', 15)
- .attr('width', 14)
- .attr('height', 14)
- .style('fill', showPositiveGamma ? '#8b5cf6' : '#333333')
- .style('stroke', showPositiveGamma ? '#8b5cf6' : '#666666')
- .style('stroke-width', 2)
- .style('rx', 2)
- .style('ry', 2);
-
- // Add checkmark for positive gamma if enabled
- if (showPositiveGamma) {
- legendBox
- .append('text')
- .attr('x', 19)
- .attr('y', 26)
- .style('fill', '#ffffff')
- .style('font-size', '10px')
- .style('font-weight', 'bold')
- .style('text-anchor', 'middle')
- .text('');
  }
 
- legendBox
- .append('text')
- .attr('x', 32)
- .attr('y', 26)
- .style('font-family', '"SF Pro Display", sans-serif')
- .style('font-size', '12px')
- .style('font-weight', '500')
- .style('fill', showPositiveGamma ? '#8b5cf6' : '#666666')
- .text(showGEX ? 'Positive Gamma' : 'Positive Delta');
 
- // Negative gamma legend item (Visual only - click handled by React overlay)
- legendBox
- .append('rect')
- .attr('x', 12)
- .attr('y', 40)
- .attr('width', 14)
- .attr('height', 14)
- .style('fill', showNegativeGamma ? '#d97706' : '#333333')
- .style('stroke', showNegativeGamma ? '#d97706' : '#666666')
- .style('stroke-width', 2)
- .style('rx', 2)
- .style('ry', 2);
-
- // Add checkmark for negative gamma if enabled
- if (showNegativeGamma) {
- legendBox
- .append('text')
- .attr('x', 19)
- .attr('y', 51)
- .style('fill', '#ffffff')
- .style('font-size', '10px')
- .style('font-weight', 'bold')
- .style('text-anchor', 'middle')
- .text('');
- }
-
- legendBox
- .append('text')
- .attr('x', 32)
- .attr('y', 51)
- .style('font-family', '"SF Pro Display", sans-serif')
- .style('font-size', '12px')
- .style('font-weight', '500')
- .style('fill', showNegativeGamma ? '#d97706' : '#666666')
- .text(showGEX ? 'Negative Gamma' : 'Negative Delta');
 
  // Add zoom rectangle AFTER all other elements - covering the entire chart area - EXACT COPY from OpenInterestChart
  const zoomRect = svg
@@ -991,121 +852,7 @@ export default function GEXChart({
  .attr('height', height)
  .style('fill', 'none') // Invisible overlay
  .style('pointer-events', 'all')
- .style('cursor', 'grab')
- .on('mousemove', function(event) {
- const [mouseX, mouseY] = d3.pointer(event, container.node());
- 
- console.log(' GEX Chart - Mouse hover detected:', { mouseX, mouseY });
- 
- // Calculate which strike we're hovering over
- const uniqueStrikes = [...new Set(data.map(d => d.strike))].sort((a, b) => a - b);
- const xScale = d3.scaleBand()
- .domain(uniqueStrikes.map(s => s.toString()))
- .range([0, width])
- .padding(0.1);
- 
- // Apply zoom transform to the scale if it exists
- let currentXScale = xScale;
- if (zoomTransform) {
- // Create a linear scale for zoom transformation
- const linearScale = d3.scaleLinear()
- .domain([0, uniqueStrikes.length - 1])
- .range([0, width]);
- 
- // Apply zoom transform to get the current view
- const zoomedScale = zoomTransform.rescaleX(linearScale);
- 
- // Get visible strike range
- const startIndex = Math.max(0, Math.floor(zoomedScale.invert(0)));
- const endIndex = Math.min(uniqueStrikes.length - 1, Math.ceil(zoomedScale.invert(width)));
- 
- // Create new band scale for visible strikes only
- const visibleStrikes = uniqueStrikes.slice(startIndex, endIndex + 1);
- currentXScale = d3.scaleBand()
- .domain(visibleStrikes.map(s => s.toString()))
- .range([0, width])
- .padding(0.1);
- }
- 
- let hoveredStrike = null;
- const currentDomain = currentXScale.domain().map(d => parseFloat(d));
- currentDomain.forEach(strike => {
- const strikeX = currentXScale(strike.toString()) || 0;
- const strikeWidth = currentXScale.bandwidth();
- if (mouseX >= strikeX && mouseX <= strikeX + strikeWidth) {
- hoveredStrike = strike;
- }
- });
- 
- // Add local crosshair for zoom overlay mousemove
- container.selectAll('.crosshair').remove();
- container.selectAll('.strike-label').remove();
- 
- // Add vertical crosshair line
- container
- .append('line')
- .attr('class', 'crosshair')
- .attr('x1', mouseX)
- .attr('x2', mouseX)
- .attr('y1', 0)
- .attr('y2', height)
- .style('stroke', '#ff9900')
- .style('stroke-width', 1)
- .style('stroke-dasharray', '3,3')
- .style('pointer-events', 'none');
- 
- // Add horizontal crosshair line
- container
- .append('line')
- .attr('class', 'crosshair')
- .attr('x1', 0)
- .attr('x2', width)
- .attr('y1', mouseY)
- .attr('y2', mouseY)
- .style('stroke', '#ff9900')
- .style('stroke-width', 1)
- .style('stroke-dasharray', '3,3')
- .style('pointer-events', 'none');
- 
- // Add strike price label if hovering over a specific strike
- if (hoveredStrike) {
- // Add background rectangle for the price label
- container
- .append('rect')
- .attr('class', 'strike-label')
- .attr('x', mouseX - 30) // Center the background around the crosshair
- .attr('y', height + 5)
- .attr('width', 60)
- .attr('height', 28)
- .style('fill', '#000000')
- .style('stroke', '#ff9900')
- .style('stroke-width', 2)
- .style('rx', 4) // Rounded corners
- .style('ry', 4)
- .style('pointer-events', 'none');
- 
- // Add text on top of background
- container
- .append('text')
- .attr('class', 'strike-label')
- .attr('x', mouseX)
- .attr('y', height + 24) // Position text in center of background
- .attr('text-anchor', 'middle')
- .style('fill', '#ff9900')
- .style('font-family', '"SF Mono", Consolas, monospace')
- .style('font-size', '16px')
- .style('font-weight', 'bold')
- .style('pointer-events', 'none')
- .text(`$${hoveredStrike}`);
- }
- })
- .on('mouseleave', function() {
- console.log(' Mouse left GEX Chart zoom overlay');
- 
- // Remove local crosshair and labels
- container.selectAll('.crosshair').remove();
- container.selectAll('.strike-label').remove();
- });
+ .style('cursor', 'grab');
  
  // Apply zoom behavior to the entire SVG
  svg.call(zoom as any);
@@ -1118,7 +865,7 @@ export default function GEXChart({
  }, [data, showPositiveGamma, showNegativeGamma, showGEX]);
 
  return (
- <div style={{ marginTop: '32px' }}>
+ <div style={{ marginTop: isMobile ? '0px' : '32px' }}>
  {/* Loading and Error States */}
  {loading && (
  <div style={{ 
@@ -1162,107 +909,26 @@ export default function GEXChart({
  {!loading && !error && (
  <div style={{ 
  background: '#000000', 
- borderRadius: '8px', 
+ borderRadius: '0px 0px 8px 8px', 
  padding: '20px',
  border: '1px solid #333333',
+ borderTop: 'none',
  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
  position: 'relative'
  }}>
  <svg
  ref={svgRef}
- width={1500}
- height={600}
- style={{ background: 'transparent' }}
+ width={isMobile ? 350 : 1500}
+ height={isMobile ? 415 : 560}
+ style={{ 
+ background: 'transparent',
+ width: isMobile ? '100%' : 'auto',
+ height: isMobile ? 'auto' : 'auto',
+ maxWidth: isMobile ? '100%' : 'none'
+ }}
  />
  
- {/* Click overlays for GEX legend items */}
- {data.length > 0 && (
- <>
- {/* Net/Separate Gamma toggle - positioned above existing toggles */}
- <div
- onClick={() => setShowNetGamma(!showNetGamma)}
- style={{
- position: 'absolute',
- top: '30px', // Above existing toggles
- right: '50px',
- width: '160px',
- height: '20px',
- cursor: 'pointer',
- backgroundColor: 'transparent',
- zIndex: 10,
- border: '1px solid #666666',
- borderRadius: '4px',
- display: 'flex',
- alignItems: 'center',
- justifyContent: 'center',
- fontSize: '12px',
- color: '#ff9900',
- fontFamily: '"Roboto Mono", monospace'
- }}
- title={`Click to switch to ${showNetGamma ? 'Separate' : 'Net'} view`}
- >
- {showNetGamma ? 'SEPARATE' : 'NET GAMMA'}
- </div>
 
- {/* GEX/DEX Toggle */}
- <div
- onClick={() => setShowGEX(!showGEX)}
- style={{
- position: 'absolute',
- top: '5px', // Above NET GAMMA toggle
- right: '50px',
- width: '160px',
- height: '20px',
- cursor: 'pointer',
- backgroundColor: 'transparent',
- zIndex: 10,
- border: '1px solid #666666',
- borderRadius: '4px',
- display: 'flex',
- alignItems: 'center',
- justifyContent: 'center',
- fontSize: '12px',
- color: '#ff9900',
- fontFamily: '"Roboto Mono", monospace'
- }}
- title={`Click to switch to ${showGEX ? 'Delta Exposure (DEX)' : 'Gamma Exposure (GEX)'}`}
- >
- {showGEX ? 'DEX' : 'GEX'}
- </div>
- 
- {/* Positive Gamma legend click area - covers checkbox AND full text */}
- <div
- onClick={() => setShowPositiveGamma(!showPositiveGamma)}
- style={{
- position: 'absolute',
- top: '55px', // margin.top (30) + legend y (10) + rect y (15) = 55px
- right: '50px', // Adjusted to cover the entire legend box including text
- width: '160px', // Cover entire legend box width
- height: '20px',
- cursor: 'pointer',
- backgroundColor: 'transparent',
- zIndex: 10
- }}
- title="Click anywhere to toggle Positive Gamma visibility"
- />
- 
- {/* Negative Gamma legend click area - covers checkbox AND full text */}
- <div
- onClick={() => setShowNegativeGamma(!showNegativeGamma)}
- style={{
- position: 'absolute',
- top: '80px', // margin.top (30) + legend y (10) + rect y (40) = 80px
- right: '50px', // Adjusted to cover the entire legend box including text
- width: '160px', // Cover entire legend box width
- height: '20px',
- cursor: 'pointer',
- backgroundColor: 'transparent',
- zIndex: 10
- }}
- title="Click anywhere to toggle Negative Gamma visibility"
- />
- </>
- )}
  </div>
  )}
  </div>

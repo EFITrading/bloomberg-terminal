@@ -15,26 +15,53 @@ export async function GET(request: Request) {
  const stream = new ReadableStream({
  async start(controller) {
  const encoder = new TextEncoder();
+ let isClosed = false;
+ 
+ // Helper function to safely enqueue data
+ const safeEnqueue = (data: string) => {
+ try {
+ if (!isClosed && controller.desiredSize !== null) {
+ controller.enqueue(encoder.encode(data));
+ }
+ } catch (error) {
+ console.error('Error enqueueing data:', error);
+ isClosed = true;
+ }
+ };
  
  try {
  // Use the streaming scanner
  for await (const event of premiumScanner.scanSymbolsStream(symbols, maxSpread)) {
+ if (isClosed) break; // Stop if stream is closed
+ 
  // Send event to client
  const data = `data: ${JSON.stringify(event)}\n\n`;
- controller.enqueue(encoder.encode(data));
+ safeEnqueue(data);
  }
  
- // Close the stream
+ // Close the stream only if not already closed
+ if (!isClosed) {
+ isClosed = true;
  controller.close();
+ }
  } catch (error) {
  console.error('Streaming error:', error);
+ 
+ if (!isClosed) {
  const errorData = `data: ${JSON.stringify({
  type: 'error',
  error: error instanceof Error ? error.message : 'Unknown error'
  })}\n\n`;
- controller.enqueue(encoder.encode(errorData));
+ safeEnqueue(errorData);
+ 
+ isClosed = true;
  controller.close();
  }
+ }
+ },
+ cancel() {
+ // Client disconnected - clean up resources
+ console.log('OTM Premium stream cancelled by client');
  }
  });
 

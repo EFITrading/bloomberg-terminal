@@ -26,12 +26,12 @@ const BackgroundLoader: React.FC<LoadingIndicatorProps> = ({ showIndicator = fal
  }
  });
 
- // Start background loading after a short delay to let the page load first
- const startTimer = setTimeout(() => {
- backgroundService.startProgressiveLoading();
- }, 1000);
+ // Disabled automatic background loading - now runs only on manual trigger
+ // const startTimer = setTimeout(() => {
+ //   backgroundService.startProgressiveLoading();
+ // }, 1000);
 
- return () => clearTimeout(startTimer);
+ // return () => clearTimeout(startTimer);
  }, []);
 
  if (!showIndicator || !isVisible) {

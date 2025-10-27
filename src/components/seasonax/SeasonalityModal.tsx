@@ -308,8 +308,10 @@ const SeasonalityModal: React.FC<SeasonalityModalProps> = ({
  /* Responsive design */
  @media (max-width: 768px) {
  .seasonality-modal-content {
- width: 98vw;
- height: 95vh;
+ width: min(98vw, 600px);
+ height: min(95vh, 800px);
+ max-width: 98vw;
+ max-height: 95vh;
  border-radius: 12px;
  }
  
@@ -323,6 +325,16 @@ const SeasonalityModal: React.FC<SeasonalityModalProps> = ({
  
  .modal-symbol {
  font-size: 16px;
+ }
+ }
+
+ /* Desktop modal sizing */
+ @media (min-width: 769px) {
+ .seasonality-modal-content {
+ width: min(90vw, 1400px);
+ height: min(85vh, 900px);
+ max-width: 1400px;
+ max-height: 85vh;
  }
  }
  `}</style>

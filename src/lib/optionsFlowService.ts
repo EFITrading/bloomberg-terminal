@@ -655,8 +655,8 @@ export class OptionsFlowService {
           expiry: contract.details.expiration_date,
           type: contract.details.contract_type as 'call' | 'put',
           trade_size: contract.last_trade.size || 1,
-          premium_per_contract: contract.last_trade.price,
-          total_premium: (contract.last_trade.price * (contract.last_trade.size || 1) * 100),
+          premium_per_contract: contract.last_trade.price / 100, // Convert from cents to dollars
+          total_premium: (contract.last_trade.price * (contract.last_trade.size || 1)),
           spot_price: spotPrice,
           exchange: contract.last_trade.exchange,
           exchange_name: this.exchangeNames[contract.last_trade.exchange] || 'UNKNOWN',
@@ -1439,8 +1439,8 @@ export class OptionsFlowService {
           expiry: contract.details.expiration_date,
           type: contractType as 'call' | 'put',
           trade_size: contract.last_trade.size,
-          premium_per_contract: contract.last_trade.price,
-          total_premium: contract.last_trade.price * contract.last_trade.size * 100,
+          premium_per_contract: contract.last_trade.price / 100, // Convert from cents to dollars
+          total_premium: contract.last_trade.price * contract.last_trade.size,
           spot_price: spotPrice,
           exchange: contract.last_trade.exchange,
           exchange_name: this.exchangeNames[contract.last_trade.exchange] || 'UNKNOWN',
@@ -1528,8 +1528,8 @@ export class OptionsFlowService {
                   expiry: contract.expiration_date,
                   type: contract.contract_type.toLowerCase() as 'call' | 'put',
                   trade_size: trade.size,
-                  premium_per_contract: trade.price,
-                  total_premium: trade.price * trade.size * 100, // Options multiplier
+                  premium_per_contract: trade.price / 100, // Convert from cents to dollars
+                  total_premium: trade.price * trade.size, // Price already in cents, size gives total premium
                   spot_price: 0, // Will be fetched separately if needed
                   exchange: trade.exchange || 0,
                   exchange_name: 'POLYGON',
@@ -1823,7 +1823,7 @@ export class OptionsFlowService {
     if (!parsed) return null;
 
     // YOUR SPECIFICATION: Minimum Total Premium $1,000 filter
-    const totalPremium = rawTrade.price * rawTrade.size * 100;
+    const totalPremium = rawTrade.price * rawTrade.size; // Price already in cents
     if (totalPremium < 1000) {
       return null; // Filter out small retail trades under $1,000
     }
@@ -1844,7 +1844,7 @@ export class OptionsFlowService {
       expiry: parsed.expiry,
       type: parsed.type,
       trade_size: rawTrade.size,
-      premium_per_contract: rawTrade.price,
+      premium_per_contract: rawTrade.price / 100, // Convert from cents to dollars
       total_premium: totalPremium,
       spot_price: realSpotPrice,
       exchange: rawTrade.exchange,
@@ -2114,7 +2114,7 @@ export class OptionsFlowService {
     const processedTrades = new Set<string>();
     
     allTrades.forEach(trade => {
-      const totalPremium = trade.price * trade.size * 100;
+      const totalPremium = trade.price * trade.size; // Price already in cents
       const tradeKey = `${trade.symbol}_${trade.strike}_${trade.type}_${trade.expiration}_${trade.timestamp}`;
       
       // Skip if already processed (to avoid duplicates with sweeps)
@@ -2133,7 +2133,7 @@ export class OptionsFlowService {
           expiry: expiry,
           type: trade.type,
           trade_size: trade.size,
-          premium_per_contract: trade.price,
+          premium_per_contract: trade.price / 100, // Convert from cents to dollars
           total_premium: totalPremium,
           spot_price: trade.spot_price,
           exchange: trade.exchange,
@@ -2332,7 +2332,7 @@ export class OptionsFlowService {
               return;
             }
             
-            const premium = trade.price * trade.size * 100;
+            const premium = trade.price * trade.size; // Price already in cents
             const contractType = contract.contract_type?.toLowerCase() || 'call';
             
             const processedTrade: ProcessedTrade = {
@@ -2342,7 +2342,7 @@ export class OptionsFlowService {
               expiry: contract.expiration_date,
               type: contractType as 'call' | 'put',
               trade_size: trade.size,
-              premium_per_contract: trade.price,
+              premium_per_contract: trade.price / 100, // Convert from cents to dollars
               total_premium: premium,
               spot_price: spotPrice,
               exchange: trade.exchange,
@@ -2530,7 +2530,7 @@ export class OptionsFlowService {
             
             // Use snapshot data to create trade
             const lastPrice = optionData.last_quote?.price || optionData.day?.close || 0;
-            const totalPremium = lastPrice * volume * 100;
+            const totalPremium = lastPrice * volume; // Price already in cents
             
             // Skip if doesn't meet minimum criteria
             if (totalPremium < 5000) return []; // Skip small premium trades
@@ -2542,7 +2542,7 @@ export class OptionsFlowService {
               expiry: parsed.expiry,
               type: parsed.type,
               trade_size: volume,
-              premium_per_contract: lastPrice,
+              premium_per_contract: lastPrice / 100, // Convert from cents to dollars
               total_premium: totalPremium,
               spot_price: currentPrice,
               exchange: 0,

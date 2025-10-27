@@ -414,36 +414,7 @@
   }
 }
 
-/* Responsive design */
-@media (max-width: 768px) {
-  .trading-chatbot {
-    width: calc(100vw - 40px);
-    height: calc(100vh - 40px);
-    bottom: 20px;
-    right: 20px;
-    left: 20px;
-  }
-  
-  .trading-chatbot.minimized {
-    height: 60px;
-    width: 350px;
-    left: auto;
-  }
-  
-  .message-content {
-    font-size: 14px;
-  }
-  
-  .input-container input {
-    font-size: 13px;
-    padding: 12px 16px;
-  }
-  
-  .send-button {
-    font-size: 14px;
-    padding: 12px 18px;
-  }
-}
+
 
 /* Enhanced scrollbar for better UX */
 .chatbot-messages {
@@ -633,18 +604,4 @@
   transform: scale(1.05);
 }
 
-/* Responsive adjustments */
-@media (max-width: 500px) {
-  .quick-actions-grid {
-    flex-direction: column;
-  }
-  
-  .primary-action-btn {
-    min-width: auto;
-    width: 100%;
-  }
-  
-  .sub-actions {
-    justify-content: center;
-  }
-}
+

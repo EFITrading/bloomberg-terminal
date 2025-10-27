@@ -29,6 +29,7 @@ export default function OpenInterestChart({
  const [data, setData] = useState<OptionsData[]>([]);
  const [loading, setLoading] = useState(false);
  const [error, setError] = useState<string>('');
+ const [isMobile, setIsMobile] = useState<boolean>(false);
  const [zoomTransform, setZoomTransform] = useState<any>(null);
  const [currentPrice, setCurrentPrice] = useState<number>(0);
  
@@ -60,8 +61,21 @@ export default function OpenInterestChart({
  const [showNetOI, setShowNetOI] = useState<boolean>(false);
  const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
+ const [oiDropdownOpen, setOiDropdownOpen] = useState<boolean>(false);
+ const [gexDropdownOpen, setGexDropdownOpen] = useState<boolean>(false);
  
  const svgRef = useRef<SVGSVGElement>(null);
+
+ // Mobile detection
+ useEffect(() => {
+ const checkMobile = () => {
+ setIsMobile(window.innerWidth <= 768);
+ };
+ 
+ checkMobile();
+ window.addEventListener('resize', checkMobile);
+ return () => window.removeEventListener('resize', checkMobile);
+ }, []);
 
  // Fetch available expiration dates
  useEffect(() => {
@@ -306,9 +320,11 @@ export default function OpenInterestChart({
  const svg = d3.select(svgRef.current);
  svg.selectAll('*').remove();
 
- const margin = { top: 60, right: 180, bottom: 80, left: 80 };
- const width = 1500 - margin.left - margin.right;
- const height = 750 - margin.top - margin.bottom;
+ const margin = isMobile 
+ ? { top: 50, right: 30, bottom: 80, left: 50 }
+ : { top: 70, right: 20, bottom: 70, left: 100 };
+ const width = (isMobile ? 350 : 1360) - margin.left - margin.right;
+ const height = (isMobile ? 415 : 700) - margin.top - margin.bottom;
 
  const container = svg
  .append('g')
@@ -392,7 +408,7 @@ export default function OpenInterestChart({
  .attr('height', (d: any) => height - newYScale(d.openInterest));
  
  // Update X-axis with visible strikes only
- const maxVisibleLabels = 15;
+ const maxVisibleLabels = isMobile ? 9 : 15;
  const visibleTickInterval = Math.max(1, Math.ceil(visibleStrikes.length / maxVisibleLabels));
  const filteredVisibleTicks = visibleStrikes.filter((_, index) => index % visibleTickInterval === 0);
  
@@ -402,11 +418,13 @@ export default function OpenInterestChart({
  const xAxisUpdate = container.select('.x-axis') as d3.Selection<SVGGElement, unknown, null, undefined>;
  xAxisUpdate.call(customVisibleXAxis);
  
- // Calculate dynamic font size for visible ticks (larger sizes)
- const visibleFontSize = Math.max(14, Math.min(18, 250 / filteredVisibleTicks.length));
+ // Calculate dynamic font size for visible ticks - keep consistent with initial render
+ const visibleFontSize = isMobile 
+   ? Math.max(10, Math.min(12, 150 / filteredVisibleTicks.length))
+   : Math.max(14, Math.min(18, 250 / filteredVisibleTicks.length));
  
  xAxisUpdate.selectAll('text')
- .style('fill', 'white')
+ .style('fill', '#ff9900')
  .style('font-size', `${visibleFontSize}px`)
  .attr('transform', 'rotate(-35)')
  .style('text-anchor', 'end')
@@ -414,7 +432,7 @@ export default function OpenInterestChart({
  .attr('dy', '0.5em');
  
  xAxisUpdate.selectAll('path, line')
- .style('stroke', 'white')
+ .style('stroke', '#ff9900')
  .style('stroke-width', '1px');
  
  // Update Y-axis with new scale
@@ -422,11 +440,11 @@ export default function OpenInterestChart({
  yAxisUpdate.call(d3.axisLeft(newYScale).tickFormat(d3.format(',d')) as any);
  
  yAxisUpdate.selectAll('text')
- .style('fill', 'white')
+ .style('fill', '#ff9900')
  .style('font-size', '14px');
  
  yAxisUpdate.selectAll('path, line')
- .style('stroke', 'white')
+ .style('stroke', '#ff9900')
  .style('stroke-width', '1px');
  
  // Update current price line position during zoom
@@ -489,7 +507,7 @@ export default function OpenInterestChart({
  .attr('opacity', 1);
 
  // X-axis with intelligent tick filtering
- const maxLabels = 15; // Maximum number of labels to show
+ const maxLabels = isMobile ? 9 : 15; // Maximum number of labels to show
  const tickInterval = Math.max(1, Math.ceil(uniqueStrikes.length / maxLabels));
  
  // Create filtered tick values - show every nth strike
@@ -506,7 +524,9 @@ export default function OpenInterestChart({
  .call(customXAxis);
  
  // Calculate dynamic font size based on number of visible ticks (larger sizes)
- const fontSize = Math.max(14, Math.min(18, 250 / filteredTicks.length));
+ const fontSize = isMobile 
+   ? Math.max(10, Math.min(12, 150 / filteredTicks.length))
+   : Math.max(14, Math.min(18, 250 / filteredTicks.length));
  
  xAxis.selectAll('text')
  .style('fill', '#ff9900')
@@ -546,7 +566,8 @@ export default function OpenInterestChart({
  .style('fill', '#ff9900')
  .text('Open Interest (OI)');
 
- // Axis labels
+ // Axis labels - hide on mobile
+ if (!isMobile) {
  container
  .append('text')
  .attr('transform', 'rotate(-90)')
@@ -560,11 +581,12 @@ export default function OpenInterestChart({
 
  container
  .append('text')
- .attr('transform', `translate(${width / 2}, ${height + margin.bottom - 20})`)
+ .attr('transform', `translate(${width / 2}, ${height + 70})`)
  .style('text-anchor', 'middle')
  .style('fill', '#ff9900')
  .style('font-size', '14px')
  .text('Strike Price ($)');
+ }
 
  // Current Price Line - use real current price from API
  const strikes = uniqueStrikes;
@@ -616,76 +638,7 @@ export default function OpenInterestChart({
  .text(`Current Price: $${currentPrice.toFixed(2)}`);
  }
 
- // Interactive Legend in original right-side position (Static SVG with React click overlays)
- const legend = container
- .append('g')
- .attr('transform', `translate(${width - 150}, 30)`);
 
- // Calls Legend Item (Visual only - click handled by React overlay)
- legend
- .append('rect')
- .attr('x', 0)
- .attr('y', 0)
- .attr('width', 15)
- .attr('height', 15)
- .attr('fill', showCalls ? '#00ff00' : '#333333')
- .attr('stroke', showCalls ? '#00ff00' : '#666666')
- .attr('stroke-width', 2);
-
- // Add checkmark for calls if enabled
- if (showCalls) {
- legend
- .append('text')
- .attr('x', 7.5)
- .attr('y', 11)
- .style('fill', '#000000')
- .style('font-size', '10px')
- .style('font-weight', 'bold')
- .style('text-anchor', 'middle')
- .text('');
- }
-
- legend
- .append('text')
- .attr('x', 20)
- .attr('y', 14)
- .style('fill', showCalls ? '#00ff00' : '#666666')
- .style('font-size', '14px')
- .style('font-weight', 'bold')
- .text('CALLS');
-
- // Puts Legend Item (Visual only - click handled by React overlay)
- legend
- .append('rect')
- .attr('x', 0)
- .attr('y', 30)
- .attr('width', 15)
- .attr('height', 15)
- .attr('fill', showPuts ? '#ff0000' : '#333333')
- .attr('stroke', showPuts ? '#ff0000' : '#666666')
- .attr('stroke-width', 2);
-
- // Add checkmark for puts if enabled
- if (showPuts) {
- legend
- .append('text')
- .attr('x', 7.5)
- .attr('y', 41)
- .style('fill', '#ffffff')
- .style('font-size', '10px')
- .style('font-weight', 'bold')
- .style('text-anchor', 'middle')
- .text('');
- }
-
- legend
- .append('text')
- .attr('x', 20)
- .attr('y', 42)
- .style('fill', showPuts ? '#ff0000' : '#666666')
- .style('font-size', '14px')
- .style('font-weight', 'bold')
- .text('PUTS');
 
  // Add zoom rectangle AFTER all other elements - covering the entire chart area
  const zoomRect = svg
@@ -697,120 +650,7 @@ export default function OpenInterestChart({
  .attr('height', height)
  .style('fill', 'none') // Invisible overlay
  .style('pointer-events', 'all')
- .style('cursor', 'grab')
- .on('mousemove', function(event) {
- const [mouseX, mouseY] = d3.pointer(event, container.node());
- 
- console.log(' Zoom overlay mousemove detected:', { mouseX, mouseY });
- 
- // Calculate which strike we're hovering over
- const xScale = d3.scaleBand()
- .domain(uniqueStrikes.map(s => s.toString()))
- .range([0, width])
- .padding(0.1);
- 
- // Apply zoom transform to the scale if it exists
- let currentXScale = xScale;
- if (zoomTransform) {
- // Create a linear scale for zoom transformation
- const linearScale = d3.scaleLinear()
- .domain([0, uniqueStrikes.length - 1])
- .range([0, width]);
- 
- // Apply zoom transform to get the current view
- const zoomedScale = zoomTransform.rescaleX(linearScale);
- 
- // Get visible strike range
- const startIndex = Math.max(0, Math.floor(zoomedScale.invert(0)));
- const endIndex = Math.min(uniqueStrikes.length - 1, Math.ceil(zoomedScale.invert(width)));
- 
- // Create new band scale for visible strikes only
- const visibleStrikes = uniqueStrikes.slice(startIndex, endIndex + 1);
- currentXScale = d3.scaleBand()
- .domain(visibleStrikes.map(s => s.toString()))
- .range([0, width])
- .padding(0.1);
- }
- 
- let hoveredStrike = null;
- const currentDomain = currentXScale.domain().map(d => parseFloat(d));
- currentDomain.forEach(strike => {
- const strikeX = currentXScale(strike.toString()) || 0;
- const strikeWidth = currentXScale.bandwidth();
- if (mouseX >= strikeX && mouseX <= strikeX + strikeWidth) {
- hoveredStrike = strike;
- }
- });
- 
- // Add local crosshair
- container.selectAll('.crosshair').remove();
- container.selectAll('.strike-label').remove();
- 
- // Add vertical crosshair line
- container
- .append('line')
- .attr('class', 'crosshair')
- .attr('x1', mouseX)
- .attr('x2', mouseX)
- .attr('y1', 0)
- .attr('y2', height)
- .style('stroke', '#00bcd4')
- .style('stroke-width', 1)
- .style('stroke-dasharray', '3,3')
- .style('pointer-events', 'none');
- 
- // Add horizontal crosshair line
- container
- .append('line')
- .attr('class', 'crosshair')
- .attr('x1', 0)
- .attr('x2', width)
- .attr('y1', mouseY)
- .attr('y2', mouseY)
- .style('stroke', '#00bcd4')
- .style('stroke-width', 1)
- .style('stroke-dasharray', '3,3')
- .style('pointer-events', 'none');
- 
- // Add strike price label if hovering over a specific strike
- if (hoveredStrike) {
- // Add background rectangle for the price label
- container
- .append('rect')
- .attr('class', 'strike-label')
- .attr('x', mouseX - 30) // Center the background around the crosshair
- .attr('y', height + 5)
- .attr('width', 60)
- .attr('height', 28)
- .style('fill', '#000000')
- .style('stroke', '#00bcd4')
- .style('stroke-width', 2)
- .style('rx', 4) // Rounded corners
- .style('ry', 4)
- .style('pointer-events', 'none');
- 
- // Add text on top of background
- container
- .append('text')
- .attr('class', 'strike-label')
- .attr('x', mouseX)
- .attr('y', height + 24) // Position text in center of background
- .attr('text-anchor', 'middle')
- .style('fill', '#00bcd4')
- .style('font-family', '"SF Mono", Consolas, monospace')
- .style('font-size', '16px')
- .style('font-weight', 'bold')
- .style('pointer-events', 'none')
- .text(`$${hoveredStrike}`);
- }
- })
- .on('mouseleave', function() {
- console.log(' Mouse left zoom overlay');
- 
- // Remove crosshair and labels
- container.selectAll('.crosshair').remove();
- container.selectAll('.strike-label').remove();
- });
+ .style('cursor', 'grab');
  
  // Apply zoom behavior to the entire SVG
  svg.call(zoom as any);
@@ -827,14 +667,16 @@ export default function OpenInterestChart({
  }, [data, showCalls, showPuts, currentPrice, showNetOI]);
 
  return (
- <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace' }}>
+ <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace', overflow: 'visible' }}>
  {/* Controls */}
  <div style={{ 
- display: 'flex', 
- gap: '16px', 
+ display: 'flex',
+ flexDirection: 'row',
+ flexWrap: isMobile ? 'wrap' : 'nowrap',
+ gap: isMobile ? '8px' : '16px',
  alignItems: 'center', 
  marginBottom: '24px',
- padding: '20px 24px',
+ padding: isMobile ? '16px' : '20px 24px',
  background: '#000000',
  borderRadius: '12px',
  border: '1px solid #333333',
@@ -845,8 +687,10 @@ export default function OpenInterestChart({
  inset 0 -1px 0 rgba(0, 0, 0, 0.8)
  `,
  position: 'relative',
+ zIndex: 100,
  transform: 'translateZ(0)',
- backdropFilter: 'blur(20px)'
+ backdropFilter: 'blur(20px)',
+ overflow: 'visible'
  }}>
  {/* 3D Highlight Effect */}
  <div style={{
@@ -861,14 +705,21 @@ export default function OpenInterestChart({
  }} />
  
  {/* Current Ticker Display */}
- <div style={{ display: 'flex', alignItems: 'center', gap: '8px', zIndex: 1 }}>
+ <div style={{ 
+ display: 'flex', 
+ alignItems: 'center', 
+ gap: isMobile ? '4px' : '8px', 
+ zIndex: 1,
+ flex: isMobile ? '1 1 48%' : '0 0 auto',
+ minWidth: isMobile ? '0' : 'auto'
+ }}>
  <label style={{ 
  color: '#ffffff', 
  fontSize: '13px', 
  fontWeight: '600',
  letterSpacing: '0.5px',
  textTransform: 'uppercase',
- minWidth: '60px',
+ minWidth: isMobile ? 'auto' : '60px',
  textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
  }}>
  Ticker
@@ -892,7 +743,7 @@ export default function OpenInterestChart({
  padding: '10px 14px',
  fontSize: '14px',
  fontWeight: '500',
- width: '140px',
+ width: isMobile ? '60px' : '140px',
  fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
  boxShadow: `
  inset 0 2px 4px rgba(0, 0, 0, 0.6),
@@ -912,24 +763,32 @@ export default function OpenInterestChart({
  width: '1px', 
  height: '32px', 
  background: 'linear-gradient(180deg, transparent 0%, #555 50%, transparent 100%)',
- boxShadow: '1px 0 0 rgba(255, 255, 255, 0.05)'
+ boxShadow: '1px 0 0 rgba(255, 255, 255, 0.05)',
+ display: isMobile ? 'none' : 'block'
  }} />
  
- <div style={{ display: 'flex', alignItems: 'center', gap: '8px', zIndex: 1 }}>
+ <div style={{ 
+ display: 'flex', 
+ alignItems: 'center', 
+ gap: isMobile ? '4px' : '8px', 
+ zIndex: 1,
+ flex: isMobile ? '1 1 48%' : '0 0 auto',
+ minWidth: isMobile ? '0' : 'auto'
+ }}>
  <label style={{ 
  color: '#ffffff', 
  fontSize: '13px', 
  fontWeight: '600',
  letterSpacing: '0.5px',
  textTransform: 'uppercase',
- minWidth: '90px',
+ minWidth: isMobile ? '30px' : '90px',
+ marginLeft: isMobile ? '-25px' : '0',
  textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
  }}>
- Expiration
+ Expiry
  </label>
  <select
- value={selectedExpiration}
- onChange={(e) => setSelectedExpiration(e.target.value)}
+ value={showAllDates ? 'ALL_DATES' : selectedExpiration}
  style={{
  background: '#000000',
  border: '1px solid #333333',
@@ -938,7 +797,7 @@ export default function OpenInterestChart({
  padding: '10px 14px',
  fontSize: '14px',
  fontWeight: '500',
- minWidth: '160px',
+ minWidth: isMobile ? '120px' : '160px',
  outline: 'none',
  cursor: showAllDates ? 'not-allowed' : 'pointer',
  transition: 'all 0.2s ease',
@@ -973,86 +832,26 @@ export default function OpenInterestChart({
  `;
  }
  }}
+ onChange={(e) => {
+ const value = e.target.value;
+ if (value === 'ALL_DATES') {
+ setShowAllDates(true);
+ setSelectedExpiration('');
+ } else {
+ setShowAllDates(false);
+ setSelectedExpiration(value);
+ }
+ }}
  >
- {showAllDates ? (
- <option value="" style={{ background: '#000000', color: '#666666' }}>
- All Expiration Dates Combined
+ <option value="ALL_DATES" style={{ background: '#000000', color: '#ff9900' }}>
+ All Dates
  </option>
- ) : (
- expirationDates.map(date => (
+ {expirationDates.map(date => (
  <option key={date} value={date} style={{ background: '#000000', color: '#ffffff' }}>
  {new Date(date + 'T00:00:00').toLocaleDateString()}
  </option>
- ))
- )}
+ ))}
  </select>
- 
- <button
- onClick={() => {
- setShowAllDates(!showAllDates);
- if (!showAllDates) {
- // When switching to "All Dates", clear selected expiration
- setSelectedExpiration('');
- } else {
- // When switching back to single date, select first available date
- if (expirationDates.length > 0) {
- setSelectedExpiration(expirationDates[0]);
- }
- }
- }}
- style={{
- background: showAllDates ? '#d97706' : '#000000',
- border: `1px solid ${showAllDates ? '#d97706' : '#333333'}`,
- borderRadius: '8px',
- color: showAllDates ? '#000000' : '#ffffff',
- padding: '10px 16px',
- fontSize: '13px',
- fontWeight: '600',
- letterSpacing: '0.3px',
- cursor: 'pointer',
- transition: 'all 0.2s ease',
- fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
- textTransform: 'uppercase',
- boxShadow: showAllDates ? `
- 0 4px 16px rgba(217, 119, 6, 0.4),
- 0 2px 8px rgba(0, 0, 0, 0.6),
- inset 0 1px 0 rgba(255, 255, 255, 0.2),
- inset 0 -1px 0 rgba(0, 0, 0, 0.2)
- ` : `
- 0 2px 8px rgba(0, 0, 0, 0.4),
- inset 0 1px 0 rgba(255, 255, 255, 0.1),
- inset 0 -1px 0 rgba(0, 0, 0, 0.4)
- `,
- textShadow: showAllDates ? '0 1px 2px rgba(0, 0, 0, 0.3)' : '0 1px 2px rgba(0, 0, 0, 0.8)'
- }}
- onMouseEnter={(e) => {
- e.currentTarget.style.background = 'linear-gradient(145deg, #d97706 0%, #b45309 50%, #d97706 100%)';
- e.currentTarget.style.color = '#000000';
- e.currentTarget.style.border = '1px solid #d97706';
- e.currentTarget.style.transform = 'translateY(-2px)';
- e.currentTarget.style.boxShadow = `
- 0 4px 16px rgba(217, 119, 6, 0.4),
- 0 2px 8px rgba(0, 0, 0, 0.6),
- inset 0 1px 0 rgba(255, 255, 255, 0.2),
- inset 0 -1px 0 rgba(0, 0, 0, 0.2)
- `;
- e.currentTarget.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.3)';
- }}
- onMouseLeave={(e) => {
- e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #0a0a0a 100%)';
- e.currentTarget.style.color = '#ffffff';
- e.currentTarget.style.border = '1px solid #333333';
- e.currentTarget.style.transform = 'translateY(0)';
- e.currentTarget.style.boxShadow = `
- 0 2px 8px rgba(0, 0, 0, 0.4),
- inset 0 1px 0 rgba(255, 255, 255, 0.1),
- inset 0 -1px 0 rgba(0, 0, 0, 0.4)
- `;
- e.currentTarget.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.8)';
- }}
- >
- All Dates
- </button>
  </div>
  
  {/* Divider */}
@@ -1064,7 +863,14 @@ export default function OpenInterestChart({
  }} />
  
  {/* Expected Range PC Bar */}
- <div style={{ display: 'flex', alignItems: 'center', gap: '8px', zIndex: 1 }}>
+ <div style={{ 
+ display: 'flex', 
+ alignItems: 'center', 
+ gap: '8px', 
+ zIndex: 1,
+ flex: isMobile ? '1 1 30%' : '0 0 auto',
+ minWidth: isMobile ? '0' : 'auto'
+ }}>
  <label style={{ 
  color: '#ffffff', 
  fontSize: '13px', 
@@ -1106,7 +912,15 @@ export default function OpenInterestChart({
  }} />
  
  {/* Action Buttons */}
- <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto', zIndex: 1 }}>
+ <div style={{ 
+ display: 'flex', 
+ alignItems: 'center', 
+ gap: '12px', 
+ marginLeft: isMobile ? '0' : 'auto', 
+ zIndex: 1,
+ flex: isMobile ? '1 1 65%' : '0 0 auto',
+ minWidth: isMobile ? '0' : 'auto'
+ }}>
  <button
  onClick={() => {
  // TODO: Implement AI Assistance functionality
@@ -1152,7 +966,7 @@ export default function OpenInterestChart({
  `;
  }}
  >
- AI Assist
+ AI
  </button>
  
  <button
@@ -1226,8 +1040,180 @@ export default function OpenInterestChart({
  }
  }}
  >
- Quick Chart
+ Chart
  </button>
+
+ {/* OI Dropdown Button */}
+ <div style={{ position: 'relative' }}>
+ <button
+ onClick={() => setOiDropdownOpen(!oiDropdownOpen)}
+ style={{
+ background: '#000000',
+ border: '1px solid #333333',
+ borderRadius: '8px',
+ color: '#fbbf24',
+ padding: '10px 14px',
+ fontSize: '13px',
+ fontWeight: '600',
+ letterSpacing: '0.3px',
+ cursor: 'pointer',
+ transition: 'all 0.2s ease',
+ fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+ textTransform: 'uppercase',
+ boxShadow: `
+ 0 2px 8px rgba(0, 0, 0, 0.4),
+ inset 0 1px 0 rgba(255, 255, 255, 0.1),
+ inset 0 -1px 0 rgba(0, 0, 0, 0.4)
+ `,
+ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
+ }}
+ >
+ OI ▼
+ </button>
+ 
+ {oiDropdownOpen && (
+ <div style={{
+ position: 'absolute',
+ top: '100%',
+ left: '0',
+ marginTop: '4px',
+ background: '#000000',
+ border: '1px solid #333333',
+ borderRadius: '8px',
+ minWidth: '120px',
+ zIndex: 9999,
+ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.8)'
+ }}>
+ <div
+ onClick={() => { setShowCalls(!showCalls); setOiDropdownOpen(false); }}
+ style={{
+ padding: '8px 12px',
+ color: showCalls ? '#00ff88' : '#666',
+ cursor: 'pointer',
+ fontSize: '12px',
+ borderBottom: '1px solid #333'
+ }}
+ >
+ Calls
+ </div>
+ <div
+ onClick={() => { setShowPuts(!showPuts); setOiDropdownOpen(false); }}
+ style={{
+ padding: '8px 12px',
+ color: showPuts ? '#ff4444' : '#666',
+ cursor: 'pointer', 
+ fontSize: '12px',
+ borderBottom: '1px solid #333'
+ }}
+ >
+ Puts
+ </div>
+ <div
+ onClick={() => { setShowNetOI(!showNetOI); setOiDropdownOpen(false); }}
+ style={{
+ padding: '8px 12px',
+ color: showNetOI ? '#fbbf24' : '#666',
+ cursor: 'pointer',
+ fontSize: '12px'
+ }}
+ >
+ Net
+ </div>
+ </div>
+ )}
+ </div>
+
+ {/* GEX Dropdown Button */}
+ <div style={{ position: 'relative' }}>
+ <button
+ onClick={() => setGexDropdownOpen(!gexDropdownOpen)}
+ style={{
+ background: '#000000',
+ border: '1px solid #333333',
+ borderRadius: '8px',
+ color: '#a855f7',
+ padding: '10px 14px',
+ fontSize: '13px',
+ fontWeight: '600',
+ letterSpacing: '0.3px',
+ cursor: 'pointer',
+ transition: 'all 0.2s ease',
+ fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+ textTransform: 'uppercase',
+ boxShadow: `
+ 0 2px 8px rgba(0, 0, 0, 0.4),
+ inset 0 1px 0 rgba(255, 255, 255, 0.1),
+ inset 0 -1px 0 rgba(0, 0, 0, 0.4)
+ `,
+ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
+ }}
+ >
+ GEX ▼
+ </button>
+ 
+ {gexDropdownOpen && (
+ <div style={{
+ position: 'absolute',
+ top: '100%',
+ left: '0',
+ marginTop: '4px',
+ background: '#000000',
+ border: '1px solid #333333',
+ borderRadius: '8px',
+ minWidth: '100px',
+ zIndex: 9999,
+ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.8)'
+ }}>
+ <div
+ onClick={() => { setShowPositiveGamma(!showPositiveGamma); setGexDropdownOpen(false); }}
+ style={{
+ padding: '8px 12px',
+ color: showPositiveGamma ? '#a855f7' : '#666',
+ cursor: 'pointer',
+ fontSize: '12px',
+ borderBottom: '1px solid #333'
+ }}
+ >
+ Positive
+ </div>
+ <div
+ onClick={() => { setShowNegativeGamma(!showNegativeGamma); setGexDropdownOpen(false); }}
+ style={{
+ padding: '8px 12px',
+ color: showNegativeGamma ? '#f97316' : '#666',
+ cursor: 'pointer',
+ fontSize: '12px',
+ borderBottom: '1px solid #333'
+ }}
+ >
+ Negative
+ </div>
+ <div
+ onClick={() => { /* TODO: Add DEX functionality */ setGexDropdownOpen(false); }}
+ style={{
+ padding: '8px 12px',
+ color: '#666',
+ cursor: 'pointer',
+ fontSize: '12px',
+ borderBottom: '1px solid #333'
+ }}
+ >
+ DEX
+ </div>
+ <div
+ onClick={() => { /* TODO: Add NET functionality */ setGexDropdownOpen(false); }}
+ style={{
+ padding: '8px 12px',
+ color: '#666',
+ cursor: 'pointer',
+ fontSize: '12px'
+ }}
+ >
+ NET
+ </div>
+ </div>
+ )}
+ </div>
  </div>
  
  {loading && (
@@ -1256,88 +1242,31 @@ export default function OpenInterestChart({
  {/* Chart */}
  {!loading && !error && data.length > 0 && (
  <div style={{
- background: 'rgba(0, 0, 0, 0.98)',
- borderRadius: '0px',
- padding: '15px',
- border: '1px solid #ff9900',
- minHeight: '800px',
+ background: '#000000',
+ borderRadius: '8px 8px 0px 0px',
+ padding: '20px',
+ border: '1px solid #333333',
+ borderBottom: 'none',
+ boxShadow: '0 4px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+ position: 'relative',
+ zIndex: 1,
  width: '100%'
  }}>
  <div style={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
  <svg
  ref={svgRef}
- width={1500}
- height={750}
+ width={isMobile ? 350 : 1320}
+ height={isMobile ? 415 : 685}
  style={{ 
- background: '#000000', 
+ background: 'transparent', 
  borderRadius: '0px',
- border: '1px solid #333'
+ width: isMobile ? '100%' : '100%',
+ height: isMobile ? 'auto' : 'auto',
+ maxWidth: isMobile ? '100%' : 'none'
  }}
  />
  
- {/* Click overlays for legend items */}
- {!loading && !error && data.length > 0 && (
- <>
- {/* Calls legend click area - covers checkbox AND text */}
- <div
- onClick={() => setShowCalls(!showCalls)}
- style={{
- position: 'absolute',
- top: '60px', // margin.top (30) + legend y position (30) + rect y (0) = 60px
- right: '100px', // Adjusted to cover text area too
- width: '120px', // Cover checkbox + full text area
- height: '20px',
- cursor: 'pointer',
- backgroundColor: 'transparent',
- zIndex: 10
- }}
- title="Click anywhere to toggle CALLS visibility"
- />
- 
- {/* Puts legend click area - covers checkbox AND text */}
- <div
- onClick={() => setShowPuts(!showPuts)}
- style={{
- position: 'absolute',
- top: '90px', // margin.top (30) + legend y position (30) + rect y (30) = 90px
- right: '100px', // Adjusted to cover text area too
- width: '120px', // Cover checkbox + full text area
- height: '20px',
- cursor: 'pointer',
- backgroundColor: 'transparent',
- zIndex: 10
- }}
- title="Click anywhere to toggle PUTS visibility"
- />
- 
- {/* NET OI button */}
- <div
- onClick={() => setShowNetOI(!showNetOI)}
- style={{
- position: 'absolute',
- top: '140px', // Move much lower below PUTS
- right: '80px', // Move to the right
- padding: '8px 16px',
- backgroundColor: showNetOI ? '#ff9900' : 'transparent',
- border: `2px solid ${showNetOI ? '#ff9900' : '#666'}`,
- borderRadius: '2px',
- color: showNetOI ? '#000' : '#ff9900',
- cursor: 'pointer',
- fontSize: '14px', // Match CALLS/PUTS font size
- fontWeight: 'bold',
- fontFamily: '"Roboto Mono", monospace',
- zIndex: 10,
- transition: 'all 0.2s ease',
- textShadow: showNetOI ? 'none' : '0 0 2px rgba(255, 153, 0, 0.3)',
- boxShadow: showNetOI ? '0 0 4px rgba(255, 153, 0, 0.4)' : 'none',
- letterSpacing: '0.5px'
- }}
- title="Toggle NET Open Interest view (Calls - Puts)"
- >
- NET OI
- </div>
- </>
- )}
+
  </div>
  
  </div>

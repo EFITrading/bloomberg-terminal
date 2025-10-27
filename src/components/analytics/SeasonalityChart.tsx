@@ -121,6 +121,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
  const [savedNote, setSavedNote] = useState<string>('');
  const [isEditingNote, setIsEditingNote] = useState<boolean>(false);
  const [correlationData, setCorrelationData] = useState<{correlation: number, currentYearReturn: number, seasonalReturn: number} | null>(null);
+ const [isElectionDropdownOpen, setIsElectionDropdownOpen] = useState<boolean>(false);
+ const [displayElectionPeriod, setDisplayElectionPeriod] = useState<string>('Normal Mode');
  const [chartSettings, setChartSettings] = useState<ChartSettings>({
  startDate: '11 Oct',
  endDate: '6 Nov',

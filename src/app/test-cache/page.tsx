@@ -148,10 +148,7 @@ export default function ScreenerCacheTest() {
               </div>
               
               <div className="text-xs text-gray-500 mt-4">
-                <p>To manually trigger the background screeners (for testing):</p>
-                <code className="bg-gray-800 px-2 py-1 rounded mt-1 inline-block">
-                  curl -H "Authorization: Bearer your-cron-secret" /api/cron/background-screeners
-                </code>
+                <p>Background screeners have been disabled. Data loads on-demand only.</p>
               </div>
             </div>
           )}
@@ -159,13 +156,13 @@ export default function ScreenerCacheTest() {
 
         {/* Instructions */}
         <div className="mt-8 p-6 bg-blue-900/20 border border-blue-500/30 rounded text-blue-100">
-          <h3 className="font-bold mb-2">🚀 Next Steps:</h3>
+          <h3 className="font-bold mb-2">� Manual Operation Mode:</h3>
           <ol className="list-decimal list-inside space-y-1 text-sm">
-            <li>Deploy to Vercel with the cron job configuration</li>
-            <li>Set CRON_SECRET environment variable in Vercel</li>
-            <li>Wait 10 minutes for first background run, or trigger manually</li>
-            <li>Update your screener pages to use the cached data</li>
-            <li>Enjoy instant loading times! ⚡</li>
+            <li>All background screeners have been disabled</li>
+            <li>Data loads only when you click on specific screeners</li>
+            <li>No automatic cron jobs running in background</li>
+            <li>Clean startup with minimal resource usage</li>
+            <li>Full control over when data is fetched! 🎯</li>
           </ol>
         </div>
       </div>

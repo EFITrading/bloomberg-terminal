@@ -350,21 +350,7 @@
   font-weight: bold;
 }
 
-/* Mobile responsiveness */
-@media (max-width: 768px) {
-  .tail-length-control {
-    padding: 6px 8px;
-    gap: 6px;
-  }
-  
-  .tail-length-slider {
-    width: 70px;
-  }
-  
-  .tail-length-label {
-    font-size: 0.8rem;
-  }
-}
+
 
 .control-btn {
   background: #000000;
@@ -687,70 +673,7 @@
   filter: brightness(1.2);
 }
 
-/* Responsive design */
-@media (max-width: 1400px) {
-  .rrg-chart-container {
-    padding: 15px;
-  }
-  
-  .rrg-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  
-  .rrg-controls {
-    flex-wrap: wrap;
-  }
-  
-  .lookback-controls {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 15px;
-  }
-  
-  .lookback-slider-container {
-    min-width: auto;
-  }
-  
-  .lookback-info {
-    align-items: flex-start;
-  }
-}
 
-@media (max-width: 768px) {
-  .rrg-chart-container {
-    padding: 10px;
-  }
-  
-  .rrg-legend {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  
-  .rrg-tooltip {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    right: auto;
-    max-width: 280px;
-  }
-  
-  .lookback-controls {
-    gap: 10px;
-  }
-  
-  .lookback-label {
-    min-width: auto;
-    font-size: 0.8rem;
-  }
-  
-  .control-btn {
-    padding: 6px 10px;
-    font-size: 0.7rem;
-  }
-}
 
 /* Loading state */
 .rrg-loading {

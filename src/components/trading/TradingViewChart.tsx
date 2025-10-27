@@ -35,6 +35,7 @@ import OptionsCalculator from '../calculator/OptionsCalculator';
 import NewsPanel from '../news/NewsPanel';
 import TradingPlan from './TradingPlan';
 import OptionsChain from './OptionsChain';
+import DealerAttraction from '../analytics/DealerAttraction';
 import { gexService } from '../../lib/gexService';
 import { useGEXData } from '../../hooks/useGEXData';
 import { GEXChartOverlay } from '../GEXChartOverlay';
@@ -4072,44 +4073,18 @@ export default function TradingViewChart({
  const candleSpacing = chartWidth / visibleCandleCount;
  const candleWidth = Math.max(1, candleSpacing * 0.8);
 
- // Draw subtle volume border
- ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
- ctx.lineWidth = 1;
- ctx.strokeRect(40, volumeStartY, chartWidth - 80, volumeAreaHeight);
+ // Remove volume border - commented out for cleaner look
+ // ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+ // ctx.lineWidth = 1;
+ // ctx.strokeRect(40, volumeStartY, chartWidth - 80, volumeAreaHeight);
 
  // Draw volume bars
  visibleData.forEach((candle, index) => {
  const x = Math.round(40 + (index * candleSpacing) + (candleSpacing - candleWidth) / 2);
  
- // Use real volume or generate test volume
- let volumeValue;
- if (useTestData) {
- // Generate realistic volume based on price movement and candle type
- const priceRange = Math.abs(candle.high - candle.low);
- const avgPrice = (candle.high + candle.low) / 2;
- const bodySize = Math.abs(candle.close - candle.open);
- 
- // Base volume with some randomness
- let baseVolume = (Math.random() * 0.4 + 0.3) * maxVolume; // 30-70% of max
- 
- // Increase volume for larger price movements
- const volatilityMultiplier = 1 + (priceRange / avgPrice) * 2;
- 
- // Increase volume for larger candle bodies (more decisive moves)
- const bodyMultiplier = 1 + (bodySize / priceRange) * 0.5;
- 
- volumeValue = baseVolume * volatilityMultiplier * bodyMultiplier;
- 
- // Add some random spikes for realism (10% chance of high volume)
- if (Math.random() < 0.1) {
- volumeValue *= (Math.random() * 1.5 + 1.5); // 1.5x to 3x spike
- }
- 
- volumeValue = Math.min(volumeValue, maxVolume); // Cap at max
- } else {
- volumeValue = candle.volume;
+ // Use only real volume data - no fake data generation
+ const volumeValue = candle.volume;
  if (!volumeValue || volumeValue <= 0) return; // Skip if no real volume
- }
  
  const volumeHeight = (volumeValue / maxVolume) * volumeAreaHeight;
  const barY = volumeEndY - volumeHeight;
@@ -4157,22 +4132,25 @@ export default function TradingViewChart({
  volumeText = volumeLevel.toFixed(0);
  }
 
- ctx.fillText(volumeText, chartWidth - 35, y + 3);
+ // Position volume labels even MORE RIGHT 
+ ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+ ctx.textAlign = 'right';
+ ctx.fillText(volumeText, chartWidth + 80, y + 3); // Much further beyond chart edge
  
- // Draw tick mark
+ // Draw tick mark at edge
  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
  ctx.lineWidth = 1;
  ctx.beginPath();
- ctx.moveTo(chartWidth - 40, y);
- ctx.lineTo(chartWidth - 35, y);
+ ctx.moveTo(chartWidth - 10, y);
+ ctx.lineTo(chartWidth - 5, y);
  ctx.stroke();
  }
 
- // Add volume label
- ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
- ctx.font = 'bold 10px Arial';
- ctx.textAlign = 'left';
- ctx.fillText('Volume', 45, volumeStartY + 15);
+ // Remove volume label - text removed for cleaner look
+ // ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+ // ctx.font = 'bold 10px Arial';
+ // ctx.textAlign = 'left';
+ // ctx.fillText('Volume', 45, volumeStartY + 15);
  };
 
  // Draw grid lines for price chart area only
@@ -9248,7 +9226,8 @@ export default function TradingViewChart({
  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
  }}
  >
- {/* Main Timeframes */}
+ {/* Desktop Timeframes - Hidden on mobile */}
+ <div className="hidden md:flex">
  {[
  { label: '5M', value: '5m' },
  { label: '30M', value: '30m' },
@@ -9272,6 +9251,26 @@ export default function TradingViewChart({
  </button>
  ))}
  </div>
+ 
+ {/* Mobile Timeframe Dropdown - Visible only on mobile */}
+ <div className="md:hidden relative">
+ <select
+ value={config.timeframe}
+ onChange={(e) => handleTimeframeChange(e.target.value)}
+ className="btn-3d-carved text-white bg-gradient-to-b from-gray-700 via-gray-800 to-gray-900 border border-gray-600 rounded-md px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
+ style={{
+ background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
+ boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05)'
+ }}
+ >
+ <option value="5m">5M</option>
+ <option value="30m">30M</option>
+ <option value="1h">1H</option>
+ <option value="4h">24H</option>
+ <option value="1d">D</option>
+ </select>
+ </div>
+ </div>
 
  {/* Glowing Orange Separator */}
  <div className="mx-8" style={{
@@ -9292,7 +9291,8 @@ export default function TradingViewChart({
  boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4)'
  }}
  >
- {/* Main Chart Type Buttons */}
+ {/* Desktop Chart Type Buttons - Hidden on mobile */}
+ <div className="hidden md:flex">
  {MAIN_CHART_TYPES.map((type, index) => (
  <button
  key={type.value}
@@ -9309,6 +9309,57 @@ export default function TradingViewChart({
  {type.icon}
  </button>
  ))}
+ </div>
+ 
+ {/* Mobile Chart Type Button - Icon only for compact size */}
+ <div className="md:hidden relative">
+ <button
+ onClick={() => handleChartTypeChange(config.chartType === 'candlestick' ? 'line' : 'candlestick')}
+ className="btn-3d-carved font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
+ style={{
+ background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
+ boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05)',
+ color: '#ff6600',
+ border: '1px solid rgba(255, 102, 0, 0.3)',
+ borderRadius: '4px',
+ padding: '6px',
+ minWidth: 'auto',
+ width: 'auto',
+ display: 'flex',
+ alignItems: 'center',
+ justifyContent: 'center'
+ }}
+ title={config.chartType === 'candlestick' ? 'Switch to Line Chart' : 'Switch to Candlestick Chart'}
+ >
+ {config.chartType === 'candlestick' ? (
+ <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+ <line x1="3" y1="2" x2="3" y2="14" stroke="currentColor" strokeWidth="1"/>
+ <rect x="2" y="4" width="2" height="4" fill="currentColor"/>
+ <line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" strokeWidth="1"/>
+ <rect x="6" y="3" width="2" height="6" fill="none" stroke="currentColor" strokeWidth="1"/>
+ <line x1="11" y1="3" x2="11" y2="15" stroke="currentColor" strokeWidth="1"/>
+ <rect x="10" y="5" width="2" height="3" fill="currentColor"/>
+ </svg>
+ ) : (
+ <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+ <path 
+ d="M1 13 L4 9 L7 11 L10 6 L13 8 L15 4" 
+ stroke="currentColor" 
+ strokeWidth="2" 
+ fill="none"
+ strokeLinecap="round"
+ strokeLinejoin="round"
+ />
+ <circle cx="1" cy="13" r="1.5" fill="currentColor"/>
+ <circle cx="4" cy="9" r="1.5" fill="currentColor"/>
+ <circle cx="7" cy="11" r="1.5" fill="currentColor"/>
+ <circle cx="10" cy="6" r="1.5" fill="currentColor"/>
+ <circle cx="13" cy="8" r="1.5" fill="currentColor"/>
+ <circle cx="15" cy="4" r="1.5" fill="currentColor"/>
+ </svg>
+ )}
+ </button>
+ </div>
  </div>
 
  {/* Glowing Orange Separator */}
@@ -10041,7 +10092,7 @@ export default function TradingViewChart({
  {/* Chart Container with Sidebar */}
  <div className="flex flex-1 bg-[#0a0a0a]">
  {/* Animated 3D Sidebar */}
- <div className="sidebar-container w-16 bg-gradient-to-b from-[#000000] via-[#0a0a0a] to-[#000000] border-r border-[#1a1a1a] shadow-2xl relative overflow-hidden">
+ <div className="sidebar-container w-16 md:w-16 sm:w-12 bg-gradient-to-b from-[#000000] via-[#0a0a0a] to-[#000000] border-r border-[#1a1a1a] shadow-2xl relative overflow-hidden mobile-sidebar">
  {/* Subtle background pattern */}
  <div className="absolute inset-0 opacity-5">
  <div className="absolute top-0 left-0 w-full h-full" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, rgba(255,255,255,0.03))' }}></div>
@@ -10052,6 +10103,7 @@ export default function TradingViewChart({
  <div className="relative z-10 flex flex-col items-center py-4 h-full">
  {/* Sidebar Buttons */}
  {[
+ { id: 'liquid', icon: TbBoxMultiple, label: 'Liquid', color: 'from-gray-800 to-gray-900', accent: 'orange' },
  { id: 'watchlist', icon: TbChartLine, label: 'Watch', color: 'from-gray-800 to-gray-900', accent: 'blue' },
  { id: 'regimes', icon: TbTrendingUp, label: 'Markets', color: 'from-gray-800 to-gray-900', accent: 'emerald' },
  { id: 'news', icon: TbNews, label: 'News', color: 'from-gray-800 to-gray-900', accent: 'amber' },
@@ -10069,7 +10121,8 @@ export default function TradingViewChart({
  red: 'text-red-400 group-hover:text-red-300',
  violet: 'text-violet-400 group-hover:text-violet-300',
  cyan: 'text-cyan-400 group-hover:text-cyan-300',
- purple: 'text-purple-400 group-hover:text-purple-300'
+ purple: 'text-purple-400 group-hover:text-purple-300',
+ orange: 'text-orange-400 group-hover:text-orange-300'
  };
  return (
  <div key={item.id} className="flex flex-col items-center mb-3">
@@ -10079,12 +10132,12 @@ export default function TradingViewChart({
  </span>
  
  <button
- className={`sidebar-btn group relative w-12 h-12 rounded-lg bg-gradient-to-br ${item.color} 
+ className={`sidebar-btn group relative w-12 h-12 md:w-12 md:h-12 sm:w-10 sm:h-10 xs:w-8 xs:h-8 rounded-lg bg-gradient-to-br ${item.color} 
  shadow-lg hover:shadow-2xl transform transition-all duration-300 
  hover:scale-105 hover:-translate-y-0.5 active:scale-95
  border border-gray-700 border-opacity-50 hover:border-gray-600 hover:border-opacity-70
  relative overflow-hidden
- backdrop-blur-sm flex items-center justify-center`}
+ backdrop-blur-sm flex items-center justify-center mobile-sidebar-btn`}
  style={{
  animationDelay: `${index * 100}ms`,
  background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.95) 0%, rgba(10, 10, 10, 0.98) 100%)',
@@ -10097,7 +10150,7 @@ export default function TradingViewChart({
  <div className="absolute inset-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, transparent)' }}></div>
  
  {/* Icon with accent color */}
- <span className={`z-10 text-4xl filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 ${accentColors[item.accent]}`}>
+ <span className={`z-10 text-4xl md:text-4xl sm:text-3xl xs:text-2xl filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 ${accentColors[item.accent]} mobile-sidebar-icon`}>
  <IconComponent />
  </span>
  
@@ -10105,7 +10158,7 @@ export default function TradingViewChart({
  <div className="absolute inset-0 rounded-lg bg-white bg-opacity-10 scale-0 group-active:scale-100 transition-transform duration-200"></div>
  
  {/* Accent glow effect */}
- <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-30 blur-sm transition-opacity duration-300" style={{ background: `linear-gradient(to right, ${item.accent === 'blue' ? 'rgba(59, 130, 246, 0.2)' : item.accent === 'emerald' ? 'rgba(16, 185, 129, 0.2)' : item.accent === 'purple' ? 'rgba(147, 51, 234, 0.2)' : item.accent === 'amber' ? 'rgba(245, 158, 11, 0.2)' : item.accent === 'rose' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)'}, ${item.accent === 'blue' ? 'rgba(37, 99, 235, 0.2)' : item.accent === 'emerald' ? 'rgba(5, 150, 105, 0.2)' : item.accent === 'purple' ? 'rgba(126, 34, 206, 0.2)' : item.accent === 'amber' ? 'rgba(217, 119, 6, 0.2)' : item.accent === 'rose' ? 'rgba(225, 29, 72, 0.2)' : 'rgba(37, 99, 235, 0.2)'})` }}></div>
+ <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-30 blur-sm transition-opacity duration-300" style={{ background: `linear-gradient(to right, ${item.accent === 'blue' ? 'rgba(59, 130, 246, 0.2)' : item.accent === 'emerald' ? 'rgba(16, 185, 129, 0.2)' : item.accent === 'purple' ? 'rgba(147, 51, 234, 0.2)' : item.accent === 'amber' ? 'rgba(245, 158, 11, 0.2)' : item.accent === 'orange' ? 'rgba(251, 146, 60, 0.2)' : item.accent === 'rose' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)'}, ${item.accent === 'blue' ? 'rgba(37, 99, 235, 0.2)' : item.accent === 'emerald' ? 'rgba(5, 150, 105, 0.2)' : item.accent === 'purple' ? 'rgba(126, 34, 206, 0.2)' : item.accent === 'amber' ? 'rgba(217, 119, 6, 0.2)' : item.accent === 'orange' ? 'rgba(234, 88, 12, 0.2)' : item.accent === 'rose' ? 'rgba(225, 29, 72, 0.2)' : 'rgba(37, 99, 235, 0.2)'})` }}></div>
  </button>
  </div>
  );
@@ -10325,6 +10378,9 @@ export default function TradingViewChart({
 
  {/* Panel Content */}
  <div className="h-[calc(100%-3rem)] overflow-y-auto">
+ {activeSidebarPanel === 'liquid' && (
+ <DealerAttraction />
+ )}
  {activeSidebarPanel === 'watchlist' && (
  <WatchlistPanel 
  activeTab={watchlistTab} 

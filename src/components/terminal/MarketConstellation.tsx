@@ -27,46 +27,48 @@ export default function MarketConstellation() {
  const [timeOfDay, setTimeOfDay] = useState('');
  const [marketMood, setMarketMood] = useState('Optimistic');
 
+ // DECORATIVE DISPLAY ONLY - These are example insights for visual presentation
+ // TODO: Replace with real-time market data from API
  const insights: MarketInsight[] = [
  {
- title: "NAAIM Exposure Index",
- value: "67.8%",
- description: "Active investment managers' equity exposure remains bullish above historical average",
+ title: "Market Analysis",
+ value: "Loading...",
+ description: "Real-time market insights available on analytics dashboard",
  color: "#FFD700",
  icon: "∆"
  },
  {
- title: "CNN Fear & Greed Index",
- value: "42 - Fear",
- description: "Market sentiment shows fear as investors await clarity on rate policy",
+ title: "Trading Suite",
+ value: "Active",
+ description: "Access advanced trading tools and real-time data in the analytics section",
  color: "#FFA500",
  icon: "σ"
  },
  {
- title: "VIX Term Structure",
- value: "18.4",
- description: "Implied volatility suggests moderate uncertainty with downward pressure",
+ title: "Options Flow",
+ value: "Live",
+ description: "Monitor institutional options activity and dark pool transactions",
  color: "#FFD700",
  icon: "λ"
  },
  {
- title: "FOMC Meeting", 
- value: "Nov 7th",
- description: "Federal Reserve policy decision expected to maintain current rates",
+ title: "Seasonal Analysis", 
+ value: "Available",
+ description: "Discover optimal trading periods with historical seasonal patterns",
  color: "#DAA520",
  icon: "Ψ"
  },
  {
- title: "Earnings Season",
- value: "AAPL Oct 31",
- description: "Apple earnings report could set tone for technology sector performance",
+ title: "GEX Screener",
+ value: "Real-Time",
+ description: "Track gamma exposure levels and dealer positioning across strikes",
  color: "#B8860B",
  icon: "Φ"
  },
  {
- title: "CPI Release",
- value: "Oct 10th",
- description: "Core inflation data will influence Fed policy and market direction",
+ title: "RRG Analysis",
+ value: "Updated",
+ description: "Relative rotation graphs showing sector and stock momentum shifts",
  color: "#FFD700",
  icon: "Ω"
  }

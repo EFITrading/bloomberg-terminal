@@ -352,7 +352,7 @@ if (parentPort) {
  try {
  const tradePrice = trade.price || 0;
  const tradeSize = trade.size || 1;
- const totalPremium = tradePrice * tradeSize * 100; // Multiply by 100 for options contract multiplier
+ const totalPremium = tradePrice * tradeSize; // Price already in cents
  const strikePrice = contract.strike_price || 0;
  // Get CORRECTED expiry date (fix 2024 -> 2025/2026 issue)
  let expiryDate = contract.expiration_date || '';
@@ -410,7 +410,7 @@ if (parentPort) {
  ticker: contract.ticker,
  option_ticker: contract.ticker,
  trade_size: tradeSize,
- premium_per_contract: tradePrice,
+ premium_per_contract: totalPremium / (tradeSize * 100), // Calculate actual per-contract from total
  total_premium: totalPremium,
  trade_type: undefined, // Will be classified later based on exchange distribution
  trade_timestamp: tradeDate, // ACTUAL trade time, not current time

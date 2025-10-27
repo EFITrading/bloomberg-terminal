@@ -47,42 +47,21 @@ class BackgroundDataService {
  console.log(' Starting staggered background data loading to prevent resource conflicts...');
 
  try {
- const polygonService = new PolygonService();
- const cache = GlobalDataCache.getInstance();
-
- // Wait for watchlist to finish loading first (give it priority)
- console.log(' Waiting for watchlist data to load before starting background tasks...');
+ console.log(' Background loading disabled - data will load only when manually triggered');
  
- // Step 1: Load essential market data (delayed to avoid conflicts)
- setTimeout(async () => {
- await this.loadEssentialData(polygonService, cache);
- }, 5000); // 5 second delay
-
- // Step 2: Load featured patterns (low priority, further delayed)
- setTimeout(async () => {
- await this.loadFeaturedPatterns(polygonService, cache);
- }, 8000);
-
- // Step 3: Load weekly patterns (low priority)
- setTimeout(async () => {
- await this.loadWeeklyPatterns(polygonService, cache);
- }, 12000);
-
- // Step 4: Load sector patterns progressively
- setTimeout(async () => {
- await this.loadSectorPatterns(polygonService, cache);
- }, 16000);
-
- // Step 5: Load market indices (background)
- setTimeout(async () => {
- await this.loadMarketIndices(polygonService, cache);
- }, 20000);
-
- // Step 6: Load seasonal opportunities (very low priority)
- setTimeout(async () => {
- await this.loadSeasonalOpportunities(cache);
- }, 25000);
-
+ // Automatic progressive loading is now disabled
+ // Users must manually trigger data loading via UI interactions
+ 
+ // All the setTimeout-based automatic loading has been disabled:
+ // - Essential market data loading
+ // - Featured patterns loading  
+ // - Weekly patterns loading
+ // - Sector patterns loading
+ // - Market indices loading
+ // - Seasonal opportunities loading
+ 
+ this.updateStatus('Background loading disabled - trigger manually');
+ 
  } catch (error) {
  console.error(' Background loading error:', error);
  } finally {

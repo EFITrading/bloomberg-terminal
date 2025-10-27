@@ -847,33 +847,7 @@
   color: #9ca3af;
 }
 
-/* Responsive adjustments for watchlist */
-@media (max-width: 768px) {
-  .watchlist-header,
-  .watchlist-row {
-    grid-template-columns: 2fr 1fr 1fr;
-    gap: 0.5rem;
-  }
-  
-  .header-cell.performance,
-  .header-cell.signal,
-  .cell.performance,
-  .cell.signal {
-    display: none;
-  }
-  
-  .symbol-full-name {
-    display: none;
-  }
-}
-
-@media (max-width: 1024px) {
-  .watchlist-header,
-  .watchlist-row {
-    grid-template-columns: 2fr 1fr 1fr 1.2fr 1fr;
-    gap: 0.6rem;
-  }
-}/* App Container */
+/* App Container */
 .terminal-app {
     min-height: 100vh;
     position: relative;
@@ -1475,75 +1449,9 @@
     letter-spacing: 0.5px;
 }
 
-/* Responsive Footer */
-@media (max-width: 1024px) {
-    .footer-main {
-        grid-template-columns: 1fr;
-        gap: 40px;
-    }
-    
-    .footer-links {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 30px;
-    }
-}
 
-@media (max-width: 768px) {
-    .footer-content {
-        padding: 40px 24px 24px;
-    }
-    
-    .footer-links {
-        grid-template-columns: 1fr;
-        gap: 24px;
-    }
-    
-    .footer-bottom {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 16px;
-    }
-    
-    .footer-legal {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 16px;
-    }
-    
-    .footer-nav {
-        gap: 16px;
-    }
-}
 
-/* Additional Responsive Styles */
-@media (max-width: 768px) {
-    .feature-item {
-        flex-direction: column;
-        text-align: center;
-        gap: 12px;
-    }
-    
-    .tool-header {
-        flex-direction: column;
-        gap: 16px;
-        align-items: center;
-    }
-    
-    .tool-metrics {
-        justify-content: center;
-    }
-    
-    .hero-actions {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .cta-primary,
-    .cta-secondary {
-        justify-content: center;
-        text-align: center;
-    }
-}
+
 
 .hero-grid {
     display: grid;
@@ -2184,47 +2092,7 @@
     font-weight: 400;
 }
 
-/* Responsive Design */
-@media (max-width: 1200px) {
-    .hero-grid {
-        grid-template-columns: 1fr;
-        gap: 60px;
-        text-align: center;
-    }
-    
-    .viz-container {
-        transform: none;
-        max-width: 600px;
-        margin: 0 auto;
-    }
-}
 
-@media (max-width: 768px) {
-    .hero {
-        padding: 120px 0 80px;
-    }
-    
-    .hero-grid {
-        padding: 0 24px;
-        gap: 40px;
-    }
-    
-    .hero h1 {
-        font-size: clamp(32px, 8vw, 48px);
-    }
-    
-    .hero-description {
-        font-size: 18px;
-    }
-    
-    .feature-item {
-        padding: 16px 20px;
-    }
-    
-    .tools {
-        padding: 80px 0;
-    }
-}
 
 /* Advanced Loading States */
 @keyframes matrix-enhanced {
@@ -2463,3 +2331,39 @@
 .slide-in-from-bottom-4 {
     animation: slide-in-from-bottom-4 0.3s ease-out;
 }
+
+/* Large Desktop Breakpoints for Enhanced Terminal */
+@media (min-width: 1441px) and (max-width: 1600px) {
+    .hero-grid {
+        max-width: 1400px;
+        padding: 0 50px;
+    }
+    
+    .section-title {
+        font-size: clamp(2.5rem, 4vw, 3.25rem); /* Convert px to rem for zoom support */
+    }
+}
+
+@media (min-width: 1601px) and (max-width: 1920px) {
+    .hero-grid {
+        max-width: 1600px;
+        padding: 0 60px;
+    }
+    
+    .section-title {
+        font-size: clamp(3rem, 4vw, 3.5rem); /* Convert px to rem for zoom support */
+    }
+}
+
+@media (min-width: 1921px) {
+    .hero-grid {
+        max-width: 1800px;
+        padding: 0 80px;
+    }
+    
+    .section-title {
+        font-size: clamp(3.25rem, 4vw, 4rem); /* Convert px to rem for zoom support */
+    }
+}
+
+
