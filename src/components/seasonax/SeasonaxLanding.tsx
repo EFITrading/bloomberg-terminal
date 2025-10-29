@@ -6,7 +6,7 @@ import GlobalDataCache from '@/lib/GlobalDataCache';
 import HeroSection from './HeroSection';
 import MarketTabs from './MarketTabs';
 import OpportunityCard from './OpportunityCard';
-import SeasonalityModal from './SeasonalityModal';
+
 
 interface SeasonaxLandingProps {
  onStartScreener?: () => void;
@@ -25,10 +25,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  const [progressStats, setProgressStats] = useState({ processed: 0, total: 1000, found: 0 });
  const [eventSource, setEventSource] = useState<EventSource | null>(null);
  
- // Modal state for seasonality chart
- const [modalOpen, setModalOpen] = useState(false);
- const [modalSymbol, setModalSymbol] = useState<string>('');
- const [modalCompanyName, setModalCompanyName] = useState<string>('');
+
 
  const marketTabs = [
  { id: 'SP500', name: 'S&P 500' },
@@ -82,7 +79,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  
  try {
  // Load FULL data using BLAZING FAST MASSIVE CONCURRENCY with REAL-TIME results
- setStreamStatus(' Starting 50 concurrent requests for BLAZING FAST seasonal analysis...');
+ setStreamStatus('');
  
  // Real-time progress callback to show results as they're found using WORKER THREADS
  let lastUpdate = 0;
@@ -194,7 +191,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  const finalSorted = realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
  setOpportunities(finalSorted as unknown as SeasonalPattern[]);
  setLoading(false);
- setStreamStatus('✅ Standard processing completed!');
+ setStreamStatus('✅ Screening Completed');
  setProgressStats({ processed: 500, total: 500, found: realOpportunities.length });
  } else {
  throw new Error('No seasonal opportunities found in fallback mode');
@@ -317,24 +314,13 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  setActiveMarket(tabId);
  };
 
- const handleStockDoubleClick = (symbol: string, companyName?: string) => {
- console.log(` Double-clicked on ${symbol}, opening seasonality chart...`);
- setModalSymbol(symbol);
- setModalCompanyName(companyName || '');
- setModalOpen(true);
- };
 
- const handleModalClose = () => {
- setModalOpen(false);
- setModalSymbol('');
- setModalCompanyName('');
- };
 
  if (loading && !showWebsite) {
  return (
  <div className="seasonax-loading">
  <div className="loading-spinner"></div>
- <p>Starting progressive seasonal screening...</p>
+ <p>Starting seasonal screener...</p>
  <p>{streamStatus}</p>
  {progressStats.processed > 0 && (
  <div className="progress-info">
@@ -463,7 +449,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  key={`bullish-${opportunity.symbol}-${index}`}
  pattern={opportunity}
  rank={index + 1}
- onDoubleClick={handleStockDoubleClick}
  isTopBullish={isTopBullish}
  isTopBearish={false}
  />
@@ -497,7 +482,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  key={`bearish-${opportunity.symbol}-${index}`}
  pattern={opportunity}
  rank={index + 1}
- onDoubleClick={handleStockDoubleClick}
  isTopBullish={false}
  isTopBearish={isTopBearish}
  />
@@ -523,13 +507,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  )}
  </div>
 
- {/* Seasonality Chart Modal */}
- <SeasonalityModal
- isOpen={modalOpen}
- onClose={handleModalClose}
- symbol={modalSymbol}
- companyName={modalCompanyName}
- />
+
  </div>
  );
 };

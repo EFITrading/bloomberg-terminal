@@ -41,12 +41,11 @@ const SeasonalChart: React.FC<SeasonalChartProps> = ({ data, height = 40 }) => {
 interface OpportunityCardProps {
  pattern: SeasonalPattern;
  rank?: number;
- onDoubleClick?: (symbol: string, companyName?: string) => void;
  isTopBullish?: boolean;
  isTopBearish?: boolean;
 }
 
-const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, onDoubleClick, isTopBullish, isTopBearish }) => {
+const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopBullish, isTopBearish }) => {
  const isPositive = (pattern.averageReturn || pattern.avgReturn || 0) >= 0;
  const expectedReturn = (pattern.averageReturn || pattern.avgReturn || 0);
  const correlation = (pattern as any).correlation || 0;
@@ -62,17 +61,9 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, onDoub
  return 'ACTIVE PERIOD';
  };
  
- const handleDoubleClick = () => {
- if (onDoubleClick) {
- onDoubleClick(pattern.symbol, pattern.company);
- }
- };
-
  return (
  <div 
- className="pro-opportunity-card"
- onDoubleClick={handleDoubleClick}
- style={{ cursor: onDoubleClick ? 'pointer' : 'default' }}
+ className={`pro-opportunity-card ${isPositive ? 'bullish-card' : 'bearish-card'}`}
  >
  {/* Header with Company */}
  <div className="card-header-pro">
@@ -133,28 +124,28 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, onDoub
  <div className={`metric-value-large ${isPositive ? 'positive' : 'negative'}`}>
  {expectedReturn >= 0 ? '+' : ''}{expectedReturn.toFixed(1)}%
  </div>
- <div className="metric-label-small">Expected</div>
+ <div className="metric-label-small" style={{ fontSize: '12px' }}>Expected</div>
  </div>
  
  <div className="metric-card">
  <div className={`metric-value ${pattern.winRate >= 50 ? 'positive' : 'negative'}`}>
  {pattern.winRate.toFixed(0)}%
  </div>
- <div className="metric-label-small">Win Rate</div>
+ <div className="metric-label-small" style={{ fontSize: '12px' }}>Win Rate</div>
  </div>
  
  <div className="metric-card">
  <div className={`metric-value ${correlation >= 50 ? 'positive' : correlation >= 35 ? 'neutral' : 'negative'}`}>
  {correlation}%
  </div>
- <div className="metric-label-small">Correlation</div>
+ <div className="metric-label-small correlation-label" style={{ fontSize: '12px' }}>Correlation</div>
  </div>
  
  <div className="metric-card">
  <div className="metric-value neutral">
  {pattern.years}Y
  </div>
- <div className="metric-label-small">History</div>
+ <div className="metric-label-small" style={{ fontSize: '12px' }}>History</div>
  </div>
  </div>
  

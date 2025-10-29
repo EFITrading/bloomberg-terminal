@@ -111,6 +111,91 @@ const analyzeBidAskExecutionLightning = async (
   return allResults;
 };
 
+// VOLUME & OPEN INTEREST FETCHING - ULTRA-FAST PARALLEL PROCESSING
+const fetchVolumeAndOpenInterest = async (
+  trades: any[],
+  updateCallback: (results: any[]) => void
+): Promise<any[]> => {
+  if (trades.length === 0) return trades;
+  
+  const BATCH_SIZE = 200; // Process 200 trades at a time - 4x faster!
+  const BATCH_DELAY = 10; // Only 10ms delay between batches
+  const batches = [];
+  
+  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+    batches.push(trades.slice(i, i + BATCH_SIZE));
+  }
+  
+  console.log(`� ULTRA-FAST Vol/OI fetch: ${trades.length} trades in ${batches.length} batches of ${BATCH_SIZE}`);
+  
+  const allResults = [];
+  
+  // Process batches sequentially with massive parallel requests within each batch
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    
+    if (batchIndex % 5 === 0) {
+      console.log(`⚡ Vol/OI batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex/batches.length)*100)}% complete)`);
+    }
+    
+    const batchResults = await Promise.all(
+      batch.map(async (trade) => {
+        try {
+          const ticker = trade.underlying_ticker;
+          const strike = trade.strike;
+          const optionType = trade.type.toLowerCase(); // 'call' or 'put'
+          const expiration = trade.expiry; // Format: 2025-10-28
+          
+          // Build option symbol: O:SPY251028C00679000
+          const expDate = expiration.split('-'); // ['2025', '10', '28']
+          const year = expDate[0].slice(2); // '25'
+          const month = expDate[1]; // '10'
+          const day = expDate[2]; // '28'
+          const callPut = optionType === 'call' ? 'C' : 'P';
+          const strikeStr = Math.round(strike * 1000).toString().padStart(8, '0'); // 00679000
+          const optionSymbol = `O:${ticker}${year}${month}${day}${callPut}${strikeStr}`;
+          
+          // Use the SAME snapshot endpoint as OptionsChain.tsx
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}/${optionSymbol}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+          const response = await fetch(snapshotUrl, {
+            signal: AbortSignal.timeout(5000)
+          });
+          const data = await response.json();
+          
+          if (data.status === 'OK' && data.results) {
+            const snap = data.results;
+            const volume = snap.day?.volume || 0;
+            const openInterest = snap.open_interest || 0;
+            
+            return { 
+              ...trade, 
+              volume: volume,
+              open_interest: openInterest 
+            };
+          }
+          
+          return { ...trade, volume: 0, open_interest: 0 };
+        } catch (error) {
+          return { ...trade, volume: 0, open_interest: 0 };
+        }
+      })
+    );
+    
+    allResults.push(...batchResults);
+    
+    // Update the UI with processed trades in real-time
+    updateCallback([...allResults]);
+    
+    // Minimal delay between batches
+    if (batchIndex < batches.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+    }
+  }
+  
+  console.log(`✅ ULTRA-FAST Vol/OI complete: ${allResults.length} trades processed`);
+  return allResults;
+};
+
 // Memoized price display component to prevent flickering
 const PriceDisplay = React.memo(function PriceDisplay({ 
  spotPrice, 
@@ -164,6 +249,8 @@ interface OptionsFlowData {
  moneyness: 'ATM' | 'ITM' | 'OTM';
  days_to_expiry: number;
  fill_style?: 'A' | 'AA' | 'B' | 'BB' | 'N/A';
+ volume?: number;
+ open_interest?: number;
 }
 
 interface OptionsFlowSummary {
@@ -618,7 +705,15 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
  console.log('🚀 STARTING FILL STYLE ANALYSIS FOR', data.length, 'TRADES');
  try {
- const tradesWithStyles = await analyzeBidAskExecutionLightning(data, setTradesWithFillStyles);
+ // First fetch Volume & Open Interest
+ console.log('📊 STARTING VOL/OI FETCH FOR', data.length, 'TRADES');
+ const tradesWithVolOI = await fetchVolumeAndOpenInterest(data, (partialResults) => {
+ // Update with partial results as they come in (for UI responsiveness)
+ setTradesWithFillStyles(partialResults);
+ });
+ 
+ // Then analyze fill styles with the Vol/OI data included
+ const tradesWithStyles = await analyzeBidAskExecutionLightning(tradesWithVolOI, setTradesWithFillStyles);
  setTradesWithFillStyles(tradesWithStyles);
  console.log('✅ FILL STYLE ANALYSIS COMPLETE');
  } catch (error) {
@@ -635,7 +730,14 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  
  console.log('🔥 MANUAL FILL STYLE ANALYSIS TRIGGERED FOR', data.length, 'TRADES');
  try {
- const tradesWithStyles = await analyzeBidAskExecutionLightning(data, setTradesWithFillStyles);
+ // First fetch Volume & Open Interest
+ console.log('📊 MANUAL VOL/OI FETCH FOR', data.length, 'TRADES');
+ const tradesWithVolOI = await fetchVolumeAndOpenInterest(data, (partialResults) => {
+ setTradesWithFillStyles(partialResults);
+ });
+ 
+ // Then analyze fill styles
+ const tradesWithStyles = await analyzeBidAskExecutionLightning(tradesWithVolOI, setTradesWithFillStyles);
  setTradesWithFillStyles(tradesWithStyles);
  console.log('✅ MANUAL ANALYSIS COMPLETE');
  } catch (error) {
@@ -1628,6 +1730,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  Spot {'>>'} Current {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
+ className="text-left p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ >
+ VOL/OI
+ </th>
+ <th 
  className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
  onClick={() => handleSort('trade_type')}
  >
@@ -1695,7 +1802,24 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  ticker={trade.underlying_ticker}
  />
  </td>
- <td className="p-6">
+ <td className="p-6 text-xl text-white border-r border-gray-700/30">
+ {trade.volume !== undefined && trade.open_interest !== undefined ? (
+ <div className="flex flex-col items-center">
+ <div className="text-cyan-400 font-bold">
+ {trade.volume.toLocaleString()}
+ </div>
+ <div className="text-gray-400 text-sm">
+ /
+ </div>
+ <div className="text-purple-400 font-bold">
+ {trade.open_interest.toLocaleString()}
+ </div>
+ </div>
+ ) : (
+ <span className="text-gray-500 animate-pulse">Loading...</span>
+ )}
+ </td>
+ <td className="p-6 border-r border-gray-700/30">
  <span className={`inline-block px-4 py-2 rounded-lg text-lg font-bold shadow-sm ${getTradeTypeColor(trade.trade_type)}`}>
  {trade.trade_type === 'MULTI-LEG' ? 'ML' : trade.trade_type}
  </span>

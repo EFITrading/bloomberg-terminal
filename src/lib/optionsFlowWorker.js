@@ -352,7 +352,7 @@ if (parentPort) {
  try {
  const tradePrice = trade.price || 0;
  const tradeSize = trade.size || 1;
- const totalPremium = tradePrice * tradeSize; // Price already in cents
+        const totalPremium = tradePrice * tradeSize * 100; // Price per contract × contracts × 100 shares per contract
  const strikePrice = contract.strike_price || 0;
  // Get CORRECTED expiry date (fix 2024 -> 2025/2026 issue)
  let expiryDate = contract.expiration_date || '';

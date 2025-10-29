@@ -7759,16 +7759,24 @@ export default function TradingViewChart({
  <span className="drop-shadow-lg text-shadow-carved">Change</span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className="drop-shadow-lg text-shadow-carved">{getMarketRegimeForHeader('1d')}</span>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {getMarketRegimeForHeader('1d')}
+ </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className="drop-shadow-lg text-shadow-carved">{getMarketRegimeForHeader('5d')}</span>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {getMarketRegimeForHeader('5d')}
+ </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className="drop-shadow-lg text-shadow-carved">{getMarketRegimeForHeader('13d')}</span>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {getMarketRegimeForHeader('13d')}
+ </span>
  </div>
  <div className="p-3 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
- <span className="drop-shadow-lg text-shadow-carved">{getMarketRegimeForHeader('21d')}</span>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {getMarketRegimeForHeader('21d')}
+ </span>
  </div>
  </div>
  
@@ -7885,28 +7893,28 @@ export default function TradingViewChart({
  
  {/* 1D Performance */}
  <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color}`}>
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color} ${perf1d.status === 'RISING' || perf1d.status === 'STRONG' || perf1d.status === 'LEADER' || perf1d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
  {perf1d.status}
  </span>
  </div>
  
  {/* 5D Performance */}
  <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color}`}>
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color} ${perf5d.status === 'RISING' || perf5d.status === 'STRONG' || perf5d.status === 'LEADER' || perf5d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
  {perf5d.status}
  </span>
  </div>
  
  {/* 13D Performance */}
  <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color}`}>
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color} ${perf13d.status === 'RISING' || perf13d.status === 'STRONG' || perf13d.status === 'LEADER' || perf13d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
  {perf13d.status}
  </span>
  </div>
  
  {/* 21D Performance */}
  <div className="p-3 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color}`}>
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color} ${perf21d.status === 'RISING' || perf21d.status === 'STRONG' || perf21d.status === 'LEADER' || perf21d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
  {perf21d.status}
  </span>
  </div>

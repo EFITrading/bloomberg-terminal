@@ -5233,12 +5233,23 @@ h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
   pointer-events: none;
 }
 
-.pro-opportunity-card:hover {
-  border-color: var(--premium-orange);
+/* Bullish card hover (green glow) */
+.pro-opportunity-card.bullish-card:hover {
+  border-color: #00ff88;
   transform: translateY(-8px) scale(1.02);
   box-shadow: 
     0 20px 40px rgba(0, 0, 0, 0.4),
-    0 0 30px rgba(255, 74, 0, 0.2),
+    0 0 30px rgba(0, 255, 136, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Bearish card hover (red glow) */
+.pro-opportunity-card.bearish-card:hover {
+  border-color: #ff4444;
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 
+    0 20px 40px rgba(0, 0, 0, 0.4),
+    0 0 30px rgba(255, 68, 68, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
@@ -5324,6 +5335,21 @@ h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
     2px 2px 6px rgba(0, 0, 0, 0.9);
   letter-spacing: 0px;
   text-align: center;
+}
+
+/* Override symbol text color for bullish/bearish cards */
+.bullish-card .chart-symbol-overlay .symbol-text {
+  color: #00ff88 !important;
+  text-shadow: 
+    0 0 25px rgba(0, 255, 136, 0.5),
+    2px 2px 6px rgba(0, 0, 0, 0.9) !important;
+}
+
+.bearish-card .chart-symbol-overlay .symbol-text {
+  color: #ff4444 !important;
+  text-shadow: 
+    0 0 25px rgba(255, 68, 68, 0.5),
+    2px 2px 6px rgba(0, 0, 0, 0.9) !important;
 }
 
 .chart-section {
@@ -5435,11 +5461,38 @@ h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
 }
 
 .metric-label-small {
-  font-size: 10px;
+  font-size: 7px !important;
   color: var(--muted-text);
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: 600;
+}
+
+.bullish-card .metric-label-small,
+.bearish-card .metric-label-small {
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+}
+
+/* Specific rule for correlation text only */
+.bullish-card .correlation-label,
+.bearish-card .correlation-label {
+  font-size: 10px !important;
+}
+
+/* Symbol text colors based on bullish/bearish */
+.symbol-bullish {
+  color: #00ff88 !important;
+  text-shadow: 
+    0 0 25px rgba(0, 255, 136, 0.5),
+    2px 2px 6px rgba(0, 0, 0, 0.9) !important;
+}
+
+.symbol-bearish {
+  color: #ff4444 !important;
+  text-shadow: 
+    0 0 25px rgba(255, 68, 68, 0.5),
+    2px 2px 6px rgba(0, 0, 0, 0.9) !important;
 }
 
 .timing-info {

@@ -3,7 +3,7 @@ import { RefreshCw, AlertCircle, TrendingUp, Activity } from 'lucide-react';
 
 interface GEXData {
   strike: number;
-  [key: string]: number;
+  [key: string]: number | {call: number, put: number, net: number};
 }
 
 interface ServerGEXData {
@@ -44,12 +44,31 @@ const DealerAttraction = () => {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [selectedTicker, setSelectedTicker] = useState('SPY');
   const [tickerInput, setTickerInput] = useState('SPY');
-  const [expirationFilter, setExpirationFilter] = useState('Weekly');
-  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: number}}>({});
-  const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: number}}>({});
-  const [dexByStrikeByExpiration, setDexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: number}}>({});
+  const [expirationFilter, setExpirationFilter] = useState('Daily');
+  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number}}}>({});
+  const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number}}}>({});
+  const [dexByStrikeByExpiration, setDexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number}}}>({});
   const [displayMode, setDisplayMode] = useState<'GEX' | 'DEX' | 'VEX'>('GEX');
-  const [otmFilter, setOtmFilter] = useState<'2%' | '5%' | '10%' | '20%' | '100%'>('20%');
+  const [viewMode, setViewMode] = useState<'NET' | 'CP'>('NET'); // NET by default
+
+  // Calculate Vanna from Vega using Black-Scholes
+  const calculateVanna = (vega: number, delta: number, strike: number, spot: number, tte: number, iv: number): number => {
+    if (!vega || !tte || tte <= 0 || !iv || iv <= 0) return 0;
+    
+    // Vanna = Vega * (d2 / (S * σ * √T))
+    // Where d2 = d1 - σ√T
+    // And d1 = [ln(S/K) + (r + σ²/2)T] / (σ√T)
+    
+    const sqrtT = Math.sqrt(tte);
+    const d1 = (Math.log(spot / strike) + (0.5 * iv * iv * tte)) / (iv * sqrtT);
+    const d2 = d1 - (iv * sqrtT);
+    
+    const vanna = vega * (d2 / (spot * iv * sqrtT));
+    return vanna;
+  };
+  const [otmFilter, setOtmFilter] = useState<'2%' | '5%' | '10%' | '20%' | '100%'>('2%');
+  const [progress, setProgress] = useState(0);
+  const [dataCache, setDataCache] = useState<{[key: string]: any}>({});
 
   // Helper function to get strike range based on OTM filter
   const getStrikeRange = (price: number) => {
@@ -61,16 +80,88 @@ const DealerAttraction = () => {
     };
   };
 
-  // Fetch detailed GEX data using server-side endpoint with proper expiration filtering
+  // Fetch detailed GEX data using Web Worker for ultra-fast parallel processing
   const fetchOptionsData = async () => {
-    console.log(`Fetching options data for ticker: ${selectedTicker}`);
+    const totalStartTime = performance.now();
+    console.log(`⏱️ [START] Loading ${selectedTicker}`);
     setLoading(true);
     setError(null);
+    setProgress(0);
     
     try {
-      // First get options chain data to understand available expirations and current price
+      // Check localStorage cache first (5 minute expiry)
+      const cacheKey = `gex-${selectedTicker}-${expirationFilter}`;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const { data: cachedData, timestamp } = JSON.parse(cached);
+          const age = Date.now() - timestamp;
+          if (age < 5 * 60 * 1000) { // 5 minutes
+            console.log(`📦 [CACHE HIT] Loaded from localStorage (${Math.round(age/1000)}s old)`);
+            setCurrentPrice(cachedData.currentPrice);
+            setExpirations(cachedData.expirations);
+            setGexByStrikeByExpiration(cachedData.gexByStrikeByExp);
+            setVexByStrikeByExpiration(cachedData.vexByStrikeByExp);
+            setDexByStrikeByExpiration(cachedData.dexByStrikeByExp);
+            setData(cachedData.formattedData);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.warn('Cache parse error, fetching fresh data');
+        }
+      }
+      
+      // Check in-memory cache
+      const memoryCacheKey = `${selectedTicker}-${expirationFilter}`;
+      if (dataCache[memoryCacheKey]) {
+        console.log(`📦 [MEMORY CACHE] Using cached data for ${memoryCacheKey}`);
+        const cached = dataCache[memoryCacheKey];
+        setCurrentPrice(cached.currentPrice);
+        setExpirations(cached.expirations);
+        setGexByStrikeByExpiration(cached.gexByStrikeByExp);
+        setVexByStrikeByExpiration(cached.vexByStrikeByExp);
+        setDexByStrikeByExpiration(cached.dexByStrikeByExp);
+        
+        const strikeRange = getStrikeRange(cached.currentPrice);
+        const allStrikesArray = Array.from(cached.allStrikes as Set<number>);
+        const relevantStrikes = allStrikesArray
+          .filter((s) => s >= strikeRange.min && s <= strikeRange.max)
+          .sort((a, b) => b - a);
+        
+        const formattedData = relevantStrikes.map((strike) => {
+          const row: GEXData = { strike };
+          cached.expirations.forEach((exp: string) => {
+            if (displayMode === 'GEX') {
+              const data = cached.gexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0 };
+              row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
+            } else if (displayMode === 'VEX') {
+              const data = cached.vexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0 };
+              row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
+            } else {
+              const data = cached.dexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0 };
+              row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
+            }
+          });
+          return row;
+        });
+        
+        setData(formattedData);
+        setLoading(false);
+        return;
+      }
+      
+      // First get options chain data
+      const apiStartTime = performance.now();
+      setProgress(10);
+      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      
       const optionsResponse = await fetch(`/api/options-chain?ticker=${selectedTicker}`);
       const optionsResult = await optionsResponse.json();
+      console.log(`🌐 [API] Options chain fetched in ${(performance.now() - apiStartTime).toFixed(0)}ms`);
+      
+      setProgress(20);
+      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
       
       if (!optionsResult.success || !optionsResult.data) {
         throw new Error(optionsResult.error || 'Failed to fetch options data');
@@ -157,119 +248,184 @@ const DealerAttraction = () => {
       
       setExpirations(filteredExpirations);
       
-      // Calculate GEX, DEX, and VEX by strike for each expiration using proper server-side formulas
-      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: number}} = {};
-      const vexByStrikeByExp: {[expiration: string]: {[strike: number]: number}} = {};
-      const dexByStrikeByExp: {[expiration: string]: {[strike: number]: number}} = {};
+      // Calculate GEX/DEX/VANNA with async batching for progress updates
+      console.log(`🔧 Starting calculation for ${filteredExpirations.length} expirations`);
+      const calcStartTime = performance.now();
+      setProgress(25);
+      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
+      
+      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number}}} = {};
+      const vexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number}}} = {};
+      const dexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number}}} = {};
       const allStrikes = new Set<number>();
       
-      for (const expDate of filteredExpirations) {
-        const { calls, puts } = optionsResult.data[expDate];
-        gexByStrikeByExp[expDate] = {};
-        vexByStrikeByExp[expDate] = {};
-        dexByStrikeByExp[expDate] = {};
+      // Smart batching: larger batches for more expirations
+      const batchSize = filteredExpirations.length <= 10 ? filteredExpirations.length : 
+                        filteredExpirations.length <= 30 ? 10 : 20;
+      console.log(`📦 Using batch size: ${batchSize} for ${filteredExpirations.length} expirations`);
+      
+      for (let batchStart = 0; batchStart < filteredExpirations.length; batchStart += batchSize) {
+        const batchEnd = Math.min(batchStart + batchSize, filteredExpirations.length);
+        const batch = filteredExpirations.slice(batchStart, batchEnd);
         
-        // Process calls
-        Object.entries(calls).forEach(([strike, data]: [string, any]) => {
-          const strikeNum = parseFloat(strike);
-          const oi = data.open_interest || 0;
-          const gamma = data.greeks?.gamma || 0;
-          const vega = data.greeks?.vega || 0;
-          const delta = data.greeks?.delta || 0;
+        // Process this batch
+        batch.forEach((expDate) => {
+          const { calls, puts } = optionsResult.data[expDate];
+          gexByStrikeByExp[expDate] = {};
+          vexByStrikeByExp[expDate] = {};
+          dexByStrikeByExp[expDate] = {};
           
-          if (oi > 0) {
-            // GEX calculation (positive for calls)
-            if (gamma) {
-              const gex = gamma * oi * (currentPrice * currentPrice) * 100;
-              gexByStrikeByExp[expDate][strikeNum] = (gexByStrikeByExp[expDate][strikeNum] || 0) + gex;
+          // Calculate time to expiration in years
+          const expDateObj = new Date(expDate + 'T16:00:00'); // Options expire at 4pm ET
+          const tte = Math.max(0, (expDateObj.getTime() - Date.now()) / (365.25 * 24 * 60 * 60 * 1000));
+          
+          // Process calls
+          Object.entries(calls).forEach(([strike, data]: [string, any]) => {
+            const strikeNum = parseFloat(strike);
+            const oi = data.open_interest || 0;
+            if (oi > 0) {
+              const gamma = data.greeks?.gamma || 0;
+              const vega = data.greeks?.vega || 0;
+              const delta = data.greeks?.delta || 0;
+              const iv = data.implied_volatility || 0.3; // Default 30% IV if missing
+              
+              // Initialize strike object if it doesn't exist
+              if (!gexByStrikeByExp[expDate][strikeNum]) {
+                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0 };
+              }
+              if (!vexByStrikeByExp[expDate][strikeNum]) {
+                vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0 };
+              }
+              if (!dexByStrikeByExp[expDate][strikeNum]) {
+                dexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0 };
+              }
+              
+              if (gamma) {
+                const gex = gamma * oi * (currentPrice * currentPrice) * 100;
+                gexByStrikeByExp[expDate][strikeNum].call += gex;
+              }
+              if (vega && tte > 0) {
+                // Calculate Vanna instead of using raw Vega
+                const vanna = calculateVanna(vega, delta, strikeNum, currentPrice, tte, iv);
+                const vex = vanna * oi * 100;
+                vexByStrikeByExp[expDate][strikeNum].call += vex;
+              }
+              if (delta) {
+                const dex = delta * oi * currentPrice * 100;
+                dexByStrikeByExp[expDate][strikeNum].call += dex;
+              }
+              allStrikes.add(strikeNum);
             }
-            
-            // VEX calculation (Volatility Exposure)
-            if (vega) {
-              const vex = vega * oi * 100; // VEX = Vega * Open Interest * 100
-              vexByStrikeByExp[expDate][strikeNum] = (vexByStrikeByExp[expDate][strikeNum] || 0) + vex;
+          });
+          
+          // Process puts
+          Object.entries(puts).forEach(([strike, data]: [string, any]) => {
+            const strikeNum = parseFloat(strike);
+            const oi = data.open_interest || 0;
+            if (oi > 0) {
+              const gamma = data.greeks?.gamma || 0;
+              const vega = data.greeks?.vega || 0;
+              const delta = data.greeks?.delta || 0;
+              const iv = data.implied_volatility || 0.3; // Default 30% IV if missing
+              
+              // Initialize strike object if it doesn't exist
+              if (!gexByStrikeByExp[expDate][strikeNum]) {
+                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0 };
+              }
+              if (!vexByStrikeByExp[expDate][strikeNum]) {
+                vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0 };
+              }
+              if (!dexByStrikeByExp[expDate][strikeNum]) {
+                dexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0 };
+              }
+              
+              if (gamma) {
+                const gex = -gamma * oi * (currentPrice * currentPrice) * 100;
+                gexByStrikeByExp[expDate][strikeNum].put += gex;
+              }
+              if (vega && tte > 0) {
+                // Calculate Vanna instead of using raw Vega
+                const vanna = calculateVanna(vega, delta, strikeNum, currentPrice, tte, iv);
+                const vex = vanna * oi * 100;
+                vexByStrikeByExp[expDate][strikeNum].put += vex;
+              }
+              if (delta) {
+                const dex = delta * oi * currentPrice * 100;
+                dexByStrikeByExp[expDate][strikeNum].put += dex;
+              }
+              allStrikes.add(strikeNum);
             }
-            
-            // DEX calculation (Delta Exposure - positive for calls)
-            if (delta) {
-              const dex = delta * oi * currentPrice * 100; // DEX = Delta * Open Interest * Underlying Price * 100
-              dexByStrikeByExp[expDate][strikeNum] = (dexByStrikeByExp[expDate][strikeNum] || 0) + dex;
-            }
-            
-            allStrikes.add(strikeNum);
-          }
+          });
         });
         
-        // Process puts
-        Object.entries(puts).forEach(([strike, data]: [string, any]) => {
-          const strikeNum = parseFloat(strike);
-          const oi = data.open_interest || 0;
-          const gamma = data.greeks?.gamma || 0;
-          const vega = data.greeks?.vega || 0;
-          const delta = data.greeks?.delta || 0;
-          
-          if (oi > 0) {
-            // GEX calculation (negative for puts)
-            if (gamma) {
-              const gex = -gamma * oi * (currentPrice * currentPrice) * 100;
-              gexByStrikeByExp[expDate][strikeNum] = (gexByStrikeByExp[expDate][strikeNum] || 0) + gex;
-            }
-            
-            // VEX calculation (positive for puts - volatility exposure is always positive)
-            if (vega) {
-              const vex = vega * oi * 100; // VEX = Vega * Open Interest * 100
-              vexByStrikeByExp[expDate][strikeNum] = (vexByStrikeByExp[expDate][strikeNum] || 0) + vex;
-            }
-            
-            // DEX calculation (negative for puts - delta is negative for puts)
-            if (delta) {
-              const dex = delta * oi * currentPrice * 100; // DEX = Delta * Open Interest * Underlying Price * 100
-              dexByStrikeByExp[expDate][strikeNum] = (dexByStrikeByExp[expDate][strikeNum] || 0) + dex;
-            }
-            
-            allStrikes.add(strikeNum);
-          }
-        });
+        // Update progress and yield to browser - FORCE UI UPDATE EVERY BATCH
+        const prog = 25 + Math.round((batchEnd / filteredExpirations.length) * 65);
+        setProgress(prog);
+        console.log(`📊 Progress: ${prog}% (${batchEnd}/${filteredExpirations.length} expirations)`);
+        
+        // Always yield to UI for progress updates
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
+      
+      console.log(`⚡ Calculations complete in ${(performance.now() - calcStartTime).toFixed(0)}ms`);
+      
+      setProgress(92);
+      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
       
       setGexByStrikeByExpiration(gexByStrikeByExp);
       setVexByStrikeByExpiration(vexByStrikeByExp);
       setDexByStrikeByExpiration(dexByStrikeByExp);
+      setProgress(95);
+      await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
       
-      // Filter strikes based on OTM filter percentage
+      // Format and display data
       const strikeRange = getStrikeRange(currentPrice);
       const relevantStrikes = Array.from(allStrikes)
         .filter(s => s >= strikeRange.min && s <= strikeRange.max)
-        .sort((a, b) => b - a); // Sort descending (highest strikes at top)
+        .sort((a, b) => b - a);
       
-      // Format data for table display (will be updated based on display mode)
-      const formattedGexData = relevantStrikes.map(strike => {
+      const formattedData = relevantStrikes.map(strike => {
         const row: GEXData = { strike };
         filteredExpirations.forEach(exp => {
-          row[exp] = gexByStrikeByExp[exp][strike] || 0;
+          if (displayMode === 'GEX') {
+            const data = gexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0 };
+            row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
+          } else if (displayMode === 'VEX') {
+            const data = vexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0 };
+            row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
+          } else {
+            const data = dexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0 };
+            row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
+          }
         });
         return row;
       });
       
-      const formattedVexData = relevantStrikes.map(strike => {
-        const row: GEXData = { strike };
-        filteredExpirations.forEach(exp => {
-          row[exp] = vexByStrikeByExp[exp][strike] || 0;
-        });
-        return row;
-      });
-      
-      const formattedDexData = relevantStrikes.map(strike => {
-        const row: GEXData = { strike };
-        filteredExpirations.forEach(exp => {
-          row[exp] = dexByStrikeByExp[exp][strike] || 0;
-        });
-        return row;
-      });
-
-      // Set data based on current display mode
-      setData(displayMode === 'GEX' ? formattedGexData : displayMode === 'VEX' ? formattedVexData : formattedDexData);
+      setData(formattedData);
+      setProgress(100);
       setLoading(false);
+      
+      const totalTime = (performance.now() - totalStartTime).toFixed(0);
+      console.log(`✅ [COMPLETE] Total load time: ${totalTime}ms | ${relevantStrikes.length} strikes × ${filteredExpirations.length} expirations`);
+      
+      // Save to localStorage for next time
+      const lsCacheKey = `gex-${selectedTicker}-${expirationFilter}`;
+      try {
+        localStorage.setItem(lsCacheKey, JSON.stringify({
+          timestamp: Date.now(),
+          data: {
+            currentPrice,
+            expirations: filteredExpirations,
+            gexByStrikeByExp,
+            vexByStrikeByExp,
+            dexByStrikeByExp,
+            formattedData
+          }
+        }));
+      } catch (e) {
+        console.warn('Failed to save to localStorage:', e);
+      }
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setLoading(false);
@@ -296,11 +452,14 @@ const DealerAttraction = () => {
         const row: GEXData = { strike };
         expirations.forEach(exp => {
           if (displayMode === 'GEX') {
-            row[exp] = gexByStrikeByExpiration[exp]?.[strike] || 0;
+            const data = gexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0 };
+            row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
           } else if (displayMode === 'VEX') {
-            row[exp] = vexByStrikeByExpiration[exp]?.[strike] || 0;
+            const data = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0 };
+            row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
           } else {
-            row[exp] = dexByStrikeByExpiration[exp]?.[strike] || 0;
+            const data = dexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0 };
+            row[exp] = { call: data.call, put: data.put, net: data.call + data.put };
           }
         });
         return row;
@@ -308,7 +467,7 @@ const DealerAttraction = () => {
       
       setData(formattedData);
     }
-  }, [displayMode, gexByStrikeByExpiration, vexByStrikeByExpiration, dexByStrikeByExpiration, currentPrice, expirations, otmFilter]);
+  }, [displayMode, viewMode, gexByStrikeByExpiration, vexByStrikeByExpiration, dexByStrikeByExpiration, currentPrice, expirations, otmFilter]);
 
   const handleTickerSubmit = () => {
     const newTicker = tickerInput.trim().toUpperCase();
@@ -342,7 +501,14 @@ const DealerAttraction = () => {
 
   const getTopValues = () => {
     const allValues = data.flatMap(row => 
-      expirations.map(exp => Math.abs(row[exp] || 0))
+      expirations.flatMap(exp => {
+        const value = row[exp] as {call: number, put: number, net: number};
+        if (viewMode === 'NET') {
+          return [Math.abs(value?.net || 0)];
+        } else {
+          return [Math.abs(value?.call || 0), Math.abs(value?.put || 0)];
+        }
+      })
     ).filter(v => v > 0);
     
     const sorted = [...allValues].sort((a, b) => b - a);
@@ -377,20 +543,20 @@ const DealerAttraction = () => {
         return 'bg-gradient-to-br from-blue-400 to-blue-600 text-white font-bold shadow-lg shadow-blue-500/50';
       }
     } else if (displayMode === 'VEX') {
-      // VEX Color Scheme
-      // 1st - Red (largest VEX value)
+      // VANNA Color Scheme (measures delta sensitivity to IV changes)
+      // 1st - Red (largest VANNA value)
       if (absValue === tops.highest && absValue > 0) {
         return 'bg-gradient-to-br from-red-500 to-red-700 text-white font-bold shadow-lg shadow-red-500/50';
       }
-      // 2nd - Pink (second largest VEX value)
+      // 2nd - Pink (second largest VANNA value)
       if (absValue === tops.second && absValue > 0) {
         return 'bg-gradient-to-br from-pink-400 to-pink-600 text-white font-bold shadow-lg shadow-pink-500/50';
       }
-      // 3rd - Orange (third largest VEX value)
+      // 3rd - Orange (third largest VANNA value)
       if (absValue === tops.third && absValue > 0) {
         return 'bg-gradient-to-br from-orange-400 to-orange-600 text-black font-bold shadow-lg shadow-orange-500/50';
       }
-      // 4th-10th - Light Blue (4th through 10th largest VEX values)
+      // 4th-10th - Light Blue (4th through 10th largest VANNA values)
       if (tops.top10.includes(absValue) && absValue > 0) {
         return 'bg-gradient-to-br from-blue-400 to-blue-600 text-white font-bold shadow-lg shadow-blue-500/50';
       }
@@ -460,167 +626,221 @@ const DealerAttraction = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white">
-      <div className="p-6">
+      <style>{`
+        /* Custom scrollbar styling */
+        .overflow-x-auto::-webkit-scrollbar,
+        .overflow-y-auto::-webkit-scrollbar {
+          width: 12px;
+          height: 12px;
+          background-color: #000000;
+        }
+        
+        .overflow-x-auto::-webkit-scrollbar-track,
+        .overflow-y-auto::-webkit-scrollbar-track {
+          background-color: #000000;
+        }
+        
+        .overflow-x-auto::-webkit-scrollbar-thumb,
+        .overflow-y-auto::-webkit-scrollbar-thumb {
+          background-color: #1f2937;
+          border: 2px solid #000000;
+        }
+        
+        .overflow-x-auto::-webkit-scrollbar-thumb:hover,
+        .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+          background-color: #374151;
+        }
+        
+        @media (max-width: 768px) {
+          .dealer-attraction-container {
+            padding-top: 30px !important;
+          }
+        }
+      `}</style>
+      <div className="p-6 pt-24 md:pt-6 dealer-attraction-container">
         <div className="max-w-[95vw] mx-auto">
           {/* Bloomberg Terminal Header */}
-          <div className="mb-6 bg-black border border-gray-600/40 shadow-2xl">
-            {/* Enhanced Metallic Title Bar */}
-            <div className="bg-gradient-to-b from-black via-gray-900 to-black border-b border-gray-600/80 px-6 py-8 relative overflow-hidden h-24">
-              {/* Metallic background texture */}
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-gray-800/10 to-transparent"></div>
-              <div className="absolute inset-0 bg-gradient-to-b from-gray-700/5 via-transparent to-gray-800/10"></div>
-              
-              <div className="flex items-center justify-center h-full relative z-10">
-                <h1 className="text-4xl font-bold text-orange-400 uppercase tracking-[0.3em] relative drop-shadow-lg">
-                  <span className="relative" style={{
-                    textShadow: '0 0 10px rgba(251, 146, 60, 0.5), 0 0 20px rgba(251, 146, 60, 0.3), 0 0 30px rgba(251, 146, 60, 0.1)',
-                    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))'
-                  }}>
-                    Dealers Workbench
-                    {/* Crispy glow effect */}
-                    <div className="absolute inset-0 text-orange-300 opacity-50 blur-sm">
-                      Dealers Workbench
-                    </div>
-                  </span>
-                </h1>
-              </div>
-              
-              {/* Subtle edge highlights */}
-              <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gray-500/30 to-transparent"></div>
-              <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gray-600/50 to-transparent"></div>
-            </div>
+          <div className="mb-6 bg-black border border-gray-600/40">
+            {/* Control Panel */}
+            <div className="bg-black border-y border-gray-800">
+              <div className="px-4 md:px-8 py-3 md:py-6">
+                {/* Premium Tabs - Now at top of control panel */}
+                <div className="flex gap-0 w-full mb-4">
+                  <button className="flex-1 font-black uppercase tracking-[0.15em] transition-all bg-black text-orange-500 hover:text-white border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]" style={{ padding: '14px 16px', fontSize: '10px' }}>
+                    WORKBENCH
+                  </button>
+                  <button className="flex-1 font-black uppercase tracking-[0.15em] transition-all bg-black text-orange-500 hover:text-white border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]" style={{ padding: '14px 16px', fontSize: '10px' }}>
+                    ATTRACTION
+                  </button>
+                  <button className="relative flex-1 font-black uppercase tracking-[0.15em] transition-all text-white border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]" style={{ padding: '14px 16px', fontSize: '10px' }}>
+                    <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>
+                    <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>OTM PREMIUM</span>
+                  </button>
+                </div>
 
-            {/* Enhanced Professional Control Panel */}
-            <div className="bg-black border-y border-gray-800 shadow-lg">
-              <div className="px-8 py-6">
                 <div className="flex items-center justify-between">
-                  {/* Left Controls - Horizontal Layout */}
-                  <div className="flex items-center gap-8">
-                    {/* Premium Ticker Search */}
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm font-bold text-orange-400 uppercase tracking-[0.2em] min-w-[70px]" style={{textShadow: '0 0 8px rgba(251, 146, 60, 0.6)'}}>SYMBOL</div>
-                      <div className="relative group">
-                        <input
-                          type="text"
-                          value={tickerInput}
-                          onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleTickerSubmit();
-                            }
-                          }}
-                          className="bg-gray-950 border-2 border-gray-700 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 px-3 py-2 text-white text-sm font-mono font-bold w-20 text-center uppercase tracking-[0.2em] transition-all duration-200 rounded-sm shadow-inner"
-                          placeholder="SPY"
-                        />
-                        <button
-                          onClick={handleTickerSubmit}
-                          className="absolute right-0 top-0 bottom-0 px-3 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 text-white text-xs font-bold transition-all duration-200 rounded-r-sm shadow-lg hover:shadow-orange-500/25 active:scale-95"
-                        >
-                          GO
-                        </button>
+                  {/* Left Controls */}
+                  <div className="flex items-center gap-4 md:gap-8">
+                    {/* Ticker Search */}
+                    <div className="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-4">
+                      <div className="relative flex items-center">
+                        <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
+                            <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
+                            <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2"/>
+                          </svg>
+                          <input
+                            type="text"
+                            value={tickerInput}
+                            onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleTickerSubmit();
+                              }
+                            }}
+                            className="bg-transparent border-0 outline-none w-28 text-lg font-bold uppercase"
+                            style={{
+                              color: '#ffffff',
+                              textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
+                              fontFamily: 'system-ui, -apple-system, sans-serif',
+                              letterSpacing: '0.8px'
+                            }}
+                            placeholder="Search..."
+                          />
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
+                            <path d="M12 5v14l7-7-7-7z" fill="currentColor"/>
+                          </svg>
+                        </div>
                       </div>
+                      
+
                     </div>
                     
-                    {/* Enhanced Expiration Dropdown */}
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm font-bold text-orange-400 uppercase tracking-[0.2em] min-w-[100px]" style={{textShadow: '0 0 8px rgba(251, 146, 60, 0.6)'}}>EXPIRATION</div>
-                      <div className="relative group">
-                        <select
-                          value={expirationFilter}
-                          onChange={(e) => setExpirationFilter(e.target.value)}
-                          className="bg-gray-950 border-2 border-gray-700 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 px-3 py-2 pr-10 text-white text-xs font-bold uppercase tracking-[0.1em] appearance-none cursor-pointer transition-all duration-200 rounded-sm shadow-inner min-w-[120px]"
-                        >
-                          <option value="Daily">DAILY</option>
-                          <option value="Weekly">WEEKLY</option>
-                          <option value="Monthly">MONTHLY</option>
-                          <option value="Quarterly">QUARTERLY</option>
-                          <option value="All">ALL</option>
-                        </select>
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none transition-colors group-hover:text-orange-400">
-                          <svg className="w-3 h-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* OTM Filter Dropdown */}
-                    <div className="flex items-center gap-4">
-                      <div className="relative group">
-                        <select
-                          value={otmFilter}
-                          onChange={(e) => setOtmFilter(e.target.value as '2%' | '5%' | '10%' | '20%' | '100%')}
-                          className="bg-gray-950 border-2 border-gray-700 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 px-3 py-2 pr-10 text-white text-xs font-bold uppercase tracking-[0.1em] appearance-none cursor-pointer transition-all duration-200 rounded-sm shadow-inner min-w-[100px]"
-                        >
-                          <option value="2%">±2%</option>
-                          <option value="5%">±5%</option>
-                          <option value="10%">±10%</option>
-                          <option value="20%">±20%</option>
-                          <option value="100%">±100%</option>
-                        </select>
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none transition-colors group-hover:text-orange-400">
-                          <svg className="w-3 h-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Enhanced Price Display */}
-                    {currentPrice > 0 && (
-                      <div className="flex items-center gap-4 border-l border-gray-700 pl-8 ml-6">
-                        <div className="bg-gray-950 border-2 border-gray-700 px-4 py-2 rounded-sm shadow-inner">
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-bold text-gray-300 uppercase tracking-[0.1em]">
-                              {selectedTicker}
-                            </span>
-                            <span className="text-lg font-bold text-white font-mono tracking-tight" style={{textShadow: '0 0 10px rgba(255,255,255,0.2)'}}>
-                              ${currentPrice.toFixed(2)}
-                            </span>
+                    {/* Expiration & OTM Dropdowns - Stacked on mobile, side-by-side on desktop */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-8">
+                      {/* Expiration Dropdown */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white uppercase tracking-wider">EXPIRATION</span>
+                        <div className="relative">
+                          <select
+                            value={expirationFilter}
+                            onChange={(e) => setExpirationFilter(e.target.value)}
+                            className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 py-2.5 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[100px] transition-all"
+                          >
+                            <option value="Daily">DAILY</option>
+                            <option value="Weekly">WEEKLY</option>
+                            <option value="Monthly">MONTHLY</option>
+                            <option value="Quarterly">QUARTERLY</option>
+                            <option value="All">ALL</option>
+                          </select>
+                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                            <svg className="w-4 h-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
                           </div>
                         </div>
                       </div>
-                    )}
+
+                      {/* OTM Filter Dropdown */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white uppercase tracking-wider">OTM RANGE</span>
+                        <div className="relative">
+                          <select
+                            value={otmFilter}
+                            onChange={(e) => setOtmFilter(e.target.value as '2%' | '5%' | '10%' | '20%' | '100%')}
+                            className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 py-2.5 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[90px] transition-all"
+                          >
+                            <option value="2%">±2%</option>
+                            <option value="5%">±5%</option>
+                            <option value="10%">±10%</option>
+                            <option value="20%">±20%</option>
+                            <option value="100%">±100%</option>
+                          </select>
+                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                            <svg className="w-4 h-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Mobile NET/C/P Toggle and Refresh - Below OTM on mobile */}
+                      <div className="md:hidden flex gap-2">
+                        <button
+                          onClick={() => setViewMode(viewMode === 'NET' ? 'CP' : 'NET')}
+                          className={`flex-1 px-3 py-2.5 font-bold text-sm uppercase tracking-wide transition-all duration-200 bg-black border-2 ${
+                            viewMode === 'NET' 
+                              ? 'text-blue-500 border-blue-500' 
+                              : 'text-orange-500 border-orange-500'
+                          }`}
+                        >
+                          {viewMode === 'NET' ? 'NET' : 'C/P'}
+                        </button>
+                        <button
+                          onClick={fetchOptionsData}
+                          disabled={loading}
+                          className="flex-1 flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-bold text-sm uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 justify-center"
+                        >
+                          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                          {loading ? 'UPDATING' : 'REFRESH'}
+                        </button>
+                      </div>
+                    </div>
+
+
                   </div>
                   
-                  {/* GEX, DEX & VEX Buttons */}
-                  <div className="flex items-center gap-3">
+                  {/* GEX, DEX & VANNA Buttons */}
+                  <div className="flex flex-col md:flex-row items-start md:items-center gap-2">
                     <button
                       onClick={() => setDisplayMode('GEX')}
-                      className={`flex items-center gap-2 px-4 py-2 border-2 text-white font-bold text-sm uppercase tracking-[0.1em] transition-all duration-200 rounded-sm shadow-lg hover:shadow-xl active:scale-95 ${
+                      className={`relative px-3 py-1.5 font-bold text-sm md:text-xs uppercase tracking-wide transition-all duration-200 bg-black border-2 ${
                         displayMode === 'GEX' 
-                          ? 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 border-orange-500' 
-                          : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 border-gray-600 hover:border-gray-500'
+                          ? 'text-purple-500 border-purple-500' 
+                          : 'text-purple-500/50 border-gray-800 hover:text-purple-500 hover:border-purple-500'
                       }`}
                     >
-                      GEX
+                      GAMMA EXPOSURE
                     </button>
                     <button
                       onClick={() => setDisplayMode('DEX')}
-                      className={`flex items-center gap-2 px-4 py-2 border-2 text-white font-bold text-sm uppercase tracking-[0.1em] transition-all duration-200 rounded-sm shadow-lg hover:shadow-xl active:scale-95 ${
+                      className={`relative px-3 py-1.5 font-bold text-sm md:text-xs uppercase tracking-wide transition-all duration-200 bg-black border-2 ${
                         displayMode === 'DEX' 
-                          ? 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 border-orange-500' 
-                          : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 border-gray-600 hover:border-gray-500'
+                          ? 'text-yellow-500 border-yellow-500' 
+                          : 'text-yellow-500/50 border-gray-800 hover:text-yellow-500 hover:border-yellow-500'
                       }`}
                     >
-                      DEX
+                      DELTA EXPOSURE
                     </button>
                     <button
                       onClick={() => setDisplayMode('VEX')}
-                      className={`flex items-center gap-2 px-4 py-2 border-2 text-white font-bold text-sm uppercase tracking-[0.1em] transition-all duration-200 rounded-sm shadow-lg hover:shadow-xl active:scale-95 ${
+                      className={`relative px-3 py-1.5 font-bold text-sm md:text-xs uppercase tracking-wide transition-all duration-200 bg-black border-2 ${
                         displayMode === 'VEX' 
-                          ? 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 border-orange-500' 
-                          : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 border-gray-600 hover:border-gray-500'
+                          ? 'text-green-500 border-green-500' 
+                          : 'text-green-500/50 border-gray-800 hover:text-green-500 hover:border-green-500'
                       }`}
                     >
-                      VEX
+                      VANNA EXPOSURE
                     </button>
+                    {/* NET/C/P Toggle Button */}
+                    <button
+                      onClick={() => setViewMode(viewMode === 'NET' ? 'CP' : 'NET')}
+                      className={`relative px-3 py-1.5 font-bold text-sm md:text-xs uppercase tracking-wide transition-all duration-200 bg-black border-2 ${
+                        viewMode === 'NET' 
+                          ? 'text-blue-500 border-blue-500' 
+                          : 'text-orange-500 border-orange-500'
+                      }`}
+                    >
+                      {viewMode === 'NET' ? 'NET' : 'C/P'}
+                    </button>
+                    <div className="hidden md:block w-px h-10 bg-gray-800 mx-2"></div>
+                    {/* Desktop Refresh Button */}
                     <button
                       onClick={fetchOptionsData}
                       disabled={loading}
-                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-700 hover:to-gray-800 border-2 border-gray-600 hover:border-gray-500 text-white font-bold text-xs uppercase tracking-[0.1em] transition-all duration-200 disabled:opacity-50 rounded-sm shadow-lg hover:shadow-xl active:scale-95 ml-2"
+                      className="hidden md:flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-bold text-sm uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
                     >
-                      <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                      <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                       {loading ? 'UPDATING' : 'REFRESH'}
                     </button>
                   </div>
@@ -634,28 +854,49 @@ const DealerAttraction = () => {
               <RefreshCw size={48} className="animate-spin mx-auto mb-6 text-blue-400" />
               <p className="text-xl font-semibold text-gray-300">Loading Real Market Data</p>
               <p className="text-sm text-gray-500 mt-2">Fetching options chains and calculating dealer attraction levels...</p>
+              
+              {/* Web Worker Progress Bar */}
+              {progress > 0 && (
+                <div className="mt-6 mx-auto max-w-md">
+                  <div className="relative w-full h-3 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                    <div 
+                      className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 ease-out shadow-lg shadow-blue-500/50"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">Processing: {progress}%</p>
+                </div>
+              )}
             </div>
           ) : (
             <>
-              <div className="bg-gradient-to-r from-gray-900/50 to-gray-800/50 backdrop-blur-xl rounded-2xl border border-gray-700/50 shadow-2xl overflow-hidden">
+              <div className="bg-gray-900 border border-gray-700 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b border-gray-700/50 bg-gradient-to-r from-gray-800/80 to-gray-900/80">
-                        <th className="px-6 py-4 text-left sticky left-0 bg-black z-10 border-r border-gray-700/50">
-                          <div className="text-xs font-bold text-white uppercase tracking-wider shadow-lg" style={{textShadow: '0 0 6px rgba(255,255,255,0.4)'}}>Strike</div>
+                      <tr className="border-b border-gray-700 bg-gray-800">
+                        <th className="px-6 py-4 text-left sticky left-0 bg-black z-10 border-r border-gray-700">
+                          <div className="text-xs font-bold text-white uppercase">Strike</div>
                         </th>
                         {expirations.map(exp => (
-                          <th key={exp} className="px-4 py-4 text-center min-w-[120px] max-w-[120px] bg-gradient-to-b from-gray-900 via-black to-gray-900 shadow-inner border-l border-r border-gray-800">
-                            <div 
-                              className="text-xs font-bold text-white uppercase tracking-wider px-3 py-2 rounded-sm bg-gradient-to-b from-gray-800 via-black to-gray-900 shadow-lg border border-gray-700" 
-                              style={{
-                                textShadow: '0 0 6px rgba(255,255,255,0.3)',
-                                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8), 0 2px 8px rgba(0,0,0,0.6)'
-                              }}
-                            >
+                          <th key={exp} className={`text-center bg-gray-900 border-l border-r border-gray-800 ${viewMode === 'NET' ? 'min-w-[120px] max-w-[120px]' : ''}`}>
+                            <div className="text-xs font-bold text-white uppercase px-2 py-2 bg-gray-800 border border-gray-700 mb-2">
                               {formatDate(exp)}
                             </div>
+                            {viewMode === 'CP' ? (
+                              <div className="flex">
+                                <div className="flex-1 text-xs font-bold text-green-400 uppercase px-2 py-1 bg-gray-800 border-r border-gray-700">
+                                  CALL
+                                </div>
+                                <div className="flex-1 text-xs font-bold text-red-400 uppercase px-2 py-1 bg-gray-800">
+                                  PUT
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-xs font-bold text-blue-400 uppercase px-2 py-1 bg-gray-800">
+                                NET
+                              </div>
+                            )}
                           </th>
                         ))}
                       </tr>
@@ -669,8 +910,22 @@ const DealerAttraction = () => {
                         
                         // Find the strike with the largest absolute value within current expirations (GEX or VEX)
                         const largestValueStrike = data.reduce((largest, current) => {
-                          const currentMaxValue = Math.max(...expirations.map(exp => Math.abs(current[exp] || 0)));
-                          const largestMaxValue = Math.max(...expirations.map(exp => Math.abs(largest[exp] || 0)));
+                          const currentMaxValue = Math.max(...expirations.map(exp => {
+                            const value = current[exp] as {call: number, put: number, net: number};
+                            if (viewMode === 'NET') {
+                              return Math.abs(value?.net || 0);
+                            } else {
+                              return Math.max(Math.abs(value?.call || 0), Math.abs(value?.put || 0));
+                            }
+                          }));
+                          const largestMaxValue = Math.max(...expirations.map(exp => {
+                            const value = largest[exp] as {call: number, put: number, net: number};
+                            if (viewMode === 'NET') {
+                              return Math.abs(value?.net || 0);
+                            } else {
+                              return Math.max(Math.abs(value?.call || 0), Math.abs(value?.put || 0));
+                            }
+                          }));
                           return currentMaxValue > largestMaxValue ? current : largest;
                         }).strike;
                         
@@ -702,21 +957,41 @@ const DealerAttraction = () => {
                               </div>
                             </td>
                             {expirations.map(exp => {
-                              const value = row[exp] || 0;
+                              const value = row[exp] as {call: number, put: number, net: number};
+                              const callValue = value?.call || 0;
+                              const putValue = value?.put || 0;
+                              const netValue = value?.net || 0;
                               return (
                                 <td
                                   key={exp}
-                                  className={`px-2 py-3 ${
+                                  className={`${viewMode === 'NET' ? 'px-2' : 'px-1'} py-3 ${
                                     isCurrentPriceRow ? 'bg-yellow-900/15' : 
                                     isLargestValueRow ? 'bg-purple-900/15' : ''
                                   }`}
                                 >
-                                  <div className={`${getCellStyle(value)} px-3 py-2 rounded-lg text-center font-mono text-sm transition-all hover:scale-105 ${
-                                    isCurrentPriceRow ? 'ring-2 ring-yellow-500/40' : 
-                                    isLargestValueRow ? 'ring-2 ring-purple-500/50' : ''
-                                  }`}>
-                                    {formatCurrency(value)}
-                                  </div>
+                                  {viewMode === 'CP' ? (
+                                    <div className="flex gap-1">
+                                      <div className={`${getCellStyle(callValue)} px-2 py-2 rounded-lg text-center font-mono text-xs flex-1 transition-all hover:scale-105 ${
+                                        isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
+                                        isLargestValueRow ? 'ring-1 ring-purple-500/50' : ''
+                                      }`}>
+                                        {formatCurrency(callValue)}
+                                      </div>
+                                      <div className={`${getCellStyle(putValue)} px-2 py-2 rounded-lg text-center font-mono text-xs flex-1 transition-all hover:scale-105 ${
+                                        isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
+                                        isLargestValueRow ? 'ring-1 ring-purple-500/50' : ''
+                                      }`}>
+                                        {formatCurrency(putValue)}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className={`${getCellStyle(netValue)} px-3 py-2 rounded-lg text-center font-mono text-sm transition-all hover:scale-105 ${
+                                      isCurrentPriceRow ? 'ring-2 ring-yellow-500/40' : 
+                                      isLargestValueRow ? 'ring-2 ring-purple-500/50' : ''
+                                    }`}>
+                                      {formatCurrency(netValue)}
+                                    </div>
+                                  )}
                                 </td>
                               );
                             })}
