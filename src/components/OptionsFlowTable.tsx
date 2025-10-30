@@ -155,6 +155,9 @@ const fetchVolumeAndOpenInterest = async (
           const strikeStr = Math.round(strike * 1000).toString().padStart(8, '0'); // 00679000
           const optionSymbol = `O:${ticker}${year}${month}${day}${callPut}${strikeStr}`;
           
+          // Debug logging for contract generation
+          console.log(`🔍 Vol/OI lookup: ${ticker} ${strike} ${optionType} ${expiration} -> ${optionSymbol}`);
+          
           // Use the SAME snapshot endpoint as OptionsChain.tsx
           const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}/${optionSymbol}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
           const response = await fetch(snapshotUrl, {
@@ -167,11 +170,18 @@ const fetchVolumeAndOpenInterest = async (
             const volume = snap.day?.volume || 0;
             const openInterest = snap.open_interest || 0;
             
+            // Debug log for successful lookups
+            if (volume > 0 || openInterest > 0) {
+              console.log(`✅ VOL/OI SUCCESS: ${optionSymbol} - Vol: ${volume}, OI: ${openInterest}`);
+            }
+            
             return { 
               ...trade, 
               volume: volume,
               open_interest: openInterest 
             };
+          } else {
+            console.log(`❌ VOL/OI FAILED: ${optionSymbol} - Status: ${data.status}, URL: ${snapshotUrl}`);
           }
           
           return { ...trade, volume: 0, open_interest: 0 };

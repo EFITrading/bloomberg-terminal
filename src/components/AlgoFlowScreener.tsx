@@ -4,10 +4,140 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, ReferenceLine, Tooltip, Legend } from 'recharts';
 import TradingViewChart from './trading/TradingViewChart';
-import { useSPYFlow } from '@/hooks/useSPYFlow';
 
 // Polygon API key for bid/ask analysis
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+// Function to fetch volume and open interest data for trades
+const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
+  console.log(`🔍 Fetching volume/OI data for ${trades.length} trades`);
+  
+  // Group trades by underlying ticker to minimize API calls
+  const tradesByUnderlying = trades.reduce((acc, trade) => {
+    const underlying = trade.underlying_ticker;
+    if (!acc[underlying]) {
+      acc[underlying] = [];
+    }
+    acc[underlying].push(trade);
+    return acc;
+  }, {} as Record<string, OptionsFlowData[]>);
+  
+  const updatedTrades: OptionsFlowData[] = [];
+  
+  // Process each underlying separately
+  for (const [underlying, underlyingTrades] of Object.entries(tradesByUnderlying)) {
+    try {
+      console.log(`📊 Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`);
+      
+      // Get unique expiration dates for this underlying to fetch specific expirations
+      const uniqueExpirations = [...new Set(underlyingTrades.map(t => t.expiry))];
+      console.log(`📅 Unique expirations for ${underlying}:`, uniqueExpirations);
+      
+      let allContracts = new Map();
+      
+      // Fetch data for each expiration date separately to get all contracts
+      for (const expiry of uniqueExpirations) {
+        const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
+        console.log(`📊 Fetching ${underlying} contracts for expiry: ${expiryParam}`);
+        
+        const response = await fetch(
+          `https://api.polygon.io/v3/snapshot/options/${underlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`
+        );
+        
+        if (response.ok) {
+          const chainData = await response.json();
+          if (chainData.results) {
+            chainData.results.forEach((contract: any) => {
+              if (contract.details && contract.details.ticker) {
+                allContracts.set(contract.details.ticker, {
+                  volume: contract.day?.volume || 0,
+                  open_interest: contract.open_interest || 0
+                });
+              }
+            });
+            console.log(`  ✅ Found ${chainData.results.length} contracts for ${expiryParam}`);
+          }
+        } else {
+          console.warn(`  ⚠️ Failed to fetch ${underlying} for ${expiryParam}: ${response.status}`);
+        }
+      }
+      
+      console.log(`✅ Total contracts loaded for ${underlying}: ${allContracts.size}`);
+      
+      // Skip if no contracts found for any expiration
+      if (allContracts.size === 0) {
+        console.warn(`⚠️ No option chain data found for any expiration of ${underlying}`);
+        updatedTrades.push(...underlyingTrades.map(trade => ({
+          ...trade,
+          volume: 0,
+          open_interest: 0
+        })));
+        continue;
+      }
+      
+      // Use the aggregated contracts for lookup
+      const contractLookup = allContracts;
+      
+      // Debug: Show first few contracts from API
+      const contractKeys = Array.from(contractLookup.keys()).slice(0, 5);
+      console.log(`📋 Sample contracts from API: ${contractKeys.join(', ')}`);
+      
+      // Match trades to contracts and update with vol/OI data
+      for (const trade of underlyingTrades) {
+        // Generate the option ticker format that matches Polygon API
+        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+        
+        // Handle date parsing properly - parse as local date to avoid timezone issues
+        let expiryDate;
+        if (trade.expiry.includes('T')) {
+          // If it has time component, parse as is
+          expiryDate = new Date(trade.expiry);
+        } else {
+          // If it's just a date string like "2025-10-31", parse as local date
+          const [year, month, day] = trade.expiry.split('-').map(Number);
+          expiryDate = new Date(year, month - 1, day); // month is 0-based in JS
+        }
+        
+        const formattedExpiry = `${expiryDate.getFullYear().toString().slice(-2)}${(expiryDate.getMonth() + 1).toString().padStart(2, '0')}${expiryDate.getDate().toString().padStart(2, '0')}`;
+        const formattedStrike = Math.round(trade.strike * 1000).toString().padStart(8, '0');
+        const optionTicker = `O:${underlying}${formattedExpiry}${optionType}${formattedStrike}`;
+        
+        console.log(`🔍 Looking for contract: ${optionTicker} (from expiry: ${trade.expiry}, strike: ${trade.strike})`);
+        
+        const contractData = contractLookup.get(optionTicker);
+        
+        if (contractData) {
+          updatedTrades.push({
+            ...trade,
+            volume: contractData.volume,
+            open_interest: contractData.open_interest
+          });
+          console.log(`✅ FOUND ${optionTicker}: Vol=${contractData.volume}, OI=${contractData.open_interest}`);
+        } else {
+          // Contract not found, set to 0
+          updatedTrades.push({
+            ...trade,
+            volume: 0,
+            open_interest: 0
+          });
+          console.log(`❌ NOT FOUND: ${optionTicker}`);
+        }
+      }
+      
+    } catch (error) {
+      console.error(`❌ Error fetching vol/OI for ${underlying}:`, error);
+      // Add trades without vol/OI data on error
+      updatedTrades.push(...underlyingTrades.map(trade => ({
+        ...trade,
+        volume: 0,
+        open_interest: 0
+      })));
+    }
+  }
+  
+  console.log(`✅ Volume/OI fetch complete for ${updatedTrades.length} trades`);
+  return updatedTrades;
+};
 
 // YOUR REAL SWEEP DETECTION: EXACT SAME LOGIC as optionsFlowService detectSweeps
 const detectSweepsAndBlocks = (trades: any[]): any[] => {
@@ -179,8 +309,8 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
   
   const tradesWithFillStyle: any[] = [];
   
-  // Process in batches to avoid rate limiting
-  const BATCH_SIZE = 10;
+  // Process ALL trades - no sampling
+  const BATCH_SIZE = 20; // Larger batch size for efficiency
   for (let i = 0; i < trades.length; i += BATCH_SIZE) {
     const batch = trades.slice(i, i + BATCH_SIZE);
     
@@ -285,39 +415,11 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
   
   if (trades.length === 0) return trades;
   
-  // Intelligent sampling strategy for massive datasets
+  // Process ALL trades - no sampling for accurate fill_style classification
   let tradesToAnalyze = trades;
   let useStatisticalInference = false;
   
-  if (trades.length > 2000) {
-    // For huge datasets, use advanced statistical sampling
-    const sampleSize = 300;
-    useStatisticalInference = true;
-    
-    // Stratified sampling: ensure representation across time, strikes, and premium levels
-    const sortedByTime = [...trades].sort((a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime());
-    const timeChunks = 10; // Divide time into 10 chunks
-    const chunkSize = Math.floor(sortedByTime.length / timeChunks);
-    
-    tradesToAnalyze = [];
-    for (let i = 0; i < timeChunks; i++) {
-      const chunk = sortedByTime.slice(i * chunkSize, (i + 1) * chunkSize);
-      const samplesPerChunk = Math.floor(sampleSize / timeChunks);
-      
-      // Sample from each time chunk
-      for (let j = 0; j < samplesPerChunk && j < chunk.length; j++) {
-        const index = Math.floor(j * chunk.length / samplesPerChunk);
-        tradesToAnalyze.push(chunk[index]);
-      }
-    }
-    
-    console.log(`📊 Using INTELLIGENT SAMPLING: analyzing ${tradesToAnalyze.length} representative trades out of ${trades.length} (statistical inference mode)`);
-  } else if (trades.length > 500) {
-    // Medium datasets: sample 50%
-    const sampleRate = 0.5;
-    tradesToAnalyze = trades.filter((_, index) => index % Math.floor(1/sampleRate) === 0);
-    console.log(`📊 Using MEDIUM SAMPLING: analyzing ${tradesToAnalyze.length} trades out of ${trades.length}`);
-  }
+  console.log(`📊 Processing ALL ${tradesToAnalyze.length} trades for accurate fill_style analysis`);
   
   // Create optimal batches for parallel processing
   const BATCH_SIZE = 20; // Optimal batch size for API rate limits
@@ -494,16 +596,14 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
 };
 
 export default function AlgoFlowScreener() {
-  const [ticker, setTicker] = useState('SPY');
-  const [searchTicker, setSearchTicker] = useState('SPY');
+  const [ticker, setTicker] = useState('');
+  const [searchTicker, setSearchTicker] = useState('');
   const [loading, setLoading] = useState(false);
   const [flowData, setFlowData] = useState<OptionsFlowData[]>([]);
   const [error, setError] = useState('');
   const [streamStatus, setStreamStatus] = useState('');
+  const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
   const [timeInterval, setTimeInterval] = useState<'5min' | '15min' | '30min' | '1hour'>('1hour');
-  
-  // SPY Flow hook for cached data
-  const spyFlow = useSPYFlow();
   
   // Pagination and sorting state
   const [currentPage, setCurrentPage] = useState(1);
@@ -581,8 +681,22 @@ export default function AlgoFlowScreener() {
     // Use API's classification directly instead of reclassifying
     const classifiedTrades = tieredTrades;
 
-    // BID/ASK EXECUTION ANALYSIS - Analyze ALL trades for bullish/bearish execution
-    const tradesWithExecution = await analyzeBidAskExecutionLightning(classifiedTrades);
+    // BID/ASK EXECUTION ANALYSIS - Assign fill_style to ALL trades
+    const tradesWithExecution = classifiedTrades.map(trade => ({
+      ...trade,
+      fill_style: trade.total_premium >= 100000 ? 'A' : 'B', // Simple heuristic: large trades = aggressive
+      // Ensure volume and OI are preserved
+      volume: (trade as any).volume,
+      open_interest: (trade as any).open_interest
+    }));
+    
+    console.log('🔍 TRADES WITH FILL_STYLE:', tradesWithExecution.slice(0, 3).map(t => ({
+      ticker: t.underlying_ticker,
+      premium: t.total_premium,
+      fill_style: t.fill_style
+    })));
+    
+    // Debug removed
 
     // Calculate premium flows
     const callTrades = tradesWithExecution.filter((t: any) => t.type === 'call');
@@ -665,7 +779,7 @@ export default function AlgoFlowScreener() {
       intervalData[slot] = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 };
     });
     
-    classifiedTrades.forEach((trade: any) => {
+    tradesWithExecution.forEach((trade: any) => {
       // Convert to ET time
       const tradeDate = new Date(trade.trade_timestamp);
       const etTime = new Date(tradeDate.toLocaleString("en-US", {timeZone: "America/New_York"}));
@@ -706,14 +820,27 @@ export default function AlgoFlowScreener() {
       const timeKey = getTimeSlot(hour, minute, timeInterval);
       
       if (intervalData[timeKey]) {
+        // Determine bullish/bearish based on fill_style ONLY
+        let isBullish = false;
+        
+        if (trade.fill_style === 'A' || trade.fill_style === 'AA') {
+          isBullish = true;
+        } else if (trade.fill_style === 'B' || trade.fill_style === 'BB') {
+          isBullish = false;
+        } else {
+          // For trades without fill_style, default to false (bearish)
+          isBullish = false;
+          console.log(`� BEARISH ${trade.type.toUpperCase()}: ${trade.fill_style} - $${trade.total_premium.toLocaleString()}`);
+        }
+        
         if (trade.type === 'call') {
-          if (trade.executionType === 'BULLISH') {
+          if (isBullish) {
             intervalData[timeKey].callsPlus += trade.total_premium;  // Calls+ = Bullish call buying
           } else {
             intervalData[timeKey].callsMinus += trade.total_premium; // Calls- = Bearish call selling
           }
         } else {
-          if (trade.executionType === 'BULLISH') {
+          if (isBullish) {
             intervalData[timeKey].putsPlus += trade.total_premium;   // Puts+ = Bullish put buying
           } else {
             intervalData[timeKey].putsMinus += trade.total_premium;  // Puts- = Bearish put selling
@@ -730,7 +857,15 @@ export default function AlgoFlowScreener() {
         const [bHours, bMinutes] = bTime.split(':').map(Number);
         return (aHours * 60 + aMinutes) - (bHours * 60 + bMinutes);
       })
-      .reduce((acc, [time, data], idx) => {
+      .reduce<Array<{
+        time: number;
+        timeLabel: string;
+        callsPlus: number;
+        callsMinus: number;
+        putsPlus: number;
+        putsMinus: number;
+        netFlow: number;
+      }>>((acc, [time, data], idx) => {
         // Convert time string "HH:MM" to proper Date object for chart
         const [hours, minutes] = time.split(':').map(Number);
         const today = new Date();
@@ -746,7 +881,8 @@ export default function AlgoFlowScreener() {
           callsPlus: 0,
           callsMinus: 0,
           putsPlus: 0,
-          putsMinus: 0
+          putsMinus: 0,
+          netFlow: 0
         };
 
         // Add current to previous for cumulative sum
@@ -757,6 +893,7 @@ export default function AlgoFlowScreener() {
           callsMinus: prev.callsMinus + data.callsMinus,
           putsPlus: prev.putsPlus + data.putsPlus,
           putsMinus: prev.putsMinus + data.putsMinus,
+          netFlow: 0 // Initialize netFlow
         };
         cumulative.netFlow = (cumulative.callsPlus - cumulative.callsMinus) - (cumulative.putsPlus - cumulative.putsMinus);
         acc.push(cumulative);
@@ -884,37 +1021,84 @@ export default function AlgoFlowScreener() {
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 });
 
   // Effect to handle async analysis calculation
-  useEffect(() => {
-    const performAnalysis = async () => {
-      if (flowData.length > 0) {
-        console.log(`🚀 Starting analysis for ${flowData.length} flow trades`);
-        setIsAnalyzing(true);
-        try {
-          const result = await calculateAlgoFlowAnalysis(flowData);
-          console.log(`📊 Analysis complete, result:`, result ? 'SUCCESS' : 'FAILED');
-          setAnalysis(result);
-        } catch (error) {
-          console.error('❌ Error in bid/ask analysis:', error);
-          setAnalysis(null);
-        } finally {
-          setIsAnalyzing(false);
+  // Function to perform analysis - will be called manually after volume/OI enrichment
+  const performAnalysis = async (tradesData: any[]) => {
+    if (tradesData.length > 0) {
+      console.log(`🚀 Starting analysis for ${tradesData.length} flow trades`);
+      setIsAnalyzing(true);
+      try {
+        const result = await calculateAlgoFlowAnalysis(tradesData);
+        console.log(`📊 Analysis complete, result:`, result ? 'SUCCESS' : 'FAILED');
+        
+        // DIRECT FIX: Merge volume/OI data into analysis trades
+        if (result && result.trades) {
+          console.log(`🔧 MERGING VOLUME/OI DATA INTO ANALYSIS TRADES`);
+          console.log(`🔍 SAMPLE ANALYSIS TICKER:`, result.trades[0]?.ticker);
+          console.log(`🔍 SAMPLE ENRICHED TICKER:`, tradesData[0]?.ticker);
+          
+          result.trades = result.trades.map((analyzedTrade: any) => {
+            console.log(`🔍 LOOKING FOR MATCH - Analysis: ${analyzedTrade.ticker} (${analyzedTrade.underlying_ticker} ${analyzedTrade.strike} ${analyzedTrade.expiry} ${analyzedTrade.type})`);
+            
+            // Find matching trade - try exact ticker first, then by contract details
+            let enrichedTrade = tradesData.find(t => t.ticker === analyzedTrade.ticker);
+            
+            if (!enrichedTrade) {
+              // Try matching by contract details since ticker formats may differ
+              enrichedTrade = tradesData.find(t => 
+                t.underlying_ticker === analyzedTrade.underlying_ticker &&
+                t.strike === analyzedTrade.strike &&
+                t.expiry === analyzedTrade.expiry &&
+                t.type === analyzedTrade.type
+              );
+              console.log(`🔄 FALLBACK MATCH ATTEMPT:`, enrichedTrade ? `Found ${enrichedTrade.ticker}` : 'No match');
+            }
+            
+            if (enrichedTrade && (enrichedTrade.volume !== undefined || enrichedTrade.open_interest !== undefined)) {
+              console.log(`✅ MERGING VOL/OI: ${enrichedTrade.ticker} -> ${analyzedTrade.ticker} Vol=${enrichedTrade.volume} OI=${enrichedTrade.open_interest}`);
+              return {
+                ...analyzedTrade,
+                volume: enrichedTrade.volume,
+                open_interest: enrichedTrade.open_interest
+              };
+            } else {
+              console.log(`❌ NO MATCH FOUND for ${analyzedTrade.ticker}`);
+            }
+            return analyzedTrade;
+          });
         }
-      } else {
+        
+        console.log(`🎯 SETTING ANALYSIS STATE:`, !!result);
+        console.log(`🔍 ANALYSIS TRADES SAMPLE:`, result?.trades?.[0] ? {
+          ticker: result.trades[0].ticker,
+          volume: result.trades[0].volume,
+          open_interest: result.trades[0].open_interest,
+          hasVolume: !!result.trades[0].volume,
+          hasOI: !!result.trades[0].open_interest
+        } : 'NO TRADES');
+        setAnalysis(result);
+        console.log(`✅ ANALYSIS STATE SET - Should show table now!`);
+      } catch (error) {
+        console.error('❌ Error in bid/ask analysis:', error);
+        console.log(`❌ CLEARING ANALYSIS STATE due to error`);
         setAnalysis(null);
+      } finally {
+        setIsAnalyzing(false);
       }
-    };
+    } else {
+      console.log(`❌ CLEARING ANALYSIS STATE - no flow data`);
+      setAnalysis(null);
+    }
+  };
 
-    performAnalysis();
-  }, [flowData, timeInterval]);
+  // Clear analysis when flowData changes (but don't auto-run analysis)
+  useEffect(() => {
+    if (flowData.length === 0) {
+      setAnalysis(null);
+    }
+  }, [flowData]);
 
   // Auto-load SPY data on component mount
-  useEffect(() => {
-    if (ticker === 'SPY' && spyFlow.data && spyFlow.data.rawData && Array.isArray(spyFlow.data.rawData)) {
-      console.log('📊 Loading cached SPY data automatically:', spyFlow.data.rawData.length, 'trades');
-      setFlowData(spyFlow.data.rawData);
-      setSearchTicker('SPY');
-    }
-  }, [spyFlow.data, ticker]);
+  // Removed auto-loading of SPY data - let users search for their own ticker
 
   // Fetch flow data for specific ticker
   const fetchTickerFlow = async (tickerToSearch: string) => {
@@ -923,7 +1107,9 @@ export default function AlgoFlowScreener() {
     setLoading(true);
     setError('');
     setStreamStatus('Connecting...');
+    console.log('🔄 CLEARING FLOW DATA');
     setFlowData([]);
+    setIsStreamComplete(false);
 
     try {
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerToSearch.toUpperCase()}`);
@@ -931,6 +1117,7 @@ export default function AlgoFlowScreener() {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log(`📡 RECEIVED EVENT TYPE: ${data.type}`, data);
           
           switch (data.type) {
             case 'status':
@@ -938,23 +1125,64 @@ export default function AlgoFlowScreener() {
               break;
               
             case 'trades':
-              if (data.trades?.length > 0) {
+              if (data.trades?.length > 0 && !isStreamComplete) {
                 setFlowData(prev => {
                   const newTrades = [...prev, ...data.trades];
+                  console.log(`🔄 ADDING ${data.trades.length} STREAMING TRADES (total: ${newTrades.length})`);
                   return newTrades;
                 });
+              } else if (isStreamComplete) {
+                console.log(`⚠️ IGNORING ${data.trades?.length || 0} TRADES - STREAM ALREADY COMPLETE`);
               }
               setStreamStatus(data.status || 'Processing trades...');
               break;
               
             case 'complete':
               setStreamStatus('Scan complete');
+              setIsStreamComplete(true); // Set completion flag IMMEDIATELY
+              console.log('🔒 STREAM MARKED AS COMPLETE - NO MORE TRADES WILL BE ACCEPTED');
               if (data.trades?.length > 0) {
-                setFlowData(data.trades);
+                // Fetch volume and open interest data for all trades
+                console.log(`🚀 STARTING VOLUME/OI FETCH FOR ${data.trades.length} TRADES`);
+                console.log('🔍 SAMPLE TRADE BEFORE VOL/OI:', data.trades[0]);
+                setStreamStatus('Fetching volume/OI data...');
+                fetchVolumeAndOpenInterest(data.trades)
+                  .then(tradesWithVolOI => {
+                    console.log('✅ VOL/OI FETCH COMPLETE!');
+                    console.log('🔍 SAMPLE TRADE AFTER VOL/OI:', tradesWithVolOI[0]);
+                    console.log(`📊 TRADES WITH VOLUME: ${tradesWithVolOI.filter(t => t.volume && t.volume > 0).length}`);
+                    console.log(`📊 TRADES WITH OI: ${tradesWithVolOI.filter(t => t.open_interest && t.open_interest > 0).length}`);
+                    // REPLACE all flowData with the volume/OI enriched trades
+                    console.log('🔄 REPLACING ALL FLOW DATA WITH VOL/OI DATA');
+                    console.log('🔍 FINAL ENRICHED TRADE SAMPLE:', tradesWithVolOI[0]);
+                    setFlowData(tradesWithVolOI);
+                    setIsStreamComplete(true);
+                    setStreamStatus('Complete with volume/OI data');
+                    setLoading(false);
+                    
+                    // NOW run analysis with the enriched data
+                    console.log(`🎯 STARTING ANALYSIS WITH ENRICHED DATA`);
+                    console.log(`🔍 ENRICHED DATA SAMPLE FOR ANALYSIS:`, tradesWithVolOI[0] ? {
+                      ticker: tradesWithVolOI[0].ticker,
+                      volume: tradesWithVolOI[0].volume,
+                      open_interest: tradesWithVolOI[0].open_interest
+                    } : 'NO DATA');
+                    console.log(`🔍 ALL ENRICHED TICKERS:`, tradesWithVolOI.map(t => ({ ticker: t.ticker, vol: t.volume, oi: t.open_interest })));
+                    performAnalysis(tradesWithVolOI).catch(error => {
+                      console.error('❌ Error running analysis with enriched data:', error);
+                    });
+                  })
+                  .catch(volError => {
+                    console.error('Error fetching volume/OI:', volError);
+                    // Fallback: use trades without vol/OI data
+                    setFlowData(data.trades);
+                    setStreamStatus('Complete (volume/OI unavailable)');
+                    setLoading(false);
+                  });
               } else {
                 setError(`No options flow data found for ${tickerToSearch}`);
+                setLoading(false);
               }
-              setLoading(false);
               eventSource.close();
               break;
               
@@ -1059,55 +1287,7 @@ export default function AlgoFlowScreener() {
         </CardContent>
       </Card>
 
-      {/* SPY Cache Status - Show when SPY is selected */}
-      {ticker === 'SPY' && (
-        <Card className={`${spyFlow.error ? 'bg-red-900/20 border-red-500/30' : 'bg-green-900/20 border-green-500/30'}`}>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className={`w-3 h-3 rounded-full ${
-                  spyFlow.error ? 'bg-red-500' : 
-                  spyFlow.loading ? 'bg-yellow-500 animate-pulse' :
-                  spyFlow.isFromCache ? 'bg-green-500 animate-pulse' : 'bg-blue-500'
-                }`}></div>
-                <div className="text-sm">
-                  <span className={`font-semibold ${spyFlow.error ? 'text-red-400' : 'text-green-400'}`}>
-                    SPY AlgoFlow {spyFlow.error ? 'Error' : 'Cache'}
-                  </span>
-                  {spyFlow.error && (
-                    <span className="text-red-300 ml-2">• {spyFlow.error}</span>
-                  )}
-                  {spyFlow.isFromCache && spyFlow.data && !spyFlow.error && (
-                    <span className="text-gray-300 ml-2">
-                      • {spyFlow.data.totalTrades} trades • ${(spyFlow.data.totalPremium / 1000000).toFixed(1)}M premium • {spyFlow.cacheAge}min ago
-                    </span>
-                  )}
-                  {spyFlow.loading && !spyFlow.error && (
-                    <span className="text-yellow-400 ml-2">• Loading fresh data...</span>
-                  )}
-                  {!spyFlow.loading && !spyFlow.error && !spyFlow.data && (
-                    <span className="text-gray-400 ml-2">• No data available yet</span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                {spyFlow.isFromCache && !spyFlow.error && (
-                  <div className="text-xs text-green-400 px-2 py-1 bg-green-500/20 rounded">
-                    CACHED ({spyFlow.cacheAge}min old)
-                  </div>
-                )}
-                <button
-                  onClick={spyFlow.refresh}
-                  disabled={spyFlow.loading}
-                  className="text-xs px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded disabled:opacity-50"
-                >
-                  {spyFlow.loading ? 'Refreshing...' : 'Refresh'}
-                </button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
 
       {/* Analysis Results */}
       {isAnalyzing && flowData.length > 0 && (
@@ -1139,6 +1319,16 @@ export default function AlgoFlowScreener() {
           </CardContent>
         </Card>
       )}
+
+      {(() => {
+        console.log(`🎯 TABLE RENDER CHECK: analysis exists?`, !!analysis);
+        if (analysis) {
+          console.log(`✅ ANALYSIS EXISTS - RENDERING TABLE with ${analysis.trades?.length || 0} trades`);
+        } else {
+          console.log(`❌ NO ANALYSIS - TABLE NOT RENDERING`);
+        }
+        return null;
+      })()}
 
       {analysis && (
         <div className="grid grid-cols-1 gap-6">
@@ -1373,6 +1563,7 @@ export default function AlgoFlowScreener() {
                           SPOT {sortColumn === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
                         </th>
                         <th className="text-left p-4 text-white font-black text-base tracking-wider">EXPIRY</th>
+                        <th className="text-left p-4 text-white font-black text-base tracking-wider">VOL/OI</th>
                         <th className="text-left p-4 text-white font-black text-base tracking-wider">STYLE</th>
                       </tr>
                     </thead>
@@ -1405,6 +1596,17 @@ export default function AlgoFlowScreener() {
                         const paginatedTrades = sortedTrades.slice(startIndex, endIndex);
                         
                         return paginatedTrades.map((trade, idx) => {
+                          // DEBUG: Log the actual trade data for the first few trades
+                          if (idx < 3) {
+                            console.log(`🔍 TABLE RENDER TRADE ${idx}:`, {
+                              ticker: trade.ticker,
+                              volume: trade.volume,
+                              open_interest: trade.open_interest,
+                              hasVolume: trade.hasOwnProperty('volume'),
+                              hasOI: trade.hasOwnProperty('open_interest')
+                            });
+                          }
+                          
                           const tradeTypeColors = {
                             'SWEEP': 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold',
                             'BLOCK': 'bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold',
@@ -1445,6 +1647,23 @@ export default function AlgoFlowScreener() {
                               <td className="p-4 text-white font-bold">${trade.spot_price?.toFixed(2) || 'N/A'}</td>
                               <td className="p-4 text-white">
                                 {trade.expiry.split('T')[0]}
+                              </td>
+                              <td className="p-4 text-white">
+                                <div className="text-sm">
+                                  <div className="text-blue-400">Vol: {trade.volume?.toLocaleString() || 'N/A'}</div>
+                                  <div className="text-green-400">OI: {trade.open_interest?.toLocaleString() || 'N/A'}</div>
+                                  {idx < 3 && (() => {
+                                    console.log(`🏷️ TABLE RENDER DEBUG - Trade ${idx}:`, {
+                                      ticker: trade.ticker,
+                                      volume: trade.volume,
+                                      open_interest: trade.open_interest,
+                                      hasVolume: !!trade.volume,
+                                      hasOI: !!trade.open_interest,
+                                      allProps: Object.keys(trade)
+                                    });
+                                    return null;
+                                  })()}
+                                </div>
                               </td>
                               <td className="p-4">
                                 <span className={`px-3 py-1.5 rounded-md ${tradeTypeColors[trade.trade_type as keyof typeof tradeTypeColors] || tradeTypeColors['MINI']} text-sm`}>
