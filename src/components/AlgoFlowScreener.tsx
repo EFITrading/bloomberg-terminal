@@ -139,6 +139,46 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
   return updatedTrades;
 };
 
+// Calculate Live Open Interest based on fill styles
+const calculateLiveOI = (originalOI: number, trades: any[], contractKey: string): number => {
+  if (!originalOI || !trades || trades.length === 0) return originalOI || 0;
+  
+  // Filter trades for this specific contract
+  const contractTrades = trades.filter(trade => {
+    const tradeKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
+    return tradeKey === contractKey;
+  });
+  
+  let liveOI = originalOI;
+  
+  // Process each trade based on fill style
+  contractTrades.forEach(trade => {
+    const volume = trade.size || trade.volume || 0;
+    const fillStyle = trade.fill_style;
+    
+    console.log(`🔄 LIVE OI CALC: ${contractKey} - Vol: ${volume}, Fill: ${fillStyle}, Before: ${liveOI}`);
+    
+    switch (fillStyle) {
+      case 'A':   // Add to OI (buying/opening)
+      case 'AA':  // Add to OI (buying/opening)  
+      case 'BB':  // Add to OI (buying/opening)
+        liveOI += volume;
+        console.log(`✅ ADDED ${volume} to OI (${fillStyle} fill)`);
+        break;
+      case 'B':   // Subtract from OI (selling/closing)
+        liveOI -= volume;
+        console.log(`❌ SUBTRACTED ${volume} from OI (B fill)`);
+        break;
+      default:
+        console.log(`⚪ NO CHANGE for fill style: ${fillStyle}`);
+        break;
+    }
+  });
+  
+  // Ensure OI doesn't go negative
+  return Math.max(0, liveOI);
+};
+
 // YOUR REAL SWEEP DETECTION: EXACT SAME LOGIC as optionsFlowService detectSweeps
 const detectSweepsAndBlocks = (trades: any[]): any[] => {
   if (trades.length === 0) return [];
@@ -1156,6 +1196,14 @@ export default function AlgoFlowScreener() {
                     console.log('🔄 REPLACING ALL FLOW DATA WITH VOL/OI DATA');
                     console.log('🔍 FINAL ENRICHED TRADE SAMPLE:', tradesWithVolOI[0]);
                     setFlowData(tradesWithVolOI);
+                    
+                    // Save to localStorage for DealerAttraction Live OI calculations
+                    try {
+                      localStorage.setItem('algoFlowData', JSON.stringify(tradesWithVolOI));
+                      console.log('💾 Saved AlgoFlow data to localStorage for Live OI calculations');
+                    } catch (error) {
+                      console.warn('⚠️ Failed to save AlgoFlow data to localStorage:', error);
+                    }
                     setIsStreamComplete(true);
                     setStreamStatus('Complete with volume/OI data');
                     setLoading(false);
@@ -1564,6 +1612,7 @@ export default function AlgoFlowScreener() {
                         </th>
                         <th className="text-left p-4 text-white font-black text-base tracking-wider">EXPIRY</th>
                         <th className="text-left p-4 text-white font-black text-base tracking-wider">VOL/OI</th>
+                        <th className="text-left p-4 text-white font-black text-base tracking-wider">LIVE OI</th>
                         <th className="text-left p-4 text-white font-black text-base tracking-wider">STYLE</th>
                       </tr>
                     </thead>
@@ -1664,6 +1713,27 @@ export default function AlgoFlowScreener() {
                                     return null;
                                   })()}
                                 </div>
+                              </td>
+                              <td className="p-4 text-white">
+                                {(() => {
+                                  // Calculate Live OI for this contract
+                                  const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
+                                  const originalOI = trade.open_interest || 0;
+                                  const allTrades = analysis?.trades || flowData || [];
+                                  const liveOI = calculateLiveOI(originalOI, allTrades, contractKey);
+                                  
+                                  // Show change indicator
+                                  const change = liveOI - originalOI;
+                                  const changeColor = change > 0 ? 'text-green-400' : change < 0 ? 'text-red-400' : 'text-gray-400';
+                                  const changeText = change > 0 ? `+${change.toLocaleString()}` : change < 0 ? change.toLocaleString() : '±0';
+                                  
+                                  return (
+                                    <div className="text-sm">
+                                      <div className="text-yellow-400 font-bold">{liveOI.toLocaleString()}</div>
+                                      <div className={`text-xs ${changeColor}`}>({changeText})</div>
+                                    </div>
+                                  );
+                                })()}
                               </td>
                               <td className="p-4">
                                 <span className={`px-3 py-1.5 rounded-md ${tradeTypeColors[trade.trade_type as keyof typeof tradeTypeColors] || tradeTypeColors['MINI']} text-sm`}>
