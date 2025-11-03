@@ -1415,7 +1415,69 @@ const renderExpectedRangeLines = (
  console.log(`?? Drew ${linesDrawn} out of ${linesToDraw.length} Expected Range lines`);
 };
 
-// Render GEX levels on chart
+// Smart text positioning to prevent overlaps
+interface TextLabel {
+ text: string;
+ x: number;
+ y: number;
+ originalY: number;
+ price: number;
+ priority: number; // Higher = more important
+ color: string;
+ strokeColor: string;
+ font: string;
+ textAlign: CanvasTextAlign;
+}
+
+const positionLabelsWithoutOverlap = (labels: TextLabel[], ctx: CanvasRenderingContext2D): TextLabel[] => {
+ if (labels.length === 0) return labels;
+ 
+ // Sort by priority (highest first), then by original Y position
+ const sortedLabels = [...labels].sort((a, b) => {
+ if (a.priority !== b.priority) return b.priority - a.priority;
+ return a.originalY - b.originalY;
+ });
+ 
+ const positioned: TextLabel[] = [];
+ const minSpacing = 25; // Minimum pixels between text labels
+ 
+ for (const label of sortedLabels) {
+ let newY = label.originalY;
+ let attempts = 0;
+ const maxAttempts = 20;
+ 
+ // Check for collisions and adjust position
+ while (attempts < maxAttempts) {
+ let hasCollision = false;
+ 
+ for (const positioned_label of positioned) {
+ const distance = Math.abs(newY - positioned_label.y);
+ if (distance < minSpacing) {
+ hasCollision = true;
+ // Move away from collision - prefer moving down for lower priority
+ if (label.priority < positioned_label.priority) {
+ newY = positioned_label.y + minSpacing;
+ } else {
+ newY = positioned_label.y - minSpacing;
+ }
+ break;
+ }
+ }
+ 
+ if (!hasCollision) break;
+ attempts++;
+ }
+ 
+ positioned.push({
+ ...label,
+ y: newY
+ });
+ }
+ 
+ return positioned;
+};
+
+// Render GEX levels on chart with smart text positioning
 const renderGEXLevels = (
  ctx: CanvasRenderingContext2D,
  width: number,
@@ -1426,11 +1488,14 @@ const renderGEXLevels = (
 ) => {
  if (!gexData || !gexData.gexData) return;
 
- console.log('?? Rendering GEX levels on chart with new data structure...', gexData);
+ console.log('?? Rendering GEX levels on chart with smart text positioning...', gexData);
 
  const priceToY = (price: number) => {
  return height - ((price - minPrice) / (maxPrice - minPrice)) * height;
  };
+
+ // Collect all text labels for smart positioning
+ const textLabels: TextLabel[] = [];
 
  // Zero Gamma Level
  if (gexData.gexData.zeroGammaLevel) {
@@ -1446,15 +1511,19 @@ const renderGEXLevels = (
  ctx.lineTo(width - 80, y);
  ctx.stroke();
  
- // Label with 100% bright visibility
- ctx.globalAlpha = 1.0;
- ctx.strokeStyle = '#000000';
- ctx.lineWidth = 4;
- ctx.font = 'bold 16px monospace';
- ctx.textAlign = 'right';
- ctx.strokeText(`Zero G: $${gexData.gexData.zeroGammaLevel.toFixed(0)}`, width - 10, y - 5);
- ctx.fillStyle = '#ffff00';
- ctx.fillText(`Zero G: $${gexData.gexData.zeroGammaLevel.toFixed(0)}`, width - 10, y - 5);
+ // Add to labels array instead of drawing immediately
+ textLabels.push({
+ text: `Zero G: $${gexData.gexData.zeroGammaLevel.toFixed(0)}`,
+ x: width - 10,
+ y: y - 5,
+ originalY: y - 5,
+ price: gexData.gexData.zeroGammaLevel,
+ priority: 10, // High priority
+ color: '#ffff00',
+ strokeColor: '#000000',
+ font: 'bold 16px monospace',
+ textAlign: 'right'
+ });
  
  console.log(`?? Zero Gamma Level rendered at $${gexData.gexData.zeroGammaLevel}`);
  }
@@ -1476,15 +1545,19 @@ const renderGEXLevels = (
  ctx.lineTo(width - 80, y);
  ctx.stroke();
  
- // Label with 100% bright visibility
- ctx.globalAlpha = 1.0;
- ctx.strokeStyle = '#000000';
- ctx.lineWidth = 4;
- ctx.font = 'bold 16px monospace';
- ctx.textAlign = 'right';
- ctx.strokeText(`ATTRACTION: $${gexData.gexData.gexFlipLevel.toFixed(0)} [${gexData.gexData.gammaEnvironment}]`, width - 10, y + 15);
- ctx.fillStyle = gexData.gexData.isPositiveGamma ? '#ff00ff' : '#ff8800';
- ctx.fillText(`ATTRACTION: $${gexData.gexData.gexFlipLevel.toFixed(0)} [${gexData.gexData.gammaEnvironment}]`, width - 10, y + 15);
+ // Add to labels array instead of drawing immediately
+ textLabels.push({
+ text: `ATTRACTION: $${gexData.gexData.gexFlipLevel.toFixed(0)} [${gexData.gexData.gammaEnvironment}]`,
+ x: width - 10,
+ y: y + 15,
+ originalY: y + 15,
+ price: gexData.gexData.gexFlipLevel,
+ priority: 9, // High priority
+ color: gexData.gexData.isPositiveGamma ? '#ff00ff' : '#ff8800',
+ strokeColor: '#000000',
+ font: 'bold 16px monospace',
+ textAlign: 'right'
+ });
  
  console.log(`?? Attraction Level rendered at $${gexData.gexData.gexFlipLevel} (${gexData.gexData.gammaEnvironment} Gamma)`);
  }
@@ -1531,7 +1604,7 @@ const renderGEXLevels = (
  current.absNetGEX > max.absNetGEX ? current : max
  );
  
- // Render each wall
+ // Render each wall line and collect labels
  wallDataArray.forEach((wallData) => {
  const isCallDominated = wallData.netGEX > 0;
  const isHighestGEX = wallData.strike === highestGEXWall.strike;
@@ -1576,27 +1649,58 @@ const renderGEXLevels = (
  ctx.lineTo(width - 80, y);
  ctx.stroke();
  
- // Label with NET GEX value
- ctx.globalAlpha = 1.0;
- ctx.strokeStyle = '#000000';
- ctx.lineWidth = 4;
- ctx.font = 'bold 15px monospace';
- ctx.textAlign = 'right';
+ // Add wall label to labels array instead of drawing immediately
  const yOffset = isCallDominated ? -5 : 15;
  const label = `${wallType}: $${wallData.strike.toFixed(0)} (${sign}${(wallData.absNetGEX / 1000000000).toFixed(1)}B)`;
- ctx.strokeText(label, width - 90, y + yOffset);
- ctx.fillStyle = textColor;
- ctx.fillText(label, width - 90, y + yOffset);
+ const priority = isHighestGEX ? 8 : (isCallDominated ? 6 : 5); // Highest GEX gets priority, then calls over puts
+ 
+ textLabels.push({
+ text: label,
+ x: width - 90,
+ y: y + yOffset,
+ originalY: y + yOffset,
+ price: wallData.strike,
+ priority: priority,
+ color: textColor,
+ strokeColor: '#000000',
+ font: 'bold 15px monospace',
+ textAlign: 'right'
+ });
  
  console.log(`${isCallDominated ? '??' : '??'} ${wallType} rendered: $${wallData.strike} with NET ${wallData.netGEX.toFixed(0)} GEX ${isHighestGEX ? 'HIGHEST' : ''}`);
+ });
+
+ // Position all labels to avoid overlaps
+ const positionedLabels = positionLabelsWithoutOverlap(textLabels, ctx);
+ 
+ // Draw all labels with adjusted positions
+ ctx.globalAlpha = 1.0;
+ ctx.lineWidth = 4;
+ 
+ positionedLabels.forEach(label => {
+ // Draw text stroke (outline)
+ ctx.strokeStyle = label.strokeColor;
+ ctx.font = label.font;
+ ctx.textAlign = label.textAlign;
+ ctx.strokeText(label.text, label.x, label.y);
+ 
+ // Draw text fill
+ ctx.fillStyle = label.color;
+ ctx.fillText(label.text, label.x, label.y);
+ 
+ // Debug: Show adjustment if label was moved
+ if (Math.abs(label.y - label.originalY) > 1) {
+ console.log(`?? Adjusted label position: "${label.text}" moved from Y=${label.originalY.toFixed(1)} to Y=${label.y.toFixed(1)}`);
+ }
  });
 
  // Reset canvas state
  ctx.setLineDash([]);
  ctx.globalAlpha = 1.0;
  
- console.log(`?? GEX levels rendered: ${gexData.gexData.callWalls?.length || 0} call walls, ${gexData.gexData.putWalls?.length || 0} put walls, zero gamma at $${gexData.gexData.zeroGammaLevel}`);
+ console.log(`?? GEX levels rendered with smart positioning: ${gexData.gexData.callWalls?.length || 0} call walls, ${gexData.gexData.putWalls?.length || 0} put walls, zero gamma at $${gexData.gexData.zeroGammaLevel}`);
 };
+
 
 // Expansion/Liquidation Detection Algorithm
 interface ExpansionLiquidationZone {
@@ -1951,9 +2055,7 @@ export default function TradingViewChart({
  // Keep ref in sync with state for reliable access
  useEffect(() => {
  drawingBrushesRef.current = drawingBrushes;
- }, [drawingBrushes]);
-
- const [rayProperties, setRayProperties] = useState({
+   }, [drawingBrushes]); const [rayProperties, setRayProperties] = useState({
  color: '#FFD700',
  lineWidth: 2,
  lineStyle: 'solid' as const,
@@ -2007,6 +2109,8 @@ export default function TradingViewChart({
  break;
  }
  }, [clearAllDrawingTools]);
+
+
 
  // Professional crosshair information state
  const [crosshairInfo, setCrosshairInfo] = useState<{
@@ -2701,6 +2805,11 @@ export default function TradingViewChart({
  const [scrollOffset, setScrollOffset] = useState(0); // Index of first visible candle
  const [visibleCandleCount, setVisibleCandleCount] = useState(100); // Number of visible candles
 
+ // Y-axis zoom state (TradingView-style price scaling)
+ const [priceZoomLevel, setPriceZoomLevel] = useState(1.0); // 1.0 = auto-fit, >1 = zoomed in, <1 = zoomed out
+ const [priceZoomCenter, setPriceZoomCenter] = useState(0); // Price level to zoom around
+ const [isAutoFitPrice, setIsAutoFitPrice] = useState(true); // Auto-fit price range
+
  // Price info state
  const [currentPrice, setCurrentPrice] = useState(0);
  const [priceChange, setPriceChange] = useState(0);
@@ -2771,6 +2880,29 @@ export default function TradingViewChart({
  const resetToAutoScale = useCallback(() => {
  setIsAutoScale(true);
  setManualPriceRange(null);
+ }, []);
+
+ // Y-Axis Zoom Functions (TradingView-style)
+ const zoomYAxis = useCallback((direction: 'in' | 'out', centerPrice?: number) => {
+ setIsAutoFitPrice(false);
+ 
+ const zoomFactor = direction === 'in' ? 0.8 : 1.25; // Zoom in = smaller range, zoom out = larger range
+ const newZoomLevel = Math.max(0.1, Math.min(10, priceZoomLevel * zoomFactor));
+ 
+ // If centerPrice provided, zoom around that price, otherwise use current center
+ if (centerPrice !== undefined) {
+ setPriceZoomCenter(centerPrice);
+ }
+ 
+ setPriceZoomLevel(newZoomLevel);
+ console.log(`🔍 Y-axis zoom ${direction}: level=${newZoomLevel.toFixed(2)}, center=$${(centerPrice || priceZoomCenter).toFixed(2)}`);
+ }, [priceZoomLevel, priceZoomCenter]);
+
+ const resetYAxisZoom = useCallback(() => {
+ setIsAutoFitPrice(true);
+ setPriceZoomLevel(1.0);
+ setPriceZoomCenter(0);
+ console.log('🔍 Y-axis zoom reset to auto-fit');
  }, []);
 
  const isInYAxisArea = useCallback((x: number, canvasWidth: number) => {
@@ -3506,7 +3638,7 @@ export default function TradingViewChart({
  case '+':
  case '=':
  e.preventDefault();
- // Zoom in (show fewer candles)
+ // Plus: X-axis zoom in (show fewer candles)
  const newCountIn = Math.max(20, Math.round(visibleCandleCount * 0.8));
  const centerRatio = (scrollOffset + visibleCandleCount / 2) / data.length;
  const newOffsetIn = Math.max(0, Math.min(
@@ -3518,7 +3650,7 @@ export default function TradingViewChart({
  break;
  case '-':
  e.preventDefault();
- // Zoom out (show more candles)
+ // Minus: X-axis zoom out (show more candles)
  const newCountOut = Math.min(500, Math.round(visibleCandleCount * 1.25));
  const centerRatioOut = (scrollOffset + visibleCandleCount / 2) / data.length;
  const newOffsetOut = Math.max(0, Math.min(
@@ -3542,6 +3674,10 @@ export default function TradingViewChart({
  const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
  const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
  setScrollOffset(Math.min(maxScrollOffset, scrollOffset + panRight));
+ break;
+ case 'r':
+ case 'R':
+ e.preventDefault();
  break;
  case 'Delete':
  case 'Backspace':
@@ -3849,6 +3985,20 @@ export default function TradingViewChart({
  let adjustedMin = currentPriceRange.min;
  let adjustedMax = currentPriceRange.max;
 
+ // Apply Y-axis zoom if not in auto-fit mode
+ if (!isAutoFitPrice && priceZoomLevel !== 1.0) {
+   const originalRange = adjustedMax - adjustedMin;
+   const zoomedRange = originalRange / priceZoomLevel;
+   
+   // Use zoom center or current chart center
+   const centerPrice = priceZoomCenter || (adjustedMin + adjustedMax) / 2;
+   
+   adjustedMin = centerPrice - zoomedRange / 2;
+   adjustedMax = centerPrice + zoomedRange / 2;
+   
+   console.log(`🔍 Applied Y-axis zoom: level=${priceZoomLevel.toFixed(2)}, range=$${adjustedMin.toFixed(2)}-$${adjustedMax.toFixed(2)}`);
+ }
+
  // Expand price range to include Expected Range levels if active
  if (isExpectedRangeActive && expectedRangeLevels) {
  const allLevels = [
@@ -3868,17 +4018,12 @@ export default function TradingViewChart({
  // Expand the range to include all Expected Range levels with some padding
  const originalRange = adjustedMax - adjustedMin;
  const padding = originalRange * 0.05; // 5% padding
- 
+
  adjustedMin = Math.min(adjustedMin, minLevel - padding);
- adjustedMax = Math.max(adjustedMax, maxLevel + padding);
- 
- console.log(`?? Expanded price range for Expected Range: $${adjustedMin.toFixed(2)} - $${adjustedMax.toFixed(2)}`);
- console.log(`?? Expected Range levels: $${minLevel.toFixed(2)} - $${maxLevel.toFixed(2)}`);
- }
+         adjustedMax = Math.max(adjustedMax, maxLevel + padding);
+       }
 
- console.log(`?? Final price range: $${adjustedMin.toFixed(2)} - $${adjustedMax.toFixed(2)}`);
-
- // Draw chart in price chart area - use consistent spacing regardless of future area
+       console.log(`?? Final price range: $${adjustedMin.toFixed(2)} - $${adjustedMax.toFixed(2)}`); // Draw chart in price chart area - use consistent spacing regardless of future area
  const candleWidth = Math.max(2, chartWidth / visibleCandleCount * 0.8);
  const candleSpacing = chartWidth / visibleCandleCount;
 
@@ -3958,11 +4103,9 @@ export default function TradingViewChart({
  adjustedMin,
  adjustedMax,
  gexData
- );
- console.log('?? GEX levels rendered on top');
- }
-
- // Draw Expansion/Liquidation zones (standalone button)
+         );
+         console.log('?? GEX levels rendered on top');
+       } // Draw Expansion/Liquidation zones (standalone button)
  if (isExpansionLiquidationActive) {
  console.log('?? Detecting and rendering Expansion/Liquidation zones');
  
@@ -4011,6 +4154,8 @@ export default function TradingViewChart({
  drawStoredDrawings(overlayCtx);
  }
  }
+
+
 
  console.log(`? Integrated chart rendered successfully with ${config.theme} theme`);
 
@@ -6126,18 +6271,25 @@ export default function TradingViewChart({
  setDragStartX(x);
  setDragStartOffset(scrollOffset);
  
+
+ 
  // Get current visible data for price range calculation
  const startIndex = Math.max(0, Math.floor(scrollOffset));
  const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
  const visibleData = data.slice(startIndex, endIndex);
  
  if (visibleData.length > 0) {
- // Use current displayed price range for dragging (no auto-scale switching)
+ // CRITICAL: Always use manual price range if it exists to preserve previous drag positions
+ // This prevents the chart from "snapping back" to original position
  let currentRange;
  if (manualPriceRange) {
+ // Use the current manual price range (which includes any previous drag adjustments)
  currentRange = manualPriceRange;
+ console.log('🎯 Using manual price range for drag start:', currentRange);
  } else {
+ // Only calculate from visible data if no manual range exists
  currentRange = getCurrentPriceRange(visibleData);
+ console.log('🎯 Using calculated price range for drag start:', currentRange);
  }
  setYAxisDragStart({ y, priceRange: currentRange });
  }
@@ -6314,13 +6466,12 @@ export default function TradingViewChart({
  const timeAxisHeight = 25;
  const priceChartHeight = dimensions.height - timeAxisHeight;
  
- // Calculate price change based on drag distance
- const originalRange = yAxisDragStart.priceRange;
- const priceHeight = originalRange.max - originalRange.min;
- const pricePerPixel = priceHeight / priceChartHeight;
- const priceShift = deltaY * pricePerPixel;
- 
- // Apply the shift to create new price range
+         // Calculate price change based on drag distance
+         const originalRange = yAxisDragStart.priceRange;
+         const priceHeight = originalRange.max - originalRange.min;
+         const pricePerPixel = priceHeight / priceChartHeight;
+         // Fix inversion: drag DOWN should show LOWER prices, drag UP should show HIGHER prices
+         const priceShift = deltaY * pricePerPixel; // Apply the shift to create new price range
  const newRange = {
  min: originalRange.min + priceShift,
  max: originalRange.max + priceShift
@@ -6332,11 +6483,18 @@ export default function TradingViewChart({
  const deltaX = x - lastMouseX;
  const currentOffset = scrollOffset;
  
+ // Calculate drag movement - preserve sign for correct direction
+ const chartWidth = dimensions.width - 100; // Account for margins
+ const candleWidth = chartWidth / visibleCandleCount;
+ const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
+ 
  // Allow extending beyond data for future view
  const futurePeriods = getFuturePeriods(config.timeframe);
  const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
  const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
- const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - Math.floor(deltaX / 5)));
+ // Drag RIGHT (positive deltaX) should DECREASE offset (move forward in time)
+ // Drag LEFT (negative deltaX) should INCREASE offset (move backward in time)
+ const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
  
  if (newOffset !== currentOffset) {
  setScrollOffset(newOffset);
@@ -6347,36 +6505,38 @@ export default function TradingViewChart({
  }
 
  // Alternative Y-axis dragging when yAxisDragStart is not set but we're in manual mode
- if ((isDragging || isDraggingYAxis) && !isAutoScale) {
+ if ((isDragging || isDraggingYAxis) && !isAutoScale && manualPriceRange) {
  // Handle Y-axis dragging using current manual price range
  const deltaY = y - (lastMousePosition.y || y);
  const timeAxisHeight = 25;
  const priceChartHeight = dimensions.height - timeAxisHeight;
  
- // Get current manual price range
- if (manualPriceRange) {
- const priceHeight = manualPriceRange.max - manualPriceRange.min;
- const pricePerPixel = priceHeight / priceChartHeight;
- const priceShift = deltaY * pricePerPixel;
- 
- // Apply the shift to create new price range
+         // Get current manual price range
+         const priceHeight = manualPriceRange.max - manualPriceRange.min;
+         const pricePerPixel = priceHeight / priceChartHeight;
+         // Fix inversion: drag DOWN should show LOWER prices, drag UP should show HIGHER prices
+         const priceShift = deltaY * pricePerPixel; // Apply the shift to create new price range
  const newRange = {
  min: manualPriceRange.min + priceShift,
  max: manualPriceRange.max + priceShift
  };
  
  setManualPriceRangeAndDisableAuto(newRange);
- }
  
  // Handle X-axis dragging (horizontal movement)
  const deltaX = x - lastMouseX;
  const currentOffset = scrollOffset;
  
+ // Calculate drag movement - preserve sign for correct direction
+ const chartWidth = dimensions.width - 100; // Account for margins
+ const candleWidth = chartWidth / visibleCandleCount;
+ const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
+ 
  // Allow extending beyond data for future view
  const futurePeriods = getFuturePeriods(config.timeframe);
  const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
  const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
- const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - Math.floor(deltaX / 5)));
+ const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
  
  if (newOffset !== currentOffset) {
  setScrollOffset(newOffset);
@@ -6391,12 +6551,15 @@ export default function TradingViewChart({
  const deltaX = x - lastMouseX;
  const currentOffset = scrollOffset;
  
+ // Calculate drag movement - preserve sign for correct direction
+ const chartWidth = dimensions.width - 100; // Account for margins
+ const candleWidth = chartWidth / visibleCandleCount;
+ const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
+ 
  // Allow extending beyond data for future view
  const futurePeriods = getFuturePeriods(config.timeframe);
- // REMOVED RESTRICTION: Allow full future periods for extensive drag scrolling
- const maxFuturePeriods = futurePeriods; // Use full future periods
- const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
- const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - Math.floor(deltaX / 5)));
+ const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
+ const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
  
  if (newOffset !== currentOffset) {
  setScrollOffset(newOffset);
@@ -6404,81 +6567,6 @@ export default function TradingViewChart({
  
  setLastMouseX(x);
  return;
- }
-
- // Update crosshair info
- if (data.length > 0 && config.crosshair) {
- // Calculate correct chart dimensions (matching renderChart function EXACTLY)
- const priceChartHeight = actualPriceChartHeight;
- 
- // Calculate visible data range (matching renderChart function)
- const startIndex = Math.max(0, Math.floor(scrollOffset));
- const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
- const visibleData = data.slice(startIndex, endIndex);
- 
- if (visibleData.length > 0) {
- // Calculate price range for visible data (matching renderChart function)
- const prices = visibleData.flatMap(d => [d.high, d.low]);
- const minPrice = Math.min(...prices);
- const maxPrice = Math.max(...prices);
- const padding = (maxPrice - minPrice) * 0.1;
- const adjustedMin = minPrice - padding;
- const adjustedMax = maxPrice + padding;
- 
- // Convert Y coordinate to price (EXACT same formula as renderChart)
- // Only consider mouse position within the price chart area
- if (y <= priceChartHeight) {
- const price = adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
- 
- // Calculate candle index
- const chartWidth = dimensions.width - 100;
- const candleWidth = chartWidth / visibleCandleCount;
- const relativeX = Math.max(0, x - 40);
- const visibleCandleIndex = Math.floor(relativeX / candleWidth);
- const candleIndex = scrollOffset + visibleCandleIndex;
- 
- if (candleIndex >= 0 && candleIndex < data.length) {
- const candle = data[candleIndex];
- 
- // Check if candle exists and has required properties
- if (candle && typeof candle.open !== 'undefined') {
- const candleDate = new Date(candle?.timestamp || Date.now());
- 
- // Calculate change from previous candle
- const prevCandle = candleIndex > 0 ? data[candleIndex - 1] : null;
- const change = prevCandle ? candle.close - prevCandle.close : 0;
- const changePercent = prevCandle ? ((change / prevCandle.close) * 100) : 0;
- 
- setCrosshairInfo({
- visible: true,
- price: `$${price.toFixed(2)}`,
- date: candleDate.toLocaleDateString(),
- time: candleDate.toLocaleTimeString('en-US', { 
- hour: '2-digit', 
- minute: '2-digit',
- hour12: false 
- }),
- ohlc: {
- open: candle.open,
- high: candle.high,
- low: candle.low,
- close: candle.close,
- change: change,
- changePercent: changePercent
- }
- });
- }
- }
- } else {
- // Mouse is outside price chart area, hide crosshair info
- setCrosshairInfo({
- visible: false,
- price: '',
- date: '',
- time: ''
- });
- }
- }
  }
  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight]);
 
@@ -7759,22 +7847,22 @@ export default function TradingViewChart({
  <span className="drop-shadow-lg text-shadow-carved">Change</span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
  {getMarketRegimeForHeader('1d')}
  </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
  {getMarketRegimeForHeader('5d')}
  </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
  {getMarketRegimeForHeader('13d')}
  </span>
  </div>
  <div className="p-3 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
  {getMarketRegimeForHeader('21d')}
  </span>
  </div>
@@ -10299,10 +10387,10 @@ export default function TradingViewChart({
  e.preventDefault();
  handleMouseUp();
  }}
- // Pinch-to-zoom support
+ // Enhanced zoom support
  onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {
  if (e.ctrlKey) {
- // Pinch-to-zoom gesture (Ctrl + wheel)
+ // Pinch-to-zoom gesture (Ctrl + wheel) - X-axis zoom
  e.preventDefault();
  const delta = e.deltaY;
  const scaleFactor = delta > 0 ? 1.1 : 0.9;

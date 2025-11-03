@@ -651,6 +651,10 @@ export default function AlgoFlowScreener() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const TRADES_PER_PAGE = 50;
 
+  // Mobile column management
+  const [showMobileDetails, setShowMobileDetails] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+
   // Calculate algo flow analysis using YOUR REAL tier system and SWEEP/BLOCK detection
   const calculateAlgoFlowAnalysis = async (trades: OptionsFlowData[]): Promise<AlgoFlowAnalysis | null> => {
     if (!trades.length) return null;
@@ -1294,27 +1298,27 @@ export default function AlgoFlowScreener() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Ticker Search - Enhanced */}
-      <Card className="bg-black border-2 border-white/20">
-        <CardContent className="p-6">
-          <div className="flex gap-4 items-center">
-            <div className="flex-1">
+    <div className="space-y-4 md:space-y-6 w-full max-w-none">
+      {/* Ticker Search - Mobile Optimized */}
+      <Card className="bg-black border-2 border-white/20 w-full max-w-none">
+        <CardContent className="p-3 md:p-6">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-center w-full">
+            <div className="flex-1 w-full">
               <input
                 type="text"
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value.toUpperCase())}
                 onKeyPress={handleKeyPress}
                 placeholder="Enter Ticker Symbol"
-                className="w-full px-6 py-4 bg-black border-2 border-white/40 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 font-black text-xl tracking-wider"
+                className="w-full px-3 py-3 md:px-6 md:py-4 bg-black border-2 border-white/40 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 font-black text-base md:text-xl tracking-wider min-h-[52px]"
                 disabled={loading}
               />
             </div>
-            <div>
+            <div className="w-full sm:w-auto min-w-0 sm:min-w-[200px]">
               <button
                 onClick={handleSearch}
                 disabled={loading || !ticker.trim()}
-                className="px-10 py-4 bg-gradient-to-r from-orange-600 to-orange-500 text-white rounded-lg font-black text-lg tracking-wider hover:from-orange-700 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-500/50"
+                className="w-full px-4 py-3 md:px-10 md:py-4 bg-gradient-to-r from-orange-600 to-orange-500 text-white rounded-lg font-black text-sm md:text-lg tracking-wider hover:from-orange-700 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-500/50 min-h-[52px]"
               >
                 {loading ? (isAnalyzing ? 'ANALYZING...' : 'SCANNING...') : 'ANALYZE FLOW'}
               </button>
@@ -1382,12 +1386,12 @@ export default function AlgoFlowScreener() {
         <div className="grid grid-cols-1 gap-6">
           {/* Main Chart - Full Width */}
           <div className="w-full space-y-6">
-            {/* Key Metrics Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="bg-zinc-900/50 border-zinc-800">
-                <CardContent className="p-4">
+            {/* Key Metrics Cards - Mobile Optimized */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 w-full">
+              <Card className="bg-zinc-900/50 border-zinc-800 w-full">
+                <CardContent className="p-4 md:p-4">
                   <div className="text-xs text-zinc-400 uppercase tracking-wide">Algo Flow Score</div>
-                  <div className={`text-2xl font-bold ${getScoreColor(analysis.algoFlowScore)}`}>
+                  <div className={`text-xl md:text-2xl font-bold ${getScoreColor(analysis.algoFlowScore)}`}>
                     {analysis.algoFlowScore.toFixed(3)}
                   </div>
                   <div className={`text-xs px-2 py-1 rounded-full mt-2 inline-block ${getTrendColor(analysis.flowTrend)}`}>
@@ -1396,10 +1400,10 @@ export default function AlgoFlowScreener() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-zinc-900/50 border-zinc-800">
-                <CardContent className="p-4">
+              <Card className="bg-zinc-900/50 border-zinc-800 w-full">
+                <CardContent className="p-4 md:p-4">
                   <div className="text-xs text-zinc-400 uppercase tracking-wide">Net Flow</div>
-                  <div className={`text-2xl font-bold ${analysis.netFlow >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  <div className={`text-xl md:text-2xl font-bold ${analysis.netFlow >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {formatCurrency(analysis.netFlow)}
                   </div>
                   <div className="text-xs text-zinc-500 mt-1">
@@ -1408,10 +1412,10 @@ export default function AlgoFlowScreener() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-zinc-900/50 border-zinc-800">
-                <CardContent className="p-4">
+              <Card className="bg-zinc-900/50 border-zinc-800 w-full">
+                <CardContent className="p-4 md:p-4">
                   <div className="text-xs text-zinc-400 uppercase tracking-wide">Total Volume</div>
-                  <div className="text-2xl font-bold text-purple-400">
+                  <div className="text-xl md:text-2xl font-bold text-purple-400">
                     {flowData.reduce((sum, trade) => sum + trade.trade_size, 0).toLocaleString()}
                   </div>
                   <div className="text-xs text-zinc-500 mt-1">
@@ -1420,26 +1424,32 @@ export default function AlgoFlowScreener() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-zinc-900/50 border-zinc-800">
-                <CardContent className="p-4">
+              <Card className="bg-zinc-900/50 border-zinc-800 w-full">
+                <CardContent className="p-4 md:p-4">
                   <div className="text-xs text-zinc-400 uppercase tracking-wide">Flow Types</div>
-                  <div className="text-sm text-white">
-                    <div>Sweeps: <span className="text-orange-400">{analysis.sweepCount}</span></div>
-                    <div>Blocks: <span className="text-blue-400">{analysis.blockCount}</span></div>
+                  <div className="text-sm text-white space-y-1">
+                    <div className="flex justify-between">
+                      <span>Sweeps:</span>
+                      <span className="text-orange-400">{analysis.sweepCount}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Blocks:</span>
+                      <span className="text-blue-400">{analysis.blockCount}</span>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* AlgoFlow Premium Flow Chart */}
-            <Card className="bg-black border-zinc-700">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-white text-2xl font-bold text-center">
+            {/* AlgoFlow Premium Flow Chart - Mobile Optimized */}
+            <Card className="bg-black border-zinc-700 w-full">
+              <CardHeader className="pb-2 px-3 md:px-6 pt-3 md:pt-6">
+                <CardTitle className="text-white text-base md:text-2xl font-bold text-center leading-tight">
                   AlgoFlow Premium Analysis - {analysis.ticker} (${analysis.currentPrice.toFixed(2)})
                 </CardTitle>
               </CardHeader>
-              <CardContent className="bg-black p-4">
-                <div className="h-[400px] w-full">
+              <CardContent className="bg-black p-2 md:p-4">
+                <div className="h-[300px] md:h-[400px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={analysis.chartData}>
                       <XAxis 
@@ -1519,15 +1529,182 @@ export default function AlgoFlowScreener() {
               </CardContent>
             </Card>
 
-            {/* AlgoFlow Trades Table */}
-            <Card className="bg-black border-2 border-white/20">
-              <CardHeader className="bg-black border-b-2 border-white/20">
-                <CardTitle className="text-3xl font-black tracking-wider text-center text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
-                  ALGO FLOW TRADES
-                </CardTitle>
+            {/* AlgoFlow Trades Table - Mobile Optimized */}
+            <Card className="bg-black border-2 border-white/20 w-full">
+              <CardHeader className="bg-black border-b-2 border-white/20 px-3 md:px-6 py-3 md:py-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 w-full">
+                  <CardTitle className="text-lg md:text-3xl font-black tracking-wider text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
+                    ALGO FLOW TRADES
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowMobileDetails(!showMobileDetails)}
+                      className="md:hidden px-3 py-2 bg-white/10 text-white rounded-lg text-xs font-medium hover:bg-white/20 transition-colors"
+                    >
+                      {showMobileDetails ? 'Hide Details' : 'Show Details'}
+                    </button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="bg-black p-0">
-                <div className="overflow-x-auto">
+                {/* Mobile Card View */}
+                <div className="block md:hidden">
+                  {(() => {
+                    // Get trades to display
+                    const tradesToDisplay = analysis?.trades || flowData;
+                    
+                    // Sort trades
+                    const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
+                      let aVal = a[sortColumn];
+                      let bVal = b[sortColumn];
+                      
+                      // Handle timestamp sorting
+                      if (sortColumn === 'trade_timestamp') {
+                        aVal = new Date(aVal).getTime();
+                        bVal = new Date(bVal).getTime();
+                      }
+                      
+                      if (sortDirection === 'asc') {
+                        return aVal > bVal ? 1 : -1;
+                      } else {
+                        return aVal < bVal ? 1 : -1;
+                      }
+                    });
+                    
+                    // Paginate trades
+                    const startIndex = (currentPage - 1) * TRADES_PER_PAGE;
+                    const endIndex = startIndex + TRADES_PER_PAGE;
+                    const paginatedTrades = sortedTrades.slice(startIndex, endIndex);
+                    
+                    return paginatedTrades.map((trade, idx) => {
+                      const tradeTypeColors = {
+                        'SWEEP': 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold',
+                        'BLOCK': 'bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold',
+                        'MINI': 'bg-gradient-to-r from-gray-500 to-gray-600 text-white font-bold',
+                        'MULTI-LEG': 'bg-gradient-to-r from-purple-500 to-purple-600 text-white font-bold'
+                      };
+
+                      const fillColors: Record<string, string> = {
+                        'A': 'text-green-400 font-bold',
+                        'B': 'text-red-400 font-bold', 
+                        'AA': 'text-green-300 font-bold',
+                        'BB': 'text-red-300 font-bold',
+                        'N/A': 'text-gray-500'
+                      };
+
+                      const isExpanded = expandedRows.has(idx);
+                      
+                      return (
+                        <div key={idx} className="border-b border-white/10 bg-black hover:bg-white/5 transition-colors w-full">
+                          <div 
+                            className="p-3 cursor-pointer w-full"
+                            onClick={() => {
+                              const newExpanded = new Set(expandedRows);
+                              if (isExpanded) {
+                                newExpanded.delete(idx);
+                              } else {
+                                newExpanded.add(idx);
+                              }
+                              setExpandedRows(newExpanded);
+                            }}
+                          >
+                            {/* Primary Info Row */}
+                            <div className="flex justify-between items-start mb-2 w-full">
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center gap-1 mb-1">
+                                  <span className="text-white font-bold text-base truncate">{trade.underlying_ticker}</span>
+                                  <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${trade.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
+                                    {trade.type.toUpperCase()}
+                                  </span>
+                                </div>
+                                <div className="text-white/70 text-xs">
+                                  {new Date(trade.trade_timestamp).toLocaleTimeString('en-US', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    timeZone: 'America/New_York'
+                                  })}
+                                </div>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <div className="text-white font-bold text-base">
+                                  ${trade.total_premium.toLocaleString()}
+                                </div>
+                                <div className="text-white/70 text-xs">
+                                  ${trade.strike} Strike
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Secondary Info */}
+                            <div className="flex justify-between items-center text-xs">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <span className="text-white truncate">
+                                  {trade.trade_size.toLocaleString()} contracts
+                                </span>
+                                <span className={`px-1.5 py-0.5 rounded text-xs ${tradeTypeColors[trade.trade_type as keyof typeof tradeTypeColors] || tradeTypeColors['MINI']}`}>
+                                  {trade.trade_type || 'MINI'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <span className={fillColors[trade.fill_style || 'N/A']}>
+                                  {trade.fill_style || 'N/A'}
+                                </span>
+                                <span className="text-white/50">
+                                  {isExpanded ? '▼' : '▶'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Expanded Details */}
+                            {(isExpanded || showMobileDetails) && (
+                              <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                  <div>
+                                    <div className="text-white/50 text-xs uppercase">Premium/Contract</div>
+                                    <div className="text-white font-medium">${trade.premium_per_contract.toFixed(2)}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-white/50 text-xs uppercase">Spot Price</div>
+                                    <div className="text-white font-medium">${trade.spot_price?.toFixed(2) || 'N/A'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-white/50 text-xs uppercase">Expiry</div>
+                                    <div className="text-white font-medium">{trade.expiry.split('T')[0]}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-white/50 text-xs uppercase">Volume</div>
+                                    <div className="text-blue-400 font-medium">{trade.volume?.toLocaleString() || 'N/A'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-white/50 text-xs uppercase">Open Interest</div>
+                                    <div className="text-green-400 font-medium">{trade.open_interest?.toLocaleString() || 'N/A'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-white/50 text-xs uppercase">Live OI</div>
+                                    <div className="text-yellow-400 font-medium">
+                                      {(() => {
+                                        const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
+                                        const originalOI = trade.open_interest || 0;
+                                        const allTrades = analysis?.trades || flowData || [];
+                                        const liveOI = calculateLiveOI(originalOI, allTrades, contractKey);
+                                        const change = liveOI - originalOI;
+                                        const changeText = change > 0 ? `+${change}` : change < 0 ? `${change}` : '±0';
+                                        return `${liveOI.toLocaleString()} (${changeText})`;
+                                      })()}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+
+                {/* Desktop Table View */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full border-collapse">
                     <thead className="bg-black sticky top-0 z-10">
                       <tr className="border-b-2 border-white">
@@ -1747,43 +1924,45 @@ export default function AlgoFlowScreener() {
                     </tbody>
                   </table>
                   
-                  {/* Pagination Controls */}
-                  {(() => {
-                    const tradesToDisplay = analysis?.trades || flowData;
-                    const totalPages = Math.ceil(tradesToDisplay.length / TRADES_PER_PAGE);
-                    
-                    if (totalPages > 1) {
-                      return (
-                        <div className="flex items-center justify-between p-4 border-t-2 border-white/20">
-                          <div className="text-white text-sm">
+                {/* Pagination Controls - Mobile Optimized */}
+                {(() => {
+                  const tradesToDisplay = analysis?.trades || flowData;
+                  const totalPages = Math.ceil(tradesToDisplay.length / TRADES_PER_PAGE);
+                  
+                  if (totalPages > 1) {
+                    return (
+                      <div className="border-t-2 border-white/20 p-4 md:p-4">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
+                          <div className="text-white text-sm text-center sm:text-left">
                             Showing {((currentPage - 1) * TRADES_PER_PAGE) + 1} to {Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} of {tradesToDisplay.length} trades
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 items-center">
                             <button
                               onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                               disabled={currentPage === 1}
-                              className="px-4 py-2 bg-white/10 text-white rounded hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-3 py-2 bg-white/10 text-white rounded hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium min-h-[40px]"
                             >
-                              Previous
+                              Prev
                             </button>
                             <div className="flex gap-1">
-                              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                              {Array.from({ length: Math.min(window.innerWidth < 640 ? 3 : 5, totalPages) }, (_, i) => {
                                 let pageNum;
-                                if (totalPages <= 5) {
+                                const maxButtons = window.innerWidth < 640 ? 3 : 5;
+                                if (totalPages <= maxButtons) {
                                   pageNum = i + 1;
-                                } else if (currentPage <= 3) {
+                                } else if (currentPage <= Math.floor(maxButtons/2) + 1) {
                                   pageNum = i + 1;
-                                } else if (currentPage >= totalPages - 2) {
-                                  pageNum = totalPages - 4 + i;
+                                } else if (currentPage >= totalPages - Math.floor(maxButtons/2)) {
+                                  pageNum = totalPages - maxButtons + 1 + i;
                                 } else {
-                                  pageNum = currentPage - 2 + i;
+                                  pageNum = currentPage - Math.floor(maxButtons/2) + i;
                                 }
                                 
                                 return (
                                   <button
                                     key={pageNum}
                                     onClick={() => setCurrentPage(pageNum)}
-                                    className={`px-3 py-2 rounded ${currentPage === pageNum ? 'bg-blue-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                                    className={`px-3 py-2 rounded text-sm font-medium min-h-[40px] min-w-[40px] ${currentPage === pageNum ? 'bg-blue-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
                                   >
                                     {pageNum}
                                   </button>
@@ -1793,16 +1972,17 @@ export default function AlgoFlowScreener() {
                             <button
                               onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                               disabled={currentPage === totalPages}
-                              className="px-4 py-2 bg-white/10 text-white rounded hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-3 py-2 bg-white/10 text-white rounded hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium min-h-[40px]"
                             >
                               Next
                             </button>
                           </div>
                         </div>
-                      );
-                    }
-                    return null;
-                  })()}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
                   
                   {flowData.length === 0 && (
                     <div className="p-12 text-center text-white/50 text-lg">
@@ -1814,127 +1994,109 @@ export default function AlgoFlowScreener() {
             </Card>
           </div>
 
-          {/* Side Panel - Now Below Chart in Horizontal Layout */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Side Panel - Mobile Optimized */}
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 md:gap-6 w-full">
             {/* Stock Info */}
-            <Card className="bg-zinc-900/50 border-zinc-800">
-              <CardHeader>
-                <CardTitle className="text-white">{analysis.ticker}</CardTitle>
+            <Card className="bg-zinc-900/50 border-zinc-800 w-full">
+              <CardHeader className="pb-2 px-4 pt-4">
+                <CardTitle className="text-white text-lg">{analysis.ticker}</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-xs text-zinc-400">Current Price</div>
-                    <div className="text-xl font-bold text-white">
-                      ${analysis.currentPrice.toFixed(2)}
-                    </div>
+              <CardContent className="space-y-3 px-4 pb-4">
+                <div>
+                  <div className="text-xs text-zinc-400 uppercase tracking-wide">Current Price</div>
+                  <div className="text-lg md:text-xl font-bold text-white">
+                    ${analysis.currentPrice.toFixed(2)}
                   </div>
-                  <div>
-                    <div className="text-xs text-zinc-400">Total Call Premium</div>
-                    <div className="text-lg font-semibold text-green-400">
-                      {formatCurrency(analysis.totalCallPremium)}
-                    </div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-400 uppercase tracking-wide">Total Call Premium</div>
+                  <div className="text-base md:text-lg font-semibold text-green-400">
+                    {formatCurrency(analysis.totalCallPremium)}
                   </div>
-                  <div>
-                    <div className="text-xs text-zinc-400">Total Put Premium</div>
-                    <div className="text-lg font-semibold text-red-400">
-                      {formatCurrency(analysis.totalPutPremium)}
-                    </div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-400 uppercase tracking-wide">Total Put Premium</div>
+                  <div className="text-base md:text-lg font-semibold text-red-400">
+                    {formatCurrency(analysis.totalPutPremium)}
                   </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Aggressive Trades */}
-            <Card className="bg-zinc-900/50 border-zinc-800">
-              <CardHeader>
-                <CardTitle className="text-white">Aggressive Trades</CardTitle>
+            <Card className="bg-zinc-900/50 border-zinc-800 w-full">
+              <CardHeader className="pb-2 px-4 pt-4">
+                <CardTitle className="text-white text-lg">Aggressive Trades</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Large Call Trades</span>
-                    <span className="text-green-400 font-semibold">{analysis.aggressiveCalls}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Large Put Trades</span>
-                    <span className="text-red-400 font-semibold">{analysis.aggressivePuts}</span>
-                  </div>
-                  <div className="border-t border-zinc-700 pt-2">
-                    <div className="text-xs text-zinc-500">
-                      Trades ≥ $50K premium
-                    </div>
+              <CardContent className="space-y-3 px-4 pb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400 text-sm">Large Call Trades</span>
+                  <span className="text-green-400 font-semibold text-lg">{analysis.aggressiveCalls}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400 text-sm">Large Put Trades</span>
+                  <span className="text-red-400 font-semibold text-lg">{analysis.aggressivePuts}</span>
+                </div>
+                <div className="border-t border-zinc-700 pt-2">
+                  <div className="text-xs text-zinc-500">
+                    Trades ≥ $50K premium
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* YOUR REAL 8-TIER INSTITUTIONAL SYSTEM */}
-            <Card className="bg-zinc-900/50 border-zinc-800">
-              <CardHeader>
-                <CardTitle className="text-white">🏛️ 8-Tier Institutional System</CardTitle>
+            {/* 8-Tier Institutional System - Condensed for Mobile */}
+            <Card className="bg-zinc-900/50 border-zinc-800 w-full">
+              <CardHeader className="pb-2 px-4 pt-4">
+                <CardTitle className="text-white text-base md:text-lg">🏛️ Institutional Tiers</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 gap-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Tier 1 - Premium Institutional</span>
+              <CardContent className="px-4 pb-4">
+                <div className="grid grid-cols-1 gap-1.5 text-xs md:text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400">T1 - Premium</span>
                     <span className="text-red-400 font-bold">{analysis.tier1Count}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Tier 2 - High-Value Large Volume</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400">T2 - High-Value</span>
                     <span className="text-orange-400 font-semibold">{analysis.tier2Count}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Tier 3 - Mid-Premium Bulk</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400">T3 - Mid-Premium</span>
                     <span className="text-yellow-400">{analysis.tier3Count}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Tier 4 - Moderate Premium Large</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400">T4 - Moderate</span>
                     <span className="text-green-400">{analysis.tier4Count}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Tier 5 - Lower Premium Large</span>
-                    <span className="text-blue-400">{analysis.tier5Count}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Tier 6 - Small Premium Massive</span>
-                    <span className="text-purple-400">{analysis.tier6Count}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Tier 7 - Penny Options Massive</span>
-                    <span className="text-pink-400">{analysis.tier7Count}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Tier 8 - Total Premium Bypass</span>
-                    <span className="text-white">{analysis.tier8Count}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400">T5-T8 - Other</span>
+                    <span className="text-blue-400">{analysis.tier5Count + analysis.tier6Count + analysis.tier7Count + analysis.tier8Count}</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* YOUR REAL SWEEP/BLOCK/MINI DETECTION */}
-            <Card className="bg-zinc-900/50 border-zinc-800">
-              <CardHeader>
-                <CardTitle className="text-white">Your Real Classification</CardTitle>
+            {/* Classification Summary */}
+            <Card className="bg-zinc-900/50 border-zinc-800 w-full">
+              <CardHeader className="pb-2 px-4 pt-4">
+                <CardTitle className="text-white text-base md:text-lg">Flow Classification</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Sweeps (2+ exchanges)</span>
-                    <span className="text-purple-400 font-semibold">{analysis.sweepCount}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Blocks (≥$50K single)</span>
-                    <span className="text-blue-400 font-semibold">{analysis.blockCount}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Minis (&lt;$50K single)</span>
-                    <span className="text-gray-400 font-semibold">{analysis.miniCount}</span>
-                  </div>
-                  <div className="border-t border-zinc-700 pt-2">
-                    <div className="text-xs text-zinc-500">
-                      3-second window detection logic
-                    </div>
+              <CardContent className="space-y-2 px-4 pb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400 text-sm">Sweeps</span>
+                  <span className="text-purple-400 font-semibold text-lg">{analysis.sweepCount}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400 text-sm">Blocks</span>
+                  <span className="text-blue-400 font-semibold text-lg">{analysis.blockCount}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400 text-sm">Minis</span>
+                  <span className="text-gray-400 font-semibold text-lg">{analysis.miniCount}</span>
+                </div>
+                <div className="border-t border-zinc-700 pt-2">
+                  <div className="text-xs text-zinc-500">
+                    3-sec window logic
                   </div>
                 </div>
               </CardContent>

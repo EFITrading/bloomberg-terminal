@@ -1,4 +1,14 @@
 // CLEAN FETCHSINGLESTOCK FUNCTION FOR IV SCREENER
+const API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+interface StockData {
+  symbol: string;
+  price: string;
+  change: string;
+  volume: number;
+  currentIV: string;
+}
+
 const fetchSingleStock = async (symbol: string): Promise<StockData | null> => {
   try {
     // Get stock price
@@ -80,14 +90,10 @@ const fetchSingleStock = async (symbol: string): Promise<StockData | null> => {
 
     return {
       symbol,
-      ivRank: 0, // Will implement with historical data
-      ivPercentile: 0, // Will implement with historical data
-      iv52WeekHigh: realIVPercent, // Show real IV as proof
-      iv52WeekLow: realIVPercent, // Show real IV as proof  
       price: currentPrice.toString(),
       change: prevClose > 0 ? (currentPrice - prevClose).toString() : '0',
       volume: priceResult?.v || 0,
-      historicalIV: [] // Will implement with historical data
+      currentIV: realIVPercent
     };
   } catch (error) {
     console.error(`❌ Error fetching REAL IV for ${symbol}:`, error);

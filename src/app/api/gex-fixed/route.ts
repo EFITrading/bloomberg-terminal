@@ -50,12 +50,16 @@ export async function GET(request: NextRequest) {
  if (expResult.success && expResult.data[expDate]) {
  const { calls, puts } = expResult.data[expDate];
  
+ // Dynamic strike range based on spot price (±15% range)
+ const lowerBound = spotPrice * 0.85;
+ const upperBound = spotPrice * 1.15;
+ 
  // Process calls
  if (calls) {
  Object.entries(calls).forEach(([strike, data]) => {
  const optionData = data as OptionData;
  const strikeNum = parseFloat(strike);
- if (strikeNum < 620 || strikeNum > 690) return;
+ if (strikeNum < lowerBound || strikeNum > upperBound) return;
  
  const oi = optionData.open_interest || 0;
  const gamma = optionData.greeks?.gamma || 0;
@@ -79,7 +83,7 @@ export async function GET(request: NextRequest) {
  Object.entries(puts).forEach(([strike, data]) => {
  const optionData = data as OptionData;
  const strikeNum = parseFloat(strike);
- if (strikeNum < 620 || strikeNum > 690) return;
+ if (strikeNum < lowerBound || strikeNum > upperBound) return;
  
  const oi = optionData.open_interest || 0;
  const gamma = optionData.greeks?.gamma || 0;

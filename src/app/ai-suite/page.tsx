@@ -10,7 +10,7 @@ function AISuiteContent() {
 
  if (activeView === 'algoflow') {
  return (
- <div className="min-h-screen">
+ <div className="min-h-screen w-full">
  <div className="fixed top-4 left-4 z-50">
  <button
  onClick={() => setActiveView('overview')}
@@ -19,13 +19,15 @@ function AISuiteContent() {
  ← Back to AI Suite
  </button>
  </div>
+ <div className="w-full px-2 sm:px-4 md:px-6">
  <AlgoFlowScreener />
+ </div>
  </div>
  );
  }
 
  return (
- <div className="p-6 bg-gray-900 text-white rounded-lg max-w-6xl mx-auto">
+ <div className="p-2 sm:p-6 bg-gray-900 text-white rounded-lg w-full max-w-none sm:max-w-6xl mx-auto">
  <div className="text-center mb-8">
  <h2 className="text-3xl font-bold mb-4" style={{ color: '#FF6600' }}>
  AI Suite
@@ -176,10 +178,10 @@ export default function AISuite() {
  </div>
  <div className="terminal-content">
  <div style={{ 
- padding: '20px',
+ padding: '12px',
  color: '#FFFFFF',
  fontFamily: 'Inter, system-ui, sans-serif'
- }}>
+ }} className="sm:p-5">
  <AISuiteContent />
  </div>
  </div>
