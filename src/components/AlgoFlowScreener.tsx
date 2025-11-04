@@ -140,8 +140,18 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
 };
 
 // Calculate Live Open Interest based on fill styles
+// Cache for Live OI calculations to avoid recalculating for same contract
+const liveOICache = new Map<string, number>();
+
 const calculateLiveOI = (originalOI: number, trades: any[], contractKey: string): number => {
-  if (!originalOI || !trades || trades.length === 0) return originalOI || 0;
+  // SIMPLIFIED: Just return the original OI since fill styles are unreliable
+  // The OI from Polygon is already the most current available
+  
+  console.log(`� LIVE OI (SIMPLIFIED): ${contractKey} - Returning original OI: ${originalOI}`);
+  
+  if (!trades || trades.length === 0) {
+    return originalOI;
+  }
   
   // Filter trades for this specific contract
   const contractTrades = trades.filter(trade => {
@@ -149,33 +159,62 @@ const calculateLiveOI = (originalOI: number, trades: any[], contractKey: string)
     return tradeKey === contractKey;
   });
   
+  if (contractTrades.length === 0) {
+    return originalOI;
+  }
+  
   let liveOI = originalOI;
   
-  // Process each trade based on fill style
-  contractTrades.forEach(trade => {
-    const volume = trade.size || trade.volume || 0;
+  // Sort trades by timestamp to process chronologically
+  const sortedTrades = [...contractTrades].sort((a, b) => 
+    new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+  );
+  
+  // Process each unique trade - AVOID DUPLICATES
+  const processedTradeIds = new Set<string>();
+  
+  sortedTrades.forEach(trade => {
+    // Create unique identifier
+    const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}_${trade.premium_per_contract}`;
+    
+    if (processedTradeIds.has(tradeId)) {
+      console.log(`⚠️ SKIPPING DUPLICATE: ${tradeId}`);
+      return;
+    }
+    
+    processedTradeIds.add(tradeId);
+    
+    const contracts = trade.trade_size || 0;
     const fillStyle = trade.fill_style;
     
-    console.log(`🔄 LIVE OI CALC: ${contractKey} - Vol: ${volume}, Fill: ${fillStyle}, Before: ${liveOI}`);
+    console.log(`🔄 ${new Date(trade.trade_timestamp).toLocaleTimeString()} - ${contracts} contracts, Fill: ${fillStyle}, Before OI: ${liveOI}`);
     
     switch (fillStyle) {
-      case 'A':   // Add to OI (buying/opening)
-      case 'AA':  // Add to OI (buying/opening)  
-      case 'BB':  // Add to OI (buying/opening)
-        liveOI += volume;
-        console.log(`✅ ADDED ${volume} to OI (${fillStyle} fill)`);
+      case 'A':   // Add to OI (opening)
+      case 'AA':  // Add to OI (opening)  
+      case 'BB':  // Add to OI (opening)
+        liveOI += contracts;
+        console.log(`✅ ADDED ${contracts} -> New OI: ${liveOI}`);
         break;
-      case 'B':   // Subtract from OI (selling/closing)
-        liveOI -= volume;
-        console.log(`❌ SUBTRACTED ${volume} from OI (B fill)`);
+      case 'B':   // Smart B fill logic
+        if (contracts > originalOI) {
+          // If B fill exceeds original OI, it's actually opening positions
+          liveOI += contracts;
+          console.log(`🔄 B FILL EXCEEDS ORIGINAL OI: ADDED ${contracts} (${contracts} > ${originalOI}) -> New OI: ${liveOI}`);
+        } else {
+          // Normal B fill - closing positions
+          liveOI -= contracts;
+          console.log(`❌ SUBTRACTED ${contracts} -> New OI: ${liveOI}`);
+        }
         break;
       default:
-        console.log(`⚪ NO CHANGE for fill style: ${fillStyle}`);
+        console.log(`⚪ NO CHANGE for fill: ${fillStyle}`);
         break;
     }
   });
   
-  // Ensure OI doesn't go negative
+  console.log(`📊 FINAL: ${contractKey} - Original: ${originalOI}, Final: ${liveOI}, Processed: ${processedTradeIds.size} trades`);
+  
   return Math.max(0, liveOI);
 };
 
@@ -654,6 +693,12 @@ export default function AlgoFlowScreener() {
   // Mobile column management
   const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  
+  // Strike price filtering
+  const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
+  
+  // Expiry date filtering
+  const [selectedExpiry, setSelectedExpiry] = useState<string | null>(null);
 
   // Calculate algo flow analysis using YOUR REAL tier system and SWEEP/BLOCK detection
   const calculateAlgoFlowAnalysis = async (trades: OptionsFlowData[]): Promise<AlgoFlowAnalysis | null> => {
@@ -1153,6 +1198,7 @@ export default function AlgoFlowScreener() {
     setStreamStatus('Connecting...');
     console.log('🔄 CLEARING FLOW DATA');
     setFlowData([]);
+    liveOICache.clear(); // Clear Live OI cache when starting new search
     setIsStreamComplete(false);
 
     try {
@@ -1200,6 +1246,7 @@ export default function AlgoFlowScreener() {
                     console.log('🔄 REPLACING ALL FLOW DATA WITH VOL/OI DATA');
                     console.log('🔍 FINAL ENRICHED TRADE SAMPLE:', tradesWithVolOI[0]);
                     setFlowData(tradesWithVolOI);
+                    liveOICache.clear(); // Clear cache when new data loaded
                     
                     // Save to localStorage for DealerAttraction Live OI calculations
                     try {
@@ -1228,6 +1275,7 @@ export default function AlgoFlowScreener() {
                     console.error('Error fetching volume/OI:', volError);
                     // Fallback: use trades without vol/OI data
                     setFlowData(data.trades);
+                    liveOICache.clear(); // Clear cache when new data loaded
                     setStreamStatus('Complete (volume/OI unavailable)');
                     setLoading(false);
                   });
@@ -1546,12 +1594,68 @@ export default function AlgoFlowScreener() {
                   </div>
                 </div>
               </CardHeader>
+              
+              {/* Filter Indicators */}
+              {(selectedStrike !== null || selectedExpiry !== null) && (
+                <div className="bg-blue-900/30 border-b border-blue-500/30 px-4 py-2 flex items-center justify-between">
+                  <div className="text-blue-400 text-sm flex items-center gap-4">
+                    {selectedStrike !== null && (
+                      <span>
+                        <span className="font-medium">Strike:</span> ${selectedStrike}
+                      </span>
+                    )}
+                    {selectedExpiry !== null && (
+                      <span>
+                        <span className="font-medium">Expiry:</span> {selectedExpiry.split('T')[0]}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {selectedStrike !== null && (
+                      <button
+                        onClick={() => setSelectedStrike(null)}
+                        className="text-blue-400 hover:text-white text-sm underline"
+                      >
+                        Clear Strike
+                      </button>
+                    )}
+                    {selectedExpiry !== null && (
+                      <button
+                        onClick={() => setSelectedExpiry(null)}
+                        className="text-green-400 hover:text-white text-sm underline"
+                      >
+                        Clear Expiry
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setSelectedStrike(null);
+                        setSelectedExpiry(null);
+                      }}
+                      className="text-white hover:text-gray-300 text-sm underline font-medium"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+              )}
+              
               <CardContent className="bg-black p-0">
                 {/* Mobile Card View */}
                 <div className="block md:hidden">
                   {(() => {
                     // Get trades to display
-                    const tradesToDisplay = analysis?.trades || flowData;
+                    let tradesToDisplay = analysis?.trades || flowData;
+                    
+                    // Filter by selected strike price if one is selected
+                    if (selectedStrike !== null) {
+                      tradesToDisplay = tradesToDisplay.filter(trade => trade.strike === selectedStrike);
+                    }
+                    
+                    // Filter by selected expiry date if one is selected
+                    if (selectedExpiry !== null) {
+                      tradesToDisplay = tradesToDisplay.filter(trade => trade.expiry === selectedExpiry);
+                    }
                     
                     // Sort trades
                     const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
@@ -1630,7 +1734,12 @@ export default function AlgoFlowScreener() {
                                   ${trade.total_premium.toLocaleString()}
                                 </div>
                                 <div className="text-white/70 text-xs">
-                                  ${trade.strike} Strike
+                                  <button 
+                                    onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)}
+                                    className={`hover:text-blue-400 transition-colors underline ${selectedStrike === trade.strike ? 'text-blue-400 font-bold' : ''}`}
+                                  >
+                                    ${trade.strike} Strike
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -1669,7 +1778,14 @@ export default function AlgoFlowScreener() {
                                   </div>
                                   <div>
                                     <div className="text-white/50 text-xs uppercase">Expiry</div>
-                                    <div className="text-white font-medium">{trade.expiry.split('T')[0]}</div>
+                                    <div className="text-white font-medium">
+                                      <button 
+                                        onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)}
+                                        className={`hover:text-green-400 transition-colors underline ${selectedExpiry === trade.expiry ? 'text-green-400 font-bold' : ''}`}
+                                      >
+                                        {trade.expiry.split('T')[0]}
+                                      </button>
+                                    </div>
                                   </div>
                                   <div>
                                     <div className="text-white/50 text-xs uppercase">Volume</div>
@@ -1796,7 +1912,17 @@ export default function AlgoFlowScreener() {
                     <tbody className="bg-black">
                       {(() => {
                         // Get trades to display
-                        const tradesToDisplay = analysis?.trades || flowData;
+                        let tradesToDisplay = analysis?.trades || flowData;
+                        
+                        // Filter by selected strike price if one is selected
+                        if (selectedStrike !== null) {
+                          tradesToDisplay = tradesToDisplay.filter(trade => trade.strike === selectedStrike);
+                        }
+                        
+                        // Filter by selected expiry date if one is selected
+                        if (selectedExpiry !== null) {
+                          tradesToDisplay = tradesToDisplay.filter(trade => trade.expiry === selectedExpiry);
+                        }
                         
                         // Sort trades
                         const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
@@ -1865,14 +1991,26 @@ export default function AlgoFlowScreener() {
                                   {trade.type.toUpperCase()}
                                 </span>
                               </td>
-                              <td className="p-4 text-white font-bold">${trade.strike}</td>
+                              <td className="p-4 text-white font-bold">
+                                <button 
+                                  onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)}
+                                  className={`hover:text-blue-400 transition-colors underline ${selectedStrike === trade.strike ? 'text-blue-400 font-bold' : ''}`}
+                                >
+                                  ${trade.strike}
+                                </button>
+                              </td>
                               <td className="p-4 text-white font-bold">
                                 {trade.trade_size.toLocaleString()} @${trade.premium_per_contract.toFixed(2)} <span className={fillColors[trade.fill_style || 'N/A']}>{trade.fill_style || 'N/A'}</span>
                               </td>
                               <td className="p-4 text-white font-bold">${trade.total_premium.toLocaleString()}</td>
                               <td className="p-4 text-white font-bold">${trade.spot_price?.toFixed(2) || 'N/A'}</td>
                               <td className="p-4 text-white">
-                                {trade.expiry.split('T')[0]}
+                                <button 
+                                  onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)}
+                                  className={`hover:text-green-400 transition-colors underline ${selectedExpiry === trade.expiry ? 'text-green-400 font-bold' : ''}`}
+                                >
+                                  {trade.expiry.split('T')[0]}
+                                </button>
                               </td>
                               <td className="p-4 text-white">
                                 <div className="text-sm">
