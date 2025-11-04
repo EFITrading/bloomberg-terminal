@@ -49,7 +49,7 @@ interface DHPData {
 interface DHPDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}};
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number}}};
   expirations: string[];
 }
 
@@ -66,15 +66,15 @@ interface PPData {
 interface PPDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}};
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number}}};
   expirations: string[];
 }
 
 interface DSIDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}};
-  vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}};
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number}}};
+  vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
   expirations: string[];
 }
 
@@ -1801,16 +1801,183 @@ const DealerAttraction = () => {
   const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}}>({});
   const [viewMode, setViewMode] = useState<'NET' | 'CP'>('CP'); // C/P by default
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
-  const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}}>({});
+  const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}}>({});
   const [showGEX, setShowGEX] = useState(true);
   const [gexMode, setGexMode] = useState<'GEX'>('GEX');
 
   const [showOI, setShowOI] = useState(false);
-  const [oiMode, setOiMode] = useState<'OI'>('OI');
+  const [oiMode, setOiMode] = useState<'OI' | 'Live OI'>('OI');
+  const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map());
   const [showVEX, setShowVEX] = useState(false);
   const [vexMode, setVexMode] = useState<'VEX'>('VEX');
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'DHP' | 'PP' | 'DSI'>('DHP');
+
+  const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+  // Live OI Update - Separate scan with AlgoFlow's exact logic
+  const updateLiveOI = async () => {
+    console.log('🚀 Starting Live OI scan for', selectedTicker);
+    
+    const eventSource = new EventSource(`/api/stream-options-flow?ticker=${selectedTicker.toUpperCase()}`);
+    let allTrades: any[] = [];
+    
+    eventSource.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'complete' && data.trades?.length > 0) {
+          console.log(`📊 Received ${data.trades.length} trades`);
+          allTrades = data.trades;
+          eventSource.close();
+          
+          // Step 1: Fetch volume and OI data for all trades using Polygon API
+          const uniqueExpirations = [...new Set(allTrades.map(t => t.expiry))];
+          console.log(`📅 Fetching data for ${uniqueExpirations.length} expirations`);
+          
+          const allContracts = new Map();
+          
+          // Fetch data for each expiration
+          for (const expiry of uniqueExpirations) {
+            const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
+            
+            try {
+              const response = await fetch(
+                `https://api.polygon.io/v3/snapshot/options/${selectedTicker.toUpperCase()}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
+              );
+              
+              if (response.ok) {
+                const chainData = await response.json();
+                if (chainData.results) {
+                  chainData.results.forEach((contract: any) => {
+                    if (contract.details && contract.details.ticker) {
+                      allContracts.set(contract.details.ticker, {
+                        volume: contract.day?.volume || 0,
+                        open_interest: contract.open_interest || 0
+                      });
+                    }
+                  });
+                  console.log(`  ✅ Found ${chainData.results.length} contracts for ${expiryParam}`);
+                }
+              }
+            } catch (error) {
+              console.error(`  ❌ Error fetching ${expiryParam}:`, error);
+            }
+          }
+          
+          console.log(`📊 Total contracts fetched: ${allContracts.size}`);
+          
+          // Step 2: Enrich trades with volume/OI
+          const enrichedTrades = allTrades.map(trade => {
+            const contractData = allContracts.get(trade.ticker);
+            return {
+              ...trade,
+              volume: contractData?.volume || 0,
+              open_interest: contractData?.open_interest || 0,
+              underlying_ticker: trade.underlying_ticker || selectedTicker.toUpperCase()
+            };
+          });
+          
+          // Step 3: Detect fill styles (copied from AlgoFlow)
+          const tradesWithFillStyle = enrichedTrades.map(trade => {
+            const volume = trade.volume || 0;
+            const tradeSize = trade.trade_size || 0;
+            const oi = trade.open_interest || 0;
+            
+            // Fill style logic from AlgoFlow
+            let fillStyle = 'N/A';
+            
+            if (tradeSize > oi * 0.5) {
+              fillStyle = 'AA'; // Aggressive opening
+            } else if (tradeSize > volume * 0.3) {
+              fillStyle = 'A'; // Opening
+            } else if (tradeSize > oi * 0.1) {
+              fillStyle = 'BB'; // Block opening
+            } else {
+              fillStyle = 'B'; // Likely closing
+            }
+            
+            return {
+              ...trade,
+              fill_style: fillStyle
+            };
+          });
+          
+          console.log(`✅ Enriched ${tradesWithFillStyle.length} trades with volume/OI and fill_style`);
+          
+          // Step 4: Calculate Live OI for each unique contract
+          const liveOIMap = new Map<string, number>();
+          const uniqueContracts = new Set<string>();
+          
+          tradesWithFillStyle.forEach(trade => {
+            const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
+            uniqueContracts.add(contractKey);
+          });
+          
+          uniqueContracts.forEach(contractKey => {
+            const matchingTrade = tradesWithFillStyle.find(t => 
+              `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
+            );
+            
+            const originalOI = matchingTrade?.open_interest || 0;
+            
+            // Calculate Live OI using the trades
+            const contractTrades = tradesWithFillStyle.filter(t => 
+              `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
+            );
+            
+            let liveOI = originalOI;
+            const processedTradeIds = new Set<string>();
+            
+            // Sort trades chronologically
+            const sortedTrades = [...contractTrades].sort((a, b) => 
+              new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+            );
+            
+            sortedTrades.forEach(trade => {
+              const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}`;
+              
+              if (processedTradeIds.has(tradeId)) return;
+              processedTradeIds.add(tradeId);
+              
+              const contracts = trade.trade_size || 0;
+              const fillStyle = trade.fill_style;
+              
+              switch (fillStyle) {
+                case 'A':
+                case 'AA':
+                case 'BB':
+                  liveOI += contracts;
+                  break;
+                case 'B':
+                  if (contracts > originalOI) {
+                    liveOI += contracts;
+                  } else {
+                    liveOI -= contracts;
+                  }
+                  break;
+              }
+            });
+            
+            liveOI = Math.max(0, liveOI);
+            liveOIMap.set(contractKey, liveOI);
+            
+            console.log(`📊 ${contractKey}: OI ${originalOI} → Live OI ${liveOI}`);
+          });
+          
+          setLiveOIData(liveOIMap);
+          console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
+        }
+      } catch (error) {
+        console.error('❌ Error in Live OI update:', error);
+      }
+    };
+    
+    eventSource.onerror = (error) => {
+      console.error('❌ EventSource error:', error);
+      eventSource.close();
+    };
+  };
 
   // Helper function to filter expirations to 3 months max
   const filterTo3Months = (expirations: string[]) => {
@@ -1891,8 +2058,8 @@ const DealerAttraction = () => {
       
       // Initialize all data structures - these will always be calculated regardless of display settings
       const oiByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}} = {};
-      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}} = {};
-      const vexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}} = {};
+      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number}}} = {};
+      const vexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}} = {};
       const allStrikes = new Set<number>();
       
       // Smart batching: larger batches for more expirations
@@ -1925,7 +2092,7 @@ const DealerAttraction = () => {
               
               // STEP 1B: Calculate GEX using the OI we just stored
               const gamma = data.greeks?.gamma || 0;
-              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0 };
+              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0 };
               if (gamma) {
                 const gex = gamma * oi * (currentPrice * currentPrice) * 100;
                 gexByStrikeByExp[expDate][strikeNum].call = gex;
@@ -1934,10 +2101,11 @@ const DealerAttraction = () => {
               
               // STEP 1C: Calculate VEX using the OI we already have
               if (!vexByStrikeByExp[expDate][strikeNum]) {
-                vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+                vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
               }
               const vega = data.greeks?.vega || 0;
               vexByStrikeByExp[expDate][strikeNum].callOI = oi;
+              vexByStrikeByExp[expDate][strikeNum].callVega = vega; // Store vega for recalculation
               console.log(`🔍🚨 Call VEX Debug: Strike ${strikeNum}, OI=${oi}, Vega=${vega}, greeks:`, data.greeks);
               if (vega && vega !== 0) {
                 const vex = vega * oi * 100; // VEX = Vega × OI × 100 (no price squared)
@@ -1969,10 +2137,11 @@ const DealerAttraction = () => {
               
               // STEP 2B: Update GEX with put data
               if (!gexByStrikeByExp[expDate][strikeNum]) {
-                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0 };
               }
               const gamma = data.greeks?.gamma || 0;
               gexByStrikeByExp[expDate][strikeNum].putOI = oi;
+              gexByStrikeByExp[expDate][strikeNum].putGamma = gamma;
               if (gamma) {
                 const gex = -gamma * oi * (currentPrice * currentPrice) * 100; // Negative for puts
                 gexByStrikeByExp[expDate][strikeNum].put = gex;
@@ -1981,10 +2150,11 @@ const DealerAttraction = () => {
               
               // STEP 2C: Update VEX with put data
               if (!vexByStrikeByExp[expDate][strikeNum]) {
-                vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+                vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
               }
               const vega = data.greeks?.vega || 0;
               vexByStrikeByExp[expDate][strikeNum].putOI = oi;
+              vexByStrikeByExp[expDate][strikeNum].putVega = vega; // Store vega for recalculation
               console.log(`🔍 Put VEX Debug: Strike ${strikeNum}, OI=${oi}, Vega=${vega}, greeks:`, data.greeks);
               if (vega) {
                 const vex = -vega * oi * 100; // VEX = -Vega × OI × 100 for puts (no price squared)
@@ -2070,19 +2240,55 @@ const DealerAttraction = () => {
         const row: GEXData = { strike };
         expirations.forEach(exp => {
           // Get all data types for this strike and expiration
-          const gexData = gexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
-          const vexData = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
+          const gexData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number} = gexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined };
+          const vexData: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number} = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVega: undefined, putVega: undefined };
+          
+          let callGEX = gexData.call;
+          let putGEX = gexData.put;
+          let callOI = gexData.callOI;
+          let putOI = gexData.putOI;
+          let callVEX = vexData.call;
+          let putVEX = vexData.put;
+          
+          // Recalculate GEX and VEX using Live OI if available
+          if (oiMode === 'Live OI' && liveOIData.size > 0) {
+            const callKey = `${selectedTicker}_${strike}_call_${exp}`;
+            const putKey = `${selectedTicker}_${strike}_put_${exp}`;
+            
+            const liveCallOI = liveOIData.get(callKey);
+            const livePutOI = liveOIData.get(putKey);
+            
+            // If Live OI exists, recalculate GEX with it
+            if (liveCallOI !== undefined && gexData.callGamma) {
+              callOI = liveCallOI;
+              callGEX = gexData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
+            }
+            
+            if (livePutOI !== undefined && gexData.putGamma) {
+              putOI = livePutOI;
+              putGEX = -gexData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
+            }
+            
+            // Recalculate VEX with Live OI
+            if (liveCallOI !== undefined && vexData.callVega) {
+              callVEX = vexData.callVega * liveCallOI * 100;
+            }
+            
+            if (livePutOI !== undefined && vexData.putVega) {
+              putVEX = -vexData.putVega * livePutOI * 100;
+            }
+          }
           
           // Store all data types for flexible display
           row[exp] = { 
-            call: gexData.call, 
-            put: gexData.put, 
-            net: gexData.call + gexData.put, 
-            callOI: gexData.callOI, 
-            putOI: gexData.putOI,
+            call: callGEX, 
+            put: putGEX, 
+            net: callGEX + putGEX, 
+            callOI: callOI, 
+            putOI: putOI,
             // Add VEX data as additional properties
-            callVex: vexData.call,
-            putVex: vexData.put
+            callVex: callVEX,
+            putVex: putVEX
           };
           
           // Debug VEX data during formatting
@@ -2096,7 +2302,7 @@ const DealerAttraction = () => {
       return data;
     }
     return [];
-  }, [viewMode, gexByStrikeByExpiration, vexByStrikeByExpiration, currentPrice, expirations, otmFilter, analysisType, showGEX, showOI, showVEX, gexMode, oiMode, vexMode]);
+  }, [viewMode, gexByStrikeByExpiration, vexByStrikeByExpiration, currentPrice, expirations, otmFilter, analysisType, showGEX, showOI, showVEX, gexMode, oiMode, vexMode, liveOIData]);
 
   // Update data state when memoized data changes
   useEffect(() => {
@@ -2433,10 +2639,17 @@ const DealerAttraction = () => {
                             <div className="relative">
                               <select
                                 value={oiMode}
-                                onChange={(e) => setOiMode(e.target.value as 'OI')}
+                                onChange={(e) => {
+                                  const newMode = e.target.value as 'OI' | 'Live OI';
+                                  setOiMode(newMode);
+                                  if (newMode === 'Live OI') {
+                                    updateLiveOI();
+                                  }
+                                }}
                                 className="bg-black border-2 border-gray-800 focus:border-blue-500 focus:outline-none px-3 py-1.5 pr-8 text-white text-xs font-bold uppercase appearance-none cursor-pointer min-w-[80px] transition-all"
                               >
                                 <option value="OI">OI</option>
+                                <option value="Live OI">Live OI</option>
                               </select>
                               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg className="w-3 h-3 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
@@ -2730,8 +2943,21 @@ const DealerAttraction = () => {
                               const callValue = value?.call || 0;
                               const putValue = value?.put || 0;
                               const netValue = value?.net || 0;
-                              const callOI = value?.callOI || 0;
-                              const putOI = value?.putOI || 0;
+                              let callOI = value?.callOI || 0;
+                              let putOI = value?.putOI || 0;
+                              
+                              // Use Live OI if mode is selected
+                              if (oiMode === 'Live OI' && liveOIData.size > 0) {
+                                const callKey = `${selectedTicker}_${row.strike}_call_${exp}`;
+                                const putKey = `${selectedTicker}_${row.strike}_put_${exp}`;
+                                
+                                const liveCallOI = liveOIData.get(callKey);
+                                const livePutOI = liveOIData.get(putKey);
+                                
+                                if (liveCallOI !== undefined) callOI = liveCallOI;
+                                if (livePutOI !== undefined) putOI = livePutOI;
+                              }
+                              
                               const callPremium = value?.callPremium || 0;
                               const putPremium = value?.putPremium || 0;
                               const callVex = value?.callVex || 0;
