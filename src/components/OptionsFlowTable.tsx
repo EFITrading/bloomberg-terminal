@@ -298,6 +298,7 @@ interface OptionsFlowTableProps {
  onTickerChange: (ticker: string) => void;
  streamingStatus?: string;
  streamingProgress?: {current: number, total: number} | null;
+ streamError?: string;
 }
 
 export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
@@ -310,7 +311,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  selectedTicker,
  onTickerChange,
  streamingStatus,
- streamingProgress
+ streamingProgress,
+ streamError
 }) => {
  const [sortField, setSortField] = useState<keyof OptionsFlowData>('trade_timestamp');
  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -1697,6 +1699,21 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  </div>
  </div>
  </div>
+
+ {/* Error Banner */}
+ {streamError && (
+ <div className="bg-red-900/20 border-l-4 border-red-500 px-6 py-4 mx-8 my-4 rounded-r-lg">
+ <div className="flex items-center gap-3">
+ <svg className="w-6 h-6 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+ <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+ </svg>
+ <div>
+ <p className="text-red-400 font-semibold">Connection Error</p>
+ <p className="text-red-300 text-sm">{streamError}</p>
+ </div>
+ </div>
+ </div>
+ )}
 
  {/* Main Table */}
  <div className="bg-black border border-gray-800 flex-1">

@@ -67,10 +67,13 @@ export default function OptionsFlowPage() {
  const [selectedTicker, setSelectedTicker] = useState('ALL');
  const [streamingStatus, setStreamingStatus] = useState<string>('');
  const [streamingProgress, setStreamingProgress] = useState<{current: number, total: number} | null>(null);
+ const [streamError, setStreamError] = useState<string>('');
+ const [retryCount, setRetryCount] = useState<number>(0);
 
  // Live options flow fetch
  const fetchOptionsFlowStreaming = async () => {
  setLoading(true);
+ setStreamError('');
  
  try {
  console.log(` Fetching live streaming options flow data...`);
@@ -135,6 +138,8 @@ export default function OptionsFlowPage() {
  setLoading(false);
  setStreamingStatus('');
  setStreamingProgress(null);
+ setStreamError('');
+ setRetryCount(0); // Reset retry count on success
  
  console.log(` Stream Complete: ${streamData.trades.length} trades, $${streamData.summary.total_premium.toLocaleString()} total premium`);
  eventSource.close();
@@ -142,6 +147,7 @@ export default function OptionsFlowPage() {
  
  case 'error':
  console.error('Stream error:', streamData.error);
+ setStreamError(streamData.error || 'Stream error occurred');
  setLoading(false);
  eventSource.close();
  break;
@@ -153,8 +159,30 @@ export default function OptionsFlowPage() {
  
  eventSource.onerror = (error) => {
  console.error('EventSource error:', error);
+ 
+ // Set user-friendly error message
+ setStreamError('Connection lost. Retrying...');
+ setStreamingStatus('Connection error - retrying...');
+ 
  setLoading(false);
  eventSource.close();
+ 
+ // Auto-retry with exponential backoff (max 3 retries)
+ if (retryCount < 3) {
+ const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 8000); // Max 8 seconds
+ console.log(`🔄 Retrying in ${backoffDelay}ms (attempt ${retryCount + 1}/3)...`);
+ 
+ setTimeout(() => {
+ setRetryCount(prev => prev + 1);
+ fetchOptionsFlowStreaming();
+ }, backoffDelay);
+ } else {
+ setStreamError('Connection failed after 3 attempts. Please try refreshing the page.');
+ setStreamingStatus('');
+ console.error('❌ Max retries reached. Falling back to regular API.');
+ // Fallback to regular API
+ fetchOptionsFlow();
+ }
  };
  
  } catch (error) {
@@ -226,6 +254,9 @@ export default function OptionsFlowPage() {
  }, [selectedTicker]);
 
  const handleRefresh = () => {
+ // Reset error state and retry count
+ setStreamError('');
+ setRetryCount(0);
  // Always refresh with live streaming data
  fetchOptionsFlowStreaming();
  };
@@ -263,6 +294,7 @@ export default function OptionsFlowPage() {
  onTickerChange={setSelectedTicker}
  streamingStatus={streamingStatus}
  streamingProgress={streamingProgress}
+ streamError={streamError}
  />
  </div>
 
