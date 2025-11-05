@@ -334,6 +334,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
  const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
  const [tradesWithFillStyles, setTradesWithFillStyles] = useState<OptionsFlowData[]>([]);
+ const [isMounted, setIsMounted] = useState(false);
+
+ // Ensure component is mounted on client side to avoid hydration issues
+ useEffect(() => {
+ setIsMounted(true);
+ }, []);
 
  // Debug: Monitor filter dialog state changes
  useEffect(() => {
@@ -341,7 +347,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  }, [isFilterDialogOpen]);
 
  // Prevent body from scrolling to eliminate page-level scrollbar
+ // Only run on client-side to avoid hydration mismatch
  useEffect(() => {
+ if (typeof window !== 'undefined') {
  document.body.style.overflow = 'hidden';
  document.documentElement.style.overflow = 'hidden';
  
@@ -349,6 +357,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  document.body.style.overflow = '';
  document.documentElement.style.overflow = '';
  };
+ }
  }, []);
 
  // Only sync input field with selectedTicker when not actively typing
@@ -824,6 +833,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  // Box-style background for ticker symbols - orange text with silver-black background
  return 'bg-gradient-to-b from-gray-800 to-black text-orange-500 font-bold px-6 py-3 border border-gray-500/70 shadow-lg text-lg tracking-wide rounded-sm min-w-[80px]';
  };
+
+ // Prevent hydration mismatch - only render after client mount
+ if (!isMounted) {
+ return null;
+ }
 
  return (
  <>
