@@ -129,8 +129,26 @@ export default function OptionsFlowPage() {
  break;
  
  case 'complete':
- // Final update with summary
- setData(streamData.trades);
+ // Final update with summary - APPEND any remaining trades, don't replace
+ if (streamData.trades && streamData.trades.length > 0) {
+ setData(prevData => {
+ // Create a Set of existing trade identifiers to avoid duplicates
+ const existingTradeIds = new Set(
+ prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
+ );
+ 
+ // Only add truly new trades
+ const newTrades = (streamData.trades as OptionsFlowData[]).filter((trade: OptionsFlowData) => {
+ const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
+ return !existingTradeIds.has(tradeId);
+ });
+ 
+ console.log(` Stream Complete: Adding ${newTrades.length} final trades (${streamData.trades.length} sent, ${prevData.length} existing)`);
+ 
+ return [...prevData, ...newTrades];
+ });
+ }
+ 
  setSummary(streamData.summary);
  if (streamData.market_info) {
  setMarketInfo(streamData.market_info);
@@ -143,7 +161,7 @@ export default function OptionsFlowPage() {
  setRetryCount(0); // Reset retry count on success
  setIsStreamComplete(true); // Mark stream as successfully completed
  
- console.log(` Stream Complete: ${streamData.trades.length} trades, $${streamData.summary.total_premium.toLocaleString()} total premium`);
+ console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades, $${streamData.summary.total_premium.toLocaleString()} total premium`);
  
  // Close the connection after a brief delay to ensure all messages are processed
  setTimeout(() => {
@@ -278,7 +296,7 @@ export default function OptionsFlowPage() {
  useEffect(() => {
  // Reset completion flag on ticker change
  setIsStreamComplete(false);
- // Always fetch live streaming data
+ // Always fetch live streaming data (data will accumulate via prevData)
  fetchOptionsFlowStreaming(0);
  }, [selectedTicker]);
 
