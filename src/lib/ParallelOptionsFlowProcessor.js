@@ -93,6 +93,14 @@ class ParallelOptionsFlowProcessor {
       const creationTime = workerCreationComplete - this.benchmarks.workerCreation.get(workerIndex);
       console.log(`🔧 Worker ${workerIndex}: Created in ${creationTime.toFixed(2)}ms`);
       
+      // Send progress update to keep connection alive
+      if (onProgress) {
+        onProgress([], `Processing batch ${workerIndex + 1}/${this.numWorkers}...`, {
+          current: workerIndex,
+          total: this.numWorkers
+        });
+      }
+      
       // Use the separate worker file with more reliable path resolution for Next.js
       const workerPath = path.resolve(process.cwd(), 'src/lib/optionsFlowWorker.js');
       
@@ -121,7 +129,7 @@ class ParallelOptionsFlowProcessor {
         const currentProcessing = this.benchmarks.workerProcessing.get(workerIndex);
         
         if (result.type === 'trades_found') {
-          // ACCUMULATE TRADES but don't stream immediately - wait for classification
+          // ACCUMULATE TRADES and stream them immediately to keep connection alive
           allWorkerTrades.push(...result.trades);
           console.log(`📈 Worker ${workerIndex}: Found ${result.trades.length} trades from ${result.ticker} ${result.contract} (${allWorkerTrades.length} total)`);
           
@@ -134,14 +142,15 @@ class ParallelOptionsFlowProcessor {
             }
           }
           
-          // Only show progress, don't send unclassified trades
-          if (onProgress) {
-            onProgress([], `🔴 LIVE: Found ${result.trades.length} trades from ${result.ticker}`, {
+          // Send trades immediately to keep connection alive and show progress
+          if (onProgress && result.trades.length > 0) {
+            onProgress(result.trades, `🔴 LIVE: Found ${result.trades.length} trades from ${result.ticker}`, {
               worker: workerIndex,
               ticker: result.ticker,
               contract: result.contract,
               newTrades: result.trades.length,
-              workerTotal: allWorkerTrades.length
+              workerTotal: allWorkerTrades.length,
+              progressive: true // Mark as progressive update
             });
           }
         } else if (result.type === 'ticker_progress') {
