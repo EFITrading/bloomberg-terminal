@@ -69,9 +69,10 @@ export default function OptionsFlowPage() {
  const [streamingProgress, setStreamingProgress] = useState<{current: number, total: number} | null>(null);
  const [streamError, setStreamError] = useState<string>('');
  const [retryCount, setRetryCount] = useState<number>(0);
+ const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
 
  // Live options flow fetch
- const fetchOptionsFlowStreaming = async () => {
+ const fetchOptionsFlowStreaming = async (currentRetry: number = 0) => {
  setLoading(true);
  setStreamError('');
  
@@ -140,9 +141,14 @@ export default function OptionsFlowPage() {
  setStreamingProgress(null);
  setStreamError('');
  setRetryCount(0); // Reset retry count on success
+ setIsStreamComplete(true); // Mark stream as successfully completed
  
  console.log(` Stream Complete: ${streamData.trades.length} trades, $${streamData.summary.total_premium.toLocaleString()} total premium`);
+ 
+ // Close the connection after a brief delay to ensure all messages are processed
+ setTimeout(() => {
  eventSource.close();
+ }, 100);
  break;
  
  case 'error':
@@ -150,6 +156,18 @@ export default function OptionsFlowPage() {
  setStreamError(streamData.error || 'Stream error occurred');
  setLoading(false);
  eventSource.close();
+ break;
+ 
+ case 'close':
+ // Server is gracefully closing the connection
+ console.log(' Stream closed by server:', streamData.message);
+ setIsStreamComplete(true);
+ eventSource.close();
+ break;
+ 
+ case 'heartbeat':
+ // Keep-alive ping, no action needed
+ console.log('💓 Stream heartbeat received');
  break;
  }
  } catch (parseError) {
@@ -160,6 +178,13 @@ export default function OptionsFlowPage() {
  eventSource.onerror = (error) => {
  console.error('EventSource error:', error);
  
+ // Don't retry if stream completed successfully
+ if (isStreamComplete) {
+ console.log('Stream completed successfully, ignoring final disconnect');
+ eventSource.close();
+ return;
+ }
+ 
  // Set user-friendly error message
  setStreamError('Connection lost. Retrying...');
  setStreamingStatus('Connection error - retrying...');
@@ -168,13 +193,15 @@ export default function OptionsFlowPage() {
  eventSource.close();
  
  // Auto-retry with exponential backoff (max 3 retries)
- if (retryCount < 3) {
- const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 8000); // Max 8 seconds
- console.log(`🔄 Retrying in ${backoffDelay}ms (attempt ${retryCount + 1}/3)...`);
+ if (currentRetry < 3) {
+ const nextRetry = currentRetry + 1;
+ const backoffDelay = Math.min(1000 * Math.pow(2, currentRetry), 8000); // Max 8 seconds
+ console.log(`🔄 Retrying in ${backoffDelay}ms (attempt ${nextRetry}/3)...`);
+ 
+ setRetryCount(nextRetry);
  
  setTimeout(() => {
- setRetryCount(prev => prev + 1);
- fetchOptionsFlowStreaming();
+ fetchOptionsFlowStreaming(nextRetry);
  }, backoffDelay);
  } else {
  setStreamError('Connection failed after 3 attempts. Please try refreshing the page.');
@@ -249,16 +276,19 @@ export default function OptionsFlowPage() {
 
  // Initial load - fetch current date live data by default
  useEffect(() => {
+ // Reset completion flag on ticker change
+ setIsStreamComplete(false);
  // Always fetch live streaming data
- fetchOptionsFlowStreaming();
+ fetchOptionsFlowStreaming(0);
  }, [selectedTicker]);
 
  const handleRefresh = () => {
  // Reset error state and retry count
  setStreamError('');
  setRetryCount(0);
+ setIsStreamComplete(false);
  // Always refresh with live streaming data
- fetchOptionsFlowStreaming();
+ fetchOptionsFlowStreaming(0);
  };
 
  const handleClearData = () => {
