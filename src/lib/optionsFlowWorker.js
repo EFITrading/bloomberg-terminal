@@ -321,7 +321,8 @@ if (parentPort) {
  const tradesResponse = await makePolygonRequest(tradesUrl);
  
  if (tradesResponse.results && tradesResponse.results.length > 0) {
- return { contract, trades: tradesResponse.results };
+ // Return trades WITHOUT Vol/OI - will be enriched on frontend like AlgoFlow
+ return { contract, trades: tradesResponse.results, snapshot: null };
  }
  return null;
  } catch (error) {
@@ -405,7 +406,8 @@ if (parentPort) {
  }
  }
  
- return {
+ // 🔥 BUILD TRADE OBJECT WITH VOL/OI DATA
+ const tradeObj = {
  underlying_ticker: ticker,
  ticker: contract.ticker,
  option_ticker: contract.ticker,
@@ -427,6 +429,10 @@ if (parentPort) {
  worker: workerIndex,
  conditions: trade.conditions || []
  };
+ 
+ // Vol/OI and fill_style will be enriched on frontend (like AlgoFlow)
+ 
+ return tradeObj;
  } catch (error) {
  console.error(` Worker ${workerIndex}: Trade processing error:`, error);
  return null;

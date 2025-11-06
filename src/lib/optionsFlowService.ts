@@ -1,4 +1,4 @@
-import { TOP_1800_SYMBOLS } from './Top1000Symbols';
+import { TOP_1800_SYMBOLS, OPTIONS_FLOW_SYMBOLS } from './Top1000Symbols';
 import { withCircuitBreaker } from './circuitBreaker';
 
 // Market hours utility functions
@@ -206,16 +206,31 @@ interface ProcessedTrade {
   related_trades?: string[];
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
-  // Volume and Open Interest fields
+  // Volume and Open Interest fields (INSTANT from snapshot)
   volume?: number;
   open_interest?: number;
-  // Fill analysis fields
+  vol_oi_ratio?: number;
+  // Fill analysis fields (INSTANT from snapshot)
+  bid?: number;
+  ask?: number;
   bid_price?: number;
   ask_price?: number;
   bid_size?: number;
   ask_size?: number;
+  bid_ask_spread?: number;
+  fill_style?: string;
   fill_type?: 'BELOW_BID' | 'AT_BID' | 'BETWEEN' | 'AT_ASK' | 'ABOVE_ASK';
   fill_aggression?: 'AGGRESSIVE_BUY' | 'AGGRESSIVE_SELL' | 'NEUTRAL' | 'UNKNOWN';
+  // Greeks (INSTANT from snapshot)
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
+  implied_volatility?: number;
+  // Current pricing (INSTANT from snapshot)
+  current_price?: number;
+  // Classification (INSTANT from vol/OI analysis)
+  classification?: string;
 }
 
 interface PremiumTier {
@@ -313,6 +328,9 @@ export class OptionsFlowService {
       );
       
       console.log(`✅ ULTRA-FAST SCAN COMPLETE: Found ${allTrades.length} total trades`);
+      
+      // Workers now include Vol/OI data directly - no enrichment needed!
+      console.log(`✅ Vol/OI data included by workers - skipping enrichment step`);
       
       // CRITICAL: Classify all trades after collection to enable proper SWEEP/BLOCK/MINI detection
       console.log(`🔍 CLASSIFYING TRADES: Analyzing ${allTrades.length} trades for sweep patterns...`);
@@ -791,11 +809,6 @@ export class OptionsFlowService {
     const callsAfterFilter = filtered.filter(t => t.type === 'call').length;
     console.log(`🎯 After YOUR tier criteria filter: ${filtered.length} trades (${putsAfterFilter} puts, ${callsAfterFilter} calls)`);
 
-    // MINIMUM PREMIUM FILTER: Only trades with $1k+ total premium
-    const beforePremiumFilter = filtered.length;
-    filtered = filtered.filter(trade => trade.total_premium >= this.MIN_PREMIUM_FILTER);
-    console.log(`💰 After $${this.MIN_PREMIUM_FILTER}+ premium filter: ${filtered.length} trades (removed ${beforePremiumFilter - filtered.length})`);
-
     // Classify trade types ONLY if not already classified
     if (!alreadyClassified) {
       filtered = filtered.map(trade => this.classifyTradeType(trade));
@@ -1134,8 +1147,8 @@ export class OptionsFlowService {
   }
 
   // ROBUST FETCH WITH CONNECTION HANDLING AND RATE LIMITING
-  private async robustFetch(url: string, maxRetries: number = 5): Promise<Response> {
-    // Use circuit breaker for external API calls
+  private async robustFetch(url: string, maxRetries: number = 3): Promise<Response> {
+    // Use circuit breaker for external API calls - REDUCED retries from 5 to 3
     return withCircuitBreaker('polygon', async () => {
       let lastError: Error = new Error('Unknown error');
       
@@ -1143,9 +1156,9 @@ export class OptionsFlowService {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
-          console.warn(`⏰ Aborting request after 15s timeout (attempt ${attempt}/${maxRetries})`);
+          console.warn(`⏰ Aborting request after 3s timeout (attempt ${attempt}/${maxRetries})`);
           controller.abort();
-        }, 15000); // Reduced timeout for faster failure detection
+        }, 3000); // OPTIMIZED: 3s timeout for faster failure (was 5s)
         
         // Enhanced headers for better API compatibility with connection error handling
         const response = await fetch(url, {
@@ -1827,11 +1840,7 @@ export class OptionsFlowService {
     const parsed = this.parseOptionsTicker(rawTrade.ticker);
     if (!parsed) return null;
 
-    // YOUR SPECIFICATION: Minimum Total Premium $1,000 filter
     const totalPremium = rawTrade.price * rawTrade.size; // Price already in cents
-    if (totalPremium < 1000) {
-      return null; // Filter out small retail trades under $1,000
-    }
 
     // Get real historical spot price at the exact time of the trade
     const tradeTimestamp = rawTrade.sip_timestamp / 1000000; // Convert to milliseconds
@@ -2248,14 +2257,13 @@ export class OptionsFlowService {
   }
 
   private getPopularTickers(): string[] {
-    // Use the Top 1800+ symbols list for comprehensive market scanning
-    return TOP_1800_SYMBOLS;
+    // Use OPTIONS_FLOW_SYMBOLS (excludes SPY, QQQ, NVDA)
+    return OPTIONS_FLOW_SYMBOLS;
   }
 
   private getTop1000Symbols(): string[] {
-    // Import and return the expanded symbols array (now 1800+ stocks + major ETFs)
-    // SPY is now FIRST in the list for maximum priority
-    return TOP_1800_SYMBOLS; // Use all 1800+ stocks + ETFs for comprehensive coverage
+    // Use OPTIONS_FLOW_SYMBOLS for options flow scanner (excludes SPY, QQQ, NVDA)
+    return OPTIONS_FLOW_SYMBOLS;
   }
 
   // UTILITY: Chunk array into batches for batch processing
@@ -2267,7 +2275,124 @@ export class OptionsFlowService {
     return chunks;
   }
 
-  // BATCHED CONTRACT TRADES: Fetch trades for multiple contracts efficiently
+  // 🚀 INSTANT ENRICHMENT: Add Vol/OI/Greeks/Current Price to trades after worker scan (PARALLEL VERSION)
+  private async enrichTradesInstantlyParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
+    if (trades.length === 0) return trades;
+    
+    console.log(`✅ ARCHITECTURAL FIX: Returning ${trades.length} trades WITHOUT enrichment`);
+    console.log(`💡 Frontend will enrich ONLY visible trades (250 per page) to avoid 6GB memory crash`);
+    
+    // Return trades immediately - frontend will enrich visible trades progressively
+    return trades;
+  }
+
+  // 🚀 INSTANT ENRICHMENT: Add Vol/OI/Greeks/Current Price to trades after worker scan
+  private async enrichTradesInstantly(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
+    if (trades.length === 0) return trades;
+    
+    // Group trades by underlying ticker for batch enrichment
+    const tradesByTicker = new Map<string, ProcessedTrade[]>();
+    trades.forEach(trade => {
+      const ticker = trade.underlying_ticker;
+      if (!tradesByTicker.has(ticker)) {
+        tradesByTicker.set(ticker, []);
+      }
+      tradesByTicker.get(ticker)!.push(trade);
+    });
+    
+    console.log(`📊 Enriching ${trades.length} trades across ${tradesByTicker.size} tickers`);
+    
+    // Fetch snapshot data for each ticker (batched by ticker)
+    const enrichmentPromises = Array.from(tradesByTicker.entries()).map(async ([ticker, tickerTrades]) => {
+      try {
+        // ONE snapshot call gets ALL enrichment data for this ticker
+        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`;
+        const response = await this.robustFetch(snapshotUrl);
+        const snapshotData = await response.json();
+        
+        // Create enrichment map: contract ticker -> data
+        const enrichmentMap = new Map<string, any>();
+        if (snapshotData.results) {
+          snapshotData.results.forEach((snapshot: any) => {
+            const contractTicker = snapshot.details.ticker;
+            enrichmentMap.set(contractTicker, {
+              volume: snapshot.day?.volume || 0,
+              open_interest: snapshot.open_interest || 0,
+              delta: snapshot.greeks?.delta || 0,
+              gamma: snapshot.greeks?.gamma || 0,
+              theta: snapshot.greeks?.theta || 0,
+              vega: snapshot.greeks?.vega || 0,
+              implied_volatility: snapshot.implied_volatility || 0,
+              bid: snapshot.last_quote?.bid || 0,
+              ask: snapshot.last_quote?.ask || 0,
+              current_price: snapshot.last_quote?.midpoint || snapshot.last_trade?.price || 0
+            });
+          });
+        }
+        
+        // Enrich all trades for this ticker
+        return tickerTrades.map(trade => {
+          const enrichment = enrichmentMap.get(trade.ticker);
+          if (!enrichment) return trade;
+          
+          // Calculate enriched fields
+          const volume = enrichment.volume || 0;
+          const openInterest = enrichment.open_interest || 0;
+          const volOIRatio = openInterest > 0 ? volume / openInterest : 0;
+          
+          const bid = enrichment.bid ? enrichment.bid / 100 : 0;
+          const ask = enrichment.ask ? enrichment.ask / 100 : 0;
+          const bidAskSpread = ask - bid;
+          
+          const fillStyle = this.detectFillStyle(
+            trade.premium_per_contract,
+            bid,
+            ask,
+            bidAskSpread
+          );
+          
+          const classification = this.classifyTradeByVolOI(
+            trade.total_premium,
+            volOIRatio,
+            volume,
+            openInterest
+          );
+          
+          // Return enriched trade
+          return {
+            ...trade,
+            volume,
+            open_interest: openInterest,
+            vol_oi_ratio: volOIRatio,
+            delta: enrichment.delta || 0,
+            gamma: enrichment.gamma || 0,
+            theta: enrichment.theta || 0,
+            vega: enrichment.vega || 0,
+            implied_volatility: enrichment.implied_volatility || 0,
+            bid,
+            ask,
+            bid_ask_spread: bidAskSpread,
+            fill_style: fillStyle,
+            current_price: enrichment.current_price ? enrichment.current_price / 100 : trade.premium_per_contract,
+            classification
+          };
+        });
+        
+      } catch (error) {
+        console.error(`❌ Enrichment error for ${ticker}:`, error);
+        return tickerTrades; // Return unenriched on error
+      }
+    });
+    
+    // Wait for all ticker enrichments to complete
+    const enrichedTradeArrays = await Promise.all(enrichmentPromises);
+    const allEnrichedTrades = enrichedTradeArrays.flat();
+    
+    console.log(`✅ Enrichment complete: ${allEnrichedTrades.length} trades enriched`);
+    return allEnrichedTrades;
+  }
+
+  // 🚀 OPTIMIZED METHOD: Fetch trades AND enrich with snapshot data in parallel
   private async fetchBatchedContractTrades(
     contractsBatch: any[], 
     ticker: string, 
@@ -2276,63 +2401,120 @@ export class OptionsFlowService {
   ): Promise<ProcessedTrade[]> {
     const batchTrades: ProcessedTrade[] = [];
     
-    // Process contracts in parallel within the batch (controlled concurrency)
-    const batchPromises = contractsBatch.map(async (contract, index) => {
-      try {
-        // Stagger requests within batch to avoid overwhelming the API
-        await new Promise(resolve => setTimeout(resolve, index * 25)); // 25ms stagger
-        
-        // Validate timestamp before making API call
-        let timestampNanos = marketOpenTimestamp * 1000000;
-        const now = Date.now();
-        const timestampMs = timestampNanos / 1000000;
-        
-        if (timestampMs > now) {
-          console.warn(`⚠️ Future timestamp detected for ${contract.ticker}, using current time`);
-          timestampNanos = now * 1000000;
-        }
-        
-        const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${timestampNanos}&limit=1000&apikey=${this.polygonApiKey}`;
-        
-        const tradesResponse = await this.robustFetch(tradesUrl);
-        const responseText = await tradesResponse.text();
-        
-        if (!responseText || responseText.trim() === '') {
-          return [];
-        }
-        
-        let tradesData;
+    console.log(`🚀 Processing ${ticker} - ${contractsBatch.length} contracts`);
+    
+    try {
+      // Step 1: Get snapshot data for ALL contracts in ONE API call (Vol/OI/Greeks/Bid-Ask)
+      const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`;
+      const snapshotResponse = await this.robustFetch(snapshotUrl);
+      const snapshotData = await snapshotResponse.json();
+      
+      // Create map of contract ticker -> enrichment data
+      const enrichmentMap = new Map();
+      if (snapshotData.results) {
+        snapshotData.results.forEach((snapshot: any) => {
+          enrichmentMap.set(snapshot.details.ticker, {
+            volume: snapshot.day?.volume || 0,
+            open_interest: snapshot.open_interest || 0,
+            delta: snapshot.greeks?.delta || 0,
+            gamma: snapshot.greeks?.gamma || 0,
+            theta: snapshot.greeks?.theta || 0,
+            vega: snapshot.greeks?.vega || 0,
+            implied_volatility: snapshot.implied_volatility || 0,
+            bid: snapshot.last_quote?.bid || 0,
+            ask: snapshot.last_quote?.ask || 0,
+            current_price: snapshot.last_quote?.midpoint || snapshot.last_trade?.price || 0
+          });
+        });
+      }
+      
+      console.log(`✅ ${ticker}: Snapshot loaded with enrichment data for ${enrichmentMap.size} contracts`);
+      
+      // Step 2: Fetch actual trades for each contract in parallel
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const tradePromises = contractsBatch.map(async (contract, index) => {
         try {
-          tradesData = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error(`❌ JSON parse error for ${contract.ticker}:`, parseError);
-          return [];
-        }
-        
-        if (tradesData.results && tradesData.results.length > 0) {
-          const processedTrades: ProcessedTrade[] = [];
+          // Stagger requests to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, index * 20));
           
-          tradesData.results.forEach((trade: any) => {
+          const timestampNanos = marketOpenTimestamp * 1000000;
+          const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${timestampNanos}&limit=1000&apikey=${this.polygonApiKey}`;
+          
+          const tradesResponse = await this.robustFetch(tradesUrl);
+          const tradesData = await tradesResponse.json();
+          
+          if (!tradesData.results || tradesData.results.length === 0) {
+            return [];
+          }
+          
+          const contractTrades: ProcessedTrade[] = [];
+          const enrichment = enrichmentMap.get(contract.ticker);
+          
+          // Debug: Log enrichment data for first contract
+          if (index === 0 && enrichment) {
+            console.log(`📊 Enrichment data for ${contract.ticker}:`, {
+              volume: enrichment.volume,
+              open_interest: enrichment.open_interest,
+              bid: enrichment.bid,
+              ask: enrichment.ask,
+              current_price: enrichment.current_price
+            });
+          }
+          
+          for (const trade of tradesData.results) {
             const tradeTime = new Date(trade.sip_timestamp / 1000000);
-            const today = new Date();
             
             // Only today's trades
-            if (tradeTime.toDateString() !== today.toDateString()) {
-              return;
-            }
+            const tradeDate = new Date(tradeTime);
+            tradeDate.setHours(0, 0, 0, 0);
+            if (tradeDate.getTime() !== today.getTime()) continue;
             
-            // Market hours filter (9:30 AM - 4:00 PM ET)
+            // Market hours filter
             const eastern = new Date(tradeTime.toLocaleString("en-US", {timeZone: "America/New_York"}));
             const hour = eastern.getHours();
             const minute = eastern.getMinutes();
             const timeDecimal = hour + (minute / 60);
             
-            if (timeDecimal < 9.5 || timeDecimal >= 16) {
-              return;
-            }
+            if (timeDecimal < 9.5 || timeDecimal >= 16) continue;
             
-            const premium = trade.price * trade.size; // Price already in cents
+            const premium = trade.price * trade.size;
             const contractType = contract.contract_type?.toLowerCase() || 'call';
+            
+            // Calculate enriched fields
+            const volume = enrichment?.volume || 0;
+            const openInterest = enrichment?.open_interest || 0;
+            const volOIRatio = openInterest > 0 ? volume / openInterest : 0;
+            
+            const bid = enrichment?.bid ? enrichment.bid / 100 : 0;
+            const ask = enrichment?.ask ? enrichment.ask / 100 : 0;
+            const bidAskSpread = ask - bid;
+            
+            const fillStyle = this.detectFillStyle(
+              trade.price / 100,
+              bid,
+              ask,
+              bidAskSpread
+            );
+            
+            const classification = this.classifyTradeByVolOI(premium, volOIRatio, volume, openInterest);
+            
+            // Debug: Log first trade to verify enrichment
+            if (contractTrades.length === 0) {
+              console.log(`📋 Sample enriched trade for ${contract.ticker}:`, {
+                ticker: contract.ticker,
+                volume,
+                openInterest,
+                volOIRatio,
+                bid,
+                ask,
+                fillStyle,
+                classification,
+                spotPrice,
+                currentPrice: enrichment?.current_price ? enrichment.current_price / 100 : trade.price / 100
+              });
+            }
             
             const processedTrade: ProcessedTrade = {
               ticker: contract.ticker,
@@ -2341,7 +2523,7 @@ export class OptionsFlowService {
               expiry: contract.expiration_date,
               type: contractType as 'call' | 'put',
               trade_size: trade.size,
-              premium_per_contract: trade.price / 100, // Convert from cents to dollars
+              premium_per_contract: trade.price / 100,
               total_premium: premium,
               spot_price: spotPrice,
               exchange: trade.exchange,
@@ -2350,41 +2532,103 @@ export class OptionsFlowService {
               trade_timestamp: tradeTime,
               conditions: trade.conditions || [],
               moneyness: this.getMoneyness(contract.strike_price, spotPrice, contractType as 'call' | 'put'),
-              days_to_expiry: Math.ceil((new Date(contract.expiration_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+              days_to_expiry: Math.ceil((new Date(contract.expiration_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+              
+              // ✅ ENRICHED DATA from snapshot
+              volume: volume,
+              open_interest: openInterest,
+              vol_oi_ratio: volOIRatio,
+              delta: enrichment?.delta || 0,
+              gamma: enrichment?.gamma || 0,
+              theta: enrichment?.theta || 0,
+              vega: enrichment?.vega || 0,
+              implied_volatility: enrichment?.implied_volatility || 0,
+              bid: bid,
+              ask: ask,
+              bid_ask_spread: bidAskSpread,
+              fill_style: fillStyle,
+              current_price: enrichment?.current_price ? enrichment.current_price / 100 : trade.price / 100,
+              classification: classification
             };
             
-            processedTrades.push(processedTrade);
-          });
+            contractTrades.push(processedTrade);
+          }
           
-          return processedTrades;
+          return contractTrades;
+          
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (!errorMessage.includes('HTTP 403') && !errorMessage.includes('HTTP 429')) {
+            console.log(`❌ Error scanning ${contract.ticker}: ${errorMessage}`);
+          }
+          return [];
         }
-        
-        return [];
-        
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        if (errorMessage.includes('HTTP 403')) {
-          console.error(`❌ 403 Error scanning ${contract.ticker}: ${errorMessage}`);
-        } else if (errorMessage.includes('HTTP 429')) {
-          console.warn(`⏱️ Rate limited for ${contract.ticker}, continuing with next...`);
-        } else {
-          console.log(`❌ Error scanning ${contract.ticker}: ${errorMessage}`);
-        }
-        
-        return [];
+      });
+      
+      // Wait for all trades to be fetched and enriched
+      const allTradeResults = await Promise.all(tradePromises);
+      
+      // Flatten results
+      allTradeResults.forEach(contractTrades => {
+        batchTrades.push(...contractTrades);
+      });
+      
+      console.log(`✅ ${ticker}: Processed ${batchTrades.length} FULLY ENRICHED trades`);
+      
+      // Debug: Log first enriched trade to verify data structure
+      if (batchTrades.length > 0) {
+        console.log(`🔍 Sample enriched trade from ${ticker}:`, {
+          ticker: batchTrades[0].ticker,
+          spot_price: batchTrades[0].spot_price,
+          volume: batchTrades[0].volume,
+          open_interest: batchTrades[0].open_interest,
+          current_price: batchTrades[0].current_price,
+          fill_style: batchTrades[0].fill_style,
+          classification: batchTrades[0].classification,
+          delta: batchTrades[0].delta
+        });
       }
-    });
+      
+      return batchTrades;
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ Batch processing error for ${ticker}:`, errorMessage);
+      return [];
+    }
+  }
+  
+  // Helper: Detect fill style from bid/ask analysis
+  private detectFillStyle(price: number, bid: number, ask: number, spread: number): string {
+    if (bid === 0 || ask === 0) return 'UNKNOWN';
     
-    // Wait for all contracts in this batch
-    const batchResults = await Promise.all(batchPromises);
+    const midpoint = (bid + ask) / 2;
+    const distanceFromMid = Math.abs(price - midpoint);
+    const percentFromMid = distanceFromMid / midpoint;
     
-    // Flatten and combine all results
-    batchResults.forEach(contractTrades => {
-      batchTrades.push(...contractTrades);
-    });
+    if (price >= ask) return 'ASK+'; // Above ask (aggressive buy)
+    if (price <= bid) return 'BID-'; // Below bid (aggressive sell)
+    if (price === ask) return 'ASK'; // At ask
+    if (price === bid) return 'BID'; // At bid
+    if (Math.abs(price - ask) < 0.01) return 'ASK'; // Near ask
+    if (Math.abs(price - bid) < 0.01) return 'BID'; // Near bid
+    if (percentFromMid < 0.1) return 'MID'; // Within 10% of midpoint
     
-    return batchTrades;
+    return price > midpoint ? 'ASK' : 'BID';
+  }
+  
+  // Helper: Classify trade by Vol/OI ratio
+  private classifyTradeByVolOI(premium: number, volOIRatio: number, volume: number, openInterest: number): string {
+    // Large premium bypasses vol/OI logic
+    if (premium >= 50000) return 'SWEEP';
+    if (premium >= 25000) return 'BLOCK';
+    
+    // Use vol/OI ratio for classification
+    if (volOIRatio >= 2.0) return 'SWEEP'; // Volume 2x open interest
+    if (volOIRatio >= 1.0) return 'BLOCK'; // Volume equals open interest
+    if (volume >= 100) return 'BLOCK'; // High absolute volume
+    
+    return 'MINI'; // Everything else is mini
   }
 
   // Filter options contracts by volume (50+ minimum) and 5% ITM rule for speed optimization
@@ -2501,11 +2745,9 @@ export class OptionsFlowService {
       const tickerList = batch.map(contract => contract.ticker).join(',');
       
       try {
-        // Use bulk snapshot API to get all contract data in one call
+        // Use bulk snapshot API to get all contract data in one call with ROBUST retry logic
         const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`;
-        const snapshotResponse = await fetch(snapshotUrl, {
-          signal: AbortSignal.timeout(8000) // 8 second timeout
-        });
+        const snapshotResponse = await this.robustFetch(snapshotUrl, 3); // Use robustFetch with 3 retries
         
         if (!snapshotResponse.ok) {
           console.warn(`⚠️ Snapshot failed for batch ${batchIndex + 1}: ${snapshotResponse.status}`);

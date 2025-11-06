@@ -1803,13 +1803,13 @@ const DealerAttraction = () => {
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
   const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}}>({});
   const [showGEX, setShowGEX] = useState(true);
-  const [gexMode, setGexMode] = useState<'GEX'>('GEX');
+  const [gexMode, setGexMode] = useState<'GEX' | 'Net GEX'>('GEX');
 
   const [showOI, setShowOI] = useState(false);
   const [oiMode, setOiMode] = useState<'OI' | 'Live OI'>('OI');
   const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map());
   const [showVEX, setShowVEX] = useState(false);
-  const [vexMode, setVexMode] = useState<'VEX'>('VEX');
+  const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'DHP' | 'PP' | 'DSI'>('DHP');
 
@@ -2613,10 +2613,11 @@ const DealerAttraction = () => {
                             <div className="relative">
                               <select
                                 value={gexMode}
-                                onChange={(e) => setGexMode(e.target.value as 'GEX')}
+                                onChange={(e) => setGexMode(e.target.value as 'GEX' | 'Net GEX')}
                                 className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-3 py-1.5 pr-8 text-white text-xs font-bold uppercase appearance-none cursor-pointer min-w-[80px] transition-all"
                               >
                                 <option value="GEX">GEX</option>
+                                <option value="Net GEX">Net GEX</option>
                               </select>
                               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
@@ -2670,10 +2671,11 @@ const DealerAttraction = () => {
                             <div className="relative">
                               <select
                                 value={vexMode}
-                                onChange={(e) => setVexMode(e.target.value as 'VEX')}
+                                onChange={(e) => setVexMode(e.target.value as 'VEX' | 'Net VEX')}
                                 className="bg-black border-2 border-gray-800 focus:border-purple-500 focus:outline-none px-3 py-1.5 pr-8 text-white text-xs font-bold uppercase appearance-none cursor-pointer min-w-[80px] transition-all"
                               >
                                 <option value="VEX">VEX</option>
+                                <option value="Net VEX">Net VEX</option>
                               </select>
                               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg className="w-3 h-3 text-purple-500" fill="currentColor" viewBox="0 0 20 20">
@@ -2852,23 +2854,26 @@ const DealerAttraction = () => {
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b border-gray-700 bg-gray-800">
-                        <th className="px-6 py-4 text-left sticky left-0 bg-black z-10 border-r border-gray-700">
+                      <tr className="border-b border-gray-700 bg-black">
+                        <th className="px-6 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-10 border-r border-gray-700 shadow-xl">
                           <div className="text-xs font-bold text-white uppercase">Strike</div>
                         </th>
                         {expirations.map(exp => (
-                          <th key={exp} className="text-center bg-gray-900 border-l border-r border-gray-800">
-                            <div className="text-xs font-bold text-white uppercase px-2 py-2 bg-gray-800 border border-gray-700 mb-2">
+                          <th key={exp} className="text-center bg-gradient-to-br from-black via-gray-900 to-black border-l border-r border-gray-800 shadow-lg">
+                            <div className="text-xs font-bold text-white uppercase px-2 py-2 bg-gradient-to-br from-black via-gray-900 to-black border border-gray-700/50 mb-2 shadow-inner">
                               {formatDate(exp)}
                             </div>
-                            <div className="flex">
-                              <div className="flex-1 text-xs font-bold text-green-400 uppercase px-2 py-1 bg-gray-800 border-r border-gray-700">
-                                CALL
+                            {/* Show CALL/PUT labels only when NOT in Net mode */}
+                            {(gexMode !== 'Net GEX' && vexMode !== 'Net VEX') && (
+                              <div className="flex">
+                                <div className="flex-1 text-xs font-bold text-green-400 uppercase px-2 py-1 bg-gradient-to-br from-black via-gray-900 to-black border-r border-gray-700/50">
+                                  CALL
+                                </div>
+                                <div className="flex-1 text-xs font-bold text-red-400 uppercase px-2 py-1 bg-gradient-to-br from-black via-gray-900 to-black">
+                                  PUT
+                                </div>
                               </div>
-                              <div className="flex-1 text-xs font-bold text-red-400 uppercase px-2 py-1 bg-gray-800">
-                                PUT
-                              </div>
-                            </div>
+                            )}
                           </th>
                         ))}
                       </tr>
@@ -2988,48 +2993,67 @@ const DealerAttraction = () => {
                               return (
                                 <td
                                   key={exp}
-                                  className={`px-1 py-3 ${
+                                  className={`px-4 py-3 ${
                                     isCurrentPriceRow ? 'bg-yellow-900/15' : 
                                     isLargestValueRow ? 'bg-purple-900/15' : ''
                                   }`}
                                 >
-                                  {/* Display separate call/put cells */}
-                                  <div className="flex gap-1">
-                                    <div className={`${getCellStyle(showVEX ? callVex : callValue)} px-2 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
+                                  {/* Display separate call/put cells OR net value based on mode */}
+                                  {(gexMode === 'Net GEX' && showGEX) || (vexMode === 'Net VEX' && showVEX) ? (
+                                    // Net mode - single cell with net value
+                                    <div className={`${getCellStyle(showVEX ? callVex + putVex : callValue + putValue)} px-3 py-2 rounded-lg text-center font-mono transition-all hover:scale-105 ${
                                       isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
-                                      isLargestValueRow ? 'ring-1 ring-purple-500/50' : 
-                                      isLargestVexCall ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50' : ''
-                                    }`} style={isLargestVexCall ? {
-                                      boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
-                                    } : {}}>
-                                      {showGEX && (
-                                        <div className="text-xs font-bold">{formatCurrency(callValue)}</div>
+                                      isLargestValueRow ? 'ring-1 ring-purple-500/50' : ''
+                                    }`}>
+                                      {showGEX && gexMode === 'Net GEX' && (
+                                        <div className="text-xs font-bold">{formatCurrency(callValue + putValue)}</div>
                                       )}
-                                      {showVEX && (
-                                        <div className="text-xs font-bold text-purple-400">{formatCurrency(callVex)}</div>
+                                      {showVEX && vexMode === 'Net VEX' && (
+                                        <div className="text-xs font-bold text-purple-400">{formatCurrency(callVex + putVex)}</div>
                                       )}
                                       {showOI && (
-                                        <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(callOI)}</div>
+                                        <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(callOI + putOI)}</div>
                                       )}
                                     </div>
-                                    <div className={`${getCellStyle(showVEX ? putVex : putValue)} px-2 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
-                                      isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
-                                      isLargestValueRow ? 'ring-1 ring-purple-500/50' : 
-                                      isLargestVexPut ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50' : ''
-                                    }`} style={isLargestVexPut ? {
-                                      boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
-                                    } : {}}>
-                                      {showGEX && (
-                                        <div className="text-xs font-bold">{formatCurrency(putValue)}</div>
-                                      )}
-                                      {showVEX && (
-                                        <div className="text-xs font-bold text-purple-400">{formatCurrency(putVex)}</div>
-                                      )}
-                                      {showOI && (
-                                        <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(putOI)}</div>
-                                      )}
+                                  ) : (
+                                    // Split mode - separate call/put cells
+                                    <div className="flex gap-1.5">
+                                      <div className={`${getCellStyle(showVEX ? callVex : callValue)} px-3 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
+                                        isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
+                                        isLargestValueRow ? 'ring-1 ring-purple-500/50' : 
+                                        isLargestVexCall ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50' : ''
+                                      }`} style={isLargestVexCall ? {
+                                        boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
+                                      } : {}}>
+                                        {showGEX && (
+                                          <div className="text-xs font-bold">{formatCurrency(callValue)}</div>
+                                        )}
+                                        {showVEX && (
+                                          <div className="text-xs font-bold text-purple-400">{formatCurrency(callVex)}</div>
+                                        )}
+                                        {showOI && (
+                                          <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(callOI)}</div>
+                                        )}
+                                      </div>
+                                      <div className={`${getCellStyle(showVEX ? putVex : putValue)} px-3 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
+                                        isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
+                                        isLargestValueRow ? 'ring-1 ring-purple-500/50' : 
+                                        isLargestVexPut ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50' : ''
+                                      }`} style={isLargestVexPut ? {
+                                        boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
+                                      } : {}}>
+                                        {showGEX && (
+                                          <div className="text-xs font-bold">{formatCurrency(putValue)}</div>
+                                        )}
+                                        {showVEX && (
+                                          <div className="text-xs font-bold text-purple-400">{formatCurrency(putVex)}</div>
+                                        )}
+                                        {showOI && (
+                                          <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(putOI)}</div>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
+                                  )}
                                 </td>
                               );
                             })}

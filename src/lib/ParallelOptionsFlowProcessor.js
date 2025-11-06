@@ -29,7 +29,8 @@ class ParallelOptionsFlowProcessor {
     
     // 🎯 PERFORMANCE: Time batch preparation
     console.time('📦 BATCH_PREPARATION');
-    const batchSize = Math.max(1, Math.ceil(tickers.length / this.numWorkers));
+    // OPTIMIZED: Fixed batch size of 30 tickers per worker for better load balancing
+    const batchSize = 30;
     const batches = [];
     
     for (let i = 0; i < tickers.length; i += batchSize) {

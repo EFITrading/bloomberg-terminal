@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import '../app/options-flow/mobile.css';
 
 // Import your existing Polygon service
 import { polygonService } from '@/lib/polygonService';
@@ -11,6 +12,119 @@ import { polygonService } from '@/lib/polygonService';
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
 // BID/ASK EXECUTION ANALYSIS - OPTIMIZED FOR HIGH VOLUME
+// COMBINED ENRICHMENT - Fetch Vol/OI AND Fill Style in ONE API call per trade
+const enrichTradeDataCombined = async (
+  trades: any[], 
+  updateCallback: (results: any[]) => void
+): Promise<any[]> => {
+  if (trades.length === 0) return trades;
+  
+  const BATCH_SIZE = 50; // Process 50 trades per batch
+  const BATCH_DELAY = 100; // 100ms delay between batches
+  const REQUEST_DELAY = 20; // 20ms stagger between requests
+  const batches = [];
+  
+  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+    batches.push(trades.slice(i, i + BATCH_SIZE));
+  }
+  
+  console.log(`🚀 COMBINED ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+  
+  const allResults = [];
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    
+    if (batchIndex % 10 === 0) {
+      console.log(`📦 Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex/batches.length)*100)}%)`);
+    }
+    
+    const batchResults = await Promise.all(
+      batch.map(async (trade, tradeIndex) => {
+        await new Promise(resolve => setTimeout(resolve, tradeIndex * REQUEST_DELAY));
+        
+        try {
+          const expiry = trade.expiry.replace(/-/g, '').slice(2);
+          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+          
+          // Use snapshot endpoint - gets EVERYTHING in one call (quotes, greeks, Vol/OI)
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+          
+          const response = await fetch(snapshotUrl, {
+            signal: AbortSignal.timeout(8000)
+          });
+          
+          if (!response.ok) {
+            return { ...trade, fill_style: 'N/A', volume: null, open_interest: null };
+          }
+          
+          const data = await response.json();
+          
+          if (data.results) {
+            const result = data.results;
+            
+            // Extract Vol/OI
+            const volume = result.day?.volume || null;
+            const openInterest = result.open_interest || null;
+            
+            console.log(`✅ ${trade.underlying_ticker}: Vol=${volume}, OI=${openInterest}`);
+            successCount++;
+            
+            // Extract fill style from last quote
+            let fillStyle = 'N/A';
+            if (result.last_quote) {
+              const bid = result.last_quote.bid;
+              const ask = result.last_quote.ask;
+              const fillPrice = trade.premium_per_contract;
+              
+              if (bid && ask && fillPrice) {
+                const midpoint = (bid + ask) / 2;
+                
+                if (fillPrice >= ask + 0.01) {
+                  fillStyle = 'AA';
+                } else if (fillPrice <= bid - 0.01) {
+                  fillStyle = 'BB';
+                } else if (fillPrice === ask) {
+                  fillStyle = 'A';
+                } else if (fillPrice === bid) {
+                  fillStyle = 'B';
+                } else if (fillPrice >= midpoint) {
+                  fillStyle = 'A';
+                } else {
+                  fillStyle = 'B';
+                }
+              }
+            }
+            
+            return { ...trade, fill_style: fillStyle, volume, open_interest: openInterest };
+          }
+          
+          return { ...trade, fill_style: 'N/A', volume: null, open_interest: null };
+        } catch (error) {
+          failCount++;
+          console.error(`❌ Error enriching ${trade.underlying_ticker}:`, error);
+          return { ...trade, fill_style: 'N/A', volume: null, open_interest: null };
+        }
+      })
+    );
+    
+    allResults.push(...batchResults);
+    updateCallback([...allResults]);
+    
+    if (batchIndex < batches.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+    }
+  }
+  
+  console.log(`✅ Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);
+  return allResults;
+};
+
+// OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
 const analyzeBidAskExecutionLightning = async (
   trades: any[], 
   updateCallback: (results: any[]) => void
@@ -118,8 +232,9 @@ const fetchVolumeAndOpenInterest = async (
 ): Promise<any[]> => {
   if (trades.length === 0) return trades;
   
-  const BATCH_SIZE = 200; // Process 200 trades at a time - 4x faster!
-  const BATCH_DELAY = 10; // Only 10ms delay between batches
+  const BATCH_SIZE = 10; // Process only 10 trades per batch (very conservative)
+  const BATCH_DELAY = 500; // 500ms delay between batches (half second)
+  const REQUEST_DELAY = 100; // 100ms stagger between requests within batch
   const batches = [];
   
   for (let i = 0; i < trades.length; i += BATCH_SIZE) {
@@ -134,12 +249,15 @@ const fetchVolumeAndOpenInterest = async (
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
     
-    if (batchIndex % 5 === 0) {
+    if (batchIndex % 10 === 0) {
       console.log(`⚡ Vol/OI batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex/batches.length)*100)}% complete)`);
     }
     
     const batchResults = await Promise.all(
-      batch.map(async (trade) => {
+      batch.map(async (trade, tradeIndex) => {
+        // Stagger requests to prevent connection resets
+        await new Promise(resolve => setTimeout(resolve, tradeIndex * REQUEST_DELAY));
+        
         try {
           const ticker = trade.underlying_ticker;
           const strike = trade.strike;
@@ -155,14 +273,15 @@ const fetchVolumeAndOpenInterest = async (
           const strikeStr = Math.round(strike * 1000).toString().padStart(8, '0'); // 00679000
           const optionSymbol = `O:${ticker}${year}${month}${day}${callPut}${strikeStr}`;
           
-          // Debug logging for contract generation
-          console.log(`🔍 Vol/OI lookup: ${ticker} ${strike} ${optionType} ${expiration} -> ${optionSymbol}`);
-          
-          // Use the SAME snapshot endpoint as OptionsChain.tsx
           const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}/${optionSymbol}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
           const response = await fetch(snapshotUrl, {
-            signal: AbortSignal.timeout(5000)
+            signal: AbortSignal.timeout(8000) // Longer timeout
           });
+          
+          if (!response.ok) {
+            return { ...trade, volume: 0, open_interest: 0 };
+          }
+          
           const data = await response.json();
           
           if (data.status === 'OK' && data.results) {
@@ -170,18 +289,11 @@ const fetchVolumeAndOpenInterest = async (
             const volume = snap.day?.volume || 0;
             const openInterest = snap.open_interest || 0;
             
-            // Debug log for successful lookups
-            if (volume > 0 || openInterest > 0) {
-              console.log(`✅ VOL/OI SUCCESS: ${optionSymbol} - Vol: ${volume}, OI: ${openInterest}`);
-            }
-            
             return { 
               ...trade, 
               volume: volume,
               open_interest: openInterest 
             };
-          } else {
-            console.log(`❌ VOL/OI FAILED: ${optionSymbol} - Status: ${data.status}, URL: ${snapshotUrl}`);
           }
           
           return { ...trade, volume: 0, open_interest: 0 };
@@ -196,13 +308,13 @@ const fetchVolumeAndOpenInterest = async (
     // Update the UI with processed trades in real-time
     updateCallback([...allResults]);
     
-    // Minimal delay between batches
+    // Delay between batches to prevent rate limiting
     if (batchIndex < batches.length - 1) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
     }
   }
   
-  console.log(`✅ ULTRA-FAST Vol/OI complete: ${allResults.length} trades processed`);
+  console.log(`✅ Vol/OI complete: ${allResults.length} trades processed`);
   return allResults;
 };
 
@@ -258,9 +370,20 @@ interface OptionsFlowData {
  trade_timestamp: string;
  moneyness: 'ATM' | 'ITM' | 'OTM';
  days_to_expiry: number;
- fill_style?: 'A' | 'AA' | 'B' | 'BB' | 'N/A';
+ fill_style?: 'A' | 'AA' | 'B' | 'BB' | 'N/A' | string;
  volume?: number;
  open_interest?: number;
+ vol_oi_ratio?: number;
+ classification?: string;
+ delta?: number;
+ gamma?: number;
+ theta?: number;
+ vega?: number;
+ implied_volatility?: number;
+ current_price?: number;
+ bid?: number;
+ ask?: number;
+ bid_ask_spread?: number;
 }
 
 interface OptionsFlowSummary {
@@ -345,7 +468,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
  // Debug: Monitor filter dialog state changes
  useEffect(() => {
- console.log('Filter dialog state changed:', isFilterDialogOpen);
+ // Removed excessive logging for performance
  }, [isFilterDialogOpen]);
 
  // Prevent body from scrolling to eliminate page-level scrollbar
@@ -499,40 +622,26 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
  // EFI Highlights criteria checker
  const meetsEfiCriteria = (trade: OptionsFlowData): boolean => {
- // Debug logging
- console.log('Checking EFI criteria for trade:', {
- ticker: trade.underlying_ticker,
- days_to_expiry: trade.days_to_expiry,
- total_premium: trade.total_premium,
- trade_size: trade.trade_size,
- moneyness: trade.moneyness
- });
-
- // 1. Check expiration (0-35 trading days) - use existing days_to_expiry field
+ // 1. Check expiration (0-35 trading days)
  if (trade.days_to_expiry < 0 || trade.days_to_expiry > 35) {
- console.log(' Failed days to expiry check:', trade.days_to_expiry);
  return false;
  }
 
- // 2. Check premium ($100k - $450k) - use existing total_premium field
+ // 2. Check premium ($100k - $450k)
  if (trade.total_premium < 100000 || trade.total_premium > 450000) {
- console.log(' Failed premium check:', trade.total_premium);
  return false;
  }
 
  // 3. Check contracts (650 - 1999)
  if (trade.trade_size < 650 || trade.trade_size > 1999) {
- console.log(' Failed contract size check:', trade.trade_size);
  return false;
  }
 
  // 4. Check OTM status
  if (!trade.moneyness || trade.moneyness !== 'OTM') {
- console.log(' Failed OTM check:', trade.moneyness);
  return false;
  }
  
- console.log(' Trade meets all EFI criteria!');
  return true;
  };
 
@@ -548,12 +657,32 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
 
  const filteredAndSortedData = useMemo(() => {
- // Use fill style data if available, otherwise use original data
- const sourceData = tradesWithFillStyles.length > 0 ? tradesWithFillStyles : data;
+ // OPTIMIZED: Only merge if we have enriched data, otherwise just use raw
+ let sourceData: OptionsFlowData[];
+ 
+ if (tradesWithFillStyles.length === 0) {
+ // No enriched data yet - use raw data directly (fast path)
+ sourceData = data;
+ } else if (tradesWithFillStyles.length === data.length) {
+ // All data enriched - use enriched directly (fast path)
+ sourceData = tradesWithFillStyles;
+ } else {
+ // Partial enrichment - merge (slower path, but only during processing)
+ const enrichedMap = new Map();
+ tradesWithFillStyles.forEach(trade => {
+ const key = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`;
+ enrichedMap.set(key, trade);
+ });
+ 
+ sourceData = data.map(trade => {
+ const key = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`;
+ return enrichedMap.get(key) || trade;
+ });
+ }
  
  // Step 1: Fast deduplication using Set (O(n) instead of O(n²))
  const seen = new Set<string>();
- const deduplicatedData = sourceData.filter(trade => {
+ const deduplicatedData = sourceData.filter((trade: OptionsFlowData) => {
  const tradeKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_size}-${trade.total_premium}-${trade.spot_price}-${trade.trade_timestamp}-${trade.exchange_name}`;
  
  if (seen.has(tradeKey)) {
@@ -566,10 +695,67 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  // Log deduplication results only when needed
  if (sourceData.length !== deduplicatedData.length) {
  const duplicatesRemoved = sourceData.length - deduplicatedData.length;
- console.log(` Removed ${duplicatesRemoved} duplicate trades (${sourceData.length} → ${deduplicatedData.length})`);
+ console.log(`🔄 Removed ${duplicatesRemoved} duplicates`);
  }
  
- let filtered = deduplicatedData;
+ // Step 2: Bundle small trades (<$500) for same contract within 1 minute
+ const bundledData: OptionsFlowData[] = [];
+ const smallTradeGroups = new Map<string, OptionsFlowData[]>();
+ 
+ // First pass: separate large trades and group small trades
+ deduplicatedData.forEach((trade: OptionsFlowData) => {
+ if (trade.total_premium >= 500) {
+ // Large trade - keep as is
+ bundledData.push(trade);
+ } else {
+ // Small trade - group by contract and minute
+ const tradeTime = new Date(trade.trade_timestamp);
+ const minuteKey = `${tradeTime.getFullYear()}-${tradeTime.getMonth()}-${tradeTime.getDate()}-${tradeTime.getHours()}-${tradeTime.getMinutes()}`;
+ const groupKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${minuteKey}`;
+ 
+ if (!smallTradeGroups.has(groupKey)) {
+ smallTradeGroups.set(groupKey, []);
+ }
+ smallTradeGroups.get(groupKey)!.push(trade);
+ }
+ });
+ 
+ // Second pass: bundle small trades
+ smallTradeGroups.forEach((trades, groupKey) => {
+ if (trades.length === 1) {
+ // Only one small trade in this group - keep as is
+ bundledData.push(trades[0]);
+ } else {
+ // Multiple small trades - bundle them
+ const totalContracts = trades.reduce((sum, t) => sum + t.trade_size, 0);
+ const totalPremium = trades.reduce((sum, t) => sum + t.total_premium, 0);
+ const avgPricePerContract = totalPremium / totalContracts;
+ 
+ // Use the first trade as template and update values
+ const bundledTrade: OptionsFlowData = {
+ ...trades[0],
+ trade_size: totalContracts,
+ premium_per_contract: avgPricePerContract,
+ total_premium: totalPremium,
+ exchange_name: `BUNDLED (${trades.length} trades)`,
+ // Keep the earliest timestamp as string
+ trade_timestamp: trades.reduce((earliest, t) => 
+ new Date(t.trade_timestamp) < new Date(earliest.trade_timestamp) ? t : earliest
+ ).trade_timestamp
+ };
+ 
+ bundledData.push(bundledTrade);
+ console.log(`📦 Bundled ${trades.length} small ${trades[0].underlying_ticker} trades: ${totalContracts} contracts @ $${avgPricePerContract.toFixed(2)} = $${totalPremium.toFixed(0)}`);
+ }
+ });
+ 
+ let filtered = bundledData;
+ 
+ // EFI Highlights filter - when active, show ONLY trades that meet EFI criteria
+ if (efiHighlightsActive) {
+ filtered = filtered.filter(trade => meetsEfiCriteria(trade));
+ console.log(`🎯 EFI Highlights active: filtered to ${filtered.length} trades that meet EFI criteria`);
+ }
  
  // Apply filters - Option Type (checkbox)
  if (selectedOptionTypes.length > 0 && selectedOptionTypes.length < 2) {
@@ -714,57 +900,31 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  });
 
  return filtered;
- }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles]);
+ }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive]);
 
- // Automatically analyze fill styles when new data comes in
+ // Automatically enrich trades with Vol/OI AND Fill Style in ONE combined call - IMMEDIATELY as part of scan
  useEffect(() => {
- const analyzeAutomatically = async () => {
- if (!data || data.length === 0) {
- setTradesWithFillStyles([]);
- return;
- }
-
- console.log('🚀 STARTING FILL STYLE ANALYSIS FOR', data.length, 'TRADES');
- try {
- // First fetch Volume & Open Interest
- console.log('📊 STARTING VOL/OI FETCH FOR', data.length, 'TRADES');
- const tradesWithVolOI = await fetchVolumeAndOpenInterest(data, (partialResults) => {
- // Update with partial results as they come in (for UI responsiveness)
- setTradesWithFillStyles(partialResults);
- });
+ // ✅ NO ENRICHMENT NEEDED! All data comes pre-enriched from backend snapshot API
+ // Backend now returns: vol, OI, vol/OI ratio, Greeks, bid/ask, fill_style, classification
+ // Just pass through the data directly - instant display like Unusual Whales!
  
- // Then analyze fill styles with the Vol/OI data included
- const tradesWithStyles = await analyzeBidAskExecutionLightning(tradesWithVolOI, setTradesWithFillStyles);
- setTradesWithFillStyles(tradesWithStyles);
- console.log('✅ FILL STYLE ANALYSIS COMPLETE');
- } catch (error) {
- console.error('Error analyzing fill styles:', error);
+ // Debug: Log first trade to verify enrichment data
+ if (data && data.length > 0) {
+ console.log('📊 Sample trade data received:', {
+ ticker: data[0].ticker,
+ underlying: data[0].underlying_ticker,
+ spot_price: data[0].spot_price,
+ volume: data[0].volume,
+ open_interest: data[0].open_interest,
+ current_price: (data[0] as any).current_price,
+ fill_style: (data[0] as any).fill_style,
+ classification: (data[0] as any).classification,
+ trade_type: data[0].trade_type
+ });
  }
- };
-
- analyzeAutomatically();
+ 
+ setTradesWithFillStyles(data);
  }, [data]);
-
- // Manual trigger for fill style analysis
- const triggerFillStyleAnalysis = async () => {
- if (!data || data.length === 0) return;
- 
- console.log('🔥 MANUAL FILL STYLE ANALYSIS TRIGGERED FOR', data.length, 'TRADES');
- try {
- // First fetch Volume & Open Interest
- console.log('📊 MANUAL VOL/OI FETCH FOR', data.length, 'TRADES');
- const tradesWithVolOI = await fetchVolumeAndOpenInterest(data, (partialResults) => {
- setTradesWithFillStyles(partialResults);
- });
- 
- // Then analyze fill styles
- const tradesWithStyles = await analyzeBidAskExecutionLightning(tradesWithVolOI, setTradesWithFillStyles);
- setTradesWithFillStyles(tradesWithStyles);
- console.log('✅ MANUAL ANALYSIS COMPLETE');
- } catch (error) {
- console.error('Manual analysis error:', error);
- }
- };
 
  // Pagination logic
  const paginatedData = useMemo(() => {
@@ -855,8 +1015,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  }}
  />
  {/* Modal Content */}
- <div className="fixed top-56 left-1/2 transform -translate-x-1/2 bg-black border border-gray-600 rounded-lg p-3 w-auto max-w-4xl max-h-[55vh] overflow-y-auto z-[9999]" style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)' }}>
- <div>
+ <div className="filter-dialog fixed top-0 md:top-56 left-0 md:left-1/2 transform md:-translate-x-1/2 bg-black border border-gray-600 rounded-none md:rounded-lg p-3 w-full md:w-auto md:max-w-4xl h-full md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]" style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)' }}>
+ <div className="filter-dialog-content">
  <div className="flex justify-center items-center mb-6 relative">
  <h2 className="text-2xl font-bold italic text-orange-400" style={{ fontFamily: 'Georgia, serif', textShadow: '0 0 8px rgba(255, 165, 0, 0.3)', letterSpacing: '0.5px' }}>Options Flow Filters</h2>
  <button
@@ -1091,47 +1251,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  ? 'text-blue-400 font-bold drop-shadow-lg'
  : 'text-gray-300'
  }`}>Exclude Mag 7</span>
- </label>
- </div>
- 
- <div className="flex items-center">
- <label className="flex items-center cursor-pointer hover:bg-blue-600/10 rounded-lg p-2 transition-all duration-200">
- <input
- type="checkbox"
- className="w-5 h-5 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer"
- checked={selectedTickerFilters.includes('HIGHLIGHTS_ONLY')}
- onClick={(e) => {
- e.stopPropagation();
- console.log('Highlights Only checkbox clicked');
- const isCurrentlyChecked = selectedTickerFilters.includes('HIGHLIGHTS_ONLY');
- if (isCurrentlyChecked) {
- setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'HIGHLIGHTS_ONLY'));
- console.log('Unchecked - removing HIGHLIGHTS_ONLY');
- } else {
- setSelectedTickerFilters(prev => [...prev, 'HIGHLIGHTS_ONLY']);
- console.log('Checked - adding HIGHLIGHTS_ONLY');
- }
- }}
- readOnly
- />
- <span 
- className={`ml-3 text-lg font-medium transition-all duration-200 cursor-pointer ${
- selectedTickerFilters.includes('HIGHLIGHTS_ONLY') 
- ? 'text-yellow-400 font-bold drop-shadow-lg'
- : 'text-gray-300'
- }`}
- onClick={(e) => {
- e.stopPropagation();
- const isCurrentlyChecked = selectedTickerFilters.includes('HIGHLIGHTS_ONLY');
- if (isCurrentlyChecked) {
- setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'HIGHLIGHTS_ONLY'));
- } else {
- setSelectedTickerFilters(prev => [...prev, 'HIGHLIGHTS_ONLY']);
- }
- }}
- >
- Highlights Only
- </span>
  </label>
  </div>
  </div>
@@ -1378,12 +1497,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  overflow: 'visible',
  marginTop: '15px'
  }}>
- <div className="px-8 py-6 bg-black" style={{
+ <div className="px-4 py-3 md:px-8 md:py-6 bg-black" style={{
  width: '100%',
  overflow: 'visible'
  }}>
- <div className="flex items-center justify-between h-16" style={{ width: 'max-content', minWidth: '1080px' }}>
- <div className="flex items-center gap-4" style={{ flexShrink: 0, width: 'max-content' }}>
+ <div className="control-bar flex items-center justify-between h-auto md:h-16" style={{ width: 'max-content', minWidth: '1080px' }}>
+ <div className="flex items-center gap-2 md:gap-4" style={{ flexShrink: 0, width: 'max-content' }}>
  {/* Search Input with Icon */}
  <div className="relative">
  {/* Search Icon - Positioned on the left */}
@@ -1517,7 +1636,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <svg className="w-4 h-4 animate-spin text-blue-400 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
  </svg>
- <span>Scanning...</span>
+ <span>
+ {streamingStatus || 'Scanning...'}
+ </span>
  </>
  ) : (
  <>
@@ -1527,23 +1648,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <span>Refresh Flow</span>
  </>
  )}
- </button>
-
- {/* Fill Style Analysis Button */}
- <button 
- onClick={triggerFillStyleAnalysis}
- disabled={loading || !data || data.length === 0}
- className="h-10 px-16 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 min-w-[150px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none"
- style={{
- background: 'linear-gradient(145deg, #059669, #10b981)',
- border: '1px solid #10b981',
- boxShadow: 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(16, 185, 129, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
- }}
- >
- <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
- <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
- </svg>
- <span>Analyze Fill Styles</span>
  </button>
 
  {/* Clear Data Button */}
@@ -1590,7 +1694,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  </div>
  
  {/* Right Section */}
- <div className="flex items-center gap-3" style={{ flexShrink: 0, width: 'max-content', minWidth: '600px' }}>
+ <div className="stats-section flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-3 w-full md:w-auto" style={{ flexShrink: 0, minWidth: 'auto' }}>
 
  {/* Filter Button */}
  <button 
@@ -1598,7 +1702,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  console.log('Filter button clicked - opening dialog');
  setIsFilterDialogOpen(true);
  }}
- className="h-10 px-6 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 min-w-[80px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none"
+ className="filter-button h-8 md:h-10 px-4 md:px-6 text-white text-xs md:text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-1.5 md:gap-2.5 min-w-[70px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none"
  style={{
  background: 'linear-gradient(145deg, #000000, #0a0a0a)',
  border: '1px solid #f59e0b',
@@ -1618,29 +1722,30 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <svg className="w-4 h-4 animate-pulse text-amber-400 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
  </svg>
- <span>Filter</span>
+ <span className="hidden md:inline">Filter</span>
+ <span className="md:hidden">...</span>
  </button>
 
  {/* Vertical Divider */}
- <div className="w-px h-8 bg-gray-700"></div>
+ <div className="control-bar-divider hidden md:block w-px h-8 bg-gray-700"></div>
 
  {/* Stats Section */}
- <div className="flex items-center gap-3">
+ <div className="flex flex-col md:flex-row items-start md:items-center gap-1 md:gap-3">
  {/* Date Display */}
  {marketInfo && (
- <div className="text-sm text-gray-400 font-mono">
+ <div className="text-xs md:text-sm text-gray-400 font-mono">
  {marketInfo.data_date}
  </div>
  )}
 
  {/* Trade Count */}
- <div className="text-sm text-gray-300">
+ <div className="text-xs md:text-sm text-gray-300">
  <span className="text-orange-400 font-bold font-mono">{filteredAndSortedData.length.toLocaleString()}</span>
  <span className="text-gray-400 ml-1">trades</span>
  </div>
 
  {/* Pagination Info */}
- <div className="text-sm text-gray-300">
+ <div className="text-xs md:text-sm text-gray-300">
  Page <span className="text-orange-400 font-bold font-mono">{currentPage}</span>
  <span className="text-gray-500 mx-1">of</span>
  <span className="text-orange-400 font-bold font-mono">{totalPages}</span>
@@ -1648,11 +1753,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  
  {/* Pagination Controls */}
  {filteredAndSortedData.length > itemsPerPage && (
- <div className="flex items-center gap-1">
+ <div className="pagination flex items-center gap-0.5 md:gap-1">
  <button
  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
  disabled={currentPage === 1}
- className="w-8 h-8 flex items-center justify-center text-xs bg-black border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all duration-150"
+ className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs bg-black border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all duration-150"
  >
  ←
  </button>
@@ -1673,7 +1778,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <button
  key={pageNum}
  onClick={() => setCurrentPage(pageNum)}
- className={`w-8 h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${
+ className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${
  currentPage === pageNum
  ? 'bg-orange-500 text-black border-orange-500 font-bold'
  : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
@@ -1687,7 +1792,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <button
  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
  disabled={currentPage === totalPages}
- className="w-8 h-8 flex items-center justify-center text-xs bg-black border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all duration-150"
+ className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs bg-black border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all duration-150"
  >
  →
  </button>
@@ -1716,67 +1821,69 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  )}
 
  {/* Main Table */}
- <div className="bg-black border border-gray-800 flex-1">
+ <div className="bg-black border border-gray-800 flex-1 options-flow-table-container">
  <div className="p-0">
- <div className="overflow-y-auto overflow-x-auto" style={{ height: 'calc(100vh - 140px)' }}>
- <table className="w-full">
+ <div className="table-scroll-container overflow-y-auto overflow-x-auto" style={{ height: 'calc(100vh - 140px)' }}>
+ <table className="w-full options-flow-table">
  <thead className="sticky top-0 bg-gradient-to-b from-yellow-900/10 via-gray-900 to-black z-10 border-b-2 border-gray-600 shadow-2xl">
  <tr>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
  onClick={() => handleSort('trade_timestamp')}
  >
  Time {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
  onClick={() => handleSort('underlying_ticker')}
  >
  Symbol {sortField === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
  onClick={() => handleSort('type')}
  >
  Call/Put {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
  onClick={() => handleSort('strike')}
  >
  Strike {sortField === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
  onClick={() => handleSort('trade_size')}
  >
  Size {sortField === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
  onClick={() => handleSort('total_premium')}
  >
  Premium {sortField === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
  onClick={() => handleSort('expiry')}
  >
  Expiration {sortField === 'expiry' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
  onClick={() => handleSort('spot_price')}
  >
- Spot {'>>'} Current {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
+ <span className="hidden md:inline">Spot {'>>'}  Current</span>
+ <span className="md:hidden">Price</span>
+ {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  <th 
- className="text-left p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
  >
  VOL/OI
  </th>
  <th 
- className="text-left p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
  onClick={() => handleSort('trade_type')}
  >
  Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -1798,29 +1905,29 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a'
  }}
  >
- <td className="p-6 text-white text-xl font-medium border-r border-gray-700/30">{formatTime(trade.trade_timestamp)}</td>
- <td className="p-6 border-r border-gray-700/30">
+ <td className="p-2 md:p-6 text-white text-xs md:text-xl font-medium border-r border-gray-700/30 time-cell">{formatTime(trade.trade_timestamp)}</td>
+ <td className="p-2 md:p-6 border-r border-gray-700/30">
  <button 
  onClick={() => handleTickerClick(trade.underlying_ticker)}
- className={`${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-3 py-2 rounded-lg cursor-pointer border-none shadow-sm ${
+ className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${
  selectedTickerFilter === trade.underlying_ticker ? 'ring-2 ring-orange-500 bg-gray-800/50' : ''
  }`}
  >
  {trade.underlying_ticker}
  </button>
  </td>
- <td className={`p-6 text-xl font-bold border-r border-gray-700/30 ${getCallPutColor(trade.type)}`}>
+ <td className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text ${getCallPutColor(trade.type)}`}>
  {trade.type.toUpperCase()}
  </td>
- <td className="p-6 text-xl text-white font-semibold border-r border-gray-700/30">${trade.strike}</td>
- <td className="p-6 font-medium text-xl text-white border-r border-gray-700/30">
- <div className="flex flex-col space-y-1">
- <div>
- <span className="text-cyan-400 font-bold">{trade.trade_size.toLocaleString()}</span> 
- <span className="text-slate-400"> @ </span>
- <span className="text-yellow-400 font-bold">{trade.premium_per_contract.toFixed(2)}</span>
+ <td className="p-2 md:p-6 text-xs md:text-xl text-white font-semibold border-r border-gray-700/30 strike-cell">${trade.strike}</td>
+ <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell">
+ <div className="flex flex-col space-y-0.5 md:space-y-1">
+ <div className="flex flex-wrap items-center gap-1">
+ <span className="text-cyan-400 font-bold size-text text-xs md:text-base">{trade.trade_size.toLocaleString()}</span> 
+ <span className="text-slate-400 premium-at text-xs md:text-base"> @ </span>
+ <span className="text-yellow-400 font-bold premium-value text-xs md:text-base">{trade.premium_per_contract.toFixed(2)}</span>
  {(trade as any).fill_style && (
- <span className={`ml-2 px-2 py-0.5 rounded-md text-sm font-bold ${
+ <span className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md text-xs md:text-sm font-bold ${
  (trade as any).fill_style === 'A' ? 'text-green-400 bg-green-400/10 border border-green-400/30' :
  (trade as any).fill_style === 'AA' ? 'text-green-300 bg-green-300/10 border border-green-300/30' :
  (trade as any).fill_style === 'B' ? 'text-red-400 bg-red-400/10 border border-red-400/30' :
@@ -1833,36 +1940,38 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  </div>
  </div>
  </td>
- <td className="p-6 font-bold text-xl text-green-400 border-r border-gray-700/30">{formatCurrency(trade.total_premium)}</td>
- <td className="p-6 text-xl text-white border-r border-gray-700/30">{formatDate(trade.expiry)}</td>
- <td className="p-6 text-xl font-medium border-r border-gray-700/30">
+ <td className="p-2 md:p-6 font-bold text-xs md:text-xl text-green-400 border-r border-gray-700/30 premium-text">{formatCurrency(trade.total_premium)}</td>
+ <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 expiry-cell">{formatDate(trade.expiry)}</td>
+ <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display">
  <PriceDisplay 
  spotPrice={trade.spot_price}
- currentPrice={currentPrices[trade.underlying_ticker]}
- isLoading={priceLoadingState[trade.underlying_ticker]}
+ currentPrice={trade.current_price || currentPrices[trade.underlying_ticker]}
+ isLoading={!trade.current_price && priceLoadingState[trade.underlying_ticker]}
  ticker={trade.underlying_ticker}
  />
  </td>
- <td className="p-6 text-xl text-white border-r border-gray-700/30">
- {trade.volume !== undefined && trade.open_interest !== undefined ? (
+ <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
+ {(typeof trade.volume === 'number' && typeof trade.open_interest === 'number') ? (
  <div className="flex flex-col items-center">
- <div className="text-cyan-400 font-bold">
+ <div className="text-cyan-400 font-bold text-xs md:text-base">
  {trade.volume.toLocaleString()}
  </div>
- <div className="text-gray-400 text-sm">
+ <div className="text-gray-400 text-xs md:text-sm">
  /
  </div>
- <div className="text-purple-400 font-bold">
+ <div className="text-purple-400 font-bold text-xs md:text-base">
  {trade.open_interest.toLocaleString()}
  </div>
  </div>
  ) : (
- <span className="text-gray-500 animate-pulse">Loading...</span>
+ <span className="text-gray-500 text-xs md:text-base">
+ --
+ </span>
  )}
  </td>
- <td className="p-6 border-r border-gray-700/30">
- <span className={`inline-block px-4 py-2 rounded-lg text-lg font-bold shadow-sm ${getTradeTypeColor(trade.trade_type)}`}>
- {trade.trade_type === 'MULTI-LEG' ? 'ML' : trade.trade_type}
+ <td className="p-2 md:p-6 border-r border-gray-700/30">
+ <span className={`trade-type-badge inline-block px-2 md:px-4 py-1 md:py-2 rounded-lg text-xs md:text-lg font-bold shadow-sm ${getTradeTypeColor(trade.classification || trade.trade_type)}`}>
+ {(trade.classification || trade.trade_type) === 'MULTI-LEG' ? 'ML' : (trade.classification || trade.trade_type)}
  </span>
  </td>
  </tr>
@@ -1878,19 +1987,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
  <span>{streamingStatus || 'Loading premium options flow data...'}</span>
  </div>
- {streamingProgress && (
- <div className="flex flex-col items-center space-y-2">
- <div className="w-64 bg-slate-700 rounded-full h-2">
- <div 
- className="bg-orange-500 h-2 rounded-full transition-all duration-300" 
- style={{width: `${(streamingProgress.current / streamingProgress.total) * 100}%`}}
- />
- </div>
- <span className="text-sm text-slate-500">
- {streamingProgress.current} / {streamingProgress.total} batches processed
- </span>
- </div>
- )}
  </div>
  ) : (
  'No trades found matching the current filters.'

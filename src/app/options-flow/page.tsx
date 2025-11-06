@@ -5,6 +5,181 @@ import { OptionsFlowTable } from '@/components/OptionsFlowTable';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
+// Polygon API key
+const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+// VOL/OI ENRICHMENT - Same as AlgoFlow
+const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
+  console.log(`🔍 Fetching volume/OI data for ${trades.length} trades`);
+  
+  // Group trades by underlying ticker to minimize API calls
+  const tradesByUnderlying = trades.reduce((acc, trade) => {
+    const underlying = trade.underlying_ticker;
+    if (!acc[underlying]) {
+      acc[underlying] = [];
+    }
+    acc[underlying].push(trade);
+    return acc;
+  }, {} as Record<string, OptionsFlowData[]>);
+  
+  const updatedTrades: OptionsFlowData[] = [];
+  
+  // Process each underlying separately
+  for (const [underlying, underlyingTrades] of Object.entries(tradesByUnderlying)) {
+    try {
+      console.log(`📊 Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`);
+      
+      // Get unique expiration dates
+      const uniqueExpirations = [...new Set(underlyingTrades.map(t => t.expiry))];
+      
+      let allContracts = new Map();
+      
+      // Fetch data for each expiration date
+      for (const expiry of uniqueExpirations) {
+        const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
+        
+        const response = await fetch(
+          `https://api.polygon.io/v3/snapshot/options/${underlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`
+        );
+        
+        if (response.ok) {
+          const chainData = await response.json();
+          if (chainData.results) {
+            chainData.results.forEach((contract: any) => {
+              if (contract.details && contract.details.ticker) {
+                allContracts.set(contract.details.ticker, {
+                  volume: contract.day?.volume || 0,
+                  open_interest: contract.open_interest || 0
+                });
+              }
+            });
+          }
+        }
+      }
+      
+      console.log(`✅ Total contracts loaded for ${underlying}: ${allContracts.size}`);
+      
+      if (allContracts.size === 0) {
+        updatedTrades.push(...underlyingTrades.map(trade => ({
+          ...trade,
+          volume: 0,
+          open_interest: 0
+        })));
+        continue;
+      }
+      
+      const contractLookup = allContracts;
+      
+      // Match trades to contracts
+      for (const trade of underlyingTrades) {
+        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+        
+        let expiryDate;
+        if (trade.expiry.includes('T')) {
+          expiryDate = new Date(trade.expiry);
+        } else {
+          const [year, month, day] = trade.expiry.split('-').map(Number);
+          expiryDate = new Date(year, month - 1, day);
+        }
+        
+        const formattedExpiry = `${expiryDate.getFullYear().toString().slice(-2)}${(expiryDate.getMonth() + 1).toString().padStart(2, '0')}${expiryDate.getDate().toString().padStart(2, '0')}`;
+        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+        const optionTicker = `O:${trade.underlying_ticker}${formattedExpiry}${optionType}${strikeFormatted}`;
+        
+        const contractData = contractLookup.get(optionTicker);
+        
+        if (contractData) {
+          updatedTrades.push({
+            ...trade,
+            volume: contractData.volume,
+            open_interest: contractData.open_interest
+          });
+        } else {
+          updatedTrades.push({
+            ...trade,
+            volume: 0,
+            open_interest: 0
+          });
+        }
+      }
+      
+    } catch (error) {
+      console.error(`Error fetching data for ${underlying}:`, error);
+      updatedTrades.push(...underlyingTrades.map(trade => ({
+        ...trade,
+        volume: 0,
+        open_interest: 0
+      })));
+    }
+  }
+  
+  return updatedTrades;
+};
+
+// FILL STYLE ENRICHMENT - Same as AlgoFlow
+const analyzeBidAskExecution = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
+  console.log(`⚡ FILL STYLE ANALYSIS: Fetching quotes for ${trades.length} trades`);
+  
+  if (trades.length === 0) return trades;
+  
+  const tradesWithFillStyle: OptionsFlowData[] = [];
+  const BATCH_SIZE = 20;
+  
+  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+    const batch = trades.slice(i, i + BATCH_SIZE);
+    
+    const batchPromises = batch.map(async (trade) => {
+      try {
+        const expiry = trade.expiry.replace(/-/g, '').slice(2);
+        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+        const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+        
+        const tradeTime = new Date(trade.trade_timestamp);
+        const checkTimestamp = tradeTime.getTime() * 1000000;
+        
+        const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${POLYGON_API_KEY}`;
+        
+        const response = await fetch(quotesUrl);
+        const data = await response.json();
+        
+        if (data.results && data.results.length > 0) {
+          const quote = data.results[0];
+          const bid = quote.bid_price;
+          const ask = quote.ask_price;
+          const fillPrice = trade.premium_per_contract;
+          
+          if (bid && ask && fillPrice) {
+            let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
+            const midpoint = (bid + ask) / 2;
+            
+            if (fillPrice > ask) {
+              fillStyle = 'AA';
+            } else if (fillPrice < bid) {
+              fillStyle = 'BB';
+            } else if (fillPrice >= midpoint) {
+              fillStyle = 'A';
+            } else {
+              fillStyle = 'B';
+            }
+            
+            return { ...trade, fill_style: fillStyle };
+          }
+        }
+        
+        return { ...trade, fill_style: 'N/A' as const };
+      } catch (error) {
+        return { ...trade, fill_style: 'N/A' as const };
+      }
+    });
+    
+    const batchResults = await Promise.all(batchPromises);
+    tradesWithFillStyle.push(...batchResults);
+  }
+  
+  return tradesWithFillStyle;
+};
+
 interface OptionsFlowData {
  ticker: string;
  underlying_ticker: string;
@@ -20,6 +195,19 @@ interface OptionsFlowData {
  trade_timestamp: string;
  moneyness: 'ATM' | 'ITM' | 'OTM';
  days_to_expiry: number;
+ fill_style?: 'A' | 'B' | 'AA' | 'BB' | 'N/A';
+ volume?: number;
+ open_interest?: number;
+ vol_oi_ratio?: number;
+ delta?: number;
+ gamma?: number;
+ theta?: number;
+ vega?: number;
+ implied_volatility?: number;
+ current_price?: number;
+ bid?: number;
+ ask?: number;
+ bid_ask_spread?: number;
 }
 
 interface OptionsFlowSummary {
@@ -99,7 +287,7 @@ export default function OptionsFlowPage() {
  break;
  
  case 'trades':
- // Accumulate trades progressively as they come in (don't replace, append new ones)
+ // Accumulate trades progressively as they come in (show immediately, enrich later)
  if (streamData.trades && streamData.trades.length > 0) {
  setData(prevData => {
  // Create a Set of existing trade identifiers to avoid duplicates
@@ -129,44 +317,69 @@ export default function OptionsFlowPage() {
  break;
  
  case 'complete':
- // Final update with summary - APPEND any remaining trades, don't replace
- if (streamData.trades && streamData.trades.length > 0) {
- setData(prevData => {
- // Create a Set of existing trade identifiers to avoid duplicates
- const existingTradeIds = new Set(
- prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
- );
+ // CLOSE STREAM FIRST to prevent errors
+ console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades`);
+ eventSource.close();
  
- // Only add truly new trades
- const newTrades = (streamData.trades as OptionsFlowData[]).filter((trade: OptionsFlowData) => {
- const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
- return !existingTradeIds.has(tradeId);
- });
+ // Extract trades from the complete event (backend sends them here!)
+ const completeTrades = streamData.trades || [];
+ console.log(`🔍 COMPLETE EVENT: Received ${completeTrades.length} trades from backend`);
  
- console.log(` Stream Complete: Adding ${newTrades.length} final trades (${streamData.trades.length} sent, ${prevData.length} existing)`);
- 
- return [...prevData, ...newTrades];
- });
- }
- 
+ // Update summary/market info
  setSummary(streamData.summary);
  if (streamData.market_info) {
  setMarketInfo(streamData.market_info);
  }
  setLastUpdate(new Date().toLocaleString());
  setLoading(false);
- setStreamingStatus('');
  setStreamingProgress(null);
  setStreamError('');
- setRetryCount(0); // Reset retry count on success
- setIsStreamComplete(true); // Mark stream as successfully completed
+ setRetryCount(0);
+ setIsStreamComplete(true);
  
- console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades, $${streamData.summary.total_premium.toLocaleString()} total premium`);
+ // Set the trades immediately (they're already in the complete event)
+ if (completeTrades.length > 0) {
+ setData(completeTrades);
+ console.log(`✅ Set ${completeTrades.length} trades to state`);
  
- // Close the connection after a brief delay to ensure all messages are processed
+ // Small delay before enrichment to ensure state is updated
  setTimeout(() => {
- eventSource.close();
- }, 100);
+ setData(currentTrades => {
+ console.log(`🔍 ENRICHMENT CHECK: Found ${currentTrades.length} trades in state`);
+ 
+ if (currentTrades.length === 0) {
+ console.log('⚠️ No trades to enrich');
+ setStreamingStatus('');
+ return currentTrades;
+ }
+ 
+ console.log(`🚀 STARTING VOL/OI ENRICHMENT FOR ${currentTrades.length} TRADES`);
+ setStreamingStatus('Fetching volume/OI data...');
+ 
+ fetchVolumeAndOpenInterest(currentTrades)
+ .then(tradesWithVolOI => {
+ console.log('✅ VOL/OI FETCH COMPLETE!');
+ setStreamingStatus('Analyzing fill styles...');
+ return analyzeBidAskExecution(tradesWithVolOI);
+ })
+ .then(fullyEnrichedTrades => {
+ console.log('✅ ENRICHMENT COMPLETE!');
+ setData(fullyEnrichedTrades);
+ setStreamingStatus('');
+ })
+ .catch(enrichError => {
+ console.error('❌ Error during enrichment:', enrichError);
+ setStreamingStatus('');
+ });
+ 
+ return currentTrades;
+ });
+ }, 500); // 500ms delay to ensure state is updated
+ } else {
+ console.log('⚠️ Complete event had no trades');
+ setStreamingStatus('');
+ }
+ 
  break;
  
  case 'error':
@@ -193,24 +406,33 @@ export default function OptionsFlowPage() {
  }
  };
  
- eventSource.onerror = (error) => {
- console.error('EventSource error:', error);
- 
- // Don't retry if stream completed successfully
- if (isStreamComplete) {
- console.log('Stream completed successfully, ignoring final disconnect');
- eventSource.close();
- return;
- }
- 
- // Set user-friendly error message
- setStreamError('Connection lost. Retrying...');
- setStreamingStatus('Connection error - retrying...');
- 
- setLoading(false);
- eventSource.close();
- 
- // Auto-retry with exponential backoff (max 3 retries)
+          eventSource.onerror = (error) => {
+            console.error('EventSource error:', error);
+            console.error('EventSource readyState:', eventSource.readyState);
+            console.error('EventSource url:', eventSource.url);
+            
+            // Log more details about the error
+            if (error && typeof error === 'object') {
+              console.error('Error details:', {
+                target: error.target,
+                eventPhase: error.eventPhase,
+                type: error.type
+              });
+            }
+            
+            // Don't retry if stream completed successfully
+            if (isStreamComplete) {
+              console.log('Stream completed successfully, ignoring final disconnect');
+              eventSource.close();
+              return;
+            }
+            
+            // Set user-friendly error message
+            setStreamError('Connection lost. Retrying...');
+            setStreamingStatus('Connection error - retrying...');
+            
+            setLoading(false);
+            eventSource.close(); // Auto-retry with exponential backoff (max 3 retries)
  if (currentRetry < 3) {
  const nextRetry = currentRetry + 1;
  const backoffDelay = Math.min(1000 * Math.pow(2, currentRetry), 8000); // Max 8 seconds

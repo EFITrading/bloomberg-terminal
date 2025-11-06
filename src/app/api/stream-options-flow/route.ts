@@ -111,24 +111,54 @@ export async function GET(request: NextRequest) {
         // Initialize the options flow service with streaming callback
         const optionsFlowService = new OptionsFlowService(polygonApiKey);
         
-        // Create a streaming callback that sends trades as they're processed
+        // Create a streaming callback - ONLY send status, not progressive trades
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
-          sendData({
-            type: 'trades',
-            trades: trades,
-            status: status,
-            progress: progress,
-            timestamp: new Date().toISOString()
-          });
+          // ❌ DISABLED: Don't send progressive updates
+          // Only send status messages to show scan progress
+          if (!streamState.isActive) return; // Check if stream is still active
+          
+          if (trades.length === 0) {
+            sendData({
+              type: 'status',
+              message: status,
+              progress: progress,
+              timestamp: new Date().toISOString()
+            });
+          }
         };
 
-        // Start ultra-fast parallel flow scan
-        const finalTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
+        console.log('📊 Starting parallel flow scan...');
+        
+        // Start ultra-fast parallel flow scan with timeout protection
+        const scanPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(
           ticker || undefined,
           streamingCallback
         );
+        
+        // Add timeout to prevent hanging (10 minutes max - enrichment needs time)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Scan timeout after 10 minutes')), 600000)
+        );
+        
+        const finalTrades = await Promise.race([scanPromise, timeoutPromise]) as any[];
+        
+        console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
+        
+        // DEBUG: Check if trades are enriched
+        if (finalTrades.length > 0) {
+          const sampleTrade = finalTrades[0];
+          console.log(`🔍 Sample trade enrichment check:`, {
+            ticker: sampleTrade.ticker,
+            has_volume: 'volume' in sampleTrade,
+            volume: sampleTrade.volume,
+            has_open_interest: 'open_interest' in sampleTrade,
+            open_interest: sampleTrade.open_interest,
+            has_fill_style: 'fill_style' in sampleTrade,
+            fill_style: sampleTrade.fill_style
+          });
+        }
 
-        // Send final summary
+        // Send final summary with ALL ENRICHED TRADES AT ONCE
         const summary = {
           total_trades: finalTrades.length,
           total_premium: finalTrades.reduce((sum: number, t: ProcessedTrade) => sum + t.total_premium, 0),
@@ -146,6 +176,7 @@ export async function GET(request: NextRequest) {
           processing_time_ms: 0
         };
 
+        // ✅ SEND ALL TRADES IN ONE BATCH (already enriched by backend)
         sendData({
           type: 'complete',
           trades: finalTrades,
@@ -163,7 +194,9 @@ export async function GET(request: NextRequest) {
         
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('Streaming error:', errorMessage);
+        const errorStack = error instanceof Error ? error.stack : '';
+        console.error('❌ STREAMING ERROR:', errorMessage);
+        console.error('Stack trace:', errorStack);
         
         // Send detailed error information
         if (streamState.isActive) {
@@ -172,7 +205,8 @@ export async function GET(request: NextRequest) {
             error: errorMessage,
             errorType: error instanceof Error ? error.name : 'UnknownError',
             timestamp: new Date().toISOString(),
-            retryable: !errorMessage.includes('API key') && !errorMessage.includes('403')
+            retryable: !errorMessage.includes('API key') && !errorMessage.includes('403'),
+            details: process.env.NODE_ENV === 'development' ? errorStack : undefined
           });
         }
       } finally {
