@@ -43,7 +43,9 @@ interface WatchlistOption {
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
-export default function OptionsChain({ symbol, currentPrice = 0 }: OptionsChainProps) {
+export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0 }: OptionsChainProps) {
+  const [symbol, setSymbol] = useState(initialSymbol);
+  const [searchInput, setSearchInput] = useState(initialSymbol);
   const [expirationDates, setExpirationDates] = useState<string[]>([]);
   const [selectedExpiration, setSelectedExpiration] = useState<string>('');
   const [callOptions, setCallOptions] = useState<OptionContract[]>([]);
@@ -54,6 +56,14 @@ export default function OptionsChain({ symbol, currentPrice = 0 }: OptionsChainP
   const [error, setError] = useState<string | null>(null);
   const [watchlist, setWatchlist] = useState<WatchlistOption[]>([]);
   const [showWatchlist, setShowWatchlist] = useState(false);
+
+  // Sync symbol when initialSymbol changes
+  useEffect(() => {
+    if (initialSymbol !== symbol) {
+      setSymbol(initialSymbol);
+      setSearchInput(initialSymbol);
+    }
+  }, [initialSymbol]);
 
   // Fetch current stock price
   const fetchStockPrice = useCallback(async () => {
@@ -399,51 +409,82 @@ export default function OptionsChain({ symbol, currentPrice = 0 }: OptionsChainP
   return (
     <div className="h-full flex flex-col bg-black text-white">
       {/* Enhanced Header */}
-      <div className="flex-shrink-0 border-b border-orange-900/30 bg-gradient-to-b from-gray-950 via-gray-900 to-black shadow-lg">
+      <div className="flex-shrink-0 border-b border-orange-900/30 bg-black shadow-lg">
         {/* Top Bar */}
-        <div className="px-4 pt-4 pb-2 border-b border-gray-800/50">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-xl font-bold bg-gradient-to-r from-orange-400 to-orange-200 bg-clip-text text-transparent">
-                  {symbol}
-                </h2>
-                <span className="text-xs text-gray-500 font-mono">OPTIONS CHAIN</span>
+        <div className="px-4 pt-4 pb-3">
+          {/* Row 1: Search Bar, Price, Expiration, and Actions */}
+          <div className="flex items-center justify-between mb-4">
+            {/* Left: Search Bar, Spot Price, and Expiration */}
+            <div className="flex items-center gap-4">
+              {/* Liquid-style Search Bar */}
+              <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
+                  <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
+                  <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2"/>
+                </svg>
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && searchInput.trim()) {
+                      setSymbol(searchInput.trim().toUpperCase());
+                      setSelectedExpiration('');
+                      setCallOptions([]);
+                      setPutOptions([]);
+                      setError(null);
+                    }
+                  }}
+                  className="bg-transparent border-0 outline-none w-28 text-lg font-bold uppercase"
+                  style={{
+                    color: '#ffffff',
+                    textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    letterSpacing: '0.8px'
+                  }}
+                  placeholder="Search..."
+                />
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
+                  <path d="M12 5v14l7-7-7-7z" fill="currentColor"/>
+                </svg>
               </div>
               
-              <div className="flex items-center gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-white">Spot</span>
-                  <span className="text-white font-bold text-lg">${stockPrice.toFixed(2)}</span>
-                </div>
-                
-                {lastUpdate && (
-                  <div className="flex items-center gap-2 text-xs">
-                    <TbInfoCircle className="w-3 h-3 text-white" />
-                    <span className="text-white">
-                      Updated {lastUpdate.toLocaleTimeString()}
-                    </span>
-                  </div>
-                )}
+              {/* Spot Price */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-white uppercase tracking-wider">Spot</span>
+                <span className="text-white font-bold text-xl tabular-nums">${stockPrice.toFixed(2)}</span>
               </div>
-
-              <div className="flex items-center gap-4 mt-2 text-xs">
-                <span className="text-white">
-                  <span className="text-green-400 font-semibold">{callOptions.length}</span> Calls
-                </span>
-                <span className="text-white">
-                  <span className="text-red-400 font-semibold">{putOptions.length}</span> Puts
-                </span>
-                <span className="text-white">
-                  <span className="text-orange-400 font-semibold">{allStrikes.length}</span> Strikes
-                </span>
-                <span className="text-white">•</span>
-                <span className="text-white">
-                  <span className="text-cyan-400 font-semibold">{watchlist.length}</span> Watchlist
-                </span>
+              
+              {/* Expiration Selector */}
+              <div className="relative min-w-[200px]">
+                <select
+                  value={selectedExpiration}
+                  onChange={(e) => setSelectedExpiration(e.target.value)}
+                  className="w-full bg-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20 transition-all appearance-none cursor-pointer hover:bg-gray-800/50"
+                  disabled={loading || expirationDates.length === 0}
+                >
+                  {expirationDates.length === 0 ? (
+                    <option>Loading expirations...</option>
+                  ) : (
+                    expirationDates.map((date) => {
+                      const daysUntil = Math.ceil((new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                      return (
+                        <option key={date} value={date} className="bg-gray-900">
+                          {date} ({daysUntil}d DTE)
+                        </option>
+                      );
+                    })
+                  )}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
               </div>
             </div>
 
+            {/* Right: Action Buttons */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowWatchlist(!showWatchlist)}
@@ -457,7 +498,7 @@ export default function OptionsChain({ symbol, currentPrice = 0 }: OptionsChainP
                 <TbStarFilled className="w-4 h-4" />
                 <span className="text-xs font-bold">WATCHLIST</span>
                 {watchlist.length > 0 && (
-                  <span className="bg-orange-500 text-black text-xs rounded-full px-1.5 py-0.5 font-bold">
+                  <span className="bg-orange-500 text-black text-xs rounded-full px-1.5 py-0.5 font-bold min-w-[20px] text-center">
                     {watchlist.length}
                   </span>
                 )}
@@ -478,33 +519,10 @@ export default function OptionsChain({ symbol, currentPrice = 0 }: OptionsChainP
             </div>
           </div>
 
-          {/* Expiration Selector */}
-          <div className="relative">
-            <select
-              value={selectedExpiration}
-              onChange={(e) => setSelectedExpiration(e.target.value)}
-              className="w-full bg-gray-900/50 backdrop-blur-sm border border-gray-700/50 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20 transition-all appearance-none cursor-pointer hover:bg-gray-800/50"
-              disabled={loading || expirationDates.length === 0}
-            >
-              {expirationDates.length === 0 ? (
-                <option>Loading expirations...</option>
-              ) : (
-                expirationDates.map((date) => {
-                  const daysUntil = Math.ceil((new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                  return (
-                    <option key={date} value={date} className="bg-gray-900">
-                      {date} ({daysUntil}d DTE)
-                    </option>
-                  );
-                })
-              )}
-            </select>
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
+          {/* Row 2: Removed - Now Empty */}
+          <div className="mb-3 pb-3 border-b border-gray-800/30">
           </div>
+
         </div>
 
         {/* Column Headers */}
@@ -880,6 +898,29 @@ export default function OptionsChain({ symbol, currentPrice = 0 }: OptionsChainP
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: linear-gradient(180deg, #fb923c 0%, #f97316 100%);
+        }
+        
+        /* Liquid-style Search Bar */
+        .search-bar-premium {
+          background: linear-gradient(145deg, #0a0a0a 0%, #1a1a1a 100%) !important;
+          border: 2px solid rgba(128, 128, 128, 0.3) !important;
+          box-shadow: 
+            inset 0 2px 4px rgba(0, 0, 0, 0.8),
+            inset 0 -2px 4px rgba(128, 128, 128, 0.05),
+            0 4px 12px rgba(0, 0, 0, 0.6),
+            0 0 0 1px rgba(96, 96, 96, 0.2) !important;
+          border-radius: 3px !important;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        
+        .search-bar-premium:focus-within {
+          border: 2px solid rgba(160, 160, 160, 0.6) !important;
+          box-shadow: 
+            inset 0 2px 4px rgba(0, 0, 0, 0.8),
+            inset 0 -2px 4px rgba(128, 128, 128, 0.1),
+            0 4px 12px rgba(0, 0, 0, 0.6),
+            0 0 15px rgba(128, 128, 128, 0.2),
+            0 0 0 2px rgba(96, 96, 96, 0.1) !important;
         }
       `}</style>
     </div>

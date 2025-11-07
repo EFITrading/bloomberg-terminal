@@ -1796,8 +1796,8 @@ const DealerAttraction = () => {
   const [error, setError] = useState<string | null>(null);
   const [expirations, setExpirations] = useState<string[]>([]);
   const [currentPrice, setCurrentPrice] = useState(0);
-  const [selectedTicker, setSelectedTicker] = useState('SPY');
-  const [tickerInput, setTickerInput] = useState('SPY');
+  const [selectedTicker, setSelectedTicker] = useState('');
+  const [tickerInput, setTickerInput] = useState('');
   const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}}>({});
   const [viewMode, setViewMode] = useState<'NET' | 'CP'>('CP'); // C/P by default
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
@@ -2223,7 +2223,9 @@ const DealerAttraction = () => {
   };
 
   useEffect(() => {
-    fetchOptionsData();
+    if (selectedTicker) {
+      fetchOptionsData();
+    }
   }, [selectedTicker]);
 
   // Memoize the formatted data to prevent unnecessary recalculations during scrolling

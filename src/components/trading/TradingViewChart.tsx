@@ -9328,7 +9328,7 @@ export default function TradingViewChart({
  { label: '5M', value: '5m' },
  { label: '30M', value: '30m' },
  { label: '1H', value: '1h' },
- { label: '24H', value: '4h' },
+ { label: '4H', value: '4h' },
  { label: 'D', value: '1d' }
  ].map((tf, index) => (
  <button
@@ -9362,7 +9362,7 @@ export default function TradingViewChart({
  <option value="5m">5M</option>
  <option value="30m">30M</option>
  <option value="1h">1H</option>
- <option value="4h">24H</option>
+ <option value="4h">4H</option>
  <option value="1d">D</option>
  </select>
  </div>
