@@ -34,39 +34,43 @@ function getEasternDate(): Date {
 
 /**
  * Get the next Friday from a given date (in Eastern Time)
+ * Mon-Thu: Returns this week's Friday
+ * Fri: Returns next week's Friday (assumes market close, looking ahead)
+ * Sat-Sun: Returns next week's Friday
  */
 export function getNextFriday(fromDate?: Date): Date {
  const easternDate = fromDate ? new Date(fromDate) : getEasternDate();
  
  const dayOfWeek = easternDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
- console.log(' GET NEXT FRIDAY: Input date:', easternDate.toISOString());
- console.log(' GET NEXT FRIDAY: Day of week:', dayOfWeek, '(0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)');
- console.log('� GET NEXT FRIDAY: Expected - if today is Oct 2 (Wed), next Friday should be Oct 3');
+ console.log('📅 GET NEXT FRIDAY: Input date:', easternDate.toISOString());
+ console.log('📅 GET NEXT FRIDAY: Day of week:', dayOfWeek, '(0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)');
  
  let daysUntilFriday;
- if (dayOfWeek === 5) {
- // Today is Friday, get next Friday (7 days from now)
- daysUntilFriday = 7;
- console.log(' LOGIC: Today is Friday, getting next Friday (+7 days)');
- } else if (dayOfWeek < 5) {
- // Before Friday this week
+ if (dayOfWeek === 0) {
+ // Sunday - get Friday of this upcoming week
+ daysUntilFriday = 5;
+ console.log('✅ LOGIC: Sunday, getting this week\'s Friday (+5 days)');
+ } else if (dayOfWeek >= 1 && dayOfWeek <= 4) {
+ // Monday through Thursday - get Friday of this week
  daysUntilFriday = 5 - dayOfWeek;
- console.log(' LOGIC: Before Friday, days until Friday:', daysUntilFriday);
- console.log(' LOGIC: If Wed(3): 5-3=2 days → Oct 1 + 2 = Oct 3 ');
+ console.log(`✅ LOGIC: Mon-Thu (day ${dayOfWeek}), getting this week's Friday (+${daysUntilFriday} days)`);
+ } else if (dayOfWeek === 5) {
+ // Friday - get next week's Friday
+ daysUntilFriday = 7;
+ console.log('✅ LOGIC: Friday, getting next week\'s Friday (+7 days)');
  } else {
- // Saturday (6), get Friday of next week
- daysUntilFriday = 7 - dayOfWeek + 5; // 6 days for Saturday
- console.log(' LOGIC: Weekend, getting next Friday (+6 days for Sat)');
+ // Saturday - get next week's Friday
+ daysUntilFriday = 6;
+ console.log('✅ LOGIC: Saturday, getting next week\'s Friday (+6 days)');
  }
  
- console.log(' CALCULATION: Days until Friday:', daysUntilFriday);
- console.log(' CALCULATION: Starting from date:', easternDate.toISOString().split('T')[0]);
+ console.log('📊 CALCULATION: Days until Friday:', daysUntilFriday);
+ console.log('📊 CALCULATION: Starting from date:', easternDate.toISOString().split('T')[0]);
  
  const nextFriday = new Date(easternDate);
  nextFriday.setDate(easternDate.getDate() + daysUntilFriday);
  
- console.log('� RESULT: Next Friday calculated as:', nextFriday.toISOString().split('T')[0]);
- console.log(' FINAL CHECK: Should be 2025-10-03 if today is Oct 1, 2025 (Wed), NOT 2025-10-04!');
+ console.log('🎯 RESULT: Next Friday calculated as:', nextFriday.toISOString().split('T')[0]);
  
  return nextFriday;
 }

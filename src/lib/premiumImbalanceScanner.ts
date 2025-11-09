@@ -183,8 +183,7 @@ class PremiumImbalanceScanner {
  let imbalanceSeverity: 'EXTREME' | 'HIGH' | 'MODERATE';
  if (absImbalance > 40) imbalanceSeverity = 'EXTREME';
  else if (absImbalance > 25) imbalanceSeverity = 'HIGH';
- else if (absImbalance > 15) imbalanceSeverity = 'MODERATE';
- else return null;
+ else return null; // Only show HIGH (>25%) and EXTREME (>40%)
 
  return {
  symbol,

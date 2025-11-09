@@ -980,7 +980,7 @@ const findStrikeForProbability = (S: number, r: number, sigma: number, T: number
 
 // Polygon API Integration for Expected Range Calculations
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
-const riskFreeRate = 0.0408; // 4.08% risk-free rate
+const riskFreeRate = 0.0387; // 3.87% risk-free rate (Federal Funds Rate)
 
 // Black-Scholes price calculation
 const calculateBlackScholesPrice = (S: number, K: number, r: number, sigma: number, T: number, isCall: boolean): number => {
@@ -1064,30 +1064,35 @@ const calculateIVFromOptionsChain = async (optionsResults: any[], price: number,
  throw new Error(`No options found for ${label}`);
  }
 
- // Find multiple ATM strikes for better accuracy (within 2% tolerance)
- const atmStrikes = [];
- const tolerance = price * 0.02; // 2% tolerance for "ATM"
+ // Determine if these are calls or puts to find OTM strikes
+ const isCall = optionsResults[0]?.contract_type === 'call';
  
- for (const option of optionsResults) {
- if (Math.abs(option.strike_price - price) <= tolerance) {
- atmStrikes.push(option.strike_price);
+ // Get 10 OTM strikes based on option type
+ let otmStrikes = [];
+ if (isCall) {
+ // For calls: OTM = strikes ABOVE current price
+ otmStrikes = [...new Set(optionsResults.map(opt => opt.strike_price))]
+ .filter(strike => strike > price)
+ .sort((a, b) => a - b) // Ascending order (closest to price first)
+ .slice(0, 10);
+ console.log(`${label} - First 10 OTM Call strikes (above $${price.toFixed(2)}):`, otmStrikes.join(', '));
+ } else {
+ // For puts: OTM = strikes BELOW current price
+ otmStrikes = [...new Set(optionsResults.map(opt => opt.strike_price))]
+ .filter(strike => strike < price)
+ .sort((a, b) => b - a) // Descending order (closest to price first)
+ .slice(0, 10);
+ console.log(`${label} - First 10 OTM Put strikes (below $${price.toFixed(2)}):`, otmStrikes.join(', '));
  }
- }
  
- const uniqueStrikes = [...new Set(atmStrikes)].sort((a, b) => 
- Math.abs(a - price) - Math.abs(b - price)
- );
- 
- console.log(`${label} - ATM strikes within 2%: ${uniqueStrikes.slice(0, 5).join(', ')}`);
- 
- if (uniqueStrikes.length === 0) {
- throw new Error(`No ATM options found for ${label} within 2% range. Current price: $${price.toFixed(2)}`);
+ if (otmStrikes.length === 0) {
+ throw new Error(`No OTM options found for ${label}. Current price: $${price.toFixed(2)}`);
  }
 
- // Test multiple strikes for reliability
+ // Test OTM strikes for IV calculation
  const validIVs = [];
  
- for (const strike of uniqueStrikes.slice(0, 3)) { // Test top 3 closest strikes
+ for (const strike of otmStrikes) {
  const optionAtStrike = optionsResults.find(opt => opt.strike_price === strike);
  
  if (optionAtStrike) {
@@ -1147,9 +1152,9 @@ const fetchMarketDataForExpectedRange = async (symbol: string) => {
  
  console.log(`Current ${symbol} price: $${currentPrice}`);
 
- // Calculate 5% range for API filtering - EXACT same logic as AI Suite
- const lowerBound = currentPrice * 0.95;
- const upperBound = currentPrice * 1.05;
+ // Calculate wider range for API filtering to capture OTM strikes
+ const lowerBound = currentPrice * 0.80; // 20% below for puts
+ const upperBound = currentPrice * 1.20; // 20% above for calls
  console.log(`Looking for strikes between $${lowerBound.toFixed(2)} and $${upperBound.toFixed(2)}`);
 
  // Get dynamic expiration dates from Polygon API

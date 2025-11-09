@@ -22,6 +22,7 @@ export default function ImpliedVolatilityChart() {
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [currentCallIV, setCurrentCallIV] = useState<number | null>(null);
   const [currentPutIV, setCurrentPutIV] = useState<number | null>(null);
+  const [scannerRunning, setScannerRunning] = useState(false);
 
   // Clear data when volatility range changes
   useEffect(() => {
@@ -43,30 +44,77 @@ export default function ImpliedVolatilityChart() {
     setData([]);
     
     try {
-      console.log(`🔍 Fetching IV for ${ticker} - ${expirationWeeks} weeks`);
-      const response = await fetch(`/api/implied-volatility?ticker=${ticker}&weeks=${expirationWeeks}`);
-      const result = await response.json();
+      console.log(`🔍 Fetching IV History for ${ticker} - ${expirationWeeks} weeks`);
       
-      console.log(`📊 IV API Result:`, result);
+      // Try to get historical data first
+      const historyResponse = await fetch(`/api/iv-history?ticker=${ticker}`);
+      const historyResult = await historyResponse.json();
       
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch IV data');
-      }
+      if (historyResult.success && historyResult.data.history && historyResult.data.history.length > 0) {
+        // We have historical data!
+        const { currentPrice, callIV, putIV, history, expiration, weeksTarget } = historyResult.data;
+        
+        console.log(`✅ IV History - ${history.length} data points found`);
+        
+        setCurrentPrice(currentPrice);
+        setCurrentCallIV(callIV);
+        setCurrentPutIV(putIV);
+        
+        // Format history for chart
+        const chartData = history.map((h: any) => ({
+          date: `${h.date} ${h.time}`,
+          callIV: h.callIV,
+          putIV: h.putIV,
+          expiration: h.expiration,
+          weeksTarget,
+          scanType: h.scanType
+        }));
+        
+        setData(chartData);
+      } else {
+        // Fall back to single IV fetch
+        const ivResponse = await fetch(`/api/implied-volatility?ticker=${ticker}&weeks=${expirationWeeks}`);
+        const ivResult = await ivResponse.json();
+        
+        console.log(`📊 IV API Result:`, ivResult);
+        
+        if (!ivResult.success) {
+          throw new Error(ivResult.error || 'Failed to fetch IV data');
+        }
 
-      const { currentPrice, callIV, putIV, date, expiration, weeksTarget } = result.data;
-      
-      console.log(`✅ IV Data - Price: $${currentPrice}, Call IV: ${callIV}%, Put IV: ${putIV}%, Expiration: ${expiration}, Weeks: ${weeksTarget}`);
-      
-      setCurrentPrice(currentPrice);
-      setCurrentCallIV(callIV);
-      setCurrentPutIV(putIV);
-      setData([{ date, callIV, putIV, expiration, weeksTarget }]);
+        const { currentPrice, callIV, putIV, date, expiration, weeksTarget } = ivResult.data;
+        
+        console.log(`✅ IV Data - Price: $${currentPrice}, Call IV: ${callIV}%, Put IV: ${putIV}%, Expiration: ${expiration}, Weeks: ${weeksTarget}`);
+        
+        setCurrentPrice(currentPrice);
+        setCurrentCallIV(callIV);
+        setCurrentPutIV(putIV);
+        setData([{ date, callIV, putIV, expiration, weeksTarget }]);
+      }
       
     } catch (err: any) {
       setError(err.message || 'Error fetching data.');
       console.error('❌ IV Fetch Error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const runManualScan = async () => {
+    setScannerRunning(true);
+    try {
+      const response = await fetch('/api/iv-scanner?type=OPEN&manual=true');
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(`✅ IV Scanner Complete!\n\nScanned: ${result.scanned} stocks\nErrors: ${result.errors}\n\nHistorical data is now being collected.`);
+      } else {
+        alert(`❌ Scanner Error: ${result.error}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Error running scanner: ${err.message}`);
+    } finally {
+      setScannerRunning(false);
     }
   };
 
@@ -77,6 +125,15 @@ export default function ImpliedVolatilityChart() {
         <h2 className="text-xl font-semibold tracking-wide text-white">
           IV Tracker — 10 OTM Strikes
         </h2>
+        <div className="ml-auto">
+          <button
+            onClick={runManualScan}
+            disabled={scannerRunning}
+            className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded-md text-sm font-medium transition border border-cyan-400/30"
+          >
+            {scannerRunning ? 'Scanning...' : '⚡ Run IV Scanner'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -90,7 +147,7 @@ export default function ImpliedVolatilityChart() {
           />
         </div>
         <div>
-          <label className="text-sm text-gray-400 mb-2 block">Volatility Range</label>
+          <label className="text-sm text-gray-400 mb-2 block">IV Range</label>
           <select
             className="w-full bg-black border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
             value={expirationWeeks}
@@ -139,19 +196,30 @@ export default function ImpliedVolatilityChart() {
       {data.length > 0 && (
         <div className="mt-8 border border-gray-600 rounded-lg bg-black p-6">
           <h3 className="text-lg font-semibold mb-4 text-white">
-            Implied Volatility History
+            Implied Volatility {data.length > 1 ? 'History' : 'Snapshot'} ({data.length} data point{data.length > 1 ? 's' : ''})
           </h3>
-          <ResponsiveContainer width="100%" height={400}>
+          <ResponsiveContainer width="100%" height={350}>
             <LineChart data={data}>
               <CartesianGrid stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="date" stroke="#666" />
-              <YAxis stroke="#666" label={{ value: 'IV (%)', angle: -90, position: 'insideLeft', fill: '#999' }} />
+              <XAxis 
+                dataKey="date" 
+                stroke="#666"
+                angle={data.length > 5 ? -45 : 0}
+                textAnchor={data.length > 5 ? "end" : "middle"}
+                height={data.length > 5 ? 80 : 30}
+              />
+              <YAxis stroke="#666" label={{ value: 'Volatility (%)', angle: -90, position: 'insideLeft', fill: '#999' }} />
               <Tooltip contentStyle={{ backgroundColor: '#111', border: '1px solid #333', color: '#fff' }} />
               <Legend />
-              <Line type="monotone" dataKey="callIV" stroke="#00ff99" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="putIV" stroke="#ff3b3b" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="callIV" name="Call IV" stroke="#00ff99" strokeWidth={3} dot={data.length <= 20} />
+              <Line type="monotone" dataKey="putIV" name="Put IV" stroke="#ff3b3b" strokeWidth={3} dot={data.length <= 20} />
             </LineChart>
           </ResponsiveContainer>
+          {data.length > 1 && (
+            <div className="mt-4 text-sm text-gray-400 text-center">
+              Data collected from automated twice-daily scans (9:49 AM & 3:41 PM ET)
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -162,10 +230,12 @@ function MetricCard({
   title,
   value,
   icon,
+  subtitle,
 }: {
   title: string;
   value: string;
   icon: React.ReactNode;
+  subtitle?: string;
 }) {
   return (
     <div className="border border-gray-600 bg-black rounded-lg p-4">
@@ -174,6 +244,9 @@ function MetricCard({
         <span className="text-sm">{title}</span>
       </div>
       <div className="text-2xl font-bold text-white">{value}</div>
+      {subtitle && (
+        <div className="text-xs text-gray-500 mt-1">{subtitle}</div>
+      )}
     </div>
   );
 }

@@ -68,7 +68,28 @@ export default function GEXScreener() {
  const [loading, setLoading] = useState(false);
  const [error, setError] = useState('');
  const [expirationFilter, setExpirationFilter] = useState('Default');
+ const [strengthFilter, setStrengthFilter] = useState<'all' | 'purple' | 'blue' | 'yellow'>('all');
  const [currentPage, setCurrentPage] = useState(1);
+ const [backgroundScanData, setBackgroundScanData] = useState<any>(null);
+ 
+ // Load background scan data on mount
+ useEffect(() => {
+ const loadBackgroundData = async () => {
+ try {
+ const response = await fetch('/api/gex-latest');
+ const result = await response.json();
+ 
+ if (result.success && result.data) {
+ setBackgroundScanData(result);
+ console.log(`📊 Loaded background GEX scan: ${result.data.length} stocks (${result.scanType} scan)`);
+ }
+ } catch (err) {
+ console.log('No background scan data available yet');
+ }
+ };
+ 
+ loadBackgroundData();
+ }, []);
  
  // Mobile detection
  const [isMobile, setIsMobile] = useState(false);
@@ -94,6 +115,28 @@ export default function GEXScreener() {
  const [otmScanProgress, setOtmScanProgress] = useState({ current: 0, total: 0 });
  const [otmScanningSymbol, setOtmScanningSymbol] = useState('');
  const otmEventSourceRef = useRef<EventSource | null>(null);
+ const [otmBackgroundScanData, setOtmBackgroundScanData] = useState<any>(null);
+ 
+ // Load OTM background scan data on mount
+ useEffect(() => {
+ const loadOtmBackgroundData = async () => {
+ try {
+ const response = await fetch('/api/otm-latest');
+ const result = await response.json();
+ 
+ if (result.success && result.data) {
+ setOtmBackgroundScanData(result);
+ setOtmResults(result.data);
+ setOtmLastUpdate(new Date(result.timestamp));
+ console.log(`📊 Loaded background OTM scan: ${result.data.length} imbalances (${result.scanType} scan)`);
+ }
+ } catch (err) {
+ console.log('No background OTM scan data available yet');
+ }
+ };
+ 
+ loadOtmBackgroundData();
+ }, []);
  
  // Disabled auto-refresh on filter change to prevent flickering - user can manually refresh
  // useEffect(() => {
@@ -177,13 +220,8 @@ export default function GEXScreener() {
  
  currentResults.push(transformedItem);
  
- // Sort and update display by GEX Impact Score (highest impact first)
- const sortedResults = [...currentResults].sort((a, b) => (b.gexImpactScore || 0) - (a.gexImpactScore || 0));
- 
- // Only update if this is a new scan or if we have no existing data
- if (isNewScan || gexData.length === 0) {
- setGexData(sortedResults);
- }
+ // DON'T update display during scan - only log progress
+ // This prevents flickering and constant re-renders
  
  const wallInfo = messageData.data.largestWall 
  ? messageData.data.largestWall.cluster 
@@ -328,6 +366,16 @@ export default function GEXScreener() {
 
  const filteredGexData = gexData
  .filter(item => item.ticker.toLowerCase().includes(searchTerm.toLowerCase()))
+ .filter(item => {
+ // Base filter: only show strength >= 40% (Yellow, Blue, Purple)
+ if (item.strength < 40) return false;
+ 
+ // Strength filter
+ if (strengthFilter === 'purple') return item.strength > 75;
+ if (strengthFilter === 'blue') return item.strength >= 63 && item.strength <= 75;
+ if (strengthFilter === 'yellow') return item.strength >= 40 && item.strength < 63;
+ return true; // 'all' shows all >= 40%
+ })
  .sort((a, b) => {
  const aValue = sortBy === 'dealerSweat' ? a.dealerSweat : 
  sortBy === 'targetLevel' ? a.attractionLevel : a.currentPrice;
@@ -353,7 +401,7 @@ export default function GEXScreener() {
  // Reset to page 1 when filters change
  useEffect(() => {
  setCurrentPage(1);
- }, [searchTerm, sortBy, sortOrder]);
+ }, [searchTerm, sortBy, sortOrder, strengthFilter]);
 
  // Load initial data automatically on component mount
  useEffect(() => {
@@ -446,6 +494,15 @@ export default function GEXScreener() {
  <span className="text-white font-bold text-sm md:text-base">{gexData.length}</span>
  </div>
  )}
+ 
+ {backgroundScanData && (
+ <div className="px-3 md:px-4 py-2 md:py-3 bg-orange-900/20 border border-orange-500/30 rounded-xl">
+ <span className="text-orange-300 font-medium text-xs md:text-sm mr-2">📊 Background Scan:</span>
+ <span className="text-orange-400 font-bold text-xs md:text-sm">
+ {backgroundScanData.scanType} ({new Date(backgroundScanData.timestamp).toLocaleTimeString()})
+ </span>
+ </div>
+ )}
  </div>
  </div>
  </div>
@@ -498,6 +555,12 @@ export default function GEXScreener() {
  <Layers className="w-4 h-4 md:w-6 md:h-6" />
  <span className="hidden sm:inline tracking-wider">OTM PREMIUMS</span>
  <span className="sm:hidden tracking-wider">OTM</span>
+ {otmBackgroundScanData && (
+ <span className="absolute -top-2 -right-2 flex h-3 w-3">
+ <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+ <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" title={`Background scan: ${new Date(otmBackgroundScanData.timestamp).toLocaleTimeString()}`}></span>
+ </span>
+ )}
  {activeTab === 'otm-premiums' && (
  <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-gradient-to-r from-orange-400 to-orange-600 rounded-full shadow-lg" />
  )}
@@ -527,8 +590,8 @@ export default function GEXScreener() {
  </button>
  </div>
  
- {/* Filter Controls - Only Expiration Filter */}
- <div className="flex items-center">
+ {/* Filter Controls - Expiration and Strength Filters */}
+ <div className="flex items-center gap-3">
  <select 
  value={expirationFilter}
  onChange={(e) => setExpirationFilter(e.target.value)}
@@ -538,6 +601,17 @@ export default function GEXScreener() {
  <option value="Week">Week</option>
  <option value="Month">Month</option>
  <option value="Quad">Quad</option>
+ </select>
+ 
+ <select 
+ value={strengthFilter}
+ onChange={(e) => setStrengthFilter(e.target.value as 'all' | 'purple' | 'blue' | 'yellow')}
+ className="bg-gray-800/50 border border-gray-600/50 rounded-xl px-2 md:px-4 py-2 md:py-3 text-xs md:text-sm font-semibold text-white hover:bg-gray-700/70 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+ >
+ <option value="all">All Strengths</option>
+ <option value="purple">🟣 Magnetic Only (&gt;75%)</option>
+ <option value="blue">🔵 Moderate Only (63-75%)</option>
+ <option value="yellow">🟡 Weak Pull (40-62%)</option>
  </select>
  </div>
  </div>

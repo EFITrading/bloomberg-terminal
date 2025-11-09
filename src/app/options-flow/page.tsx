@@ -258,6 +258,237 @@ export default function OptionsFlowPage() {
  const [streamError, setStreamError] = useState<string>('');
  const [retryCount, setRetryCount] = useState<number>(0);
  const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
+ 
+ // AUTO-SCAN: State for scheduled scanning
+ const [autoScanEnabled, setAutoScanEnabled] = useState(true);
+ const [nextScanTime, setNextScanTime] = useState<Date | null>(null);
+ const [scanHistory, setScanHistory] = useState<string[]>([]);
+ const [currentTradingDay, setCurrentTradingDay] = useState<string>('');
+ 
+ // HISTORICAL DATA VIEWER: State for viewing past trades
+ const [showHistoryModal, setShowHistoryModal] = useState(false);
+ const [historicalDays, setHistoricalDays] = useState<Array<{date: string, totalTrades: number, timestamp: string}>>([]);
+ const [selectedHistoricalDay, setSelectedHistoricalDay] = useState<string | null>(null);
+ const [historicalTrades, setHistoricalTrades] = useState<OptionsFlowData[]>([]);
+
+ // HISTORICAL DATA STORAGE using IndexedDB
+ const initHistoricalDB = () => {
+ return new Promise<IDBDatabase>((resolve, reject) => {
+ const request = indexedDB.open('OptionsFlowHistory', 1);
+ 
+ request.onerror = () => reject(request.error);
+ request.onsuccess = () => resolve(request.result);
+ 
+ request.onupgradeneeded = (event) => {
+ const db = (event.target as IDBOpenDBRequest).result;
+ if (!db.objectStoreNames.contains('dailyTrades')) {
+ const store = db.createObjectStore('dailyTrades', { keyPath: 'date' });
+ store.createIndex('date', 'date', { unique: true });
+ }
+ };
+ });
+ };
+
+ // Save current day's trades to historical database
+ const saveToHistory = async (date: string, trades: OptionsFlowData[]) => {
+ try {
+ const db = await initHistoricalDB();
+ const transaction = db.transaction(['dailyTrades'], 'readwrite');
+ const store = transaction.objectStore('dailyTrades');
+ 
+ await store.put({
+ date,
+ trades,
+ timestamp: new Date().toISOString(),
+ totalTrades: trades.length
+ });
+ 
+ console.log(`💾 Saved ${trades.length} trades to history for ${date}`);
+ 
+ // Clean up old data (keep only 5 days)
+ await cleanupOldHistory(db);
+ } catch (error) {
+ console.error('Error saving to history:', error);
+ }
+ };
+
+ // Clean up data older than 5 days
+ const cleanupOldHistory = async (db: IDBDatabase) => {
+ try {
+ const transaction = db.transaction(['dailyTrades'], 'readwrite');
+ const store = transaction.objectStore('dailyTrades');
+ const request = store.getAllKeys();
+ 
+ return new Promise<void>((resolve, reject) => {
+ request.onsuccess = async () => {
+ const allKeys = request.result;
+ const fiveDaysAgo = new Date();
+ fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+ const cutoffDate = fiveDaysAgo.toISOString().split('T')[0];
+ 
+ for (const key of allKeys) {
+ if (typeof key === 'string' && key < cutoffDate) {
+ await store.delete(key);
+ console.log(`🗑️ Deleted historical data for ${key}`);
+ }
+ }
+ resolve();
+ };
+ request.onerror = () => reject(request.error);
+ });
+ } catch (error) {
+ console.error('Error cleaning up old history:', error);
+ }
+ };
+
+ // Get market schedule (9:30 AM - 4:00 PM ET)
+ const getMarketTimes = () => {
+ const now = new Date();
+ const today = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+ 
+ const marketOpen = new Date(today);
+ marketOpen.setHours(9, 30, 0, 0);
+ 
+ const marketClose = new Date(today);
+ marketClose.setHours(16, 0, 0, 0);
+ 
+ // Scheduled scan times
+ const scan1 = new Date(marketOpen.getTime() + 4 * 60 * 1000); // 9:34 AM (4 min after open)
+ const scan2 = new Date(marketOpen.getTime() + 2 * 60 * 60 * 1000); // 11:30 AM (2 hours after open)
+ const scan3 = new Date(marketClose.getTime() - 2 * 60 * 60 * 1000); // 2:00 PM (2 hours before close)
+ const scan4 = new Date(marketClose.getTime() - 15 * 60 * 1000); // 3:45 PM (15 min before close)
+ 
+ return { marketOpen, marketClose, scan1, scan2, scan3, scan4 };
+ };
+
+ // Check if market is open
+ const isMarketOpen = () => {
+ const now = new Date();
+ const { marketOpen, marketClose } = getMarketTimes();
+ return now >= marketOpen && now <= marketClose;
+ };
+
+ // Get next scheduled scan time
+ const getNextScanTime = (): Date | null => {
+ const now = new Date();
+ const { scan1, scan2, scan3, scan4, marketClose } = getMarketTimes();
+ 
+ const scans = [scan1, scan2, scan3, scan4];
+ 
+ for (const scanTime of scans) {
+ if (now < scanTime) {
+ return scanTime;
+ }
+ }
+ 
+ // If past all scans for today, return first scan of next trading day
+ const tomorrow = new Date(scan1);
+ tomorrow.setDate(tomorrow.getDate() + 1);
+ return tomorrow;
+ };
+
+ // Check if it's a new trading day and handle day rollover
+ const checkAndHandleNewDay = async () => {
+ const today = new Date().toISOString().split('T')[0];
+ 
+ if (currentTradingDay && currentTradingDay !== today) {
+ console.log(`📅 New trading day detected: ${currentTradingDay} → ${today}`);
+ 
+ // Save yesterday's trades to history before clearing
+ if (data.length > 0) {
+ await saveToHistory(currentTradingDay, data);
+ console.log(`💾 Archived ${data.length} trades from ${currentTradingDay}`);
+ }
+ 
+ // Clear current trades for new day
+ setData([]);
+ setScanHistory([]);
+ console.log(`🔄 Cleared trades for new trading day: ${today}`);
+ }
+ 
+ setCurrentTradingDay(today);
+ };
+
+ // Execute scheduled scan
+ const executeScheduledScan = async () => {
+ if (!autoScanEnabled || !isMarketOpen()) {
+ console.log('⏸️ Auto-scan skipped: disabled or market closed');
+ return;
+ }
+ 
+ const now = new Date();
+ const scanTime = now.toLocaleTimeString();
+ 
+ console.log(`🤖 AUTO-SCAN TRIGGERED at ${scanTime}`);
+ setScanHistory(prev => [...prev, scanTime]);
+ 
+ // Fetch new trades (will accumulate with existing)
+ await fetchOptionsFlowStreaming(0);
+ 
+ // Update next scan time
+ setNextScanTime(getNextScanTime());
+ };
+
+ // HISTORICAL DATA: Load list of available historical days
+ const loadHistoricalDays = async () => {
+ try {
+ const db = await initHistoricalDB();
+ const transaction = db.transaction(['dailyTrades'], 'readonly');
+ const store = transaction.objectStore('dailyTrades');
+ const request = store.getAll();
+ 
+ return new Promise<Array<{date: string, totalTrades: number, timestamp: string}>>((resolve) => {
+ request.onsuccess = () => {
+ const days = request.result.map((item: any) => ({
+ date: item.date,
+ totalTrades: item.totalTrades || 0,
+ timestamp: item.timestamp
+ })).sort((a, b) => b.date.localeCompare(a.date)); // Sort descending (newest first)
+ resolve(days);
+ };
+ request.onerror = () => resolve([]);
+ });
+ } catch (error) {
+ console.error('Error loading historical days:', error);
+ return [];
+ }
+ };
+
+ // HISTORICAL DATA: Load trades for a specific day
+ const loadHistoricalTrades = async (date: string) => {
+ try {
+ const db = await initHistoricalDB();
+ const transaction = db.transaction(['dailyTrades'], 'readonly');
+ const store = transaction.objectStore('dailyTrades');
+ const request = store.get(date);
+ 
+ return new Promise<OptionsFlowData[]>((resolve) => {
+ request.onsuccess = () => {
+ const result = request.result;
+ resolve(result?.trades || []);
+ };
+ request.onerror = () => resolve([]);
+ });
+ } catch (error) {
+ console.error('Error loading historical trades:', error);
+ return [];
+ }
+ };
+
+ // HISTORICAL DATA: Open history modal and load available days
+ const openHistoryModal = async () => {
+ setShowHistoryModal(true);
+ const days = await loadHistoricalDays();
+ setHistoricalDays(days);
+ };
+
+ // HISTORICAL DATA: Load and display trades for selected day
+ const viewHistoricalDay = async (date: string) => {
+ setSelectedHistoricalDay(date);
+ const trades = await loadHistoricalTrades(date);
+ setHistoricalTrades(trades);
+ console.log(`📊 Loaded ${trades.length} historical trades for ${date}`);
+ };
 
  // Live options flow fetch
  const fetchOptionsFlowStreaming = async (currentRetry: number = 0) => {
@@ -337,44 +568,70 @@ export default function OptionsFlowPage() {
  setRetryCount(0);
  setIsStreamComplete(true);
  
- // Set the trades immediately (they're already in the complete event)
+ // ACCUMULATE trades - don't replace, add new ones to existing
  if (completeTrades.length > 0) {
- setData(completeTrades);
- console.log(`✅ Set ${completeTrades.length} trades to state`);
+ setData(prevData => {
+ // Create a Set of existing trade identifiers to avoid duplicates
+ const existingTradeIds = new Set(
+ prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
+ );
  
- // Small delay before enrichment to ensure state is updated
+ // Only add truly new trades
+ const newTrades = completeTrades.filter((trade: OptionsFlowData) => {
+ const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
+ return !existingTradeIds.has(tradeId);
+ });
+ 
+ console.log(`� ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
+ 
+ const updatedTrades = [...prevData, ...newTrades];
+ console.log(`✅ Total trades now: ${updatedTrades.length}`);
+ 
+ // Enrich only the NEW trades
+ if (newTrades.length > 0) {
  setTimeout(() => {
- setData(currentTrades => {
- console.log(`🔍 ENRICHMENT CHECK: Found ${currentTrades.length} trades in state`);
+ console.log(`🚀 ENRICHING ${newTrades.length} NEW TRADES`);
+ setStreamingStatus('Fetching volume/OI data for new trades...');
  
- if (currentTrades.length === 0) {
- console.log('⚠️ No trades to enrich');
- setStreamingStatus('');
- return currentTrades;
- }
- 
- console.log(`🚀 STARTING VOL/OI ENRICHMENT FOR ${currentTrades.length} TRADES`);
- setStreamingStatus('Fetching volume/OI data...');
- 
- fetchVolumeAndOpenInterest(currentTrades)
+ fetchVolumeAndOpenInterest(newTrades)
  .then(tradesWithVolOI => {
  console.log('✅ VOL/OI FETCH COMPLETE!');
  setStreamingStatus('Analyzing fill styles...');
  return analyzeBidAskExecution(tradesWithVolOI);
  })
- .then(fullyEnrichedTrades => {
- console.log('✅ ENRICHMENT COMPLETE!');
- setData(fullyEnrichedTrades);
+ .then(enrichedNewTrades => {
+ console.log('✅ NEW TRADES ENRICHMENT COMPLETE!');
+ 
+ // Merge enriched new trades with existing trades
+ setData(currentTrades => {
+ const existingIds = new Set(
+ currentTrades.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+ );
+ 
+ // Replace unenriched versions with enriched ones
+ const finalTrades = currentTrades.map((t: OptionsFlowData) => {
+ const enriched = enrichedNewTrades.find((e: OptionsFlowData) => 
+ `${e.ticker}-${e.trade_timestamp}-${e.strike}` === `${t.ticker}-${t.trade_timestamp}-${t.strike}`
+ );
+ return enriched || t;
+ });
+ 
+ console.log(`✅ FINAL TRADE COUNT: ${finalTrades.length}`);
  setStreamingStatus('');
+ return finalTrades;
+ });
  })
  .catch(enrichError => {
  console.error('❌ Error during enrichment:', enrichError);
  setStreamingStatus('');
  });
+ }, 500);
+ } else {
+ setStreamingStatus('');
+ }
  
- return currentTrades;
+ return updatedTrades;
  });
- }, 500); // 500ms delay to ensure state is updated
  } else {
  console.log('⚠️ Complete event had no trades');
  setStreamingStatus('');
@@ -522,6 +779,54 @@ export default function OptionsFlowPage() {
  fetchOptionsFlowStreaming(0);
  }, [selectedTicker]);
 
+ // AUTO-SCAN SCHEDULER: Check every minute for scheduled scans
+ useEffect(() => {
+ const checkSchedule = async () => {
+ // Check if it's a new trading day
+ await checkAndHandleNewDay();
+ 
+ if (!autoScanEnabled) return;
+ 
+ const now = new Date();
+ const { scan1, scan2, scan3, scan4 } = getMarketTimes();
+ const scans = [
+ { time: scan1, name: '4min after open' },
+ { time: scan2, name: '2hrs after open' },
+ { time: scan3, name: '2hrs before close' },
+ { time: scan4, name: '15min before close' }
+ ];
+ 
+ for (const scan of scans) {
+ const timeDiff = Math.abs(now.getTime() - scan.time.getTime());
+ 
+ // If within 30 seconds of scan time and not already scanned today
+ if (timeDiff < 30000 && !scanHistory.includes(scan.time.toLocaleTimeString())) {
+ console.log(`⏰ Scheduled scan: ${scan.name}`);
+ await executeScheduledScan();
+ break;
+ }
+ }
+ 
+ // Update next scan time display
+ setNextScanTime(getNextScanTime());
+ };
+ 
+ // Check schedule every minute
+ const interval = setInterval(checkSchedule, 60000);
+ 
+ // Initial check
+ checkSchedule();
+ 
+ return () => clearInterval(interval);
+ }, [autoScanEnabled, scanHistory, data, currentTradingDay]);
+
+ // Initialize trading day on mount
+ useEffect(() => {
+ const today = new Date().toISOString().split('T')[0];
+ setCurrentTradingDay(today);
+ setNextScanTime(getNextScanTime());
+ }, []);
+
  const handleRefresh = () => {
  // Reset error state and retry count
  setStreamError('');
@@ -551,6 +856,165 @@ export default function OptionsFlowPage() {
 
  return (
  <div className="min-h-screen bg-black text-white pt-12">
+ {/* Auto-Scan Status Bar */}
+ <div className="p-4 bg-gray-900 border-b border-gray-800">
+ <div className="max-w-7xl mx-auto flex items-center justify-between">
+ <div className="flex items-center gap-4">
+ <div className="flex items-center gap-2">
+ <button
+ onClick={() => setAutoScanEnabled(!autoScanEnabled)}
+ className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+ autoScanEnabled
+ ? 'bg-green-600 hover:bg-green-700 text-white'
+ : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+ }`}
+ >
+ {autoScanEnabled ? '🤖 AUTO-SCAN ON' : '⏸️ AUTO-SCAN OFF'}
+ </button>
+ <div className="text-sm text-gray-400">
+ {nextScanTime && autoScanEnabled && (
+ <span>Next scan: {nextScanTime.toLocaleTimeString()}</span>
+ )}
+ </div>
+ </div>
+ 
+ <div className="flex items-center gap-2 text-xs text-gray-500">
+ <span>Scans today: {scanHistory.length}/4</span>
+ {scanHistory.length > 0 && (
+ <span className="text-green-400">
+ Last: {scanHistory[scanHistory.length - 1]}
+ </span>
+ )}
+ </div>
+ 
+ <div className="flex items-center gap-2 text-xs">
+ <span className="text-gray-400">Total trades accumulated:</span>
+ <span className="text-blue-400 font-bold">{data.length}</span>
+ </div>
+ 
+ {/* Historical Data Button */}
+ <button
+ onClick={openHistoryModal}
+ className="px-4 py-2 rounded-lg font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white transition-all"
+ >
+ 📅 HISTORY (5 Days)
+ </button>
+ </div>
+ 
+ <div className="text-xs text-gray-500">
+ Trading Day: {currentTradingDay}
+ </div>
+ </div>
+ </div>
+
+ {/* Historical Data Modal */}
+ {showHistoryModal && (
+ <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+ <div className="bg-gray-900 rounded-lg border-2 border-gray-700 w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+ {/* Modal Header */}
+ <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+ <h2 className="text-xl font-bold text-white">📅 Historical Trades (Last 5 Days)</h2>
+ <button
+ onClick={() => {
+ setShowHistoryModal(false);
+ setSelectedHistoricalDay(null);
+ setHistoricalTrades([]);
+ }}
+ className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white font-bold transition-all"
+ >
+ ✕ Close
+ </button>
+ </div>
+ 
+ <div className="flex-1 overflow-y-auto p-4">
+ {!selectedHistoricalDay ? (
+ /* Day Selection View */
+ <div className="space-y-2">
+ <p className="text-gray-400 mb-4">Select a trading day to view trades:</p>
+ {historicalDays.length === 0 ? (
+ <div className="text-center py-8 text-gray-500">
+ <p className="text-lg">No historical data available</p>
+ <p className="text-sm mt-2">Historical trades will appear here after the first trading day</p>
+ </div>
+ ) : (
+ historicalDays.map((day) => (
+ <button
+ key={day.date}
+ onClick={() => viewHistoricalDay(day.date)}
+ className="w-full p-4 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-600 transition-all text-left"
+ >
+ <div className="flex items-center justify-between">
+ <div>
+ <div className="text-lg font-bold text-white">{day.date}</div>
+ <div className="text-sm text-gray-400">
+ {new Date(day.timestamp).toLocaleString()}
+ </div>
+ </div>
+ <div className="text-right">
+ <div className="text-2xl font-bold text-blue-400">{day.totalTrades}</div>
+ <div className="text-xs text-gray-500">trades</div>
+ </div>
+ </div>
+ </button>
+ ))
+ )}
+ </div>
+ ) : (
+ /* Trades View for Selected Day */
+ <div>
+ <button
+ onClick={() => {
+ setSelectedHistoricalDay(null);
+ setHistoricalTrades([]);
+ }}
+ className="mb-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-bold transition-all"
+ >
+ ← Back to Days
+ </button>
+ 
+ <div className="mb-4">
+ <h3 className="text-lg font-bold text-white">Trades for {selectedHistoricalDay}</h3>
+ <p className="text-sm text-gray-400">{historicalTrades.length} total trades</p>
+ </div>
+ 
+ {historicalTrades.length === 0 ? (
+ <div className="text-center py-8 text-gray-500">
+ No trades found for this day
+ </div>
+ ) : (
+ <OptionsFlowTable
+ data={historicalTrades}
+ summary={{
+ total_trades: historicalTrades.length,
+ total_premium: historicalTrades.reduce((sum, t) => sum + (t.total_premium || 0), 0),
+ unique_symbols: new Set(historicalTrades.map(t => t.underlying_ticker)).size,
+ trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, MINI: 0 },
+ call_put_ratio: { calls: 0, puts: 0 },
+ processing_time_ms: 0
+ }}
+ marketInfo={{
+ status: 'LAST_TRADING_DAY',
+ is_live: false,
+ data_date: selectedHistoricalDay,
+ market_open: false
+ }}
+ loading={false}
+ onRefresh={() => {}}
+ onClearData={() => {}}
+ selectedTicker="ALL"
+ onTickerChange={() => {}}
+ streamingStatus=""
+ streamingProgress={null}
+ streamError=""
+ />
+ )}
+ </div>
+ )}
+ </div>
+ </div>
+ </div>
+ )}
+ 
  {/* Main Content */}
  <div className="p-6">
  <OptionsFlowTable

@@ -3,7 +3,7 @@ import { RefreshCw, AlertCircle, TrendingUp, Activity, Target, BarChart3, Gauge 
 
 interface GEXData {
   strike: number;
-  [key: string]: number | {call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number};
+  [key: string]: number | {call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number, callDelta?: number, putDelta?: number};
 }
 
 interface ServerGEXData {
@@ -49,7 +49,7 @@ interface DHPData {
 interface DHPDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number}}};
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
   expirations: string[];
 }
 
@@ -66,14 +66,14 @@ interface PPData {
 interface PPDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number}}};
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
   expirations: string[];
 }
 
 interface DSIDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number}}};
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
   vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
   expirations: string[];
 }
@@ -1202,14 +1202,17 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
       
       // Enhanced DSI calculation with multiple fallbacks
       const calculateDSIWithFallbacks = async (symbol: string, priority: string = 'normal') => {
-        const timeouts = priority === 'high' ? [3000, 5000, 8000] : [5000, 8000, 12000];
+        const timeouts = priority === 'high' ? [8000, 15000, 25000] : [10000, 20000, 30000]; // Increased timeouts
         
         for (let attempt = 0; attempt < timeouts.length; attempt++) {
           try {
             console.log(`[${priority.toUpperCase()}] Attempt ${attempt + 1} for ${symbol} (${timeouts[attempt]}ms timeout)`);
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), timeouts[attempt]);
+            const timeoutId = setTimeout(() => {
+              console.log(`⏱️ Timeout reached for ${symbol} after ${timeouts[attempt]}ms`);
+              controller.abort();
+            }, timeouts[attempt]);
             
             const response = await fetch(`/api/options-chain?ticker=${symbol}`, {
               signal: controller.signal,
@@ -1247,7 +1250,9 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
             
           } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            console.warn(`${symbol} attempt ${attempt + 1} failed:`, errorMsg);
+            const isAbort = error instanceof Error && error.name === 'AbortError';
+            const displayMsg = isAbort ? `Timeout after ${timeouts[attempt]}ms` : errorMsg;
+            console.warn(`${symbol} attempt ${attempt + 1} failed:`, displayMsg);
             if (attempt < timeouts.length - 1) {
               await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
             }
@@ -1806,8 +1811,10 @@ const DealerAttraction = () => {
   const [gexMode, setGexMode] = useState<'GEX' | 'Net GEX'>('GEX');
 
   const [showOI, setShowOI] = useState(false);
-  const [oiMode, setOiMode] = useState<'OI' | 'Live OI'>('OI');
+  const [liveMode, setLiveMode] = useState(false); // Single live mode toggle for all metrics
   const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map());
+  const [liveOILoading, setLiveOILoading] = useState(false);
+  const [liveOIProgress, setLiveOIProgress] = useState(0);
   const [showVEX, setShowVEX] = useState(false);
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
@@ -1818,6 +1825,8 @@ const DealerAttraction = () => {
   // Live OI Update - Separate scan with AlgoFlow's exact logic
   const updateLiveOI = async () => {
     console.log('🚀 Starting Live OI scan for', selectedTicker);
+    setLiveOILoading(true);
+    setLiveOIProgress(0);
     
     const eventSource = new EventSource(`/api/stream-options-flow?ticker=${selectedTicker.toUpperCase()}`);
     let allTrades: any[] = [];
@@ -1830,6 +1839,7 @@ const DealerAttraction = () => {
           console.log(`📊 Received ${data.trades.length} trades`);
           allTrades = data.trades;
           eventSource.close();
+          setLiveOIProgress(20); // 20% - trades received
           
           // Step 1: Fetch volume and OI data for all trades using Polygon API
           const uniqueExpirations = [...new Set(allTrades.map(t => t.expiry))];
@@ -1838,7 +1848,8 @@ const DealerAttraction = () => {
           const allContracts = new Map();
           
           // Fetch data for each expiration
-          for (const expiry of uniqueExpirations) {
+          for (let i = 0; i < uniqueExpirations.length; i++) {
+            const expiry = uniqueExpirations[i];
             const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
             
             try {
@@ -1860,12 +1871,16 @@ const DealerAttraction = () => {
                   console.log(`  ✅ Found ${chainData.results.length} contracts for ${expiryParam}`);
                 }
               }
+              
+              // Update progress: 20% to 60% during contract fetching
+              setLiveOIProgress(20 + Math.round((i + 1) / uniqueExpirations.length * 40));
             } catch (error) {
               console.error(`  ❌ Error fetching ${expiryParam}:`, error);
             }
           }
           
           console.log(`📊 Total contracts fetched: ${allContracts.size}`);
+          setLiveOIProgress(60); // 60% - contracts fetched
           
           // Step 2: Enrich trades with volume/OI
           const enrichedTrades = allTrades.map(trade => {
@@ -1877,6 +1892,7 @@ const DealerAttraction = () => {
               underlying_ticker: trade.underlying_ticker || selectedTicker.toUpperCase()
             };
           });
+          setLiveOIProgress(70); // 70% - trades enriched
           
           // Step 3: Detect fill styles (copied from AlgoFlow)
           const tradesWithFillStyle = enrichedTrades.map(trade => {
@@ -1904,6 +1920,7 @@ const DealerAttraction = () => {
           });
           
           console.log(`✅ Enriched ${tradesWithFillStyle.length} trades with volume/OI and fill_style`);
+          setLiveOIProgress(80); // 80% - fill styles calculated
           
           // Step 4: Calculate Live OI for each unique contract
           const liveOIMap = new Map<string, number>();
@@ -1966,10 +1983,18 @@ const DealerAttraction = () => {
           });
           
           setLiveOIData(liveOIMap);
+          setLiveOIProgress(100); // 100% - complete
           console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
+          
+          // Hide loading after a brief delay to show 100%
+          setTimeout(() => {
+            setLiveOILoading(false);
+          }, 500);
         }
       } catch (error) {
         console.error('❌ Error in Live OI update:', error);
+        setLiveOILoading(false);
+        setLiveOIProgress(0);
       }
     };
     
@@ -1992,7 +2017,7 @@ const DealerAttraction = () => {
 
 
 
-  const [otmFilter, setOtmFilter] = useState<'2%' | '5%' | '10%' | '20%' | '100%'>('2%');
+  const [otmFilter, setOtmFilter] = useState<'1%' | '2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%'>('2%');
   const [progress, setProgress] = useState(0);
 
 
@@ -2025,7 +2050,11 @@ const DealerAttraction = () => {
       setProgress(10);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
       
-      const optionsResponse = await fetch(`/api/options-chain?ticker=${selectedTicker}`);
+      // Use working SPX endpoint for indices, regular endpoint for stocks
+      const apiEndpoint = selectedTicker.toUpperCase() === 'SPX' 
+        ? `/api/spx-fix?ticker=${selectedTicker}` 
+        : `/api/options-chain?ticker=${selectedTicker}`;
+      const optionsResponse = await fetch(apiEndpoint);
       const optionsResult = await optionsResponse.json();
       
       setProgress(20);
@@ -2033,6 +2062,18 @@ const DealerAttraction = () => {
       
       if (!optionsResult.success || !optionsResult.data) {
         throw new Error(optionsResult.error || 'Failed to fetch options data');
+      }
+
+      // DEBUG: Log what we received from SPX API for Nov 10
+      if (selectedTicker === 'SPX' && optionsResult.data['2025-11-10']) {
+        const nov10Data = optionsResult.data['2025-11-10'];
+        console.log(`🔍 DEALER ATTRACTION RECEIVED NOV 10 DATA:`);
+        console.log(`  Calls: ${Object.keys(nov10Data.calls || {}).length}`);
+        console.log(`  Puts: ${Object.keys(nov10Data.puts || {}).length}`);
+        console.log(`  6700 PUT from API: ${nov10Data.puts?.['6700']?.open_interest || 'NOT FOUND'}`);
+        console.log(`  6750 PUT from API: ${nov10Data.puts?.['6750']?.open_interest || 'NOT FOUND'}`);
+        console.log(`  6850 PUT from API: ${nov10Data.puts?.['6850']?.open_interest || 'NOT FOUND'}`);
+        console.log(`  6900 PUT from API: ${nov10Data.puts?.['6900']?.open_interest || 'NOT FOUND'}`);
       }
       
       const currentPrice = optionsResult.currentPrice;
@@ -2058,7 +2099,7 @@ const DealerAttraction = () => {
       
       // Initialize all data structures - these will always be calculated regardless of display settings
       const oiByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}} = {};
-      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number}}} = {};
+      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}} = {};
       const vexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}} = {};
       const allStrikes = new Set<number>();
       
@@ -2092,7 +2133,8 @@ const DealerAttraction = () => {
               
               // STEP 1B: Calculate GEX using the OI we just stored
               const gamma = data.greeks?.gamma || 0;
-              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0 };
+              const delta = data.greeks?.delta || 0;
+              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0 };
               if (gamma) {
                 const gex = gamma * oi * (currentPrice * currentPrice) * 100;
                 gexByStrikeByExp[expDate][strikeNum].call = gex;
@@ -2122,9 +2164,26 @@ const DealerAttraction = () => {
           });
           
           // STEP 2: Process puts - Same order: OI → GEX → VEX → Premium
+          console.log(`🔍 PUT PROCESSING DEBUG: Found ${Object.keys(puts).length} put strikes for ${expDate}`);
+          
+          // Special debugging for Nov 10
+          if (expDate === '2025-11-10') {
+            console.log(`🚨 NOV 10 PUT PROCESSING DEBUG:`);
+            console.log(`  Raw puts object keys: ${Object.keys(puts).slice(0, 10).join(', ')}...`);
+            console.log(`  6700 in puts: ${puts.hasOwnProperty('6700')}`);
+            console.log(`  6750 in puts: ${puts.hasOwnProperty('6750')}`);
+            console.log(`  6850 in puts: ${puts.hasOwnProperty('6850')}`);
+            console.log(`  6900 in puts: ${puts.hasOwnProperty('6900')}`);
+          }
+          
           Object.entries(puts).forEach(([strike, data]: [string, any]) => {
             const strikeNum = parseFloat(strike);
             const oi = data.open_interest || 0;
+            
+            // Log high OI puts for Nov 10
+            if (expDate === '2025-11-10' && oi > 100) {
+              console.log(`🎯 NOV 10 HIGH OI PUT: Strike ${strikeNum} = OI ${oi}`);
+            }
             
             if (oi > 0) {
               // STEP 2A: Update OI with put data (initialize if not exists from calls)
@@ -2137,11 +2196,13 @@ const DealerAttraction = () => {
               
               // STEP 2B: Update GEX with put data
               if (!gexByStrikeByExp[expDate][strikeNum]) {
-                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0 };
+                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0 };
               }
               const gamma = data.greeks?.gamma || 0;
+              const delta = data.greeks?.delta || 0;
               gexByStrikeByExp[expDate][strikeNum].putOI = oi;
               gexByStrikeByExp[expDate][strikeNum].putGamma = gamma;
+              gexByStrikeByExp[expDate][strikeNum].putDelta = delta;
               if (gamma) {
                 const gex = -gamma * oi * (currentPrice * currentPrice) * 100; // Negative for puts
                 gexByStrikeByExp[expDate][strikeNum].put = gex;
@@ -2210,6 +2271,14 @@ const DealerAttraction = () => {
           allAvailableExpirations.forEach(exp => {
             const data = gexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
             row[exp] = { call: data.call, put: data.put, net: data.call + data.put, callOI: data.callOI, putOI: data.putOI };
+            
+            // Debug put OI specifically for Nov 10
+            if (exp === '2025-11-10' && data.putOI > 0) {
+              console.log(`🔥 NOV 10 TABLE ROW: Strike ${strike}, Put OI=${data.putOI}`);
+            }
+            if (exp === '2025-11-10' && (strike === 6700 || strike === 6750 || strike === 6850 || strike === 6900)) {
+              console.log(`🔍 NOV 10 KEY STRIKE ${strike}: callOI=${data.callOI}, putOI=${data.putOI}, data:`, data);
+            }
           });
           return row;
         });
@@ -2242,7 +2311,7 @@ const DealerAttraction = () => {
         const row: GEXData = { strike };
         expirations.forEach(exp => {
           // Get all data types for this strike and expiration
-          const gexData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number} = gexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined };
+          const gexData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number} = gexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined };
           const vexData: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number} = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVega: undefined, putVega: undefined };
           
           let callGEX = gexData.call;
@@ -2253,20 +2322,34 @@ const DealerAttraction = () => {
           let putVEX = vexData.put;
           
           // Recalculate GEX and VEX using Live OI if available
-          if (oiMode === 'Live OI' && liveOIData.size > 0) {
+          if (liveMode && liveOIData.size > 0) {
             const callKey = `${selectedTicker}_${strike}_call_${exp}`;
             const putKey = `${selectedTicker}_${strike}_put_${exp}`;
             
             const liveCallOI = liveOIData.get(callKey);
             const livePutOI = liveOIData.get(putKey);
             
-            // If Live OI exists, recalculate GEX with it
-            if (liveCallOI !== undefined && gexData.callGamma) {
+            // If Live OI exists, recalculate GEX with it (DELTA-ADJUSTED)
+            if (liveCallOI !== undefined && gexData.callGamma && gexData.callDelta !== undefined) {
+              callOI = liveCallOI;
+              // Delta-Adjusted GEX = Gamma × OI × Price² × 100 × |Delta|
+              const deltaAdjustment = Math.abs(gexData.callDelta);
+              callGEX = gexData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100 * deltaAdjustment;
+              console.log(`🔥 Live OI Call GEX (Delta-Adjusted): Strike ${strike} = ${gexData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 × ${deltaAdjustment} = ${callGEX}`);
+            } else if (liveCallOI !== undefined && gexData.callGamma) {
+              // Fallback to non-delta-adjusted if delta not available
               callOI = liveCallOI;
               callGEX = gexData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
             }
             
-            if (livePutOI !== undefined && gexData.putGamma) {
+            if (livePutOI !== undefined && gexData.putGamma && gexData.putDelta !== undefined) {
+              putOI = livePutOI;
+              // Delta-Adjusted GEX = -Gamma × OI × Price² × 100 × |Delta|
+              const deltaAdjustment = Math.abs(gexData.putDelta);
+              putGEX = -gexData.putGamma * livePutOI * (currentPrice * currentPrice) * 100 * deltaAdjustment;
+              console.log(`🔥 Live OI Put GEX (Delta-Adjusted): Strike ${strike} = -${gexData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 × ${deltaAdjustment} = ${putGEX}`);
+            } else if (livePutOI !== undefined && gexData.putGamma) {
+              // Fallback to non-delta-adjusted if delta not available
               putOI = livePutOI;
               putGEX = -gexData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
             }
@@ -2304,7 +2387,7 @@ const DealerAttraction = () => {
       return data;
     }
     return [];
-  }, [viewMode, gexByStrikeByExpiration, vexByStrikeByExpiration, currentPrice, expirations, otmFilter, analysisType, showGEX, showOI, showVEX, gexMode, oiMode, vexMode, liveOIData]);
+  }, [viewMode, gexByStrikeByExpiration, vexByStrikeByExpiration, currentPrice, expirations, otmFilter, analysisType, showGEX, showOI, showVEX, gexMode, liveMode, vexMode, liveOIData]);
 
   // Update data state when memoized data changes
   useEffect(() => {
@@ -2397,22 +2480,41 @@ const DealerAttraction = () => {
         
         // Include GEX values when displayed
         if (showGEX) {
-          values.push(Math.abs(value?.call || 0), Math.abs(value?.put || 0));
+          if (gexMode === 'Net GEX') {
+            // In Net GEX mode, only consider net values (call + put)
+            const netGex = (value?.call || 0) + (value?.put || 0);
+            values.push(Math.abs(netGex));
+          } else {
+            // In regular GEX mode, consider individual call and put values
+            values.push(
+              Math.abs(value?.call || 0),
+              Math.abs(value?.put || 0)
+            );
+          }
         }
         
         // Include VEX values when displayed
         if (showVEX) {
-          values.push(Math.abs(value?.callVex || 0), Math.abs(value?.putVex || 0));
+          if (vexMode === 'Net VEX') {
+            // In Net VEX mode, only consider net values (call + put)
+            const netVex = (value?.callVex || 0) + (value?.putVex || 0);
+            values.push(Math.abs(netVex));
+          } else {
+            // In regular VEX mode, consider individual call and put values
+            values.push(
+              Math.abs(value?.callVex || 0),
+              Math.abs(value?.putVex || 0)
+            );
+          }
         }
-        
-        // Include Premium values when displayed (not included in color ranking)
-        // Premium has its own highlighting system
         
         return values;
       })
     ).filter(v => v > 0);
     
+    // Sort by absolute values
     const sorted = [...allValues].sort((a, b) => b - a);
+    
     return {
       highest: sorted[0] || 0,
       second: sorted[1] || 0,
@@ -2425,7 +2527,62 @@ const DealerAttraction = () => {
     const absValue = Math.abs(value);
     const tops = getTopValues();
     
-    // Only apply color highlighting if this is a GEX or VEX value (not premium)
+    // HEATSEEKER MODE: When Live OI is active, use dealer positioning logic based on GEX values
+    // This applies to both regular GEX and Net GEX modes
+    if (liveMode && showGEX && !isVexValue) {
+      // Positive GEX (long gamma) = YELLOW (dealers dampen/absorb moves - magnetic pillow)
+      // Negative GEX (short gamma) = PURPLE (dealers amplify moves - pouring gas on fire)
+      
+      if (value > 0) {
+        // BRIGHT YELLOW NODES - Dealers positioned to absorb price movement
+        // These areas reduce volatility and can act as strong support/resistance zones
+        if (absValue === tops.highest && absValue > 0) {
+          // ATTRACTION NODE - Brightest yellow for highest magnitude (primary EOD/EOW target)
+          return 'bg-gradient-to-br from-yellow-300/80 to-yellow-500/80 text-yellow-950 font-black shadow-[0_0_25px_rgba(234,179,8,0.6)] border-2 border-yellow-400/70';
+        }
+        if (absValue === tops.second && absValue > 0) {
+          // REVERSAL NODE - 2nd strongest (defensive rejection zone)
+          return 'bg-gradient-to-br from-yellow-400/70 to-yellow-600/70 text-yellow-950 font-black shadow-[0_0_20px_rgba(234,179,8,0.5)] border border-yellow-500/60';
+        }
+        if (absValue === tops.third && absValue > 0) {
+          // REVERSAL NODE - 3rd strongest (secondary rejection zone)
+          return 'bg-gradient-to-br from-yellow-500/60 to-yellow-700/60 text-yellow-100 font-bold shadow-[0_0_15px_rgba(234,179,8,0.3)]';
+        }
+        if (tops.top10.includes(absValue) && absValue > 0) {
+          // Significant magnets (strong pull zones)
+          return 'bg-gradient-to-br from-yellow-600/50 to-yellow-800/50 text-yellow-100 font-bold shadow-md shadow-yellow-500/15';
+        }
+        // Moderate yellow for other positive values (weaker magnets)
+        if (absValue > 0) {
+          return 'bg-gradient-to-br from-yellow-700/40 to-yellow-900/40 text-yellow-300 border border-yellow-800/25';
+        }
+      } else if (value < 0) {
+        // DARK PURPLE NODES - Dealers positioned to amplify price movement
+        // These areas increase volatility and can act as explosive breakout zones
+        if (absValue === tops.highest && absValue > 0) {
+          // ATTRACTION NODE - Darkest purple for highest magnitude (primary explosive zone)
+          return 'bg-gradient-to-br from-purple-900/80 to-purple-950/80 text-purple-100 font-black shadow-[0_0_25px_rgba(168,85,247,0.6)] border-2 border-purple-600/70';
+        }
+        if (absValue === tops.second && absValue > 0) {
+          // REVERSAL NODE - 2nd strongest (strong amplification zone)
+          return 'bg-gradient-to-br from-purple-800/70 to-purple-900/70 text-purple-100 font-black shadow-[0_0_20px_rgba(168,85,247,0.5)] border border-purple-600/60';
+        }
+        if (absValue === tops.third && absValue > 0) {
+          // REVERSAL NODE - 3rd strongest (secondary amplification zone)
+          return 'bg-gradient-to-br from-purple-700/60 to-purple-850/60 text-purple-100 font-bold shadow-[0_0_15px_rgba(168,85,247,0.3)]';
+        }
+        if (tops.top10.includes(absValue) && absValue > 0) {
+          // Significant amplification zones
+          return 'bg-gradient-to-br from-purple-600/50 to-purple-800/50 text-purple-200 font-bold shadow-md shadow-purple-500/15';
+        }
+        // Moderate purple for other negative values (weaker amplification)
+        if (absValue > 0) {
+          return 'bg-gradient-to-br from-purple-700/40 to-purple-900/40 text-purple-300 border border-purple-800/25';
+        }
+      }
+    }
+    
+    // REGULAR MODE: Original color logic for GEX/VEX when NOT in Live OI mode
     if (showGEX || showVEX) {
       // 1st - Gold (largest absolute value, positive or negative)
       if (absValue === tops.highest && absValue > 0) {
@@ -2632,6 +2789,7 @@ const DealerAttraction = () => {
 
                           
                           {/* OI Dropdown */}
+                          {/* OI Checkbox */}
                           <div className="flex items-center gap-2">
                             <input
                               type="checkbox"
@@ -2639,27 +2797,7 @@ const DealerAttraction = () => {
                               onChange={(e) => setShowOI(e.target.checked)}
                               className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
                             />
-                            <div className="relative">
-                              <select
-                                value={oiMode}
-                                onChange={(e) => {
-                                  const newMode = e.target.value as 'OI' | 'Live OI';
-                                  setOiMode(newMode);
-                                  if (newMode === 'Live OI') {
-                                    updateLiveOI();
-                                  }
-                                }}
-                                className="bg-black border-2 border-gray-800 focus:border-blue-500 focus:outline-none px-3 py-1.5 pr-8 text-white text-xs font-bold uppercase appearance-none cursor-pointer min-w-[80px] transition-all"
-                              >
-                                <option value="OI">OI</option>
-                                <option value="Live OI">Live OI</option>
-                              </select>
-                              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                                <svg className="w-3 h-3 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                                </svg>
-                              </div>
-                            </div>
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">OI</span>
                           </div>
                           
                           {/* VEX Dropdown */}
@@ -2686,6 +2824,39 @@ const DealerAttraction = () => {
                               </div>
                             </div>
                           </div>
+                          
+                          {/* LIVE Button */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                if (!liveMode) {
+                                  setLiveMode(true);
+                                  updateLiveOI();
+                                } else {
+                                  setLiveMode(false);
+                                }
+                              }}
+                              disabled={liveOILoading}
+                              className={`px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all ${
+                                liveMode 
+                                  ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/50' 
+                                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border-2 border-gray-700'
+                              } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                            >
+                              {liveOILoading ? 'LOADING...' : liveMode ? 'LIVE ✓' : 'LIVE'}
+                            </button>
+                            {liveOILoading && (
+                              <div className="flex items-center gap-2">
+                                <div className="relative w-32 h-2 bg-gray-800 rounded-full overflow-hidden">
+                                  <div 
+                                    className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300"
+                                    style={{ width: `${liveOIProgress}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs text-green-400 font-bold">{liveOIProgress}%</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                       
@@ -2695,13 +2866,17 @@ const DealerAttraction = () => {
                         <div className="relative">
                           <select
                             value={otmFilter}
-                            onChange={(e) => setOtmFilter(e.target.value as '2%' | '5%' | '10%' | '20%' | '100%')}
+                            onChange={(e) => setOtmFilter(e.target.value as '1%' | '2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%')}
                             className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 py-2.5 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[90px] transition-all"
                           >
+                            <option value="1%">±1%</option>
                             <option value="2%">±2%</option>
+                            <option value="3%">±3%</option>
                             <option value="5%">±5%</option>
                             <option value="10%">±10%</option>
                             <option value="20%">±20%</option>
+                            <option value="40%">±40%</option>
+                            <option value="50%">±50%</option>
                             <option value="100%">±100%</option>
                           </select>
                           <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
@@ -2852,6 +3027,48 @@ const DealerAttraction = () => {
             </div>
           ) : activeTab === 'ATTRACTION' ? (
             <>
+              {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
+              {liveMode && showGEX && (
+                <div className="mb-4 bg-gradient-to-r from-gray-900 via-black to-gray-900 border-2 border-orange-500/40 rounded-lg p-4 shadow-xl">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <div className="text-orange-400 text-xl">🔥</div>
+                      <h3 className="text-sm font-black text-orange-400 uppercase tracking-wider">DEALER ATTRACTION ACTIVE</h3>
+                    </div>
+                    <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                      {/* Yellow Node Info */}
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded bg-gradient-to-br from-yellow-400 to-yellow-600 shadow-md"></div>
+                        <div>
+                          <div className="font-bold text-yellow-400">YELLOW</div>
+                          <div className="text-gray-400 text-[10px]">CounterTrend</div>
+                        </div>
+                      </div>
+                      {/* Purple Node Info */}
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded bg-gradient-to-br from-purple-800 to-purple-950 shadow-md"></div>
+                        <div>
+                          <div className="font-bold text-purple-400">PURPLE</div>
+                          <div className="text-gray-400 text-[10px]">Squeeze</div>
+                        </div>
+                      </div>
+                      {/* Attraction Node Info */}
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <div className="font-bold text-white">ATTRACTION</div>
+                        </div>
+                      </div>
+                      {/* Reversal Info */}
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <div className="font-bold text-white">REVERSAL</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               <div className="bg-gray-900 border border-gray-700 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
@@ -2953,8 +3170,13 @@ const DealerAttraction = () => {
                               let callOI = value?.callOI || 0;
                               let putOI = value?.putOI || 0;
                               
+                              // Debug put OI rendering values
+                              if (putOI > 0) {
+                                console.log(`🎯 RENDER PUT OI: Strike ${row.strike}, Exp ${exp}, putOI=${putOI}, value:`, value);
+                              }
+                              
                               // Use Live OI if mode is selected
-                              if (oiMode === 'Live OI' && liveOIData.size > 0) {
+                              if (liveMode && liveOIData.size > 0) {
                                 const callKey = `${selectedTicker}_${row.strike}_call_${exp}`;
                                 const putKey = `${selectedTicker}_${row.strike}_put_${exp}`;
                                 
@@ -2992,6 +3214,24 @@ const DealerAttraction = () => {
                                 largestVexCell.exp === exp && 
                                 largestVexCell.type === 'put';
                               
+                              // Heatseeker node identification (when Live OI is active)
+                              const tops = getTopValues();
+                              const absCallValue = Math.abs(callValue);
+                              const absPutValue = Math.abs(putValue);
+                              const netValueCalculated = callValue + putValue; // Calculate net from actual call+put values
+                              const absNetValue = Math.abs(netValueCalculated);
+                              
+                              // Check if this cell is a King Node or Gatekeeper Node
+                              // For split mode (separate call/put cells)
+                              const isKingNodeCall = liveMode && showGEX && absCallValue === tops.highest && absCallValue > 0;
+                              const isKingNodePut = liveMode && showGEX && absPutValue === tops.highest && absPutValue > 0;
+                              const isGatekeeperCall = liveMode && showGEX && (absCallValue === tops.second || absCallValue === tops.third) && absCallValue > 0;
+                              const isGatekeeperPut = liveMode && showGEX && (absPutValue === tops.second || absPutValue === tops.third) && absPutValue > 0;
+                              
+                              // For Net GEX mode (single cell with net value)
+                              const isKingNodeNet = liveMode && showGEX && gexMode === 'Net GEX' && absNetValue === tops.highest && absNetValue > 0;
+                              const isGatekeeperNet = liveMode && showGEX && gexMode === 'Net GEX' && (absNetValue === tops.second || absNetValue === tops.third) && absNetValue > 0;
+                              
                               return (
                                 <td
                                   key={exp}
@@ -3007,6 +3247,21 @@ const DealerAttraction = () => {
                                       isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
                                       isLargestValueRow ? 'ring-1 ring-purple-500/50' : ''
                                     }`}>
+                                      {/* Dealer Attraction badges for Net GEX Live OI mode */}
+                                      {isKingNodeNet && (
+                                        <div className="text-[9px] font-black mb-0.5 tracking-wider text-white" style={{ 
+                                          textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
+                                        }}>
+                                          ATTRACT
+                                        </div>
+                                      )}
+                                      {isGatekeeperNet && !isKingNodeNet && (
+                                        <div className="text-[10px] font-bold mb-0.5 tracking-wide text-white" style={{ 
+                                          textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
+                                        }}>
+                                          REVERSE
+                                        </div>
+                                      )}
                                       {showGEX && gexMode === 'Net GEX' && (
                                         <div className="text-xs font-bold">{formatCurrency(callValue + putValue)}</div>
                                       )}
@@ -3027,6 +3282,21 @@ const DealerAttraction = () => {
                                       }`} style={isLargestVexCall ? {
                                         boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
                                       } : {}}>
+                                        {/* Dealer Attraction badges for Live OI mode */}
+                                        {isKingNodeCall && (
+                                          <div className="text-[9px] font-black mb-0.5 tracking-wider text-white" style={{ 
+                                            textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
+                                          }}>
+                                            ATTRACT
+                                          </div>
+                                        )}
+                                        {isGatekeeperCall && !isKingNodeCall && (
+                                          <div className="text-[10px] font-bold mb-0.5 tracking-wide text-white" style={{ 
+                                            textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
+                                          }}>
+                                            REVERSE
+                                          </div>
+                                        )}
                                         {showGEX && (
                                           <div className="text-xs font-bold">{formatCurrency(callValue)}</div>
                                         )}
@@ -3044,6 +3314,21 @@ const DealerAttraction = () => {
                                       }`} style={isLargestVexPut ? {
                                         boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
                                       } : {}}>
+                                        {/* Dealer Attraction badges for Live OI mode */}
+                                        {isKingNodePut && (
+                                          <div className="text-[9px] font-black mb-0.5 tracking-wider text-white" style={{ 
+                                            textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
+                                          }}>
+                                            ATTRACT
+                                          </div>
+                                        )}
+                                        {isGatekeeperPut && !isKingNodePut && (
+                                          <div className="text-[10px] font-bold mb-0.5 tracking-wide text-white" style={{ 
+                                            textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
+                                          }}>
+                                            REVERSE
+                                          </div>
+                                        )}
                                         {showGEX && (
                                           <div className="text-xs font-bold">{formatCurrency(putValue)}</div>
                                         )}

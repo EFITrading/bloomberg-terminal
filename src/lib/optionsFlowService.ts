@@ -1,4 +1,4 @@
-import { TOP_1800_SYMBOLS, OPTIONS_FLOW_SYMBOLS } from './Top1000Symbols';
+import { TOP_1800_SYMBOLS } from './Top1000Symbols';
 import { withCircuitBreaker } from './circuitBreaker';
 
 // Market hours utility functions
@@ -2257,13 +2257,13 @@ export class OptionsFlowService {
   }
 
   private getPopularTickers(): string[] {
-    // Use OPTIONS_FLOW_SYMBOLS (excludes SPY, QQQ, NVDA)
-    return OPTIONS_FLOW_SYMBOLS;
+    // Use TOP_1800_SYMBOLS (excludes SPY, QQQ, NVDA)
+    return TOP_1800_SYMBOLS;
   }
 
   private getTop1000Symbols(): string[] {
-    // Use OPTIONS_FLOW_SYMBOLS for options flow scanner (excludes SPY, QQQ, NVDA)
-    return OPTIONS_FLOW_SYMBOLS;
+    // Use TOP_1800_SYMBOLS for options flow scanner (excludes SPY, QQQ, NVDA)
+    return TOP_1800_SYMBOLS;
   }
 
   // UTILITY: Chunk array into batches for batch processing
