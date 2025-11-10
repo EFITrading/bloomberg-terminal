@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/otm-scan",
-      "schedule": "*/13 13-20 * * 1-5"
+      "schedule": "*/10 * * * *"
     }
   ],
   "functions": {
