@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Get current SPX price
-    let currentPrice = null;
+    let currentPrice: number | null = null;
     try {
       const priceRes = await fetch(`https://api.polygon.io/v2/last/trade/SPX?apikey=${apiKey}`);
       const priceData = await priceRes.json();
@@ -31,8 +31,8 @@ export async function GET(request: NextRequest) {
       
       while (nextUrl && allContracts.length < 5000) {
         console.log(`🔄 Fetching: ${nextUrl}`);
-        const response = await fetch(nextUrl);
-        const data = await response.json();
+        const response: Response = await fetch(nextUrl);
+        const data: any = await response.json();
         
         if (data.status === 'OK' && data.results && data.results.length > 0) {
           allContracts.push(...data.results);
@@ -104,8 +104,8 @@ export async function GET(request: NextRequest) {
 
     while (nextUrl) {
       try {
-        const res = await fetch(nextUrl);
-        const data = await res.json();
+        const res: Response = await fetch(nextUrl);
+        const data: any = await res.json();
         
         if (data.status === 'OK' && data.results && data.results.length > 0) {
           data.results.forEach((contract: any) => {
@@ -138,8 +138,8 @@ export async function GET(request: NextRequest) {
       
       while (nextUrl && allContracts.length < 5000) {
         try {
-          const snapRes = await fetch(nextUrl);
-          const snapData = await snapRes.json();
+          const snapRes: Response = await fetch(nextUrl);
+          const snapData: any = await snapRes.json();
           
           if (snapData.status === 'OK' && snapData.results && snapData.results.length > 0) {
             allContracts.push(...snapData.results);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import AbstractCube from './AbstractCube';
 
 export default function HeroSection() {
  const [currentStat, setCurrentStat] = useState(0);
@@ -129,10 +130,11 @@ export default function HeroSection() {
  <path d="M7 17L17 7M17 7H7M17 7V17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
  </svg>
  </button>
- <button className="cta-secondary">
- View Live Demo
- </button>
  </div>
+ </div>
+
+ <div className="hero-visual">
+ <AbstractCube />
  </div>
  </div>
  </section>

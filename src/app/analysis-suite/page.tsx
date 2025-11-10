@@ -5,6 +5,7 @@ import OpenInterestChart from '../../components/analytics/OpenInterestChart';
 import GEXScreener from '../../components/analytics/GEXScreener';
 import ImpliedVolatilityChart from '../../components/analytics/ImpliedVolatilityChart';
 import HistoricalVolatilityChart from '../../components/analytics/HistoricalVolatilityChart';
+import LiquidationScreener from '../../components/analytics/LiquidationScreener';
 
 export default function AnalysisSuite() {
  // Pass ticker and expiration to OpenInterestChart and get them back
@@ -166,6 +167,16 @@ export default function AnalysisSuite() {
  padding: '20px'
  }}>
  <HistoricalVolatilityChart />
+ </div>
+
+ {/* Liquidation Screener Section */}
+ <div style={{
+ background: 'rgba(0, 0, 0, 0.95)',
+ borderRadius: '0px',
+ marginTop: '20px',
+ overflow: 'hidden'
+ }}>
+ <LiquidationScreener />
  </div>
  </div>
  </div>

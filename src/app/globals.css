@@ -843,7 +843,7 @@ body {
 
 /* Hero Section */
 .hero {
-    padding: 160px 32px 80px;
+    padding: 40px 32px 80px;
     max-width: 1800px;
     margin: 0 auto;
 }
@@ -1302,7 +1302,7 @@ h1 {
 /* Hero Visual Area */
 .hero-visual {
     position: relative;
-    height: 600px;
+    height: 850px;
     background: rgba(0, 0, 0, 0.2);
     border-radius: 12px;
     overflow: hidden;

@@ -901,11 +901,11 @@
 
 /* Enhanced Hero Section */
 .hero {
-    padding: 140px 0 120px;
+    padding: 40px 0 120px;
     position: relative;
-    min-height: 100vh;
+    min-height: auto;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     opacity: 0;
     transform: translateY(30px);
     transition: all 1s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1734,6 +1734,28 @@
 @keyframes float-data {
     0%, 100% { transform: translateY(0px) scale(1); }
     50% { transform: translateY(-10px) scale(1.05); }
+}
+
+/* Hero Visual Container */
+.hero-visual {
+    position: relative;
+    width: 100%;
+    height: 850px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: slideUp 0.8s ease 0.3s both;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Tools Section Enhancement */

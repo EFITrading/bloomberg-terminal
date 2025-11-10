@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { RefreshCw, AlertCircle, TrendingUp, Activity, Target, BarChart3, Gauge } from 'lucide-react';
 
 interface GEXData {
@@ -36,17 +36,17 @@ interface OptionContract {
   contract_type: 'call' | 'put';
 }
 
-interface DHPData {
+interface MMData {
   strike: number;
-  netDHP: number;
-  callDHP: number;
-  putDHP: number;
+  netMM: number;
+  callMM: number;
+  putMM: number;
   totalOI: number;
   daysToExpiry: number;
   impact: number;
 }
 
-interface DHPDashboardProps {
+interface MMDashboardProps {
   selectedTicker: string;
   currentPrice: number;
   gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
@@ -63,14 +63,14 @@ interface PPData {
   daysToExpiry: number;
 }
 
-interface PPDashboardProps {
+interface MPDashboardProps {
   selectedTicker: string;
   currentPrice: number;
   gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
   expirations: string[];
 }
 
-interface DSIDashboardProps {
+interface SIDashboardProps {
   selectedTicker: string;
   currentPrice: number;
   gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
@@ -78,11 +78,11 @@ interface DSIDashboardProps {
   expirations: string[];
 }
 
-// DHP Dashboard Component
-const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, expirations }) => {
+// MM Dashboard Component
+const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, expirations }) => {
   
   // Filter to 45-day expirations only
-  const dhpExpirations = useMemo(() => {
+  const mmExpirations = useMemo(() => {
     const today = new Date();
     const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000)); // 45 days from now
     
@@ -92,8 +92,8 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
     }).sort();
   }, [expirations]);
 
-  // Calculate DHP data with standard ±20% strike range
-  const dhpData = useMemo(() => {
+  // Calculate MM data with standard ±20% strike range
+  const mmData = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) return [];
     
     const strikeRange = currentPrice * 0.20; // ±20% standard range
@@ -101,7 +101,7 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
     const maxStrike = currentPrice + strikeRange;
     
     const allStrikes = new Set<number>();
-    dhpExpirations.forEach(exp => {
+    mmExpirations.forEach(exp => {
       if (gexByStrikeByExpiration[exp]) {
         Object.keys(gexByStrikeByExpiration[exp])
           .map(Number)
@@ -110,22 +110,22 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
       }
     });
 
-    const dhpByStrike: DHPData[] = Array.from(allStrikes).map(strike => {
-      let totalCallDHP = 0;
-      let totalPutDHP = 0;
+    const mmByStrike: MMData[] = Array.from(allStrikes).map(strike => {
+      let totalCallMM = 0;
+      let totalPutMM = 0;
       let totalOI = 0;
       let avgDaysToExpiry = 0;
       let validExpirations = 0;
 
-      dhpExpirations.forEach(exp => {
+      mmExpirations.forEach(exp => {
         const strikeData = gexByStrikeByExpiration[exp]?.[strike];
         if (strikeData) {
-          // Convert GEX to DHP: DHP = GEX / (Stock Price * 0.01) for 1% move
-          const callDHP = strikeData.call / (currentPrice * 0.01);
-          const putDHP = strikeData.put / (currentPrice * 0.01);
+          // Convert GEX to MM: MM = GEX / (Stock Price * 0.01) for 1% move
+          const callMM = strikeData.call / (currentPrice * 0.01);
+          const putMM = strikeData.put / (currentPrice * 0.01);
           
-          totalCallDHP += callDHP;
-          totalPutDHP += putDHP;
+          totalCallMM += callMM;
+          totalPutMM += putMM;
           totalOI += (strikeData.callOI || 0) + (strikeData.putOI || 0);
           
           // Calculate days to expiry
@@ -141,38 +141,38 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
         avgDaysToExpiry = avgDaysToExpiry / validExpirations;
       }
 
-      const netDHP = totalCallDHP + totalPutDHP;
+      const netMM = totalCallMM + totalPutMM;
       
       return {
         strike,
-        netDHP,
-        callDHP: totalCallDHP,
-        putDHP: totalPutDHP,
+        netMM,
+        callMM: totalCallMM,
+        putMM: totalPutMM,
         totalOI,
         daysToExpiry: Math.round(avgDaysToExpiry),
-        impact: Math.abs(netDHP)
+        impact: Math.abs(netMM)
       };
     }).sort((a, b) => b.strike - a.strike);
 
-    return dhpByStrike;
-  }, [currentPrice, gexByStrikeByExpiration, dhpExpirations]);
+    return mmByStrike;
+  }, [currentPrice, gexByStrikeByExpiration, mmExpirations]);
 
   // Calculate aggregate metrics
   const metrics = useMemo(() => {
-    const totalNetDHP = dhpData.reduce((sum, item) => sum + item.netDHP, 0);
-    const maxCallWall = dhpData.reduce((max, item) => item.callDHP > max.callDHP ? item : max, dhpData[0] || { callDHP: 0, strike: 0 });
-    const maxPutFloor = dhpData.reduce((max, item) => Math.abs(item.putDHP) > Math.abs(max.putDHP) ? item : max, dhpData[0] || { putDHP: 0, strike: 0 });
+    const totalNetMM = mmData.reduce((sum, item) => sum + item.netMM, 0);
+    const maxCallWall = mmData.reduce((max, item) => item.callMM > max.callMM ? item : max, mmData[0] || { callMM: 0, strike: 0 });
+    const maxPutFloor = mmData.reduce((max, item) => Math.abs(item.putMM) > Math.abs(max.putMM) ? item : max, mmData[0] || { putMM: 0, strike: 0 });
     
     return {
-      totalNetDHP,
+      totalNetMM,
       maxCallWall,
       maxPutFloor,
-      isLongGamma: totalNetDHP > 0,
-      reflexivity: Math.abs(totalNetDHP) / 1000000 // Convert to millions for display
+      isLongGamma: totalNetMM > 0,
+      reflexivity: Math.abs(totalNetMM) / 1000000 // Convert to millions for display
     };
-  }, [dhpData]);
+  }, [mmData]);
 
-  const formatDHP = (value: number) => {
+  const formatMM = (value: number) => {
     const absValue = Math.abs(value);
     const sign = value < 0 ? '-' : '+';
     
@@ -201,7 +201,7 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
       <div className="bg-black border-2 border-orange-500/50 p-6">
         <div className="text-center">
           <h2 className="text-3xl font-bold text-white uppercase tracking-wider">
-            DEALER HEDGING PRESSURE
+            MM SWEAT
           </h2>
         </div>
       </div>
@@ -212,23 +212,23 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
         <div className="grid grid-cols-1 gap-4">
           {/* Primary Signal */}
           <div className={`p-4 rounded-lg border-2 ${
-            metrics.totalNetDHP > 500000000 ? 'bg-green-900/30 border-green-400' :
-            metrics.totalNetDHP < -500000000 ? 'bg-red-900/30 border-red-400' :
+            metrics.totalNetMM > 500000000 ? 'bg-green-900/30 border-green-400' :
+            metrics.totalNetMM < -500000000 ? 'bg-red-900/30 border-red-400' :
             'bg-yellow-900/30 border-yellow-400'
           }`}>
             <div className="text-center">
               <div className={`text-2xl font-bold ${
-                metrics.totalNetDHP > 500000000 ? 'text-green-400' :
-                metrics.totalNetDHP < -500000000 ? 'text-red-400' :
+                metrics.totalNetMM > 500000000 ? 'text-green-400' :
+                metrics.totalNetMM < -500000000 ? 'text-red-400' :
                 'text-yellow-400'
               }`}>
-                {metrics.totalNetDHP > 500000000 ? '🔥 BUY SETUP' :
-                 metrics.totalNetDHP < -500000000 ? '⚡ SELL SETUP' :
+                {metrics.totalNetMM > 500000000 ? '🔥 BUY SETUP' :
+                 metrics.totalNetMM < -500000000 ? '⚡ SELL SETUP' :
                  '⏸️ WAIT'}
               </div>
               <div className="text-sm text-gray-300 mt-1">
-                {metrics.totalNetDHP > 500000000 ? 'Strong Long Gamma - Dealers will buy dips' :
-                 metrics.totalNetDHP < -500000000 ? 'Strong Short Gamma - Dealers will sell rallies' :
+                {metrics.totalNetMM > 500000000 ? 'Strong Long Gamma - Dealers will buy dips' :
+                 metrics.totalNetMM < -500000000 ? 'Strong Short Gamma - Dealers will sell rallies' :
                  'Neutral Zone - Wait for clearer signal'}
               </div>
             </div>
@@ -256,7 +256,7 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
                   className="w-1 h-16 bg-yellow-400 transform-gpu transition-transform duration-500"
                   style={{
                     transformOrigin: 'bottom center',
-                    transform: `rotate(${Math.max(-45, Math.min(45, (metrics.totalNetDHP / 1000000) * 10))}deg)`
+                    transform: `rotate(${Math.max(-45, Math.min(45, (metrics.totalNetMM / 1000000) * 10))}deg)`
                   }}
                 />
               </div>
@@ -269,7 +269,7 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
             
             <div className="text-center mt-4">
               <div className="text-lg font-bold text-white">
-                {formatDHP(metrics.totalNetDHP)} / 1%
+                {formatMM(metrics.totalNetMM)} / 1%
               </div>
               <div className="text-xs text-orange-400 uppercase">
                 {metrics.isLongGamma ? 'LONG GAMMA' : 'SHORT GAMMA'}
@@ -293,7 +293,7 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
                 <span className="text-green-400 font-bold text-xs uppercase">Call Wall</span>
               </div>
               <div className="text-white font-bold text-lg">${metrics.maxCallWall?.strike?.toFixed(0)}</div>
-              <div className="text-green-400 text-sm">{formatDHP(metrics.maxCallWall?.callDHP || 0)}</div>
+              <div className="text-green-400 text-sm">{formatMM(metrics.maxCallWall?.callMM || 0)}</div>
             </div>
 
             {/* Current Price */}
@@ -303,7 +303,7 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
                 <span className="text-yellow-400 font-bold text-xs uppercase">Current</span>
               </div>
               <div className="text-white font-bold text-lg">${currentPrice?.toFixed(2)}</div>
-              <div className="text-yellow-400 text-sm">Net: {formatDHP(metrics.totalNetDHP)}</div>
+              <div className="text-yellow-400 text-sm">Net: {formatMM(metrics.totalNetMM)}</div>
             </div>
 
             {/* Put Floor */}
@@ -313,7 +313,7 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
                 <span className="text-red-400 font-bold text-xs uppercase">Put Floor</span>
               </div>
               <div className="text-white font-bold text-lg">${metrics.maxPutFloor?.strike?.toFixed(0)}</div>
-              <div className="text-red-400 text-sm">{formatDHP(metrics.maxPutFloor?.putDHP || 0)}</div>
+              <div className="text-red-400 text-sm">{formatMM(metrics.maxPutFloor?.putMM || 0)}</div>
             </div>
           </div>
         </div>
@@ -326,8 +326,8 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
           </div>
           
           <div className="space-y-1 max-h-64 overflow-y-auto">
-            {dhpData.slice(0, 10).map((item, idx) => {
-              const maxImpact = Math.max(...dhpData.map(d => d.impact));
+            {mmData.slice(0, 10).map((item, idx) => {
+              const maxImpact = Math.max(...mmData.map(d => d.impact));
               const barWidth = maxImpact > 0 ? (item.impact / maxImpact) * 100 : 0;
               const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
               
@@ -339,15 +339,15 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
                   <div className="flex-1 bg-gray-800 rounded-sm h-4 relative overflow-hidden">
                     <div 
                       className={`h-full transition-all ${
-                        item.netDHP > 0 ? 'bg-green-500' : 'bg-red-500'
+                        item.netMM > 0 ? 'bg-green-500' : 'bg-red-500'
                       }`}
                       style={{ width: `${barWidth}%` }}
                     />
                   </div>
                   <div className={`w-16 text-right font-mono ${
-                    item.netDHP > 0 ? 'text-green-400' : 'text-red-400'
+                    item.netMM > 0 ? 'text-green-400' : 'text-red-400'
                   }`}>
-                    {formatDHP(item.netDHP)}
+                    {formatMM(item.netMM)}
                   </div>
                   {isCurrentPrice && <span className="text-yellow-400 text-xs">•</span>}
                 </div>
@@ -360,7 +360,7 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
       {/* Detailed Strike Table */}
       <div className="bg-black border border-gray-600">
         <div className="bg-black px-6 py-4 border-b border-gray-600">
-          <h3 className="text-white font-black uppercase text-lg tracking-widest">DHP BY STRIKE</h3>
+          <h3 className="text-white font-black uppercase text-lg tracking-widest">MM BY STRIKE</h3>
         </div>
         
         <div className="overflow-x-auto">
@@ -368,18 +368,18 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
             <thead className="bg-gray-900">
               <tr>
                 <th className="px-4 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest">Strike</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Net DHP</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-green-500 uppercase tracking-widest">Call DHP</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-red-500 uppercase tracking-widest">Put DHP</th>
+                <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Net MM</th>
+                <th className="px-4 py-4 text-right text-sm font-black text-green-500 uppercase tracking-widest">Call MM</th>
+                <th className="px-4 py-4 text-right text-sm font-black text-red-500 uppercase tracking-widest">Put MM</th>
                 <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Total OI</th>
                 <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Days</th>
                 <th className="px-4 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest">Impact</th>
               </tr>
             </thead>
             <tbody>
-              {dhpData.map((item, idx) => {
+              {mmData.map((item, idx) => {
                 const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
-                const maxImpact = Math.max(...dhpData.map(d => d.impact));
+                const maxImpact = Math.max(...mmData.map(d => d.impact));
                 const impactBars = maxImpact > 0 ? Math.round((item.impact / maxImpact) * 8) : 0;
                 
                 return (
@@ -396,15 +396,15 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
                       </div>
                     </td>
                     <td className={`px-4 py-3 text-right font-mono font-bold ${
-                      item.netDHP > 0 ? 'text-green-400' : 'text-red-400'
+                      item.netMM > 0 ? 'text-green-400' : 'text-red-400'
                     }`}>
-                      {formatDHP(item.netDHP)}
+                      {formatMM(item.netMM)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-green-400">
-                      {formatDHP(item.callDHP)}
+                      {formatMM(item.callMM)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-red-400">
-                      {formatDHP(item.putDHP)}
+                      {formatMM(item.putMM)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-gray-300">
                       {formatOI(item.totalOI)}
@@ -432,8 +432,8 @@ const DHPDashboard: React.FC<DHPDashboardProps> = ({ selectedTicker, currentPric
   );
 };
 
-// PP Dashboard Component
-const PPDashboard: React.FC<PPDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, expirations }) => {
+// MP Dashboard Component
+const MPDashboard: React.FC<MPDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, expirations }) => {
   
   const [selectedExpiration, setSelectedExpiration] = useState<string>('');
   
@@ -466,7 +466,7 @@ const PPDashboard: React.FC<PPDashboardProps> = ({ selectedTicker, currentPrice,
     return selectedExpiration ? [selectedExpiration] : [];
   }, [selectedExpiration]);
 
-  // Calculate Pinning Pressure data
+  // Calculate Max Pain data
   const ppData = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) return [];
     
@@ -591,7 +591,7 @@ const PPDashboard: React.FC<PPDashboardProps> = ({ selectedTicker, currentPrice,
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <h2 className="text-3xl font-bold text-white uppercase tracking-wider text-center">
-              PINNING PRESSURE ANALYSIS
+              PINNING PRESSURE ANALYSIS → MAX PAIN ANALYSIS
             </h2>
           </div>
           
@@ -848,16 +848,18 @@ const PPDashboard: React.FC<PPDashboardProps> = ({ selectedTicker, currentPrice,
 // Import the Top 1000 symbols
 import { PRELOAD_TIERS } from '../../lib/Top1000Symbols';
 
-// DSI Dashboard Component
-const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
+// SI Dashboard Component
+const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
   
   const [screenerFilter, setScreenerFilter] = useState<string>('all');
   const [screenerData, setScreenerData] = useState<any[]>([]);
   const [screenerLoading, setScreenerLoading] = useState(false);
   const [screenerAbortController, setScreenerAbortController] = useState<AbortController | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
   
-  // Filter to 45-day expirations for DSI analysis
-  const dsiExpirations = useMemo(() => {
+  // Filter to 45-day expirations for SI analysis
+  const siExpirations = useMemo(() => {
     const today = new Date();
     const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000)); // 45 days from now
     
@@ -867,10 +869,10 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
     }).sort();
   }, [expirations]);
 
-  // Calculate DSI using real GEX, VEX, and DEX data
-  const dsiMetrics = useMemo(() => {
+  // Calculate SI using real GEX, VEX, and DEX data
+  const siMetrics = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) {
-      return { dsi: 0, gexTotal: 0, vexTotal: 0, dexTotal: 0, dsiNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data' };
+      return { si: 0, gexTotal: 0, vexTotal: 0, dexTotal: 0, siNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data' };
     }
     
     let totalGEX = 0;
@@ -878,7 +880,7 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
     let totalDEX = 0;
     
     // Sum across 45-day expirations and strikes using real data
-    dsiExpirations.forEach(exp => {
+    siExpirations.forEach(exp => {
       const gexData = gexByStrikeByExpiration[exp];
       const vexData = vexByStrikeByExpiration[exp];
       
@@ -923,33 +925,33 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
       }
     });
     
-    // Calculate DSI using the correct formula: DSI = GEX_total / (|VEX_total| + |DEX_total|)
+    // Calculate SI using the correct formula: SI = GEX_total / (|VEX_total| + |DEX_total|)
     const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
-    const dsi = denominator !== 0 ? totalGEX / denominator : 0;
+    const si = denominator !== 0 ? totalGEX / denominator : 0;
     
-    // Use the raw DSI value without artificial clamping
-    // Determine stability level and market behavior based on actual DSI ranges
+    // Use the raw SI value without artificial clamping
+    // Determine stability level and market behavior based on actual SI ranges
     let stability = '';
     let marketBehavior = '';
     let stabilityColor = '';
     
-    if (dsi >= 2.0) {
+    if (si >= 2.0) {
       stability = 'EXTREMELY STABLE';
       marketBehavior = 'Strong Mean Reversion';
       stabilityColor = 'text-green-500';
-    } else if (dsi >= 0.5) {
+    } else if (si >= 0.5) {
       stability = 'HIGHLY STABLE';
       marketBehavior = 'Mean Reverting';
       stabilityColor = 'text-green-400';
-    } else if (dsi >= 0) {
+    } else if (si >= 0) {
       stability = 'MILDLY SUPPORTIVE';
       marketBehavior = 'Range-bound';
       stabilityColor = 'text-blue-400';
-    } else if (dsi >= -0.5) {
+    } else if (si >= -0.5) {
       stability = 'VOLATILITY BUILDING';
       marketBehavior = 'Breakout Likely';
       stabilityColor = 'text-yellow-400';
-    } else if (dsi >= -2.0) {
+    } else if (si >= -2.0) {
       stability = 'REFLEXIVE MARKET';
       marketBehavior = 'Fragile & Explosive';
       stabilityColor = 'text-red-400';
@@ -960,16 +962,16 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
     }
     
     return {
-      dsi,
+      si,
       gexTotal: totalGEX,
       vexTotal: totalVEX,
       dexTotal: totalDEX,
-      dsiNorm: dsi, // Use actual DSI value, not normalized
+      siNorm: si, // Use actual SI value, not normalized
       stability,
       marketBehavior,
       stabilityColor
     };
-  }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, dsiExpirations]);
+  }, [currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, siExpirations]);
 
   const formatExposure = (value: number) => {
     const absValue = Math.abs(value);
@@ -985,169 +987,184 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
     return `${sign}${absValue.toFixed(0)}`;
   };
 
-  // Function to calculate DSI for a single ticker
-  const calculateDSIForTicker = async (ticker: string) => {
+  // Function to calculate SI for a single ticker - REBUILT FROM SCRATCH using main gauge logic
+  const calculateSIForTicker = async (ticker: string) => {
     try {
-      // Add timeout to prevent hanging requests (reduced to 5 seconds)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       
       const response = await fetch(`/api/options-chain?ticker=${ticker}`, {
         signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
       });
       clearTimeout(timeoutId);
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       
       const result = await response.json();
-      
-      if (!result.success || !result.data) {
-        console.warn(`No options data available for ${ticker}`);
-        return null;
-      }
+      if (!result.success || !result.data) return null;
       
       const price = result.currentPrice;
       const optionsData = result.data;
+      if (!price || price <= 0) return null;
       
-      if (!price || price <= 0) {
-        console.warn(`Invalid price for ${ticker}: ${price}`);
-        return null;
-      }
-      
-      // Filter to 45-day expirations
-      const today = new Date();
-      const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
-      const validExps = Object.keys(optionsData).filter(exp => {
+      // STEP 1: Filter EXACTLY like main component does (first 3 months, then 45 days)
+      const allExps = Object.keys(optionsData).sort();
+      const threeMonthsFromNow = new Date();
+      threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
+      const expsWithin3Months = allExps.filter(exp => {
         const expDate = new Date(exp);
-        return expDate >= today && expDate <= maxDate;
+        return expDate <= threeMonthsFromNow;
       });
       
-      if (validExps.length === 0) {
-        console.warn(`No valid expirations found for ${ticker}`);
-        return null;
-      }
+      // Then filter to 45 days
+      const today = new Date();
+      const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
+      const validExps = expsWithin3Months.filter(exp => {
+        const expDate = new Date(exp);
+        return expDate >= today && expDate <= maxDate;
+      }).sort();
       
-      let totalGEX = 0, totalVEX = 0, totalDEX = 0;
-      let contractCount = 0;
+      if (validExps.length === 0) return null;
+      
+      // STEP 2: Build GEX and VEX structures - ACCUMULATE across multiple expirations
+      const gexByStrikeByExp: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}} = {};
+      const vexByStrikeByExp: {[strike: number]: {call: number, put: number}} = {};
       
       validExps.forEach(exp => {
         const expData = optionsData[exp];
-        if (!expData || !expData.calls || !expData.puts) {
-          return;
-        }
+        if (!expData?.calls || !expData?.puts) return;
         
         const { calls, puts } = expData;
         
-        // Process all options contracts
-        const allContracts = [
-          ...Object.entries(calls).map(([strike, data]) => ({ strike, data: { ...(data as any), contract_type: 'call' } })),
-          ...Object.entries(puts).map(([strike, data]) => ({ strike, data: { ...(data as any), contract_type: 'put' } }))
-        ];
-        
-        allContracts.forEach(({ strike, data }) => {
-          const strikePrice = parseFloat(strike);
+        // Process calls - ACCUMULATE values for same strikes across expirations
+        Object.entries(calls).forEach(([strike, data]: [string, any]) => {
+          const strikeNum = parseFloat(strike);
           const oi = data.open_interest || 0;
-          const gamma = data.greeks?.gamma || 0;
-          const vega = data.greeks?.vega || 0;
           
-          // Only process contracts with meaningful OI and valid Greeks
-          if (oi > 10 && Math.abs(gamma) > 0.001 && Math.abs(vega) > 0.01) {
-            contractCount++;
-            
-            // GEX calculation
-            const gex = gamma * oi * (price * price) * 100;
-            totalGEX += data.contract_type === 'put' ? -gex : gex;
-            
-            // VEX calculation  
-            const vex = vega * oi * 100;
-            totalVEX += data.contract_type === 'put' ? -vex : vex;
-            
-            // DEX calculation with improved delta approximation
-            const moneyness = strikePrice / price;
-            let delta = 0;
-            
-            if (data.contract_type === 'call') {
-              if (moneyness >= 1.2) delta = 0.1;
-              else if (moneyness >= 1.1) delta = 0.3;
-              else if (moneyness >= 1.05) delta = 0.4;
-              else if (moneyness >= 0.95) delta = 0.5;
-              else if (moneyness >= 0.9) delta = 0.7;
-              else if (moneyness >= 0.8) delta = 0.9;
-              else delta = 0.95;
-            } else { // put
-              if (moneyness <= 0.8) delta = -0.95;
-              else if (moneyness <= 0.9) delta = -0.9;
-              else if (moneyness <= 0.95) delta = -0.7;
-              else if (moneyness <= 1.05) delta = -0.5;
-              else if (moneyness <= 1.1) delta = -0.4;
-              else if (moneyness <= 1.2) delta = -0.3;
-              else delta = -0.1;
+          if (oi > 0) {
+            if (!gexByStrikeByExp[strikeNum]) {
+              gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+            }
+            if (!vexByStrikeByExp[strikeNum]) {
+              vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
             }
             
-            const dex = delta * oi * 100 * price;
-            totalDEX += dex;
+            gexByStrikeByExp[strikeNum].callOI += oi; // ACCUMULATE OI
+            
+            const gamma = data.greeks?.gamma || 0;
+            if (gamma) {
+              const gex = gamma * oi * (price * price) * 100;
+              gexByStrikeByExp[strikeNum].call += gex; // ACCUMULATE GEX
+            }
+            
+            const vega = data.greeks?.vega || 0;
+            if (vega) {
+              const vex = vega * oi * 100;
+              vexByStrikeByExp[strikeNum].call += vex; // ACCUMULATE VEX
+            }
+          }
+        });
+        
+        // Process puts - ACCUMULATE values for same strikes across expirations
+        Object.entries(puts).forEach(([strike, data]: [string, any]) => {
+          const strikeNum = parseFloat(strike);
+          const oi = data.open_interest || 0;
+          
+          if (oi > 0) {
+            if (!gexByStrikeByExp[strikeNum]) {
+              gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+            }
+            if (!vexByStrikeByExp[strikeNum]) {
+              vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
+            }
+            
+            gexByStrikeByExp[strikeNum].putOI += oi; // ACCUMULATE OI
+            
+            const gamma = data.greeks?.gamma || 0;
+            if (gamma) {
+              const gex = -gamma * oi * (price * price) * 100;
+              gexByStrikeByExp[strikeNum].put += gex; // ACCUMULATE GEX
+            }
+            
+            const vega = data.greeks?.vega || 0;
+            if (vega) {
+              const vex = -vega * oi * 100;
+              vexByStrikeByExp[strikeNum].put += vex; // ACCUMULATE VEX
+            }
           }
         });
       });
       
-      if (contractCount === 0) {
-        console.warn(`No valid contracts found for ${ticker}`);
-        return null;
-      }
+      // STEP 3: Calculate SI using EXACT logic from main gauge (lines 877-926)
+      let totalGEX = 0;
+      let totalVEX = 0;
+      let totalDEX = 0;
       
-      // Calculate DSI
+      Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
+        const strikePrice = parseFloat(strike);
+        
+        // Add GEX (EXACT copy from line 891)
+        totalGEX += data.call + data.put;
+        
+        // Add VEX (EXACT copy from lines 894-896)
+        if (vexByStrikeByExp[strikePrice]) {
+          totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put;
+        }
+        
+        // Calculate DEX (EXACT copy from lines 899-922)
+        const callOI = data.callOI || 0;
+        const putOI = data.putOI || 0;
+        
+        const moneyness = strikePrice / price;
+        let callDelta = 0;
+        let putDelta = 0;
+        
+        if (moneyness > 1.05) {
+          callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
+        } else if (moneyness < 0.95) {
+          callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
+        } else {
+          callDelta = 0.5;
+        }
+        
+        putDelta = callDelta - 1;
+        
+        const callDEX = callDelta * callOI * 100 * price;
+        const putDEX = putDelta * putOI * 100 * price;
+        
+        totalDEX += callDEX + putDEX;
+      });
+      
+      // STEP 4: Calculate SI (EXACT copy from lines 926-927)
       const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
-      if (denominator === 0) {
-        console.warn(`Zero denominator for DSI calculation: ${ticker}`);
-        return null;
-      }
+      const si = denominator !== 0 ? totalGEX / denominator : 0;
       
-      const dsi = totalGEX / denominator;
+      if (!isFinite(si)) return null;
       
-      // Validate DSI result
-      if (!isFinite(dsi)) {
-        console.warn(`Invalid DSI result for ${ticker}: ${dsi}`);
-        return null;
-      }
-      
-      // Categorize based on actual DSI ranges
+      // Categorize
       let regime = '';
       let regimeColor = '';
-      if (dsi >= 2.0) { regime = 'EXTREMELY STABLE'; regimeColor = 'text-green-500'; }
-      else if (dsi >= 0.5) { regime = 'STABLE'; regimeColor = 'text-green-400'; }
-      else if (dsi >= 0) { regime = 'SUPPORTIVE'; regimeColor = 'text-blue-400'; }
-      else if (dsi >= -0.5) { regime = 'BUILDING'; regimeColor = 'text-yellow-400'; }
-      else if (dsi >= -2.0) { regime = 'REFLEXIVE'; regimeColor = 'text-red-400'; }
+      if (si >= 2.0) { regime = 'EXTREMELY STABLE'; regimeColor = 'text-green-500'; }
+      else if (si >= 0.5) { regime = 'STABLE'; regimeColor = 'text-green-400'; }
+      else if (si >= 0) { regime = 'SUPPORTIVE'; regimeColor = 'text-blue-400'; }
+      else if (si >= -0.5) { regime = 'BUILDING'; regimeColor = 'text-yellow-400'; }
+      else if (si >= -2.0) { regime = 'REFLEXIVE'; regimeColor = 'text-red-400'; }
       else { regime = 'EXTREMELY REFLEXIVE'; regimeColor = 'text-red-500'; }
       
       return {
         ticker,
         price,
-        dsi,
+        si,
         regime,
         regimeColor,
         gex: totalGEX,
         vex: totalVEX,
         dex: totalDEX,
-        contractCount
+        contractCount: Object.keys(gexByStrikeByExp).length
       };
       
     } catch (error) {
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          console.error(`Timeout fetching data for ${ticker}`);
-        } else {
-          console.error(`Error calculating DSI for ${ticker}:`, error.message);
-        }
-      } else {
-        console.error(`Unknown error calculating DSI for ${ticker}:`, error);
-      }
       return null;
     }
   };
@@ -1174,8 +1191,8 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
     setScreenerData([]); // Clear existing data
     
     try {
-      // Use your full Top 1000+ symbols - all tiers
-      const allSymbols = [
+      // Use your full Top 1000+ symbols - all tiers (deduplicated)
+      const allSymbolsWithDupes = [
         ...PRELOAD_TIERS.TIER_1_INSTANT,
         ...PRELOAD_TIERS.TIER_2_FAST,
         ...PRELOAD_TIERS.TIER_3_REGULAR,
@@ -1183,36 +1200,32 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
         ...PRELOAD_TIERS.TIER_5_EXTENDED,
         ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE
       ];
+      const allSymbols = [...new Set(allSymbolsWithDupes)]; // Remove duplicates
       
-      // Process in priority batches but use ALL symbols
-      const primarySymbols = PRELOAD_TIERS.TIER_1_INSTANT;
-      const secondarySymbols = PRELOAD_TIERS.TIER_2_FAST;
-      const tertiarySymbols = [
+      // Process in priority batches but use ALL symbols (deduplicated)
+      const primarySymbols = [...new Set(PRELOAD_TIERS.TIER_1_INSTANT)];
+      const secondarySymbols = [...new Set(PRELOAD_TIERS.TIER_2_FAST)];
+      const tertiarySymbols = [...new Set([
         ...PRELOAD_TIERS.TIER_3_REGULAR,
         ...PRELOAD_TIERS.TIER_4_BACKGROUND,
         ...PRELOAD_TIERS.TIER_5_EXTENDED,
         ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE
-      ];
+      ])];
       
-      console.log(`Starting parallel DSI scan with ${allSymbols.length} symbols from your full universe...`);
+      console.log(`Starting parallel SI scan with ${allSymbols.length} symbols from your full universe...`);
       
       const results: any[] = [];
       let successCount = 0;
       let failCount = 0;
       
-      // Enhanced DSI calculation with multiple fallbacks
-      const calculateDSIWithFallbacks = async (symbol: string, priority: string = 'normal') => {
-        const timeouts = priority === 'high' ? [8000, 15000, 25000] : [10000, 20000, 30000]; // Increased timeouts
+      // Enhanced SI calculation with multiple fallbacks
+      const calculateSIWithFallbacks = async (symbol: string, priority: string = 'normal') => {
+        const timeouts = priority === 'high' ? [8000, 15000, 25000] : [10000, 20000, 30000];
         
         for (let attempt = 0; attempt < timeouts.length; attempt++) {
           try {
-            console.log(`[${priority.toUpperCase()}] Attempt ${attempt + 1} for ${symbol} (${timeouts[attempt]}ms timeout)`);
-            
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => {
-              console.log(`⏱️ Timeout reached for ${symbol} after ${timeouts[attempt]}ms`);
-              controller.abort();
-            }, timeouts[attempt]);
+            const timeoutId = setTimeout(() => controller.abort(), timeouts[attempt]);
             
             const response = await fetch(`/api/options-chain?ticker=${symbol}`, {
               signal: controller.signal,
@@ -1225,9 +1238,7 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
             
             clearTimeout(timeoutId);
             
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             
             const result = await response.json();
             
@@ -1235,24 +1246,17 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
               throw new Error('Invalid response data');
             }
             
-            // Quick validation of options data quality
             const optionsData = result.data;
             const validExps = Object.keys(optionsData).filter(exp => {
               const expData = optionsData[exp];
               return expData && expData.calls && expData.puts && Object.keys(expData.calls).length > 0;
             });
             
-            if (validExps.length === 0) {
-              throw new Error('No valid options data');
-            }
+            if (validExps.length === 0) throw new Error('No valid options data');
             
-            return await calculateDSIFromData(symbol, result.currentPrice, optionsData);
+            return await calculateSIFromData(symbol, result.currentPrice, optionsData);
             
           } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            const isAbort = error instanceof Error && error.name === 'AbortError';
-            const displayMsg = isAbort ? `Timeout after ${timeouts[attempt]}ms` : errorMsg;
-            console.warn(`${symbol} attempt ${attempt + 1} failed:`, displayMsg);
             if (attempt < timeouts.length - 1) {
               await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
             }
@@ -1274,39 +1278,27 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
           
           const batchPromises = batch.map(async (symbol: string) => {
             try {
-              const result = await calculateDSIWithFallbacks(symbol, priority);
+              const result = await calculateSIWithFallbacks(symbol, priority);
               if (result) {
                 successCount++;
                 results.push(result);
-                console.log(`✓ ${symbol}: DSI = ${result.dsi.toFixed(3)} (${result.regime})`);
+                console.log(`✓ ${symbol}: SI = ${result.si.toFixed(3)} (${result.regime})`);
                 
-                // Stream result immediately with stable sorting
-                const sortedResults = [...results].sort((a, b) => {
-                  const dsiDiff = b.dsi - a.dsi;
-                  // Secondary sort by symbol for stability when DSI values are close
-                  if (Math.abs(dsiDiff) < 0.001) {
-                    return a.ticker.localeCompare(b.ticker);
-                  }
-                  return dsiDiff;
-                });
-                setScreenerData(sortedResults);
+                // Update UI immediately for each result
+                const sorted = [...results].sort((a, b) => b.si - a.si);
+                setScreenerData(sorted);
                 
                 return result;
               }
             } catch (error) {
               failCount++;
-              const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-              console.error(`✗ ${symbol}: ${errorMsg}`);
+              console.error(`✗ ${symbol}`);
               return null;
             }
           });
           
           await Promise.allSettled(batchPromises);
-          
-          // Short delay between batches
-          if (batch !== batches[batches.length - 1]) {
-            await new Promise(resolve => setTimeout(resolve, 200));
-          }
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       };
       
@@ -1315,17 +1307,10 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
       await processBatch(secondarySymbols, 'normal', 3);
       await processBatch(tertiarySymbols, 'low', 4);
       
-      console.log(`DSI scan complete: ${successCount} successful, ${failCount} failed`);
+      console.log(`SI scan complete: ${successCount} successful, ${failCount} failed`);
       
-      // Final sort with stable sorting to prevent shaking
-      const finalResults = results.sort((a, b) => {
-        const dsiDiff = b.dsi - a.dsi;
-        // Secondary sort by symbol for stability when DSI values are close
-        if (Math.abs(dsiDiff) < 0.001) {
-          return a.ticker.localeCompare(b.ticker);
-        }
-        return dsiDiff;
-      });
+      // Final update
+      const finalResults = results.sort((a, b) => b.si - a.si);
       setScreenerData(finalResults);
       
     } catch (error) {
@@ -1337,22 +1322,29 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
     }
   };
   
-  // Separate DSI calculation function for reusability
-  const calculateDSIFromData = async (ticker: string, price: number, optionsData: any) => {
-    // Filter to 45-day expirations
-    const today = new Date();
-    const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
-    const validExps = Object.keys(optionsData).filter(exp => {
+  // Separate SI calculation function - REBUILT FROM SCRATCH using main gauge logic
+  const calculateSIFromData = async (ticker: string, price: number, optionsData: any) => {
+    // STEP 1: Filter EXACTLY like main component (first 3 months, then 45 days)
+    const allExps = Object.keys(optionsData).sort();
+    const threeMonthsFromNow = new Date();
+    threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
+    const expsWithin3Months = allExps.filter(exp => {
       const expDate = new Date(exp);
-      return expDate >= today && expDate <= maxDate;
+      return expDate <= threeMonthsFromNow;
     });
     
-    if (validExps.length === 0) {
-      throw new Error('No valid expirations');
-    }
+    const today = new Date();
+    const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
+    const validExps = expsWithin3Months.filter(exp => {
+      const expDate = new Date(exp);
+      return expDate >= today && expDate <= maxDate;
+    }).sort();
     
-    let totalGEX = 0, totalVEX = 0, totalDEX = 0;
-    let contractCount = 0;
+    if (validExps.length === 0) throw new Error('No valid expirations');
+    
+    // STEP 2: Build GEX and VEX structures EXACTLY like main component
+    const gexByStrikeByExp: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}} = {};
+    const vexByStrikeByExp: {[strike: number]: {call: number, put: number}} = {};
     
     validExps.forEach(exp => {
       const expData = optionsData[exp];
@@ -1360,82 +1352,127 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
       
       const { calls, puts } = expData;
       
-      // Process calls
-      Object.entries(calls).forEach(([strike, data]) => {
-        const contractData = data as any;
-        const strikePrice = parseFloat(strike);
-        const oi = contractData.open_interest || 0;
-        const gamma = contractData.greeks?.gamma || 0;
-        const vega = contractData.greeks?.vega || 0;
+      // Process calls - ACCUMULATE values for same strikes across expirations
+      Object.entries(calls).forEach(([strike, data]: [string, any]) => {
+        const strikeNum = parseFloat(strike);
+        const oi = data.open_interest || 0;
         
-        if (oi > 5 && Math.abs(gamma) > 0.001) {
-          contractCount++;
-          totalGEX += gamma * oi * (price * price) * 100;
-          totalVEX += vega * oi * 100;
+        if (oi > 0) {
+          if (!gexByStrikeByExp[strikeNum]) {
+            gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+          }
+          if (!vexByStrikeByExp[strikeNum]) {
+            vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
+          }
           
-          // Delta approximation for calls
-          const moneyness = strikePrice / price;
-          const delta = moneyness >= 1.1 ? 0.2 : moneyness >= 1.05 ? 0.4 : moneyness >= 0.95 ? 0.5 : 0.8;
-          totalDEX += delta * oi * 100 * price;
+          gexByStrikeByExp[strikeNum].callOI += oi; // ACCUMULATE
+          
+          const gamma = data.greeks?.gamma || 0;
+          if (gamma) {
+            const gex = gamma * oi * (price * price) * 100;
+            gexByStrikeByExp[strikeNum].call += gex; // ACCUMULATE
+          }
+          
+          const vega = data.greeks?.vega || 0;
+          if (vega) {
+            const vex = vega * oi * 100;
+            vexByStrikeByExp[strikeNum].call += vex; // ACCUMULATE
+          }
         }
       });
       
-      // Process puts
-      Object.entries(puts).forEach(([strike, data]) => {
-        const contractData = data as any;
-        const strikePrice = parseFloat(strike);
-        const oi = contractData.open_interest || 0;
-        const gamma = contractData.greeks?.gamma || 0;
-        const vega = contractData.greeks?.vega || 0;
+      // Process puts - ACCUMULATE values for same strikes across expirations
+      Object.entries(puts).forEach(([strike, data]: [string, any]) => {
+        const strikeNum = parseFloat(strike);
+        const oi = data.open_interest || 0;
         
-        if (oi > 5 && Math.abs(gamma) > 0.001) {
-          contractCount++;
-          totalGEX -= gamma * oi * (price * price) * 100; // Negative for puts
-          totalVEX -= vega * oi * 100; // Negative for puts
+        if (oi > 0) {
+          if (!gexByStrikeByExp[strikeNum]) {
+            gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+          }
+          if (!vexByStrikeByExp[strikeNum]) {
+            vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
+          }
           
-          // Delta approximation for puts
-          const moneyness = strikePrice / price;
-          const delta = moneyness <= 0.9 ? -0.8 : moneyness <= 0.95 ? -0.5 : moneyness <= 1.05 ? -0.4 : -0.2;
-          totalDEX += delta * oi * 100 * price;
+          gexByStrikeByExp[strikeNum].putOI += oi; // ACCUMULATE
+          
+          const gamma = data.greeks?.gamma || 0;
+          if (gamma) {
+            const gex = -gamma * oi * (price * price) * 100;
+            gexByStrikeByExp[strikeNum].put += gex; // ACCUMULATE
+          }
+          
+          const vega = data.greeks?.vega || 0;
+          if (vega) {
+            const vex = -vega * oi * 100;
+            vexByStrikeByExp[strikeNum].put += vex; // ACCUMULATE
+          }
         }
       });
     });
     
-    if (contractCount === 0) {
-      throw new Error('No valid contracts');
-    }
+    // STEP 3: Calculate SI using EXACT logic from main gauge
+    let totalGEX = 0;
+    let totalVEX = 0;
+    let totalDEX = 0;
     
-    // Calculate DSI
+    Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
+      const strikePrice = parseFloat(strike);
+      
+      totalGEX += data.call + data.put;
+      
+      if (vexByStrikeByExp[strikePrice]) {
+        totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put;
+      }
+      
+      const callOI = data.callOI || 0;
+      const putOI = data.putOI || 0;
+      
+      const moneyness = strikePrice / price;
+      let callDelta = 0;
+      let putDelta = 0;
+      
+      if (moneyness > 1.05) {
+        callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
+      } else if (moneyness < 0.95) {
+        callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
+      } else {
+        callDelta = 0.5;
+      }
+      
+      putDelta = callDelta - 1;
+      
+      const callDEX = callDelta * callOI * 100 * price;
+      const putDEX = putDelta * putOI * 100 * price;
+      
+      totalDEX += callDEX + putDEX;
+    });
+    
     const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
-    if (denominator === 0) {
-      throw new Error('Zero denominator');
-    }
+    if (denominator === 0) throw new Error('Zero denominator');
     
-    const dsi = totalGEX / denominator;
-    
-    if (!isFinite(dsi)) {
-      throw new Error('Invalid DSI result');
-    }
+    const si = totalGEX / denominator;
+    if (!isFinite(si)) throw new Error('Invalid SI result');
     
     // Categorize
     let regime = '', regimeColor = '';
-    if (dsi >= 2.0) { regime = 'EXTREMELY STABLE'; regimeColor = 'text-green-500'; }
-    else if (dsi >= 0.5) { regime = 'STABLE'; regimeColor = 'text-green-400'; }
-    else if (dsi >= 0) { regime = 'SUPPORTIVE'; regimeColor = 'text-blue-400'; }
-    else if (dsi >= -0.5) { regime = 'BUILDING'; regimeColor = 'text-yellow-400'; }
-    else if (dsi >= -2.0) { regime = 'REFLEXIVE'; regimeColor = 'text-red-400'; }
+    if (si >= 2.0) { regime = 'EXTREMELY STABLE'; regimeColor = 'text-green-500'; }
+    else if (si >= 0.5) { regime = 'STABLE'; regimeColor = 'text-green-400'; }
+    else if (si >= 0) { regime = 'SUPPORTIVE'; regimeColor = 'text-blue-400'; }
+    else if (si >= -0.5) { regime = 'BUILDING'; regimeColor = 'text-yellow-400'; }
+    else if (si >= -2.0) { regime = 'REFLEXIVE'; regimeColor = 'text-red-400'; }
     else { regime = 'EXTREMELY REFLEXIVE'; regimeColor = 'text-red-500'; }
     
     return {
       ticker,
       price,
-      dsi,
+      si,
       regime,
       regimeColor,
       gex: totalGEX,
       vex: totalVEX,
       dex: totalDEX,
-      contractCount
+      contractCount: Object.keys(gexByStrikeByExp).length
     };
   };
 
@@ -1445,14 +1482,25 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
     
     return screenerData.filter(item => {
       switch (screenerFilter) {
-        case 'highly-stable': return item.dsi >= 0.5;
-        case 'mildly-supportive': return item.dsi >= 0 && item.dsi < 0.5;
-        case 'volatility-building': return item.dsi >= -0.5 && item.dsi < 0;
-        case 'reflexive': return item.dsi < -0.5;
+        case 'highly-stable': return item.si >= 0.5;
+        case 'mildly-supportive': return item.si >= 0 && item.si < 0.5;
+        case 'volatility-building': return item.si >= -0.5 && item.si < 0;
+        case 'reflexive': return item.si < -0.5;
         default: return true;
       }
     });
   }, [screenerData, screenerFilter]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredScreenerData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredScreenerData.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [screenerFilter]);
 
   // Load screener data when component mounts
   useEffect(() => {
@@ -1467,27 +1515,27 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
       <div className="bg-black border-2 border-purple-500/50 p-6">
         <div className="text-center">
           <h2 className="text-3xl font-bold text-white uppercase tracking-wider">
-            DEALER STABILITY INDEX
+            STABILITY INTENSITY
           </h2>
         </div>
       </div>
 
-      {/* Main DSI Gauge */}
+      {/* Main SI Gauge */}
       <div className="bg-black border border-gray-600 p-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-6">
           {/* Left side - empty for balance */}
           <div></div>
           
-          {/* Center - DSI Value */}
+          {/* Center - SI Value */}
           <div className="text-center">
-            <div className={`text-6xl font-bold mb-4 ${dsiMetrics.stabilityColor}`}>
-              {dsiMetrics.dsiNorm.toFixed(3)}
+            <div className={`text-6xl font-bold mb-4 ${siMetrics.stabilityColor}`}>
+              {siMetrics.siNorm.toFixed(3)}
             </div>
-            <div className={`text-2xl font-bold mb-2 ${dsiMetrics.stabilityColor}`}>
-              {dsiMetrics.stability}
+            <div className={`text-2xl font-bold mb-2 ${siMetrics.stabilityColor}`}>
+              {siMetrics.stability}
             </div>
             <div className="text-lg text-gray-300">
-              {dsiMetrics.marketBehavior}
+              {siMetrics.marketBehavior}
             </div>
           </div>
           
@@ -1498,28 +1546,28 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
                 INTERPRETATION
               </div>
               <div className="text-white text-sm font-medium space-y-1 leading-relaxed">
-                {dsiMetrics.dsiNorm >= 0.5 && (
+                {siMetrics.siNorm >= 0.5 && (
                   <div className="space-y-1">
                     <div>• Long gamma/short vega environment</div>
                     <div>• Dealers dampen market moves</div>
                     <div>• Expect mean reversion</div>
                   </div>
                 )}
-                {dsiMetrics.dsiNorm >= 0 && dsiMetrics.dsiNorm < 0.5 && (
+                {siMetrics.siNorm >= 0 && siMetrics.siNorm < 0.5 && (
                   <div className="space-y-1">
                     <div>• Mildly supportive dealers</div>
                     <div>• Range-bound conditions</div>
                     <div>• Limited directional momentum</div>
                   </div>
                 )}
-                {dsiMetrics.dsiNorm >= -0.5 && dsiMetrics.dsiNorm < 0 && (
+                {siMetrics.siNorm >= -0.5 && siMetrics.siNorm < 0 && (
                   <div className="space-y-1">
                     <div>• Short gamma or long vega bias</div>
                     <div>• Volatility building up</div>
                     <div>• Potential for breakouts</div>
                   </div>
                 )}
-                {dsiMetrics.dsiNorm < -0.5 && (
+                {siMetrics.siNorm < -0.5 && (
                   <div className="space-y-1">
                     <div>• Short gamma + high vega</div>
                     <div>• Reflexive, fragile market</div>
@@ -1531,7 +1579,7 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
           </div>
         </div>
 
-        {/* DSI Scale Visualization */}
+        {/* SI Scale Visualization */}
         <div className="relative w-full max-w-2xl mx-auto mb-8">
           <div 
             className="h-6 rounded-full relative"
@@ -1539,11 +1587,11 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
               background: 'linear-gradient(to right, #dc2626 0%, #ef4444 20%, #eab308 40%, #3b82f6 60%, #22c55e 80%, #16a34a 100%)'
             }}
           >
-            {/* DSI Indicator - position based on actual DSI value with extended range */}
+            {/* SI Indicator - position based on actual SI value with extended range */}
             <div 
               className="absolute top-0 w-4 h-6 bg-white border-2 border-black rounded-full transform -translate-x-1/2 transition-all duration-500"
               style={{ 
-                left: `${Math.max(0, Math.min(100, ((dsiMetrics.dsiNorm + 10) / 20) * 100))}%` 
+                left: `${Math.max(0, Math.min(100, ((siMetrics.siNorm + 10) / 20) * 100))}%` 
               }}
             />
           </div>
@@ -1575,6 +1623,8 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
       </div>
 
       {/* Exposure Breakdown */}
+      {/* Hidden: GEX, VEX, DEX Components - functionality preserved */}
+      {false && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* GEX Component */}
@@ -1586,10 +1636,10 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
           
           <div className="text-center">
             <div className="text-3xl font-bold text-orange-400 mb-2">
-              {formatExposure(dsiMetrics.gexTotal)}
+              {formatExposure(siMetrics.gexTotal)}
             </div>
             <div className="text-sm text-gray-300">
-              {dsiMetrics.gexTotal > 0 ? 'Stabilizing Force' : 'Destabilizing Force'}
+              {siMetrics.gexTotal > 0 ? 'Stabilizing Force' : 'Destabilizing Force'}
             </div>
           </div>
         </div>
@@ -1603,7 +1653,7 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
           
           <div className="text-center">
             <div className="text-3xl font-bold text-purple-400 mb-2">
-              {formatExposure(dsiMetrics.vexTotal)}
+              {formatExposure(siMetrics.vexTotal)}
             </div>
             <div className="text-sm text-gray-300">
               Volatility Sensitivity
@@ -1620,7 +1670,7 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
           
           <div className="text-center">
             <div className="text-3xl font-bold text-blue-400 mb-2">
-              {formatExposure(dsiMetrics.dexTotal)}
+              {formatExposure(siMetrics.dexTotal)}
             </div>
             <div className="text-sm text-gray-300">
               Directional Sensitivity
@@ -1628,14 +1678,15 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
           </div>
         </div>
       </div>
+      )}
 
 
 
-      {/* DSI Screener */}
+      {/* SI Screener */}
       <div className="bg-black border border-gray-600">
         <div className="bg-black px-6 py-4 border-b border-gray-600">
           <div className="flex items-center justify-between">
-            <h3 className="text-white font-black uppercase text-lg tracking-widest">DSI SCREENER</h3>
+            <h3 className="text-white font-black uppercase text-lg tracking-widest">SI SCREENER</h3>
             
             {/* Filter Controls */}
             <div className="flex items-center gap-4">
@@ -1678,13 +1729,13 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
           </div>
         </div>
         
-        <div className="overflow-x-auto">
+        <div>
           <table className="w-full">
             <thead className="bg-gray-900">
               <tr>
                 <th className="px-4 py-4 text-left text-sm font-black text-purple-400 uppercase tracking-widest">Symbol</th>
                 <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">Price</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">DSI</th>
+                <th className="px-4 py-4 text-right text-sm font-black text-purple-400 uppercase tracking-widest">SI</th>
                 <th className="px-4 py-4 text-center text-sm font-black text-purple-400 uppercase tracking-widest">Regime</th>
                 <th className="px-4 py-4 text-center text-sm font-black text-purple-400 uppercase tracking-widest">Action</th>
               </tr>
@@ -1696,33 +1747,33 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
                     <div className="space-y-3">
                       <div className="flex items-center justify-center gap-2">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-400"></div>
-                        <span className="text-purple-400 font-bold uppercase">INITIALIZING SCAN...</span>
+                        <span className="text-purple-400 font-bold uppercase">SCANNING...</span>
                       </div>
                       <div className="text-sm text-gray-400">
-                        Starting DSI analysis across your full 1400+ symbol universe
+                        Analyzing SI across 1400+ symbols • Results appear as found
                       </div>
                     </div>
                   </td>
                 </tr>
-              ) : filteredScreenerData.length > 0 ? (
-                filteredScreenerData.map((item, idx) => {
-                  // Determine action based on actual DSI ranges
+              ) : paginatedData.length > 0 ? (
+                paginatedData.map((item, idx) => {
+                  // Determine action based on actual SI ranges
                   let actionText = '';
                   let actionColor = '';
                   
-                  if (item.dsi >= 2.0) {
+                  if (item.si >= 2.0) {
                     actionText = 'STRONG FADE';
                     actionColor = 'text-green-500';
-                  } else if (item.dsi >= 0.5) {
+                  } else if (item.si >= 0.5) {
                     actionText = 'FADE MOVES';
                     actionColor = 'text-green-400';
-                  } else if (item.dsi >= 0) {
+                  } else if (item.si >= 0) {
                     actionText = 'RANGE TRADE';
                     actionColor = 'text-blue-400';
-                  } else if (item.dsi >= -0.5) {
+                  } else if (item.si >= -0.5) {
                     actionText = 'AWAIT BREAKOUT';
                     actionColor = 'text-yellow-400';
-                  } else if (item.dsi >= -2.0) {
+                  } else if (item.si >= -2.0) {
                     actionText = 'MOMENTUM TRADE';
                     actionColor = 'text-red-400';
                   } else {
@@ -1731,14 +1782,14 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
                   }
 
                   return (
-                    <tr key={`${item.ticker}-${item.dsi.toFixed(3)}`} className="border-b border-gray-800 hover:bg-gray-900/50 transition-colors duration-200">
+                    <tr key={item.ticker} className="border-b border-gray-800 hover:bg-gray-900/50 transition-colors duration-200">
                       <td className="px-4 py-3 text-white font-bold text-lg tracking-wider">
                         {item.ticker}
                       </td>
                       <td className="px-4 py-3 text-right text-white font-mono">${item.price.toFixed(2)}</td>
                       <td className="px-4 py-3 text-right">
                         <span className={`font-bold text-lg ${item.regimeColor}`}>
-                          {item.dsi.toFixed(3)}
+                          {item.si.toFixed(3)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -1758,31 +1809,9 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
                     <div className="text-sm">
-                      <strong className="text-purple-400">DSI SCREENER READY</strong><br/>
-                      Click START SCAN to begin real-time DSI analysis.<br/>
-                      Results will stream in as each symbol is processed.
-                    </div>
-                  </td>
-                </tr>
-              )}
-              
-              {/* Streaming status row when loading with existing data */}
-              {screenerLoading && screenerData.length > 0 && (
-                <tr className="bg-gray-800/50">
-                  <td colSpan={5} className="px-4 py-3 text-center">
-                    <div className="flex items-center justify-center gap-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
-                        <span className="text-purple-400 font-bold">STREAMING...</span>
-                      </div>
-                      <span className="text-gray-400">
-                        {screenerData.length}/1400+ symbols processed • Full universe scan • Parallel batching active
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                      </div>
+                      <strong className="text-purple-400">SI SCREENER READY</strong><br/>
+                      Click START SCAN to begin SI analysis.<br/>
+                      Results will appear when scan completes.
                     </div>
                   </td>
                 </tr>
@@ -1790,6 +1819,71 @@ const DSIDashboard: React.FC<DSIDashboardProps> = ({ selectedTicker, currentPric
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination Controls */}
+        {filteredScreenerData.length > 0 && (
+          <div className="bg-black border-t border-gray-600 px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-400">
+                Showing {startIndex + 1}-{Math.min(endIndex, filteredScreenerData.length)} of {filteredScreenerData.length} symbols
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${
+                    currentPage === 1
+                      ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
+                      : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
+                  }`}
+                >
+                  PREVIOUS
+                </button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                    // Show first page, last page, current page, and pages around current
+                    const showPage = page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1;
+                    const showEllipsis = (page === 2 && currentPage > 3) || (page === totalPages - 1 && currentPage < totalPages - 2);
+                    
+                    if (showEllipsis) {
+                      return <span key={page} className="px-2 text-gray-500">...</span>;
+                    }
+                    
+                    if (!showPage) return null;
+                    
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`px-3 py-2 text-sm font-bold border-2 transition-all ${
+                          currentPage === page
+                            ? 'bg-purple-600 border-purple-500 text-white'
+                            : 'bg-black border-gray-600 text-gray-400 hover:border-purple-500 hover:text-white'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${
+                    currentPage === totalPages
+                      ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
+                      : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
+                  }`}
+                >
+                  NEXT
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1818,7 +1912,7 @@ const DealerAttraction = () => {
   const [showVEX, setShowVEX] = useState(false);
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
-  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'DHP' | 'PP' | 'DSI'>('DHP');
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI'>('MM');
 
   const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
@@ -2953,37 +3047,37 @@ const DealerAttraction = () => {
                       </div>
                       
                       <div className="flex items-center gap-3">
-                        {/* DHP, PP, DSI Buttons */}
+                        {/* MM, MP, SI Buttons */}
                         <div className="flex gap-2">
                           <button 
-                            onClick={() => setActiveWorkbenchTab('DHP')}
+                            onClick={() => setActiveWorkbenchTab('MM')}
                             className={`px-4 py-2 font-bold text-xs uppercase tracking-wider transition-all ${
-                              activeWorkbenchTab === 'DHP' 
+                              activeWorkbenchTab === 'MM' 
                                 ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]' 
                                 : 'bg-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20'
                             }`}
                           >
-                            DHP
+                            MM
                           </button>
                           <button 
-                            onClick={() => setActiveWorkbenchTab('PP')}
+                            onClick={() => setActiveWorkbenchTab('MP')}
                             className={`px-4 py-2 font-bold text-xs uppercase tracking-wider transition-all ${
-                              activeWorkbenchTab === 'PP' 
+                              activeWorkbenchTab === 'MP' 
                                 ? 'bg-green-600 text-white border-2 border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]' 
                                 : 'bg-black text-green-400 hover:text-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-900/20'
                             }`}
                           >
-                            PP
+                            MP
                           </button>
                           <button 
-                            onClick={() => setActiveWorkbenchTab('DSI')}
+                            onClick={() => setActiveWorkbenchTab('SI')}
                             className={`px-4 py-2 font-bold text-xs uppercase tracking-wider transition-all ${
-                              activeWorkbenchTab === 'DSI' 
+                              activeWorkbenchTab === 'SI' 
                                 ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' 
                                 : 'bg-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20'
                             }`}
                           >
-                            DSI
+                            SI
                           </button>
                         </div>
                         
@@ -3359,24 +3453,24 @@ const DealerAttraction = () => {
             <div className="bg-gradient-to-br from-gray-900 to-black border border-gray-700 rounded-xl p-8">
               <div className="text-center">
                 {/* Render the appropriate workbench component */}
-                {activeWorkbenchTab === 'DHP' && (
-                  <DHPDashboard 
+                {activeWorkbenchTab === 'MM' && (
+                  <MMDashboard 
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}
                     expirations={expirations}
                   />
                 )}
-                {activeWorkbenchTab === 'PP' && (
-                  <PPDashboard 
+                {activeWorkbenchTab === 'MP' && (
+                  <MPDashboard 
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}
                     expirations={expirations}
                   />
                 )}
-                {activeWorkbenchTab === 'DSI' && (
-                  <DSIDashboard 
+                {activeWorkbenchTab === 'SI' && (
+                  <SIDashboard 
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}

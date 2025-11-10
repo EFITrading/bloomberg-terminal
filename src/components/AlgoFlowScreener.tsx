@@ -26,8 +26,30 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
   
   // Process each underlying separately
   for (const [underlying, underlyingTrades] of Object.entries(tradesByUnderlying)) {
+    // Declare current spot price variable for this underlying
+    let currentSpotPrice: number | null = null;
+    
     try {
       console.log(`📊 Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`);
+      
+      // First, get the current spot price for this underlying - this will be overridden by contract data if available
+      try {
+        const spotPriceUrl = underlying === 'SPX' 
+          ? `https://api.polygon.io/v2/last/trade/SPX?apikey=${POLYGON_API_KEY}`
+          : `https://api.polygon.io/v2/last/trade/${underlying}?apikey=${POLYGON_API_KEY}`;
+        
+        console.log(`💰 Fetching current ${underlying} price as fallback...`);
+        const priceResponse = await fetch(spotPriceUrl);
+        if (priceResponse.ok) {
+          const priceData = await priceResponse.json();
+          if (priceData.status === 'OK' && priceData.results) {
+            currentSpotPrice = priceData.results.p;
+            console.log(`✅ Fallback ${underlying} price: $${currentSpotPrice}`);
+          }
+        }
+      } catch (error) {
+        console.warn(`⚠️ Failed to fetch ${underlying} spot price fallback:`, error);
+      }
       
       // Get unique expiration dates for this underlying to fetch specific expirations
       const uniqueExpirations = [...new Set(underlyingTrades.map(t => t.expiry))];
@@ -35,34 +57,74 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
       
       let allContracts = new Map();
       
-      // Fetch data for each expiration date separately to get all contracts
+      // Fetch data for each expiration date separately to get all contracts WITH FULL PAGINATION
       for (const expiry of uniqueExpirations) {
         const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
-        console.log(`📊 Fetching ${underlying} contracts for expiry: ${expiryParam}`);
+        console.log(`📊 Fetching ${underlying} contracts for expiry: ${expiryParam} WITH FULL PAGINATION`);
         
-        const response = await fetch(
-          `https://api.polygon.io/v3/snapshot/options/${underlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`
-        );
+        // Special handling for SPX - use I:SPX format for API calls
+        const apiUnderlying = underlying === 'SPX' ? 'I:SPX' : underlying;
         
-        if (response.ok) {
-          const chainData = await response.json();
-          if (chainData.results) {
-            chainData.results.forEach((contract: any) => {
-              if (contract.details && contract.details.ticker) {
-                allContracts.set(contract.details.ticker, {
-                  volume: contract.day?.volume || 0,
-                  open_interest: contract.open_interest || 0
-                });
+        // FULL PAGINATION LOGIC - Get ALL contracts for this expiration
+        let nextUrl: string | null = `https://api.polygon.io/v3/snapshot/options/${apiUnderlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`;
+        let totalContractsForExpiry = 0;
+        
+        while (nextUrl && totalContractsForExpiry < 10000) { // Safety limit
+          console.log(`🔄 Paginating: ${nextUrl}`);
+          const response: Response = await fetch(nextUrl);
+          
+          if (response.ok) {
+            const chainData: any = await response.json();
+            if (chainData.results && chainData.results.length > 0) {
+              // Get SPX price from the first contract's underlying_asset.value
+              if (!currentSpotPrice && chainData.results[0]?.underlying_asset?.value) {
+                currentSpotPrice = chainData.results[0].underlying_asset.value;
+                console.log(`💰 ${underlying} Price from contract data: $${currentSpotPrice}`);
               }
-            });
-            console.log(`  ✅ Found ${chainData.results.length} contracts for ${expiryParam}`);
+              
+              chainData.results.forEach((contract: any, index: number) => {
+                if (contract.details && contract.details.ticker) {
+                  allContracts.set(contract.details.ticker, {
+                    volume: contract.day?.volume || 0,
+                    open_interest: contract.open_interest || 0
+                  });
+                  
+                  // Debug first few contracts to see the format
+                  if (index < 3) {
+                    console.log(`🏷️ API Contract ${index}: ${contract.details.ticker}, Vol=${contract.day?.volume || 0}, OI=${contract.open_interest || 0}`);
+                  }
+                }
+              });
+              totalContractsForExpiry += chainData.results.length;
+              console.log(`  📈 Added ${chainData.results.length} contracts, total for ${expiryParam}: ${totalContractsForExpiry}`);
+              
+              // Check for next page
+              nextUrl = chainData.next_url ? `${chainData.next_url}&apikey=${POLYGON_API_KEY}` : null;
+            } else {
+              console.log(`  ✅ No more results for ${expiryParam}`);
+              break;
+            }
+          } else {
+            console.warn(`  ⚠️ Failed to fetch ${underlying} for ${expiryParam}: ${response.status}`);
+            break;
           }
-        } else {
-          console.warn(`  ⚠️ Failed to fetch ${underlying} for ${expiryParam}: ${response.status}`);
+          
+          // Small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 50));
         }
+        
+        console.log(`✅ COMPLETED PAGINATION for ${expiryParam}: ${totalContractsForExpiry} total contracts`);
       }
       
       console.log(`✅ Total contracts loaded for ${underlying}: ${allContracts.size}`);
+      
+      // Debug: Show sample contracts with volume/OI
+      const sampleContractsWithData = Array.from(allContracts.entries())
+        .filter(([_, data]) => data.volume > 0 || data.open_interest > 0)
+        .slice(0, 5);
+      console.log(`📊 Sample contracts with Vol/OI data:`, sampleContractsWithData.map(([ticker, data]) => 
+        `${ticker}: Vol=${data.volume}, OI=${data.open_interest}`
+      ));
       
       // Skip if no contracts found for any expiration
       if (allContracts.size === 0) {
@@ -70,7 +132,8 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
         updatedTrades.push(...underlyingTrades.map(trade => ({
           ...trade,
           volume: 0,
-          open_interest: 0
+          open_interest: 0,
+          spot_price: currentSpotPrice || trade.spot_price // Use current spot price if available
         })));
         continue;
       }
@@ -84,53 +147,76 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
       
       // Match trades to contracts and update with vol/OI data
       for (const trade of underlyingTrades) {
-        // Generate the option ticker format that matches Polygon API
-        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+        console.log(`🔍 Looking for contract using trade.ticker: ${trade.ticker}`);
         
-        // Handle date parsing properly - parse as local date to avoid timezone issues
-        let expiryDate;
-        if (trade.expiry.includes('T')) {
-          // If it has time component, parse as is
-          expiryDate = new Date(trade.expiry);
-        } else {
-          // If it's just a date string like "2025-10-31", parse as local date
-          const [year, month, day] = trade.expiry.split('-').map(Number);
-          expiryDate = new Date(year, month - 1, day); // month is 0-based in JS
+        // First try: Use the ticker directly from the trade (like DealerAttraction does)
+        let contractData = contractLookup.get(trade.ticker);
+        
+        if (!contractData) {
+          // Second try: Generate the option ticker format that matches Polygon API
+          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+          
+          // Handle date parsing properly - parse as local date to avoid timezone issues
+          let expiryDate;
+          if (trade.expiry.includes('T')) {
+            // If it has time component, parse as is
+            expiryDate = new Date(trade.expiry);
+          } else {
+            // If it's just a date string like "2025-10-31", parse as local date
+            const [year, month, day] = trade.expiry.split('-').map(Number);
+            expiryDate = new Date(year, month - 1, day); // month is 0-based in JS
+          }
+          
+          const formattedExpiry = `${expiryDate.getFullYear().toString().slice(-2)}${(expiryDate.getMonth() + 1).toString().padStart(2, '0')}${expiryDate.getDate().toString().padStart(2, '0')}`;
+          const formattedStrike = Math.round(trade.strike * 1000).toString().padStart(8, '0');
+          // Special handling for SPX option tickers - they use I:SPX format
+          const tickerUnderlying = underlying === 'SPX' ? 'I:SPX' : underlying;
+          const optionTicker = `O:${tickerUnderlying}${formattedExpiry}${optionType}${formattedStrike}`;
+          
+          console.log(`🔍 Trying constructed ticker: ${optionTicker} (from expiry: ${trade.expiry}, strike: ${trade.strike})`);
+          contractData = contractLookup.get(optionTicker);
         }
-        
-        const formattedExpiry = `${expiryDate.getFullYear().toString().slice(-2)}${(expiryDate.getMonth() + 1).toString().padStart(2, '0')}${expiryDate.getDate().toString().padStart(2, '0')}`;
-        const formattedStrike = Math.round(trade.strike * 1000).toString().padStart(8, '0');
-        const optionTicker = `O:${underlying}${formattedExpiry}${optionType}${formattedStrike}`;
-        
-        console.log(`🔍 Looking for contract: ${optionTicker} (from expiry: ${trade.expiry}, strike: ${trade.strike})`);
-        
-        const contractData = contractLookup.get(optionTicker);
         
         if (contractData) {
           updatedTrades.push({
             ...trade,
             volume: contractData.volume,
-            open_interest: contractData.open_interest
+            open_interest: contractData.open_interest,
+            spot_price: currentSpotPrice || trade.spot_price // Use current spot price if available
           });
-          console.log(`✅ FOUND ${optionTicker}: Vol=${contractData.volume}, OI=${contractData.open_interest}`);
+          console.log(`✅ FOUND contract: Vol=${contractData.volume}, OI=${contractData.open_interest}, Spot=$${currentSpotPrice || trade.spot_price}`);
         } else {
-          // Contract not found, set to 0
+          // Contract not found - show more debug info
+          console.log(`❌ NOT FOUND: ${trade.ticker}`);
+          console.log(`🔍 Trade details:`, {
+            ticker: trade.ticker,
+            underlying: trade.underlying_ticker,
+            strike: trade.strike,
+            expiry: trade.expiry,
+            type: trade.type
+          });
+          
+          // Show a few actual tickers for comparison
+          const allTickers = Array.from(contractLookup.keys()).slice(0, 10);
+          console.log(`📋 First 10 actual tickers in lookup:`, allTickers);
+          
           updatedTrades.push({
             ...trade,
             volume: 0,
-            open_interest: 0
+            open_interest: 0,
+            spot_price: currentSpotPrice || trade.spot_price // Use current spot price if available
           });
-          console.log(`❌ NOT FOUND: ${optionTicker}`);
         }
       }
       
     } catch (error) {
       console.error(`❌ Error fetching vol/OI for ${underlying}:`, error);
-      // Add trades without vol/OI data on error
+      // Add trades without vol/OI data on error, but with current spot price if available
       updatedTrades.push(...underlyingTrades.map(trade => ({
         ...trade,
         volume: 0,
-        open_interest: 0
+        open_interest: 0,
+        spot_price: currentSpotPrice || trade.spot_price // Use current spot price if available
       })));
     }
   }
@@ -1788,12 +1874,11 @@ export default function AlgoFlowScreener() {
                                     </div>
                                   </div>
                                   <div>
-                                    <div className="text-white/50 text-xs uppercase">Volume</div>
-                                    <div className="text-blue-400 font-medium">{trade.volume?.toLocaleString() || 'N/A'}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-white/50 text-xs uppercase">Open Interest</div>
-                                    <div className="text-green-400 font-medium">{trade.open_interest?.toLocaleString() || 'N/A'}</div>
+                                    <div className="text-white/50 text-xs uppercase">Vol/OI</div>
+                                    <div className="font-medium">
+                                      <div className="text-blue-400">Vol: {trade.volume?.toLocaleString() || 'N/A'}</div>
+                                      <div className="text-green-400">OI: {trade.open_interest?.toLocaleString() || 'N/A'}</div>
+                                    </div>
                                   </div>
                                   <div>
                                     <div className="text-white/50 text-xs uppercase">Live OI</div>
@@ -2012,22 +2097,21 @@ export default function AlgoFlowScreener() {
                                   {trade.expiry.split('T')[0]}
                                 </button>
                               </td>
-                              <td className="p-4 text-white">
-                                <div className="text-sm">
+                              <td className="p-4 font-bold">
+                                <div className="flex flex-col text-sm">
                                   <div className="text-blue-400">Vol: {trade.volume?.toLocaleString() || 'N/A'}</div>
                                   <div className="text-green-400">OI: {trade.open_interest?.toLocaleString() || 'N/A'}</div>
-                                  {idx < 3 && (() => {
-                                    console.log(`🏷️ TABLE RENDER DEBUG - Trade ${idx}:`, {
-                                      ticker: trade.ticker,
-                                      volume: trade.volume,
-                                      open_interest: trade.open_interest,
-                                      hasVolume: !!trade.volume,
-                                      hasOI: !!trade.open_interest,
-                                      allProps: Object.keys(trade)
-                                    });
-                                    return null;
-                                  })()}
                                 </div>
+                                {idx < 3 && (() => {
+                                  console.log(`🏷️ VOL/OI DEBUG - Trade ${idx}:`, {
+                                    ticker: trade.ticker,
+                                    volume: trade.volume,
+                                    open_interest: trade.open_interest,
+                                    hasVolume: !!trade.volume,
+                                    hasOI: !!trade.open_interest
+                                  });
+                                  return null;
+                                })()}
                               </td>
                               <td className="p-4 text-white">
                                 {(() => {

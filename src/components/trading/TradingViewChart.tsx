@@ -41,6 +41,9 @@ import { useGEXData } from '../../hooks/useGEXData';
 import { GEXChartOverlay } from '../GEXChartOverlay';
 import { getExpirationDates, getExpirationDatesFromAPI, getDaysUntilExpiration } from '../../lib/optionsExpirationUtils';
 import { createApiUrl } from '../../lib/apiConfig';
+import SectorPerformanceChart from '../charts/SectorPerformanceChart';
+import IndustriesPerformanceChart from '../charts/IndustriesPerformanceChart';
+import SpecialPerformanceChart from '../charts/SpecialPerformanceChart';
 
 // Add custom styles for 3D carved effect and holographic animations
 const carvedTextStyles = `
@@ -2263,7 +2266,7 @@ export default function TradingViewChart({
  const marketSymbols = {
  Markets: ['SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLY', 'XLC', 'XLRE', 'XLV', 'XLU', 'XLP', 'XLB', 'XLF', 'XLI', 'XLE'],
  Industries: ['IGV', 'SMH', 'XRT', 'KIE', 'KRE', 'GDX', 'ITA', 'TAN', 'XBI', 'ITB', 'XHB', 'XOP', 'OIH', 'XME', 'ARKK', 'IPO', 'VNQ', 'JETS', 'KWEB'],
- Special: []
+ Special: ['IWF', 'IWD', 'IJR', 'USMV', 'VYM', 'PKW', 'CSD', 'GURU', 'IPO', 'QUAL', 'PSP', 'IVE', 'IVW', 'IJJ', 'IJH', 'IWN', 'IWM', 'IWO']
  };
 
  // Fetch market data
@@ -2276,7 +2279,7 @@ export default function TradingViewChart({
  
  // Prioritized symbols for efficient loading
  const coreSymbols = ['SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLY', 'XLC', 'XLRE', 'XLV'];
- const additionalSymbols = ['XLU', 'XLP', 'XLB', 'XLF', 'XLI', 'XLE', 'IGV', 'SMH', 'XRT'];
+ const additionalSymbols = ['XLU', 'XLP', 'XLB', 'XLF', 'XLI', 'XLE', 'IGV', 'SMH', 'XRT', 'KIE', 'KRE', 'GDX', 'ITA', 'TAN', 'XBI', 'ITB', 'XHB', 'XOP', 'OIH', 'XME', 'ARKK', 'IPO', 'VNQ', 'JETS', 'KWEB', 'IWF', 'IWD', 'IJR', 'USMV', 'VYM', 'PKW', 'CSD', 'GURU', 'QUAL', 'PSP', 'IVE', 'IVW', 'IJJ', 'IJH', 'IWN', 'IWO'];
  
  // Load core symbols first, then additional if not initial load
  const symbols = isInitialLoad ? coreSymbols : [...coreSymbols, ...additionalSymbols];
@@ -2292,24 +2295,13 @@ export default function TradingViewChart({
  }} = {};
 
  try {
- console.log('?? Fetching watchlist data using batch processing for symbols:', symbols);
+ console.log('?? Fetching watchlist data in parallel for symbols:', symbols);
+ console.log(`?? Processing ${symbols.length} symbols simultaneously`);
  
- // Use batch processing for efficient API requests
- const batchSize = 5; // Process 5 symbols at a time
- const batches: string[][] = [];
- 
- for (let i = 0; i < symbols.length; i += batchSize) {
- batches.push(symbols.slice(i, i + batchSize));
- }
- 
- console.log(`?? Processing ${symbols.length} symbols in ${batches.length} batches of ${batchSize}`);
- 
- for (const batch of batches) {
- const batchPromises = batch.map(async (symbol) => {
+ // Fetch ALL symbols in parallel - no artificial delays or batching
+ const allPromises = symbols.map(async (symbol) => {
  try {
- console.log(`?? Fetching data for ${symbol}...`);
- 
- // Get recent historical data (expand to 90 days to ensure we get 21 trading days)
+ // Get recent historical data (90 days to ensure we get enough trading days)
  const endDate = new Date().toISOString().split('T')[0];
  const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
  
@@ -2319,35 +2311,35 @@ export default function TradingViewChart({
  endDate
  });
  
- // Add delay to prevent overwhelming the API
- await new Promise(resolve => setTimeout(resolve, 100 * Math.random()));
- 
  const response = await fetch(url);
  
- if (response.ok) {
+ if (!response.ok) {
+ console.warn(`? Failed to fetch data for ${symbol}: HTTP ${response.status}`);
+ return null;
+ }
+ 
  const result = await response.json();
  
- // Use any available data instead of requiring 21 points
- if (result?.results && Array.isArray(result.results) && result.results.length >= 1) {
+ if (!result?.results || !Array.isArray(result.results) || result.results.length < 1) {
+ console.warn(`?? No data for ${symbol}`);
+ return null;
+ }
+ 
  const data = result.results;
  const latest = data[data.length - 1];
- const currentPrice = latest.c; // close price
- 
- console.log(`?? ${symbol} - Data length: ${data.length}, Current price: ${currentPrice}`);
- 
- // Calculate percentage changes safely - use available data points
+ const currentPrice = latest.c;
  const dataLength = data.length;
+ 
+ // Calculate price changes
  const price1DayAgo = dataLength >= 2 ? data[dataLength - 2]?.c : currentPrice;
  const price5DaysAgo = dataLength >= 6 ? data[dataLength - 6]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
  const price13DaysAgo = dataLength >= 14 ? data[dataLength - 14]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
  const price21DaysAgo = dataLength >= 22 ? data[dataLength - 22]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
 
- const change1d = price1DayAgo ? ((currentPrice - price1DayAgo) / price1DayAgo) * 100 : 0;
- const change5d = price5DaysAgo ? ((currentPrice - price5DaysAgo) / price5DaysAgo) * 100 : 0;
- const change13d = price13DaysAgo ? ((currentPrice - price13DaysAgo) / price13DaysAgo) * 100 : 0;
- const change21d = price21DaysAgo ? ((currentPrice - price21DaysAgo) / price21DaysAgo) * 100 : 0;
-
- console.log(`?? ${symbol} Changes - 1D: ${change1d.toFixed(2)}%, 5D: ${change5d.toFixed(2)}%, 13D: ${change13d.toFixed(2)}%, 21D: ${change21d.toFixed(2)}%`);
+ const change1d = (dataLength >= 2 && price1DayAgo) ? ((currentPrice - price1DayAgo) / price1DayAgo) * 100 : 0;
+ const change5d = (dataLength >= 6 && price5DaysAgo) ? ((currentPrice - price5DaysAgo) / price5DaysAgo) * 100 : 0;
+ const change13d = (dataLength >= 14 && price13DaysAgo) ? ((currentPrice - price13DaysAgo) / price13DaysAgo) * 100 : 0;
+ const change21d = (dataLength >= 22 && price21DaysAgo) ? ((currentPrice - price21DaysAgo) / price21DaysAgo) * 100 : 0;
 
  return {
  symbol,
@@ -2361,37 +2353,23 @@ export default function TradingViewChart({
  performanceColor: 'text-white'
  }
  };
- } else {
- console.warn(`?? No sufficient data for ${symbol} - got ${result?.results?.length || 0} data points`);
- return null;
- }
- } else {
- console.warn(`? Failed to fetch data for ${symbol}: HTTP ${response.status} ${response.statusText}`);
- return null;
- }
  } catch (symbolError) {
  console.warn(`? Error fetching data for ${symbol}:`, symbolError);
  return null;
  }
  });
  
- // Wait for batch to complete before processing next batch
- const batchResults = await Promise.all(batchPromises);
+ // Wait for ALL fetches to complete in parallel
+ const allResults = await Promise.all(allPromises);
  
- // Process successful results from this batch
- batchResults.forEach(result => {
+ // Process successful results
+ allResults.forEach(result => {
  if (result) {
  processedData[result.symbol] = result.data;
  }
  });
  
- console.log(`? Completed batch with ${batchResults.filter(r => r !== null).length} successful symbols`);
- 
- // Small delay between batches to prevent API overload
- if (batches.indexOf(batch) < batches.length - 1) {
- await new Promise(resolve => setTimeout(resolve, 200));
- }
- }
+ console.log(`? Successfully fetched ${Object.keys(processedData).length} out of ${symbols.length} symbols`);
 
  // After collecting all data, calculate relative performance to SPY
  if (Object.keys(processedData).length > 0 && processedData['SPY']) {
@@ -2407,12 +2385,6 @@ export default function TradingViewChart({
  const relative5d = symbolData.change5d - spyData.change5d;
  const relative13d = symbolData.change13d - spyData.change13d;
  const relative21d = symbolData.change21d - spyData.change21d;
- 
- console.log(`?? ${symbol} vs SPY Relative Performance:`);
- console.log(` 1D: ${symbol}=${symbolData.change1d.toFixed(2)}% - SPY=${spyData.change1d.toFixed(2)}% = ${relative1d.toFixed(2)}%`);
- console.log(` 5D: ${symbol}=${symbolData.change5d.toFixed(2)}% - SPY=${spyData.change5d.toFixed(2)}% = ${relative5d.toFixed(2)}%`);
- console.log(` 13D: ${symbol}=${symbolData.change13d.toFixed(2)}% - SPY=${spyData.change13d.toFixed(2)}% = ${relative13d.toFixed(2)}%`);
- console.log(` 21D: ${symbol}=${symbolData.change21d.toFixed(2)}% - SPY=${spyData.change21d.toFixed(2)}% = ${relative21d.toFixed(2)}%`);
  
  let performance = 'Neutral';
  let performanceColor = 'text-white';
@@ -7813,25 +7785,22 @@ export default function TradingViewChart({
  <div className="h-full flex flex-col bg-black text-white">
  {/* Bloomberg-style Header */}
  <div className="p-3 border-b border-yellow-500 bg-black">
- <div className="flex items-center justify-between mb-2">
- <h2 className="text-base font-bold text-yellow-400 uppercase tracking-wider">
+ <div className="flex items-center justify-center mb-2">
+ <h2 className="text-lg font-bold text-yellow-400 uppercase tracking-widest" style={{ letterSpacing: '0.2em', textShadow: '0 0 10px rgba(255, 200, 0, 0.5)' }}>
  Watchlist
  </h2>
- <div className="text-xs bg-yellow-500 text-black px-2 py-1 font-bold">
- Live � {currentSymbols.length}
- </div>
  </div>
  
- {/* Bloomberg-style Tabs */}
- <div className="flex border border-gray-700">
+ {/* Bloomberg-style Tabs - Enhanced Navy Blue with Black Text */}
+ <div className="flex border-2 border-blue-900/30 rounded-md overflow-hidden shadow-lg">
  {['Markets', 'Industries', 'Special'].map(tab => (
  <button
  key={tab}
  onClick={() => setActiveTab(tab)}
- className={`flex-1 px-3 py-1 text-xs font-bold uppercase tracking-wide border-r border-gray-700 last:border-r-0 ${
+ className={`flex-1 px-4 py-2 text-sm font-black uppercase tracking-widest border-r-2 border-blue-900/30 last:border-r-0 transition-all duration-300 ${
  activeTab === tab 
- ? 'bg-yellow-500 text-black' 
- : 'bg-gray-800 text-white hover:bg-gray-700'
+ ? 'bg-gradient-to-br from-blue-950/80 via-blue-900/70 to-blue-950/80 text-gray-200 border-b-4 border-b-lime-500/50' 
+ : 'bg-gradient-to-br from-blue-950/40 via-blue-900/30 to-blue-950/40 text-gray-400 hover:text-gray-300 hover:bg-blue-900/50'
  }`}
  >
  {tab}
@@ -7841,33 +7810,33 @@ export default function TradingViewChart({
  </div>
  
  {/* Bloomberg-style Column Headers - 7 Columns */}
- <div className="grid grid-cols-7 gap-0 border-b border-gray-700 bg-gradient-to-b from-gray-800 via-gray-900 to-black text-sm font-bold text-yellow-400 uppercase shadow-inner">
- <div className="p-3 border-r border-gray-700 bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
- <span className="drop-shadow-lg text-shadow-carved">Symbol</span>
+ <div className="grid grid-cols-7 gap-0 border-b border-gray-700 bg-black text-sm font-bold uppercase shadow-inner">
+ <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
+ <span className="drop-shadow-lg text-shadow-carved text-orange-500">Symbol</span>
  </div>
- <div className="p-3 border-r border-gray-700 bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className="drop-shadow-lg text-shadow-carved">Price</span>
+ <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
+ <span className="drop-shadow-lg text-shadow-carved text-orange-500">Price</span>
  </div>
- <div className="p-3 border-r border-gray-700 bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className="drop-shadow-lg text-shadow-carved">Change</span>
+ <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
+ <span className="drop-shadow-lg text-shadow-carved text-orange-500">Change</span>
  </div>
- <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
+ <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+ <span className={`drop-shadow-lg text-shadow-carved text-yellow-400 ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
  {getMarketRegimeForHeader('1d')}
  </span>
  </div>
- <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
+ <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+ <span className={`drop-shadow-lg text-shadow-carved text-yellow-400 ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
  {getMarketRegimeForHeader('5d')}
  </span>
  </div>
- <div className="p-3 border-r border-gray-700 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
+ <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+ <span className={`drop-shadow-lg text-shadow-carved text-yellow-400 ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
  {getMarketRegimeForHeader('13d')}
  </span>
  </div>
- <div className="p-3 text-center bg-gradient-to-b from-gray-800 to-gray-900 shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
+ <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
+ <span className={`drop-shadow-lg text-shadow-carved text-yellow-400 ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-400 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : ''}`}>
  {getMarketRegimeForHeader('21d')}
  </span>
  </div>
@@ -8018,22 +7987,27 @@ export default function TradingViewChart({
  </div>
  )}
  </div>
+
+ {/* Sector Performance Chart - Only show on Markets tab */}
+ {activeTab === 'Markets' && (
+ <div className="mt-6" style={{ width: '100%', overflow: 'hidden' }}>
+ <SectorPerformanceChart />
+ </div>
+ )}
  
- {/* Bloomberg-style Footer */}
- <div className="p-2 border-t border-yellow-500 bg-gray-900">
- <div className="flex items-center justify-between text-xs">
- <div className="flex items-center gap-3 text-gray-300">
- <span className="flex items-center gap-1">
- <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
- REAL-TIME
- </span>
- <span>{new Date().toLocaleTimeString()}</span>
+ {/* Industries Performance Chart - Only show on Industries tab */}
+ {activeTab === 'Industries' && (
+ <div className="mt-6" style={{ width: '100%', overflow: 'hidden' }}>
+ <IndustriesPerformanceChart />
  </div>
- <div className="text-yellow-400 font-bold">
- VS SPY
+ )}
+ 
+ {/* Special Performance Chart - Only show on Special tab */}
+ {activeTab === 'Special' && (
+ <div className="mt-6" style={{ width: '100%', overflow: 'hidden' }}>
+ <SpecialPerformanceChart />
  </div>
- </div>
- </div>
+ )}
  </div>
  );
  };
