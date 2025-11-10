@@ -72,7 +72,7 @@ export default function GEXScreener() {
  const [currentPage, setCurrentPage] = useState(1);
  
  // Auto-scan state for Attraction Zone
- const [autoScanEnabled, setAutoScanEnabled] = useState(false);
+ const [autoScanEnabled, setAutoScanEnabled] = useState(true);
  const [nextScanTime, setNextScanTime] = useState<Date | null>(null);
  const [lastScanData, setLastScanData] = useState<GEXScreenerData[]>([]);
  const [isAutoScanning, setIsAutoScanning] = useState(false);
