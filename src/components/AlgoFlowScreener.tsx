@@ -1334,13 +1334,6 @@ export default function AlgoFlowScreener() {
                     setFlowData(tradesWithVolOI);
                     liveOICache.clear(); // Clear cache when new data loaded
                     
-                    // Save to localStorage for DealerAttraction Live OI calculations
-                    try {
-                      localStorage.setItem('algoFlowData', JSON.stringify(tradesWithVolOI));
-                      console.log('💾 Saved AlgoFlow data to localStorage for Live OI calculations');
-                    } catch (error) {
-                      console.warn('⚠️ Failed to save AlgoFlow data to localStorage:', error);
-                    }
                     setIsStreamComplete(true);
                     setStreamStatus('Complete with volume/OI data');
                     setLoading(false);

@@ -252,6 +252,10 @@ body {
     }
 }
 
+.animate-shimmer {
+    animation: shimmer 2s linear infinite;
+}
+
 .logo-underline {
     width: 100%;
     height: 2px;

@@ -1,35 +1,6 @@
 {
   "framework": "nextjs",
-  "crons": [
-    {
-      "path": "/api/iv-scanner?type=OPEN",
-      "schedule": "49 13 * * 1-5"
-    },
-    {
-      "path": "/api/iv-scanner?type=CLOSE",
-      "schedule": "41 19 * * 1-5"
-    },
-    {
-      "path": "/api/gex-background-scan?type=OPEN",
-      "schedule": "47 13 * * 1-5"
-    },
-    {
-      "path": "/api/gex-background-scan?type=CLOSE",
-      "schedule": "43 19 * * 1-5"
-    },
-    {
-      "path": "/api/otm-background-scan?type=PREMARKET",
-      "schedule": "14 13 * * 1-5"
-    },
-    {
-      "path": "/api/otm-background-scan?type=MIDDAY",
-      "schedule": "30 16 * * 1-5"
-    },
-    {
-      "path": "/api/otm-background-scan?type=CLOSE",
-      "schedule": "44 19 * * 1-5"
-    }
-  ],
+  "crons": [],
   "functions": {
     "src/app/api/options-flow/route.ts": {
       "maxDuration": 300
@@ -59,18 +30,6 @@
       "maxDuration": 300
     },
     "src/app/api/hv-screener/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/gex-background-scan/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/otm-background-scan/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/gex-latest/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/otm-latest/route.ts": {
       "maxDuration": 300
     },
     "src/app/api/historical-volatility/route.ts": {

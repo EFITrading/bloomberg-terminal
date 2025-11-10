@@ -70,26 +70,13 @@ export default function GEXScreener() {
  const [expirationFilter, setExpirationFilter] = useState('Default');
  const [strengthFilter, setStrengthFilter] = useState<'all' | 'purple' | 'blue' | 'yellow'>('all');
  const [currentPage, setCurrentPage] = useState(1);
- const [backgroundScanData, setBackgroundScanData] = useState<any>(null);
  
- // Load background scan data on mount
- useEffect(() => {
- const loadBackgroundData = async () => {
- try {
- const response = await fetch('/api/gex-latest');
- const result = await response.json();
- 
- if (result.success && result.data) {
- setBackgroundScanData(result);
- console.log(`📊 Loaded background GEX scan: ${result.data.length} stocks (${result.scanType} scan)`);
- }
- } catch (err) {
- console.log('No background scan data available yet');
- }
- };
- 
- loadBackgroundData();
- }, []);
+ // Auto-scan state for Attraction Zone
+ const [autoScanEnabled, setAutoScanEnabled] = useState(false);
+ const [nextScanTime, setNextScanTime] = useState<Date | null>(null);
+ const [lastScanData, setLastScanData] = useState<GEXScreenerData[]>([]);
+ const [isAutoScanning, setIsAutoScanning] = useState(false);
+ const [lastScanTimestamp, setLastScanTimestamp] = useState<Date | null>(null);
  
  // Mobile detection
  const [isMobile, setIsMobile] = useState(false);
@@ -115,28 +102,6 @@ export default function GEXScreener() {
  const [otmScanProgress, setOtmScanProgress] = useState({ current: 0, total: 0 });
  const [otmScanningSymbol, setOtmScanningSymbol] = useState('');
  const otmEventSourceRef = useRef<EventSource | null>(null);
- const [otmBackgroundScanData, setOtmBackgroundScanData] = useState<any>(null);
- 
- // Load OTM background scan data on mount
- useEffect(() => {
- const loadOtmBackgroundData = async () => {
- try {
- const response = await fetch('/api/otm-latest');
- const result = await response.json();
- 
- if (result.success && result.data) {
- setOtmBackgroundScanData(result);
- setOtmResults(result.data);
- setOtmLastUpdate(new Date(result.timestamp));
- console.log(`📊 Loaded background OTM scan: ${result.data.length} imbalances (${result.scanType} scan)`);
- }
- } catch (err) {
- console.log('No background OTM scan data available yet');
- }
- };
- 
- loadOtmBackgroundData();
- }, []);
  
  // Disabled auto-refresh on filter change to prevent flickering - user can manually refresh
  // useEffect(() => {
@@ -145,11 +110,59 @@ export default function GEXScreener() {
  // }
  // }, [expirationFilter]);
  
+ // Market hours checker for auto-scan (9:30 AM - 4:00 PM ET)
+ const isMarketHours = () => {
+   const now = new Date();
+   const etTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+   const hours = etTime.getHours();
+   const minutes = etTime.getMinutes();
+   const currentMinutes = hours * 60 + minutes;
+   
+   // Market opens at 9:30 AM (570 minutes) and closes at 4:00 PM (960 minutes)
+   const marketOpen = 9 * 60 + 30; // 570
+   const marketClose = 16 * 60; // 960
+   
+   return currentMinutes >= marketOpen && currentMinutes < marketClose;
+ };
+ 
+ // Calculate next scan time (10 minutes from now)
+ const calculateNextScanTime = () => {
+   const now = new Date();
+   const next = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
+   return next;
+ };
+ 
+ // Format countdown timer
+ const getCountdownDisplay = () => {
+   if (!nextScanTime) return '';
+   
+   const now = new Date();
+   const diff = nextScanTime.getTime() - now.getTime();
+   
+   if (diff <= 0) return 'Scanning now...';
+   
+   const minutes = Math.floor(diff / 60000);
+   const seconds = Math.floor((diff % 60000) / 1000);
+   
+   return `${minutes}m ${seconds}s`;
+ };
+ 
  // Function to fetch real GEX data with streaming updates
- const fetchGEXData = async () => {
+ const fetchGEXData = async (isAutoScan = false) => {
  setLoading(true);
  setError('');
  setAnimationClass('animate-pulse');
+ 
+ // Set auto-scanning flag if this is an auto-scan
+ if (isAutoScan) {
+   setIsAutoScanning(true);
+   // Store current data as lastScanData before starting new scan
+   if (gexData.length > 0) {
+     setLastScanData([...gexData]);
+     console.log(`📦 Auto-scan: Stored ${gexData.length} results from previous scan`);
+   }
+ }
+ 
  // Don't clear existing data to prevent flickering
  
  try {
@@ -239,6 +252,16 @@ export default function GEXScreener() {
  setGexData(finalSortedResults);
  setLoading(false);
  setAnimationClass('');
+ 
+ // Auto-scan completion handling
+ if (isAutoScan) {
+   console.log(`✅ Auto-scan complete: Replacing old data (${lastScanData.length} items) with new data (${finalSortedResults.length} items)`);
+   setLastScanTimestamp(new Date());
+   setIsAutoScanning(false);
+   // Clear lastScanData after replacement
+   setLastScanData([]);
+ }
+ 
  break;
  
  case 'error':
@@ -256,6 +279,11 @@ export default function GEXScreener() {
  setError(err instanceof Error ? err.message : 'Failed to load GEX data');
  setLoading(false);
  setAnimationClass('');
+ 
+ // Reset auto-scan flags on error
+ if (isAutoScan) {
+   setIsAutoScanning(false);
+ }
  }
  };
 
@@ -352,17 +380,54 @@ export default function GEXScreener() {
  setOtmExpiry(monthlyExpiry);
  }, []);
 
+ // Auto-scan interval - runs every 10 minutes during market hours
  useEffect(() => {
- if (otmExpiry && activeTab === 'otm-premiums') {
- scanOTMPremiums();
- }
- 
- return () => {
- if (otmEventSourceRef.current) {
- otmEventSourceRef.current.close();
- }
- };
- }, [otmExpiry, activeTab]);
+   if (!autoScanEnabled) {
+     setNextScanTime(null);
+     return;
+   }
+   
+   console.log('🔄 Auto-scan enabled for Attraction Zone');
+   
+   // Set initial next scan time
+   setNextScanTime(calculateNextScanTime());
+   
+   // Countdown timer - updates every second
+   const countdownInterval = setInterval(() => {
+     setNextScanTime(prevTime => {
+       if (!prevTime) return prevTime;
+       
+       const now = new Date();
+       const diff = prevTime.getTime() - now.getTime();
+       
+       // Trigger scan when countdown reaches 0
+       if (diff <= 0 && isMarketHours()) {
+         console.log('⏰ Auto-scan triggered: Starting scan...');
+         fetchGEXData(true);
+         return calculateNextScanTime();
+       }
+       
+       return prevTime;
+     });
+   }, 1000); // Check every second
+   
+   // Main scan interval - every 10 minutes
+   const scanInterval = setInterval(() => {
+     if (isMarketHours()) {
+       console.log('⏰ 10-minute interval: Starting auto-scan...');
+       fetchGEXData(true);
+       setNextScanTime(calculateNextScanTime());
+     } else {
+       console.log('🕐 Outside market hours (9:30 AM - 4:00 PM ET): Skipping auto-scan');
+     }
+   }, 10 * 60 * 1000); // 10 minutes
+   
+   return () => {
+     clearInterval(countdownInterval);
+     clearInterval(scanInterval);
+     console.log('🛑 Auto-scan disabled');
+   };
+ }, [autoScanEnabled]);
 
  const filteredGexData = gexData
  .filter(item => item.ticker.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -402,24 +467,6 @@ export default function GEXScreener() {
  useEffect(() => {
  setCurrentPage(1);
  }, [searchTerm, sortBy, sortOrder, strengthFilter]);
-
- // Load initial data automatically on component mount
- useEffect(() => {
- console.log('🚀 GEXScreener: Auto-loading initial data...');
- fetchGEXData();
- }, []); // Empty dependency array = runs once on mount
-
- // Auto-refresh every 5 minutes if live update is enabled
- useEffect(() => {
- if (!liveUpdate) return;
- 
- const interval = setInterval(() => {
- console.log('🔄 GEXScreener: Auto-refreshing data...');
- fetchGEXData();
- }, 300000); // 5 minutes
- 
- return () => clearInterval(interval);
- }, [liveUpdate]);
 
  return (
  <div className="bg-gradient-to-br from-gray-950 via-black to-gray-900 text-white">
@@ -494,15 +541,6 @@ export default function GEXScreener() {
  <span className="text-white font-bold text-sm md:text-base">{gexData.length}</span>
  </div>
  )}
- 
- {backgroundScanData && (
- <div className="px-3 md:px-4 py-2 md:py-3 bg-orange-900/20 border border-orange-500/30 rounded-xl">
- <span className="text-orange-300 font-medium text-xs md:text-sm mr-2">📊 Background Scan:</span>
- <span className="text-orange-400 font-bold text-xs md:text-sm">
- {backgroundScanData.scanType} ({new Date(backgroundScanData.timestamp).toLocaleTimeString()})
- </span>
- </div>
- )}
  </div>
  </div>
  </div>
@@ -555,12 +593,6 @@ export default function GEXScreener() {
  <Layers className="w-4 h-4 md:w-6 md:h-6" />
  <span className="hidden sm:inline tracking-wider">OTM PREMIUMS</span>
  <span className="sm:hidden tracking-wider">OTM</span>
- {otmBackgroundScanData && (
- <span className="absolute -top-2 -right-2 flex h-3 w-3">
- <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
- <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" title={`Background scan: ${new Date(otmBackgroundScanData.timestamp).toLocaleTimeString()}`}></span>
- </span>
- )}
  {activeTab === 'otm-premiums' && (
  <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-gradient-to-r from-orange-400 to-orange-600 rounded-full shadow-lg" />
  )}
@@ -621,6 +653,95 @@ export default function GEXScreener() {
  {/* Attraction Zones View */}
  {activeTab === 'attraction' && (
  <div>
+ {/* Auto-Scan Controls Bar */}
+ <div className="mb-4 bg-gradient-to-r from-gray-900/90 to-black/90 border border-orange-500/30 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+ <div className="flex items-center gap-4 flex-wrap">
+ {/* Auto-Scan Toggle */}
+ <button
+ onClick={() => {
+ const newState = !autoScanEnabled;
+ setAutoScanEnabled(newState);
+ if (newState) {
+ setNextScanTime(calculateNextScanTime());
+ console.log('🔄 Auto-scan enabled - triggering immediate scan');
+ // Trigger immediate scan when auto-scan is enabled
+ fetchGEXData(true);
+ } else {
+ console.log('🛑 Auto-scan disabled');
+ }
+ }}
+ className={`px-4 py-2 rounded-lg font-bold text-sm transition-all duration-300 ${
+ autoScanEnabled
+ ? 'bg-green-600 text-white shadow-lg shadow-green-500/50 hover:bg-green-700'
+ : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+ }`}
+ >
+ {autoScanEnabled ? '✓ Auto-Scan ON' : 'Auto-Scan OFF'}
+ </button>
+ 
+ {/* Countdown Timer */}
+ {autoScanEnabled && nextScanTime && (
+ <div className="flex items-center gap-2 px-4 py-2 bg-black/50 rounded-lg border border-orange-500/30">
+ <Activity className="w-4 h-4 text-orange-400 animate-pulse" />
+ <span className="text-sm font-bold text-orange-400">
+ Next scan: {getCountdownDisplay()}
+ </span>
+ </div>
+ )}
+ 
+ {/* Auto-Scanning Indicator */}
+ {isAutoScanning && (
+ <div className="flex items-center gap-2 px-4 py-2 bg-blue-900/30 rounded-lg border border-blue-500/30">
+ <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+ <span className="text-sm font-bold text-blue-400">
+ Auto-scanning...
+ </span>
+ </div>
+ )}
+ 
+ {/* Last Scan Timestamp */}
+ {lastScanTimestamp && (
+ <div className="text-xs text-gray-400">
+ Last scan: {lastScanTimestamp.toLocaleTimeString('en-US', { 
+ hour: '2-digit', 
+ minute: '2-digit',
+ second: '2-digit'
+ })}
+ </div>
+ )}
+ </div>
+ 
+ {/* Market Hours Status */}
+ <div className="flex items-center gap-2">
+ <div className={`w-2 h-2 rounded-full ${isMarketHours() ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+ <span className="text-xs font-semibold text-gray-400">
+ {isMarketHours() ? 'Market Open' : 'Market Closed'}
+ </span>
+ </div>
+ </div>
+ 
+ {/* Scan Progress Bar - Shows for both auto-scan and manual scan */}
+ {(loading || isAutoScanning) && scanProgress.total > 0 && (
+ <div className="mb-4 bg-gray-900/50 border border-blue-500/30 rounded-xl p-4">
+ <div className="flex items-center justify-between mb-2">
+ <span className="text-sm font-bold text-blue-400">
+ {isAutoScanning ? 'Auto-Scan' : 'Scan'} Progress: {scanProgress.current} / {scanProgress.total} stocks
+ </span>
+ <span className="text-sm font-bold text-blue-400">
+ {Math.round((scanProgress.current / scanProgress.total) * 100)}%
+ </span>
+ </div>
+ <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+ <div
+ className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 ease-out relative"
+ style={{ width: `${(scanProgress.current / scanProgress.total) * 100}%` }}
+ >
+ <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
+ </div>
+ </div>
+ </div>
+ )}
+ 
  {/* Column Headers - Desktop Only */}
  <div className="hidden lg:block px-6 py-4 mb-4 border-b border-gray-700/30">
  <div className="flex items-center gap-8">
