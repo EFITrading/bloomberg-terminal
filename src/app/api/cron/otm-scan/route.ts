@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { TOP_1000_SYMBOLS } from '@/lib/Top1000Symbols';
 
 const prisma = new PrismaClient();
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
 
 // Authorization header for Vercel Cron
 const CRON_SECRET = process.env.CRON_SECRET || 'your-secret-key';
-
-// Top 1000 symbols for scanning
-const TOP_1000_SYMBOLS = [
-  'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK/B', 'V', 'JNJ',
-  'WMT', 'JPM', 'MA', 'PG', 'UNH', 'HD', 'DIS', 'BAC', 'XOM', 'ORCL',
-  // ... Add remaining symbols from TOP_SCREENER_SYMBOLS
-];
 
 interface OTMResult {
   ticker: string;
