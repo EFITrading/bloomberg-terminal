@@ -78,3 +78,35 @@ model FlowSession {
   
   @@map("flow_sessions")
 }
+
+model GexScanCache {
+  id                Int      @id @default(autoincrement())
+  ticker            String
+  gex_value         Float
+  call_gex          Float
+  put_gex           Float
+  spot_price        Float?
+  market_cap        Float?
+  attraction_zone   String?  // JSON: { price, strength, direction }
+  flip_levels       String?  // JSON array of flip levels
+  scan_timestamp    DateTime @default(now())
+  
+  @@index([scan_timestamp])
+  @@index([gex_value])
+  @@map("gex_scan_cache")
+}
+
+model OtmScanCache {
+  id                Int      @id @default(autoincrement())
+  ticker            String
+  total_otm_premium Float
+  call_premium      Float
+  put_premium       Float
+  spot_price        Float?
+  bullish_ratio     Float?
+  scan_timestamp    DateTime @default(now())
+  
+  @@index([scan_timestamp])
+  @@index([total_otm_premium])
+  @@map("otm_scan_cache")
+}

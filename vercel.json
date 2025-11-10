@@ -1,6 +1,15 @@
 {
   "framework": "nextjs",
-  "crons": [],
+  "crons": [
+    {
+      "path": "/api/cron/gex-scan",
+      "schedule": "*/10 13-20 * * 1-5"
+    },
+    {
+      "path": "/api/cron/otm-scan",
+      "schedule": "*/13 13-20 * * 1-5"
+    }
+  ],
   "functions": {
     "src/app/api/options-flow/route.ts": {
       "maxDuration": 300
