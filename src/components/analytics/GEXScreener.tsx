@@ -438,112 +438,64 @@ export default function GEXScreener() {
  setOtmExpiry(monthlyExpiry);
  }, []);
 
- // Auto-scan interval - runs every 10 minutes during market hours
+ // Auto-scan: Fetch cached data from server every 30 seconds
  useEffect(() => {
    if (!autoScanEnabled) {
-     setNextScanTime(null);
      return;
    }
    
-   console.log('🔄 Auto-scan enabled for Attraction Zone - triggering immediate scan');
-   
-   // Trigger IMMEDIATE scan when auto-scan is enabled
-   if (isMarketHours()) {
-     fetchGEXData(true);
-   }
-   
-   // Set next scan time for 10 minutes from now
-   setNextScanTime(calculateNextScanTime());
-   
-   // Countdown timer - updates every second
-   const countdownInterval = setInterval(() => {
-     setNextScanTime(prevTime => {
-       if (!prevTime) return prevTime;
-       
-       const now = new Date();
-       const diff = prevTime.getTime() - now.getTime();
-       
-       // Trigger scan when countdown reaches 0
-       if (diff <= 0 && isMarketHours()) {
-         console.log('⏰ Auto-scan triggered: Starting scan...');
-         fetchGEXData(true);
-         return calculateNextScanTime();
+   const fetchCachedData = async () => {
+     try {
+       const response = await fetch('/api/cached-scans?type=gex');
+       if (response.ok) {
+         const cachedData = await response.json();
+         if (cachedData.data && cachedData.data.length > 0) {
+           setGexData(cachedData.data);
+           setLastScanTimestamp(new Date(cachedData.scannedAt));
+         }
        }
-       
-       return prevTime;
-     });
-   }, 1000); // Check every second
-   
-   // Main scan interval - every 10 minutes
-   const scanInterval = setInterval(() => {
-     if (isMarketHours()) {
-       console.log('⏰ 10-minute interval: Starting auto-scan...');
-       fetchGEXData(true);
-       setNextScanTime(calculateNextScanTime());
-     } else {
-       console.log('🕐 Outside market hours (9:30 AM - 4:00 PM ET): Skipping auto-scan');
+     } catch (error) {
+       console.error('Failed to fetch cached GEX data:', error);
      }
-   }, 10 * 60 * 1000); // 10 minutes
-   
-   return () => {
-     clearInterval(countdownInterval);
-     clearInterval(scanInterval);
-     console.log('🛑 Auto-scan disabled');
    };
+   
+   // Fetch immediately
+   fetchCachedData();
+   
+   // Then fetch every 30 seconds
+   const interval = setInterval(fetchCachedData, 30000);
+   
+   return () => clearInterval(interval);
  }, [autoScanEnabled]);
 
- // OTM Auto-scan interval - runs every 13 minutes during market hours
+ // OTM Auto-scan: Fetch cached data from server every 30 seconds
  useEffect(() => {
    if (!otmAutoScanEnabled) {
-     setOtmNextScanTime(null);
      return;
    }
    
-   console.log('🔄 OTM Auto-scan enabled - triggering immediate scan');
-   
-   // Trigger IMMEDIATE scan when auto-scan is enabled
-   if (isMarketHours()) {
-     scanOTMPremiums(true);
-   }
-   
-   // Set next scan time for 13 minutes from now
-   setOtmNextScanTime(calculateOtmNextScanTime());
-   
-   // Countdown timer - updates every second
-   const countdownInterval = setInterval(() => {
-     setOtmNextScanTime(prevTime => {
-       if (!prevTime) return prevTime;
-       
-       const now = new Date();
-       const diff = prevTime.getTime() - now.getTime();
-       
-       // Trigger scan when countdown reaches 0
-       if (diff <= 0 && isMarketHours()) {
-         console.log('⏰ OTM Auto-scan triggered: Starting scan...');
-         scanOTMPremiums(true);
-         return calculateOtmNextScanTime();
+   const fetchCachedData = async () => {
+     try {
+       const response = await fetch('/api/cached-scans?type=otm');
+       if (response.ok) {
+         const cachedData = await response.json();
+         if (cachedData.data && cachedData.data.length > 0) {
+           setOtmResults(cachedData.data);
+           setLastScanTimestamp(new Date(cachedData.scannedAt));
+         }
        }
-       
-       return prevTime;
-     });
-   }, 1000); // Check every second
-   
-   // Main scan interval - every 13 minutes
-   const scanInterval = setInterval(() => {
-     if (isMarketHours()) {
-       console.log('⏰ 13-minute interval: Starting OTM auto-scan...');
-       scanOTMPremiums(true);
-       setOtmNextScanTime(calculateOtmNextScanTime());
-     } else {
-       console.log('🕐 Outside market hours (9:30 AM - 4:00 PM ET): Skipping OTM auto-scan');
+     } catch (error) {
+       console.error('Failed to fetch cached OTM data:', error);
      }
-   }, 13 * 60 * 1000); // 13 minutes
-   
-   return () => {
-     clearInterval(countdownInterval);
-     clearInterval(scanInterval);
-     console.log('🛑 OTM Auto-scan disabled');
    };
+   
+   // Fetch immediately
+   fetchCachedData();
+   
+   // Then fetch every 30 seconds
+   const interval = setInterval(fetchCachedData, 30000);
+   
+   return () => clearInterval(interval);
  }, [otmAutoScanEnabled]);
 
  const filteredGexData = gexData
