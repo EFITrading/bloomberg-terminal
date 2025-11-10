@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
           marketCap: r.market_cap,
           timestamp: r.scan_timestamp
         })),
+        scannedAt: results.length > 0 ? results[0].scan_timestamp : null,
         timestamp: new Date().toISOString()
       });
 
@@ -65,6 +66,7 @@ export async function GET(request: NextRequest) {
           bullishRatio: r.bullish_ratio,
           timestamp: r.scan_timestamp
         })),
+        scannedAt: results.length > 0 ? results[0].scan_timestamp : null,
         timestamp: new Date().toISOString()
       });
 
