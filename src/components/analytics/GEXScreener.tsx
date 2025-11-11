@@ -380,7 +380,7 @@ export default function GEXScreener() {
  setOtmExpiry(monthlyExpiry);
  }, []);
 
- // Auto-scan interval - runs every 10 minutes during market hours
+ // Auto-scan interval - first scan in 1 min, then every 10 minutes
  useEffect(() => {
    if (!autoScanEnabled) {
      setNextScanTime(null);
@@ -389,8 +389,18 @@ export default function GEXScreener() {
    
    console.log('🔄 Auto-scan enabled for Attraction Zone');
    
-   // Set initial next scan time
-   setNextScanTime(calculateNextScanTime());
+   // First scan in 1 minute
+   const firstScanTime = new Date(Date.now() + 60 * 1000); // 1 minute from now
+   setNextScanTime(firstScanTime);
+   
+   // Schedule first scan
+   const firstScanTimeout = setTimeout(() => {
+     if (isMarketHours()) {
+       console.log('⏰ First auto-scan triggered (1 min): Starting scan...');
+       fetchGEXData(true);
+       setNextScanTime(calculateNextScanTime());
+     }
+   }, 60 * 1000); // 1 minute
    
    // Countdown timer - updates every second
    const countdownInterval = setInterval(() => {
@@ -400,7 +410,7 @@ export default function GEXScreener() {
        const now = new Date();
        const diff = prevTime.getTime() - now.getTime();
        
-       // Trigger scan when countdown reaches 0
+       // Trigger scan when countdown reaches 0 (after first scan)
        if (diff <= 0 && isMarketHours()) {
          console.log('⏰ Auto-scan triggered: Starting scan...');
          fetchGEXData(true);
@@ -411,7 +421,7 @@ export default function GEXScreener() {
      });
    }, 1000); // Check every second
    
-   // Main scan interval - every 10 minutes
+   // Main scan interval - every 10 minutes (starts after first scan)
    const scanInterval = setInterval(() => {
      if (isMarketHours()) {
        console.log('⏰ 10-minute interval: Starting auto-scan...');
@@ -423,6 +433,7 @@ export default function GEXScreener() {
    }, 10 * 60 * 1000); // 10 minutes
    
    return () => {
+     clearTimeout(firstScanTimeout);
      clearInterval(countdownInterval);
      clearInterval(scanInterval);
      console.log('🛑 Auto-scan disabled');
