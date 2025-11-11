@@ -71,9 +71,6 @@ export default function GEXScreener() {
  const [strengthFilter, setStrengthFilter] = useState<'all' | 'purple' | 'blue' | 'yellow'>('all');
  const [currentPage, setCurrentPage] = useState(1);
  
- // Server cache timestamp
- const [lastScanTimestamp, setLastScanTimestamp] = useState<Date | null>(null);
- 
  // Mobile detection
  const [isMobile, setIsMobile] = useState(false);
  
@@ -99,6 +96,136 @@ export default function GEXScreener() {
  const [otmScanningSymbol, setOtmScanningSymbol] = useState('');
  const otmEventSourceRef = useRef<EventSource | null>(null);
  
+ // Disabled auto-refresh on filter change to prevent flickering - user can manually refresh
+ // useEffect(() => {
+ // if (gexData.length > 0) { // Only auto-refresh if we already have data
+ // fetchGEXData();
+ // }
+ // }, [expirationFilter]);
+ 
+ // Function to fetch real GEX data with streaming updates
+ const fetchGEXData = async () => {
+ setLoading(true);
+ setError('');
+ setAnimationClass('animate-pulse');
+ 
+ // Don't clear existing data to prevent flickering
+ 
+ try {
+ console.log(` Starting real-time GEX screener scan with ${expirationFilter} expiration filter...`);
+ 
+ const response = await fetch(`/api/gex-screener?limit=1000&stream=true&expirationFilter=${expirationFilter}`);
+
+ if (!response.ok) {
+ throw new Error(`Failed to fetch GEX data: ${response.statusText}`);
+ }
+
+ const reader = response.body?.getReader();
+ const decoder = new TextDecoder();
+ 
+ if (!reader) {
+ throw new Error('Failed to get response reader');
+ }
+
+ let buffer = '';
+ const currentResults: GEXScreenerData[] = [];
+ let isNewScan = false;
+
+ while (true) {
+ const { done, value } = await reader.read();
+ 
+ if (done) break;
+ 
+ buffer += decoder.decode(value, { stream: true });
+ 
+ // Process complete messages
+ const lines = buffer.split('\n\n');
+ buffer = lines.pop() || ''; // Keep incomplete line in buffer
+ 
+ for (const line of lines) {
+ if (line.startsWith('data: ')) {
+ try {
+ const messageData = JSON.parse(line.substring(6));
+ 
+ switch (messageData.type) {
+ case 'start':
+ console.log(` Starting scan of ${messageData.total} symbols...`);
+ setScanProgress({ current: 0, total: messageData.total });
+ isNewScan = true;
+ // Clear results only when a new scan starts
+ currentResults.length = 0;
+ break;
+ 
+ case 'result':
+ // Update progress
+ setScanProgress({ current: messageData.progress, total: messageData.total });
+ 
+ // Transform and add new result
+ const transformedItem: GEXScreenerData = {
+ ticker: messageData.data.ticker,
+ attractionLevel: messageData.data.attractionLevel,
+ currentPrice: messageData.data.currentPrice,
+ dealerSweat: messageData.data.dealerSweat,
+ netGex: messageData.data.netGex,
+ bias: messageData.data.dealerSweat > 0 ? 'Bullish' as const : 'Bearish' as const,
+ strength: messageData.data.gexImpactScore || 0, // Use GEX Impact Score instead of simple calculation
+ volatility: Math.abs(messageData.data.netGex) > 2 ? 'High' as const : 
+ Math.abs(messageData.data.netGex) > 0.5 ? 'Medium' as const : 'Low' as const,
+ range: Math.abs(((messageData.data.attractionLevel - messageData.data.currentPrice) / messageData.data.currentPrice) * 100),
+ marketCap: messageData.data.marketCap,
+ gexImpactScore: messageData.data.gexImpactScore,
+ largestWall: messageData.data.largestWall
+ };
+ 
+ currentResults.push(transformedItem);
+ 
+ // DON'T update display during scan - only log progress
+ // This prevents flickering and constant re-renders
+ 
+ const wallInfo = messageData.data.largestWall 
+ ? messageData.data.largestWall.cluster 
+ ? `| Cluster: ${messageData.data.largestWall.type.toUpperCase()} ${messageData.data.largestWall.cluster.strikes.length} strikes @ $${messageData.data.largestWall.strike.toFixed(0)} (${messageData.data.largestWall.pressure}% pressure)`
+ : `| Wall: ${messageData.data.largestWall.type.toUpperCase()} $${messageData.data.largestWall.strike.toFixed(0)} (${messageData.data.largestWall.pressure}% pressure)`
+ : '| No walls found';
+ console.log(` Added ${messageData.data.ticker}: Attraction $${messageData.data.attractionLevel.toFixed(0)} | GEX Impact: ${messageData.data.gexImpactScore}% ${wallInfo} (${messageData.progress}/${messageData.total})`);
+ break;
+ 
+ case 'complete':
+ console.log(` GEX screener completed with ${messageData.count} results`);
+ setScanProgress({ current: messageData.count, total: messageData.count });
+ // Set final sorted results
+ const finalSortedResults = [...currentResults].sort((a, b) => (b.gexImpactScore || 0) - (a.gexImpactScore || 0));
+ setGexData(finalSortedResults);
+ setLoading(false);
+ setAnimationClass('');
+ 
+ break;
+ 
+ case 'error':
+ throw new Error(messageData.error);
+ }
+ } catch (parseError) {
+ console.error('Error parsing SSE message:', parseError);
+ }
+ }
+ }
+ }
+ 
+ } catch (err) {
+ console.error(' GEX screener error:', err);
+ setError(err instanceof Error ? err.message : 'Failed to load GEX data');
+ setLoading(false);
+ setAnimationClass('');
+ }
+ };
+
+ const handleScan = () => {
+ setScanning(true);
+ fetchGEXData().finally(() => {
+ setScanning(false);
+ });
+ };
+
  const handleSort = (column: string) => {
  if (sortBy === column) {
  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -184,55 +311,6 @@ export default function GEXScreener() {
  const monthlyExpiry = getNextMonthlyExpiry();
  setOtmExpiry(monthlyExpiry);
  }, []);
-
- // Load cached GEX scans from server (cron job results) - every 30 seconds
- // ONLY runs when on Attraction Zones tab
- useEffect(() => {
-   if (activeTab !== 'attraction') {
-     return; // Don't load GEX data if not on attraction tab
-   }
-
-   console.log('🔄 Loading cached GEX scans from server...');
-
-   // Fetch immediately on mount
-   const fetchCachedScans = async () => {
-     try {
-       const response = await fetch('/api/cached-scans?type=gex');
-       const data = await response.json();
-
-       if (data.success && data.data && data.data.length > 0) {
-         console.log(`✅ Loaded ${data.data.length} cached GEX results from ${new Date(data.scannedAt).toLocaleTimeString()}`);
-         
-         // Transform cached data to match GEX component format
-         const transformedData = data.data.map((item: any) => ({
-           ticker: item.ticker,
-           currentPrice: item.spot_price,
-           attractionLevel: Math.abs(item.gex_value),
-           dealerSweat: item.gex_value / 1000, // Convert to billions
-           strength: Math.min(100, Math.abs(item.gex_value) * 10),
-           largestWall: null,
-           marketCap: item.market_cap
-         }));
-
-         setGexData(transformedData);
-         setLastScanTimestamp(new Date(data.scannedAt));
-       } else {
-         console.log('⚠️ No cached GEX scans available yet - server cron will populate soon');
-       }
-     } catch (error) {
-       console.error('Error fetching cached scans:', error);
-     }
-   };
-
-   fetchCachedScans();
-
-   // Refresh cached data every 30 seconds
-   const refreshInterval = setInterval(fetchCachedScans, 30000);
-
-   return () => {
-     clearInterval(refreshInterval);
-   };
- }, [activeTab]); // Only run when activeTab changes
 
  const filteredGexData = gexData
  .filter(item => item.ticker.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -325,8 +403,21 @@ export default function GEXScreener() {
  </div>
  </div>
 
- {/* Results Display */}
+ {/* Action Buttons Row */}
  <div className="flex items-center gap-2 md:gap-4">
+ <button
+ onClick={handleScan}
+ disabled={loading}
+ className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${
+ loading
+ ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+ : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+ }`}
+ >
+ <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${loading ? 'animate-spin' : ''}`} />
+ {loading ? 'SCANNING...' : 'SCAN NOW'}
+ </button>
+ 
  {gexData.length > 0 && (
  <div className="px-3 md:px-4 py-2 md:py-3 bg-gray-900/50 border border-gray-700 rounded-xl">
  <span className="text-gray-300 font-medium text-xs md:text-sm mr-2">Results:</span>
@@ -445,25 +536,27 @@ export default function GEXScreener() {
  {/* Attraction Zones View */}
  {activeTab === 'attraction' && (
  <div>
- {/* Server Auto-Scan Status */}
- <div className="mb-4 bg-gradient-to-r from-gray-900/90 to-black/90 border border-green-500/30 rounded-xl p-3">
- <div className="flex items-center gap-3 text-sm">
- <div className="flex items-center gap-2">
- <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
- <span className="font-bold text-green-400">✓ Auto-Scan ON</span>
- </div>
- {lastScanTimestamp && (
- <span className="text-gray-400">
- Last scan: {lastScanTimestamp.toLocaleTimeString('en-US', { 
- hour: '2-digit', minute: '2-digit', second: '2-digit'
- })}
+ {/* Scan Progress Bar */}
+ {loading && scanProgress.total > 0 && (
+ <div className="mb-4 bg-gray-900/50 border border-blue-500/30 rounded-xl p-4">
+ <div className="flex items-center justify-between mb-2">
+ <span className="text-sm font-bold text-blue-400">
+ Scan Progress: {scanProgress.current} / {scanProgress.total} stocks
  </span>
+ <span className="text-sm font-bold text-blue-400">
+ {Math.round((scanProgress.current / scanProgress.total) * 100)}%
+ </span>
+ </div>
+ <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+ <div
+ className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 ease-out relative"
+ style={{ width: `${(scanProgress.current / scanProgress.total) * 100}%` }}
+ >
+ <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
+ </div>
+ </div>
+ </div>
  )}
- <span className="text-gray-500 text-xs ml-auto">
- Server Auto-Scan: Every 10 min
- </span>
- </div>
- </div>
  
  {/* Column Headers - Desktop Only */}
  <div className="hidden lg:block px-6 py-4 mb-4 border-b border-gray-700/30">

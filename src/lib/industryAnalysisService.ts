@@ -1111,22 +1111,38 @@ export class IndustryAnalysisService {
 
  console.log(' Running all timeframes in parallel for maximum speed...');
  
- const analysisPromises = [
- this.analyzeTimeframe(4, 'Life'),
- this.analyzeTimeframe(16, 'Developing'), 
- this.analyzeTimeframe(23, 'Momentum')
+ // Track actual progress with Promise.allSettled to monitor completion
+ const completedTasks = { count: 0, total: 3 };
+ 
+ const trackablePromises = [
+ this.analyzeTimeframe(4, 'Life').then(result => {
+ completedTasks.count++;
+ if (progressCallback) {
+ const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
+ progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
+ }
+ return result;
+ }),
+ this.analyzeTimeframe(16, 'Developing').then(result => {
+ completedTasks.count++;
+ if (progressCallback) {
+ const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
+ progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
+ }
+ return result;
+ }),
+ this.analyzeTimeframe(23, 'Momentum').then(result => {
+ completedTasks.count++;
+ if (progressCallback) {
+ const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
+ progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
+ }
+ return result;
+ })
  ];
 
- // Track progress while running in parallel
- if (progressCallback) {
- const progressInterval = setInterval(() => {
- const currentProgress = 25 + Math.random() * 60; // Progressive loading simulation
- progressCallback('Running parallel analysis...', currentProgress);
- }, 500);
-
  try {
- const [life, developing, momentum] = await Promise.all(analysisPromises);
- clearInterval(progressInterval);
+ const [life, developing, momentum] = await Promise.all(trackablePromises);
  
  if (progressCallback) progressCallback('Finalizing results...', 100);
  
@@ -1134,13 +1150,7 @@ export class IndustryAnalysisService {
  
  return { life, developing, momentum };
  } catch (error) {
- clearInterval(progressInterval);
  throw error;
- }
- } else {
- const [life, developing, momentum] = await Promise.all(analysisPromises);
- console.log(' MAXIMUM SPEED Market Regime Analysis Complete!');
- return { life, developing, momentum };
  }
  }
 

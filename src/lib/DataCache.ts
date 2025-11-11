@@ -21,7 +21,7 @@ class UltraFastDataCache {
  private cache = new Map<string, CacheEntry<any>>();
  private hitCount = 0;
  private missCount = 0;
- private maxSize = 500; // Increased for better coverage (was 200)
+ private maxSize = 500;
  private cleanupInterval: NodeJS.Timeout;
 
  // Cache TTL for different data types (in milliseconds)
@@ -86,7 +86,6 @@ class UltraFastDataCache {
  return entry.data;
  }
 
- // Set data in cache with intelligent TTL
  set<T>(key: string, data: T, dataType?: keyof typeof this.TTL_CONFIG): void {
  const now = Date.now();
  

@@ -31,12 +31,11 @@ export function useWatchlist() {
  
  const enhancedService = EnhancedWatchlistService.getInstance();
 
- // Fetch real-time data with enhanced performance and AI calculations
  const fetchWatchlistData = async () => {
  try {
  setLoading(true);
  setError(null);
- console.log(' Starting enhanced watchlist data fetch...');
+ console.log(' Starting watchlist data fetch...');
  
  const dataPromises = WATCHLIST_SYMBOLS.map(async ({ symbol, name, type }) => {
  try {
@@ -85,9 +84,9 @@ export function useWatchlist() {
  performance,
  signal,
  timestamp: dataArray[dataArray.length - 1].timestamp,
- rrgMomentum: 0, // Will be calculated by enhanced service
- rrgStrength: 0, // Will be calculated by enhanced service 
- seasonality: 'NEUTRAL' // Will be enhanced later
+ rrgMomentum: 0,
+ rrgStrength: 0,
+ seasonality: 'NEUTRAL'
  };
  
  console.log(` ${symbol}: $${result.price.toFixed(2)} (${result.changePercent.toFixed(2)}%) - ${result.performance} - ${result.signal}`);
@@ -110,7 +109,8 @@ export function useWatchlist() {
  console.log(` Setting watchlist data with ${validResults.length} items:`, 
  validResults.map(r => `${r.symbol}: $${r.price.toFixed(2)} (${r.performance}/${r.signal})`));
  setWatchlistData(validResults);
- console.log(` Successfully loaded ${validResults.length} symbols with enhanced analysis`);
+  
+ console.log(` Successfully loaded ${validResults.length} symbols`);
  }
  } catch (error) {
  console.error('Error fetching watchlist data:', error);

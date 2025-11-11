@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import ConditionalNavigation from '@/components/ConditionalNavigation'
 import Background from '@/components/terminal/Background'
-import BackgroundLoader from '@/components/BackgroundLoader'
 
 import './globals.css'
 
@@ -25,7 +24,6 @@ export default function RootLayout({
  <html lang="en">
  <body className={`${inter.variable} antialiased`}>
  <div className="terminal-app">
- <BackgroundLoader />
  <Background />
  <ConditionalNavigation />
  <main className="main-content">

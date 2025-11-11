@@ -55,7 +55,7 @@ const WatchlistTable: React.FC = () => {
  return (
  <div className="watchlist-loading">
  <div className="loading-spinner"></div>
- <div className="loading-text">Loading enhanced watchlist analysis...</div>
+ <div className="loading-text">Loading watchlist...</div>
  </div>
  );
  }

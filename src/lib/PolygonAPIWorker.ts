@@ -1,4 +1,4 @@
-// Polygon API Worker with intelligent batching and rate limiting
+// Polygon API Worker
 class PolygonAPIWorker {
  private apiKey: string;
  private requestQueue: Array<{

@@ -4178,20 +4178,13 @@ export default function TradingViewChart({
  }))
  });
  
- // Check for real volume data first
- let maxVolume;
- let useTestData = false;
- 
+ // Require real volume data - no fallback
  if (volumes.length === 0) {
- console.log('?? NO VOLUME DATA DETECTED - Check API response above');
- console.log('?? Using fallback values');
- maxVolume = 2000000; // 2M fallback max for scaling
- useTestData = true;
- } else {
- console.log('? VOLUME DATA FOUND!', { volumeCount: volumes.length, maxVolume: Math.max(...volumes) });
- maxVolume = Math.max(...volumes);
+ console.error('❌ NO VOLUME DATA - Cannot render volume chart');
+ return;
  }
  
+ const maxVolume = Math.max(...volumes);
  const candleSpacing = chartWidth / visibleCandleCount;
  const candleWidth = Math.max(1, candleSpacing * 0.8);
 
@@ -4204,9 +4197,9 @@ export default function TradingViewChart({
  visibleData.forEach((candle, index) => {
  const x = Math.round(40 + (index * candleSpacing) + (candleSpacing - candleWidth) / 2);
  
- // Use only real volume data - no fake data generation
+ // Use only real volume data
  const volumeValue = candle.volume;
- if (!volumeValue || volumeValue <= 0) return; // Skip if no real volume
+ if (!volumeValue || volumeValue <= 0) return;
  
  const volumeHeight = (volumeValue / maxVolume) * volumeAreaHeight;
  const barY = volumeEndY - volumeHeight;

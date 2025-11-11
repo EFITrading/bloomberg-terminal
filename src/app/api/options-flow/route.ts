@@ -63,40 +63,9 @@ export async function GET(request: NextRequest) {
     const totalPages = Math.ceil(totalTrades / limit);
     const hasMore = page < totalPages;
 
-    // Save to database if requested
+    // Database saving removed - no longer storing data in Prisma
     if (saveToDb && processedTrades.length > 0) {
-      try {
-        const { saveOptionsFlow } = await import('@/lib/database');
-        await saveOptionsFlow(processedTrades.map(trade => ({
-          ticker: trade.ticker,
-          underlying_ticker: trade.underlying_ticker,
-          strike: trade.strike,
-          expiry: trade.expiry,
-          type: trade.type,
-          trade_size: trade.trade_size,
-          premium_per_contract: trade.premium_per_contract,
-          total_premium: trade.total_premium,
-          flow_type: null, // Will be determined by analysis
-          trade_type: trade.trade_type,
-          above_ask: false, // Would need bid/ask data
-          below_bid: false,
-          exchange: trade.exchange,
-          conditions: trade.conditions,
-          timestamp: trade.trade_timestamp.getTime(),
-          spot_price: trade.spot_price,
-          sip_timestamp: trade.sip_timestamp,
-          sequence_number: trade.sequence_number,
-          window_group: trade.window_group,
-          related_trades: trade.related_trades,
-          moneyness: trade.moneyness,
-          days_to_expiry: trade.days_to_expiry,
-          exchange_name: trade.exchange_name
-        })));
-        
-        console.log(`💾 Saved ${processedTrades.length} trades to database`);
-      } catch (error) {
-        console.error('❌ Database save error:', error);
-      }
+      console.log('⚠️ Database saving disabled - saveToDb flag ignored');
     }
 
     // Calculate summary statistics
@@ -185,17 +154,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Save trades to database
-    const { saveOptionsFlow } = await import('@/lib/database');
-    const saved = await saveOptionsFlow(trades);
-    
-    console.log(`💾 SAVED ${saved.count} trades to database via POST`);
+    // Database saving removed - POST endpoint disabled
+    console.log('⚠️ Database saving disabled - trades not saved');
 
     return NextResponse.json({
-      success: true,
-      saved_count: saved.count,
-      timestamp: new Date().toISOString()
-    }, {
+      success: false,
+      error: 'Database storage has been disabled',
+      message: 'POST endpoint is no longer available'
+    }, { 
+      status: 501,
       headers: corsHeaders
     });
 
