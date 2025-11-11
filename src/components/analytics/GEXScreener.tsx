@@ -380,65 +380,50 @@ export default function GEXScreener() {
  setOtmExpiry(monthlyExpiry);
  }, []);
 
- // Auto-scan interval - first scan in 1 min, then every 10 minutes
+ // Load cached GEX scans from server (cron job results) - every 30 seconds
+ // This runs automatically without user interaction
  useEffect(() => {
-   if (!autoScanEnabled) {
-     setNextScanTime(null);
-     return;
-   }
-   
-   console.log('🔄 Auto-scan enabled for Attraction Zone');
-   
-   // First scan in 1 minute
-   const firstScanTime = new Date(Date.now() + 60 * 1000); // 1 minute from now
-   setNextScanTime(firstScanTime);
-   
-   // Schedule first scan
-   const firstScanTimeout = setTimeout(() => {
-     if (isMarketHours()) {
-       console.log('⏰ First auto-scan triggered (1 min): Starting scan...');
-       fetchGEXData(true);
-       setNextScanTime(calculateNextScanTime());
-     }
-   }, 60 * 1000); // 1 minute
-   
-   // Countdown timer - updates every second
-   const countdownInterval = setInterval(() => {
-     setNextScanTime(prevTime => {
-       if (!prevTime) return prevTime;
-       
-       const now = new Date();
-       const diff = prevTime.getTime() - now.getTime();
-       
-       // Trigger scan when countdown reaches 0 (after first scan)
-       if (diff <= 0 && isMarketHours()) {
-         console.log('⏰ Auto-scan triggered: Starting scan...');
-         fetchGEXData(true);
-         return calculateNextScanTime();
+   console.log('🔄 Loading cached GEX scans from server...');
+
+   // Fetch immediately on mount
+   const fetchCachedScans = async () => {
+     try {
+       const response = await fetch('/api/cached-scans?type=gex');
+       const data = await response.json();
+
+       if (data.success && data.data && data.data.length > 0) {
+         console.log(`✅ Loaded ${data.data.length} cached GEX results from ${new Date(data.scannedAt).toLocaleTimeString()}`);
+         
+         // Transform cached data to match GEX component format
+         const transformedData = data.data.map((item: any) => ({
+           ticker: item.ticker,
+           currentPrice: item.spot_price,
+           attractionLevel: Math.abs(item.gex_value),
+           dealerSweat: item.gex_value / 1000, // Convert to billions
+           strength: Math.min(100, Math.abs(item.gex_value) * 10),
+           largestWall: null,
+           marketCap: item.market_cap
+         }));
+
+         setGexData(transformedData);
+         setLastScanTimestamp(new Date(data.scannedAt));
+       } else {
+         console.log('⚠️ No cached GEX scans available yet - server cron will populate soon');
        }
-       
-       return prevTime;
-     });
-   }, 1000); // Check every second
-   
-   // Main scan interval - every 10 minutes (starts after first scan)
-   const scanInterval = setInterval(() => {
-     if (isMarketHours()) {
-       console.log('⏰ 10-minute interval: Starting auto-scan...');
-       fetchGEXData(true);
-       setNextScanTime(calculateNextScanTime());
-     } else {
-       console.log('🕐 Outside market hours (9:30 AM - 4:00 PM ET): Skipping auto-scan');
+     } catch (error) {
+       console.error('Error fetching cached scans:', error);
      }
-   }, 10 * 60 * 1000); // 10 minutes
-   
-   return () => {
-     clearTimeout(firstScanTimeout);
-     clearInterval(countdownInterval);
-     clearInterval(scanInterval);
-     console.log('🛑 Auto-scan disabled');
    };
- }, [autoScanEnabled]);
+
+   fetchCachedScans();
+
+   // Refresh cached data every 30 seconds
+   const refreshInterval = setInterval(fetchCachedScans, 30000);
+
+   return () => {
+     clearInterval(refreshInterval);
+   };
+ }, []); // No dependencies - always runs
 
  const filteredGexData = gexData
  .filter(item => item.ticker.toLowerCase().includes(searchTerm.toLowerCase()))
