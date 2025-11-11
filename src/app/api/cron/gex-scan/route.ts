@@ -25,24 +25,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if market is open (9:30 AM - 4:00 PM ET, Monday-Friday)
-    const now = new Date();
-    const etTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    const hour = etTime.getHours();
-    const minute = etTime.getMinutes();
-    const day = etTime.getDay();
-    
-    const isMarketHours = 
-      day >= 1 && day <= 5 && // Monday-Friday
-      ((hour === 9 && minute >= 30) || (hour > 9 && hour < 16));
-
-    if (!isMarketHours) {
-      return NextResponse.json({ 
-        message: 'Market is closed', 
-        timestamp: etTime.toISOString() 
-      }, { status: 200 });
-    }
-
     console.log('🔄 Starting GEX scan cron job...');
     const startTime = Date.now();
     const results: GEXResult[] = [];

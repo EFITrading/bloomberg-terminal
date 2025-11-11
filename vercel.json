@@ -3,10 +3,6 @@
   "crons": [
     {
       "path": "/api/cron/gex-scan",
-      "schedule": "*/10 13-20 * * 1-5"
-    },
-    {
-      "path": "/api/cron/otm-scan",
       "schedule": "*/10 * * * *"
     }
   ],
@@ -57,9 +53,6 @@
       "maxDuration": 300
     },
     "src/app/api/cron/gex-scan/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/cron/otm-scan/route.ts": {
       "maxDuration": 300
     }
   },

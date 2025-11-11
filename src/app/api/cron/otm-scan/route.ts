@@ -42,21 +42,33 @@ export async function GET(request: NextRequest) {
         const quoteUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_API_KEY}`;
         const quoteRes = await fetch(quoteUrl, { next: { revalidate: 60 } });
         
-        if (!quoteRes.ok) continue;
+        if (!quoteRes.ok) {
+          console.log(`❌ ${ticker}: Quote failed (${quoteRes.status})`);
+          continue;
+        }
         
         const quoteData = await quoteRes.json();
         const spotPrice = quoteData?.ticker?.lastTrade?.p;
         
-        if (!spotPrice) continue;
+        if (!spotPrice) {
+          console.log(`❌ ${ticker}: No spot price`);
+          continue;
+        }
 
         // Fetch options data
         const optionsUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${POLYGON_API_KEY}`;
         const optionsRes = await fetch(optionsUrl, { next: { revalidate: 60 } });
         
-        if (!optionsRes.ok) continue;
+        if (!optionsRes.ok) {
+          console.log(`❌ ${ticker}: Options failed (${optionsRes.status})`);
+          continue;
+        }
         
         const optionsData = await optionsRes.json();
-        if (!optionsData.results || optionsData.results.length === 0) continue;
+        if (!optionsData.results || optionsData.results.length === 0) {
+          console.log(`❌ ${ticker}: No options data`);
+          continue;
+        }
 
         // Calculate OTM premiums
         let callPremium = 0;
@@ -95,6 +107,7 @@ export async function GET(request: NextRequest) {
         const bullishRatio = totalPremium > 0 ? callPremium / totalPremium : 0.5;
 
         if (totalPremium > 0) {
+          console.log(`✅ ${ticker}: $${(totalPremium / 1000000).toFixed(2)}M OTM premium`);
           results.push({
             ticker,
             totalOTMPremium: totalPremium,
@@ -103,6 +116,8 @@ export async function GET(request: NextRequest) {
             spotPrice,
             bullishRatio,
           });
+        } else {
+          console.log(`⚠️ ${ticker}: 0 OTM premium`);
         }
 
       } catch (error) {

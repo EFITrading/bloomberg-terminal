@@ -103,13 +103,6 @@ export default function GEXScreener() {
  const [otmScanningSymbol, setOtmScanningSymbol] = useState('');
  const otmEventSourceRef = useRef<EventSource | null>(null);
  
- // OTM Auto-scan state
- const [otmAutoScanEnabled, setOtmAutoScanEnabled] = useState(true);
- const [otmNextScanTime, setOtmNextScanTime] = useState<Date | null>(null);
- const [otmLastScanData, setOtmLastScanData] = useState<PremiumImbalance[]>([]);
- const [otmIsAutoScanning, setOtmIsAutoScanning] = useState(false);
- const [otmLastScanTimestamp, setOtmLastScanTimestamp] = useState<Date | null>(null);
- 
  // Disabled auto-refresh on filter change to prevent flickering - user can manually refresh
  // useEffect(() => {
  // if (gexData.length > 0) { // Only auto-refresh if we already have data
@@ -134,16 +127,9 @@ export default function GEXScreener() {
  
  // Calculate next scan time (10 minutes from now)
  const calculateNextScanTime = () => {
-   const now = new Date();
-   const next = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
-   return next;
- };
- 
- // Calculate next OTM scan time (13 minutes from now)
- const calculateOtmNextScanTime = () => {
-   const now = new Date();
-   const next = new Date(now.getTime() + 13 * 60 * 1000); // 13 minutes
-   return next;
+ const now = new Date();
+ const next = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
+ return next;
  };
  
  // Format countdown timer
@@ -159,24 +145,7 @@ export default function GEXScreener() {
    const seconds = Math.floor((diff % 60000) / 1000);
    
    return `${minutes}m ${seconds}s`;
- };
- 
- // Format OTM countdown timer
- const getOtmCountdownDisplay = () => {
-   if (!otmNextScanTime) return '';
-   
-   const now = new Date();
-   const diff = otmNextScanTime.getTime() - now.getTime();
-   
-   if (diff <= 0) return 'Scanning now...';
-   
-   const minutes = Math.floor(diff / 60000);
-   const seconds = Math.floor((diff % 60000) / 1000);
-   
-   return `${minutes}m ${seconds}s`;
- };
- 
- // Function to fetch real GEX data with streaming updates
+ }; // Function to fetch real GEX data with streaming updates
  const fetchGEXData = async (isAutoScan = false) => {
  setLoading(true);
  setError('');
@@ -355,16 +324,6 @@ export default function GEXScreener() {
  setOtmResults([]);
  setOtmScanProgress({ current: 0, total: otmSymbols.split(',').length });
  
- // Set auto-scanning flag if this is an auto-scan
- if (isAutoScan) {
-   setOtmIsAutoScanning(true);
-   // Store current data as lastScanData before starting new scan
-   if (otmResults.length > 0) {
-     setOtmLastScanData([...otmResults]);
-     console.log(`📦 OTM Auto-scan: Stored ${otmResults.length} results from previous scan`);
-   }
- }
- 
  if (otmEventSourceRef.current) {
  otmEventSourceRef.current.close();
  }
@@ -391,15 +350,6 @@ export default function GEXScreener() {
  setOtmLastUpdate(new Date());
  setOtmScanningSymbol('');
  eventSource.close();
- 
- // Auto-scan completion handling
- if (isAutoScan) {
-   console.log(`✅ OTM Auto-scan complete: Replacing old data (${otmLastScanData.length} items) with new data`);
-   setOtmLastScanTimestamp(new Date());
-   setOtmIsAutoScanning(false);
-   // Clear lastScanData after replacement
-   setOtmLastScanData([]);
- }
  } else if (data.type === 'error') {
  console.error('OTM Scan error:', data.error);
  }
@@ -409,21 +359,11 @@ export default function GEXScreener() {
  setOtmLoading(false);
  setOtmScanningSymbol('');
  eventSource.close();
- 
- // Reset auto-scan flags on error
- if (isAutoScan) {
-   setOtmIsAutoScanning(false);
- }
  };
 
  } catch (error) {
  console.error('OTM Scan error:', error);
  setOtmLoading(false);
- 
- // Reset auto-scan flags on error
- if (isAutoScan) {
-   setOtmIsAutoScanning(false);
- }
  }
  };
 
@@ -467,36 +407,6 @@ export default function GEXScreener() {
    
    return () => clearInterval(interval);
  }, [autoScanEnabled]);
-
- // OTM Auto-scan: Fetch cached data from server every 30 seconds
- useEffect(() => {
-   if (!otmAutoScanEnabled) {
-     return;
-   }
-   
-   const fetchCachedData = async () => {
-     try {
-       const response = await fetch('/api/cached-scans?type=otm');
-       if (response.ok) {
-         const cachedData = await response.json();
-         if (cachedData.data && cachedData.data.length > 0) {
-           setOtmResults(cachedData.data);
-           setLastScanTimestamp(new Date(cachedData.scannedAt));
-         }
-       }
-     } catch (error) {
-       console.error('Failed to fetch cached OTM data:', error);
-     }
-   };
-   
-   // Fetch immediately
-   fetchCachedData();
-   
-   // Then fetch every 30 seconds
-   const interval = setInterval(fetchCachedData, 30000);
-   
-   return () => clearInterval(interval);
- }, [otmAutoScanEnabled]);
 
  const filteredGexData = gexData
  .filter(item => item.ticker.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -1079,72 +989,12 @@ export default function GEXScreener() {
  {/* OTM Premiums View */}
  {activeTab === 'otm-premiums' && (
  <div>
- {/* Auto-Scan Controls Bar */}
- <div className="mb-4 mx-3 md:mx-6 bg-gradient-to-r from-gray-900/90 to-black/90 border border-orange-500/30 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
- <div className="flex items-center gap-4 flex-wrap">
- {/* Auto-Scan Toggle */}
- <button
- onClick={() => {
- const newState = !otmAutoScanEnabled;
- setOtmAutoScanEnabled(newState);
- setOtmAutoScanEnabled(newState);
- }}
- className={`px-4 py-2 rounded-lg font-bold text-sm transition-all duration-300 ${
- otmAutoScanEnabled
- ? 'bg-green-600 text-white shadow-lg shadow-green-500/50 hover:bg-green-700'
- : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
- }`}
- >
- {otmAutoScanEnabled ? '✓ Auto-Scan ON' : 'Auto-Scan OFF'}
- </button>
- 
- {/* Countdown Timer */}
- {otmAutoScanEnabled && otmNextScanTime && (
- <div className="flex items-center gap-2 px-4 py-2 bg-black/50 rounded-lg border border-orange-500/30">
- <Activity className="w-4 h-4 text-orange-400 animate-pulse" />
- <span className="text-sm font-bold text-orange-400">
- Next scan: {getOtmCountdownDisplay()}
- </span>
- </div>
- )}
- 
- {/* Auto-Scanning Indicator */}
- {otmIsAutoScanning && (
- <div className="flex items-center gap-2 px-4 py-2 bg-blue-900/30 rounded-lg border border-blue-500/30">
- <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
- <span className="text-sm font-bold text-blue-400">
- Auto-scanning...
- </span>
- </div>
- )}
- 
- {/* Last Scan Timestamp */}
- {otmLastScanTimestamp && (
- <div className="text-xs text-gray-400">
- Last scan: {otmLastScanTimestamp.toLocaleTimeString('en-US', { 
- hour: '2-digit', 
- minute: '2-digit',
- second: '2-digit'
- })}
- </div>
- )}
- </div>
- 
- {/* Market Hours Status */}
- <div className="flex items-center gap-2">
- <div className={`w-2 h-2 rounded-full ${isMarketHours() ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
- <span className="text-xs font-semibold text-gray-400">
- {isMarketHours() ? 'Market Open' : 'Market Closed'}
- </span>
- </div>
- </div>
- 
- {/* Scan Progress Bar - Shows for both auto-scan and manual scan */}
- {(otmLoading || otmIsAutoScanning) && otmScanProgress.total > 0 && (
+ {/* Scan Progress Bar */}
+ {otmLoading && otmScanProgress.total > 0 && (
  <div className="mb-4 mx-3 md:mx-6 bg-gray-900/50 border border-blue-500/30 rounded-xl p-4">
  <div className="flex items-center justify-between mb-2">
  <span className="text-sm font-bold text-blue-400">
- {otmIsAutoScanning ? 'Auto-Scan' : 'Scan'} Progress: {otmScanProgress.current} / {otmScanProgress.total} stocks
+ Scan Progress: {otmScanProgress.current} / {otmScanProgress.total} stocks
  </span>
  <span className="text-sm font-bold text-blue-400">
  {Math.round((otmScanProgress.current / otmScanProgress.total) * 100)}%
