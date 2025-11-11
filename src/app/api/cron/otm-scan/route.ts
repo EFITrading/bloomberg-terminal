@@ -28,11 +28,13 @@ export async function GET(request: NextRequest) {
     console.log('🔄 OTM Scan triggered at:', new Date().toISOString());
 
     console.log('🔄 Starting OTM Premium scan cron job...');
+    console.log(`📊 Total symbols available: ${TOP_1000_SYMBOLS.length}`);
     const startTime = Date.now();
     const results: OTMResult[] = [];
 
     // Scan top symbols (limit to prevent timeout)
     const symbolsToScan = TOP_1000_SYMBOLS.slice(0, 100);
+    console.log(`🎯 Scanning ${symbolsToScan.length} symbols:`, symbolsToScan.slice(0, 10));
     
     for (const ticker of symbolsToScan) {
       try {
