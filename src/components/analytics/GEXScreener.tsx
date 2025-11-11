@@ -127,9 +127,9 @@ export default function GEXScreener() {
  
  // Calculate next scan time (10 minutes from now)
  const calculateNextScanTime = () => {
- const now = new Date();
- const next = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
- return next;
+   const now = new Date();
+   const next = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
+   return next;
  };
  
  // Format countdown timer
@@ -145,7 +145,9 @@ export default function GEXScreener() {
    const seconds = Math.floor((diff % 60000) / 1000);
    
    return `${minutes}m ${seconds}s`;
- }; // Function to fetch real GEX data with streaming updates
+ };
+ 
+ // Function to fetch real GEX data with streaming updates
  const fetchGEXData = async (isAutoScan = false) => {
  setLoading(true);
  setError('');
@@ -319,7 +321,7 @@ export default function GEXScreener() {
  return `${yyyy}-${mm}-${dd}`;
  };
 
- const scanOTMPremiums = async (isAutoScan = false) => {
+ const scanOTMPremiums = async () => {
  setOtmLoading(true);
  setOtmResults([]);
  setOtmScanProgress({ current: 0, total: otmSymbols.split(',').length });
@@ -378,34 +380,53 @@ export default function GEXScreener() {
  setOtmExpiry(monthlyExpiry);
  }, []);
 
- // Auto-scan: Fetch cached data from server every 30 seconds
+ // Auto-scan interval - runs every 10 minutes during market hours
  useEffect(() => {
    if (!autoScanEnabled) {
+     setNextScanTime(null);
      return;
    }
    
-   const fetchCachedData = async () => {
-     try {
-       const response = await fetch('/api/cached-scans?type=gex');
-       if (response.ok) {
-         const cachedData = await response.json();
-         if (cachedData.data && cachedData.data.length > 0) {
-           setGexData(cachedData.data);
-           setLastScanTimestamp(new Date(cachedData.scannedAt));
-         }
+   console.log('🔄 Auto-scan enabled for Attraction Zone');
+   
+   // Set initial next scan time
+   setNextScanTime(calculateNextScanTime());
+   
+   // Countdown timer - updates every second
+   const countdownInterval = setInterval(() => {
+     setNextScanTime(prevTime => {
+       if (!prevTime) return prevTime;
+       
+       const now = new Date();
+       const diff = prevTime.getTime() - now.getTime();
+       
+       // Trigger scan when countdown reaches 0
+       if (diff <= 0 && isMarketHours()) {
+         console.log('⏰ Auto-scan triggered: Starting scan...');
+         fetchGEXData(true);
+         return calculateNextScanTime();
        }
-     } catch (error) {
-       console.error('Failed to fetch cached GEX data:', error);
+       
+       return prevTime;
+     });
+   }, 1000); // Check every second
+   
+   // Main scan interval - every 10 minutes
+   const scanInterval = setInterval(() => {
+     if (isMarketHours()) {
+       console.log('⏰ 10-minute interval: Starting auto-scan...');
+       fetchGEXData(true);
+       setNextScanTime(calculateNextScanTime());
+     } else {
+       console.log('🕐 Outside market hours (9:30 AM - 4:00 PM ET): Skipping auto-scan');
      }
+   }, 10 * 60 * 1000); // 10 minutes
+   
+   return () => {
+     clearInterval(countdownInterval);
+     clearInterval(scanInterval);
+     console.log('🛑 Auto-scan disabled');
    };
-   
-   // Fetch immediately
-   fetchCachedData();
-   
-   // Then fetch every 30 seconds
-   const interval = setInterval(fetchCachedData, 30000);
-   
-   return () => clearInterval(interval);
  }, [autoScanEnabled]);
 
  const filteredGexData = gexData
@@ -641,7 +662,10 @@ export default function GEXScreener() {
  const newState = !autoScanEnabled;
  setAutoScanEnabled(newState);
  if (newState) {
- console.log('🔄 Auto-scan enabled');
+ setNextScanTime(calculateNextScanTime());
+ console.log('🔄 Auto-scan enabled - triggering immediate scan');
+ // Trigger immediate scan when auto-scan is enabled
+ fetchGEXData(true);
  } else {
  console.log('🛑 Auto-scan disabled');
  }
@@ -989,34 +1013,12 @@ export default function GEXScreener() {
  {/* OTM Premiums View */}
  {activeTab === 'otm-premiums' && (
  <div>
- {/* Scan Progress Bar */}
- {otmLoading && otmScanProgress.total > 0 && (
- <div className="mb-4 mx-3 md:mx-6 bg-gray-900/50 border border-blue-500/30 rounded-xl p-4">
- <div className="flex items-center justify-between mb-2">
- <span className="text-sm font-bold text-blue-400">
- Scan Progress: {otmScanProgress.current} / {otmScanProgress.total} stocks
- </span>
- <span className="text-sm font-bold text-blue-400">
- {Math.round((otmScanProgress.current / otmScanProgress.total) * 100)}%
- </span>
- </div>
- <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
- <div
- className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 ease-out relative"
- style={{ width: `${(otmScanProgress.current / otmScanProgress.total) * 100}%` }}
- >
- <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
- </div>
- </div>
- </div>
- )}
- 
  {/* Control Bar - Mobile Responsive */}
  <div className="px-3 md:px-6 py-3 md:py-4 mb-3 md:mb-4 border-b border-gray-700/30">
  {/* First Row: Scan Button and Expiry */}
  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 md:gap-6 mb-3">
  <button
- onClick={() => scanOTMPremiums(false)}
+ onClick={scanOTMPremiums}
  disabled={otmLoading}
  className="px-4 md:px-6 py-2 md:py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-bold text-xs md:text-sm transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 md:gap-3 shadow-xl rounded-lg"
  >
@@ -1112,7 +1114,7 @@ export default function GEXScreener() {
  <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></div>
  )}
  </div>
- <div className="text-sm text-white font-medium mt-0.5">${result.stockPrice.toFixed(2)}</div>
+ <div className="text-sm text-white font-medium mt-0.5">${result.stockPrice?.toFixed(2) || 'N/A'}</div>
  </div>
 
  <div className="col-span-1 text-center">
@@ -1126,8 +1128,8 @@ export default function GEXScreener() {
  <TrendingUp className="w-4 h-4 text-green-400" />
  <span className="text-xs text-green-300 font-bold">OTM CALLS</span>
  </div>
- <div className="text-xl font-black text-white">${result.callMid.toFixed(2)}</div>
- <div className="text-xs text-gray-300 font-medium mt-2">${result.callStrike} | {result.callBid.toFixed(2)} × {result.callAsk.toFixed(2)}</div>
+ <div className="text-xl font-black text-white">${result.callMid?.toFixed(2) || 'N/A'}</div>
+ <div className="text-xs text-gray-300 font-medium mt-2">${result.callStrike} | {result.callBid?.toFixed(2) || 'N/A'} × {result.callAsk?.toFixed(2) || 'N/A'}</div>
  </div>
 
  <div className="col-span-2 bg-red-900/20 border border-red-500/30 p-3 rounded-lg">
@@ -1135,14 +1137,14 @@ export default function GEXScreener() {
  <TrendingDown className="w-4 h-4 text-red-400" />
  <span className="text-xs text-red-300 font-bold">OTM PUTS</span>
  </div>
- <div className="text-xl font-black text-white">${result.putMid.toFixed(2)}</div>
- <div className="text-xs text-gray-300 font-medium mt-2">${result.putStrike} | {result.putBid.toFixed(2)} × {result.putAsk.toFixed(2)}</div>
+ <div className="text-xl font-black text-white">${result.putMid?.toFixed(2) || 'N/A'}</div>
+ <div className="text-xs text-gray-300 font-medium mt-2">${result.putStrike} | {result.putBid?.toFixed(2) || 'N/A'} × {result.putAsk?.toFixed(2) || 'N/A'}</div>
  </div>
 
  <div className="col-span-2 text-center">
  <div className="text-xs text-gray-300 font-bold mb-2">DIFFERENCE</div>
  <div className={`text-xl font-black ${result.premiumDifference > 0 ? 'text-green-300' : 'text-red-300'}`}>
- ${Math.abs(result.premiumDifference).toFixed(2)}
+ ${Math.abs(result.premiumDifference || 0).toFixed(2)}
  </div>
  </div>
 
@@ -1153,7 +1155,7 @@ export default function GEXScreener() {
  result.imbalanceSeverity === 'HIGH' ? 'text-red-400' :
  'text-yellow-400'
  }`}>
- {Math.abs(result.imbalancePercent).toFixed(1)}%
+ {Math.abs(result.imbalancePercent || 0).toFixed(1)}%
  </div>
  </div>
 
@@ -1173,8 +1175,8 @@ export default function GEXScreener() {
  {/* Desktop Footer */}
  <div className="hidden lg:flex border-t border-gray-700 px-4 py-3 bg-gray-900/50 items-center justify-between text-xs">
  <div className="flex gap-8">
- <span className="text-gray-300 font-medium">Call ${result.callStrike} Spread: <span className="text-white font-bold">{result.callSpreadPercent.toFixed(1)}%</span></span>
- <span className="text-gray-300 font-medium">Put ${result.putStrike} Spread: <span className="text-white font-bold">{result.putSpreadPercent.toFixed(1)}%</span></span>
+ <span className="text-gray-300 font-medium">Call ${result.callStrike} Spread: <span className="text-white font-bold">{result.callSpreadPercent?.toFixed(1) || 'N/A'}%</span></span>
+ <span className="text-gray-300 font-medium">Put ${result.putStrike} Spread: <span className="text-white font-bold">{result.putSpreadPercent?.toFixed(1) || 'N/A'}%</span></span>
  </div>
  <div className="text-white font-bold">
  {result.expensiveSide === 'CALLS' 
@@ -1194,7 +1196,7 @@ export default function GEXScreener() {
  <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></div>
  )}
  </div>
- <div className="text-xs text-white font-medium">${result.stockPrice.toFixed(2)}</div>
+ <div className="text-xs text-white font-medium">${result.stockPrice?.toFixed(2) || 'N/A'}</div>
  </div>
  <div className={`px-3 py-1 text-xs font-black ${
  result.imbalanceSeverity === 'EXTREME' 
@@ -1221,9 +1223,9 @@ export default function GEXScreener() {
  <TrendingUp className="w-3 h-3 text-green-400" />
  <span className="text-xs text-green-300 font-bold">CALLS</span>
  </div>
- <div className="text-lg font-black text-white">${result.callMid.toFixed(2)}</div>
+ <div className="text-lg font-black text-white">${result.callMid?.toFixed(2) || 'N/A'}</div>
  <div className="text-xs text-gray-300 font-medium mt-1">${result.callStrike}</div>
- <div className="text-xs text-gray-400">{result.callBid.toFixed(2)} × {result.callAsk.toFixed(2)}</div>
+ <div className="text-xs text-gray-400">{result.callBid?.toFixed(2) || 'N/A'} × {result.callAsk?.toFixed(2) || 'N/A'}</div>
  </div>
 
  <div className="bg-red-900/20 border border-red-500/30 p-2 rounded-lg">
@@ -1231,9 +1233,9 @@ export default function GEXScreener() {
  <TrendingDown className="w-3 h-3 text-red-400" />
  <span className="text-xs text-red-300 font-bold">PUTS</span>
  </div>
- <div className="text-lg font-black text-white">${result.putMid.toFixed(2)}</div>
+ <div className="text-lg font-black text-white">${result.putMid?.toFixed(2) || 'N/A'}</div>
  <div className="text-xs text-gray-300 font-medium mt-1">${result.putStrike}</div>
- <div className="text-xs text-gray-400">{result.putBid.toFixed(2)} × {result.putAsk.toFixed(2)}</div>
+ <div className="text-xs text-gray-400">{result.putBid?.toFixed(2) || 'N/A'} × {result.putAsk?.toFixed(2) || 'N/A'}</div>
  </div>
  </div>
 
@@ -1242,7 +1244,7 @@ export default function GEXScreener() {
  <div className="bg-gray-900/50 rounded-lg p-2 text-center">
  <div className="text-xs text-gray-300 font-bold mb-1">DIFFERENCE</div>
  <div className={`text-lg font-black ${result.premiumDifference > 0 ? 'text-green-300' : 'text-red-300'}`}>
- ${Math.abs(result.premiumDifference).toFixed(2)}
+ ${Math.abs(result.premiumDifference || 0).toFixed(2)}
  </div>
  </div>
 
@@ -1253,7 +1255,7 @@ export default function GEXScreener() {
  result.imbalanceSeverity === 'HIGH' ? 'text-red-400' :
  'text-yellow-400'
  }`}>
- {Math.abs(result.imbalancePercent).toFixed(1)}%
+ {Math.abs(result.imbalancePercent || 0).toFixed(1)}%
  </div>
  </div>
  </div>
@@ -1261,10 +1263,10 @@ export default function GEXScreener() {
  {/* Footer Info */}
  <div className="border-t border-gray-700 pt-2 space-y-1 text-xs">
  <div className="text-gray-300">
- Call Spread: <span className="text-white font-bold">{result.callSpreadPercent.toFixed(1)}%</span>
+ Call Spread: <span className="text-white font-bold">{result.callSpreadPercent?.toFixed(1) || 'N/A'}%</span>
  </div>
  <div className="text-gray-300">
- Put Spread: <span className="text-white font-bold">{result.putSpreadPercent.toFixed(1)}%</span>
+ Put Spread: <span className="text-white font-bold">{result.putSpreadPercent?.toFixed(1) || 'N/A'}%</span>
  </div>
  <div className="text-white font-bold text-xs">
  {result.expensiveSide === 'CALLS' 
