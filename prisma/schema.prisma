@@ -78,3 +78,33 @@ model FlowSession {
   
   @@map("flow_sessions")
 }
+
+// GEX Scan Cache - stores periodic GEX scans
+model GexScanCache {
+  id             Int      @id @default(autoincrement())
+  ticker         String
+  gex_value      Float
+  call_gex       Float
+  put_gex        Float
+  spot_price     Float
+  market_cap     Float
+  scan_timestamp DateTime @default(now())
+  
+  @@index([ticker, scan_timestamp])
+  @@map("gex_scan_cache")
+}
+
+// OTM Premium Scan Cache - stores periodic OTM premium scans
+model OtmScanCache {
+  id                 Int      @id @default(autoincrement())
+  ticker             String
+  total_otm_premium  Float
+  call_premium       Float
+  put_premium        Float
+  spot_price         Float
+  bullish_ratio      Float
+  scan_timestamp     DateTime @default(now())
+  
+  @@index([ticker, scan_timestamp])
+  @@map("otm_scan_cache")
+}

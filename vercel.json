@@ -1,6 +1,11 @@
 {
   "framework": "nextjs",
-  "crons": [],
+  "crons": [
+    {
+      "path": "/api/cron/gex-scan",
+      "schedule": "*/10 * * * *"
+    }
+  ],
   "functions": {
     "src/app/api/options-flow/route.ts": {
       "maxDuration": 300
@@ -45,6 +50,9 @@
       "maxDuration": 300
     },
     "src/app/api/spx-test/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/cron/gex-scan/route.ts": {
       "maxDuration": 300
     }
   },
