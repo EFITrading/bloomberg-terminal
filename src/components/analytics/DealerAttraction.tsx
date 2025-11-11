@@ -1889,6 +1889,29 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
   );
 };
 
+// Helper function to calculate Vanna using Black-Scholes formula
+// Vanna = -e^(-rT) × N'(d₁) × d₂/σ
+const calculateVanna = (strike: number, spotPrice: number, T: number, impliedVol: number, riskFreeRate: number = 0.0408): number => {
+  if (T <= 0 || impliedVol <= 0 || spotPrice <= 0) return 0;
+  
+  const sigma = impliedVol;
+  const r = riskFreeRate;
+  const S = spotPrice;
+  const K = strike;
+  
+  // Calculate d1 and d2
+  const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * T) / (sigma * Math.sqrt(T));
+  const d2 = d1 - sigma * Math.sqrt(T);
+  
+  // Calculate N'(d1) - standard normal probability density function
+  const nPrime_d1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1);
+  
+  // Vanna = -e^(-rT) × N'(d₁) × d₂/σ
+  const vanna = -Math.exp(-r * T) * nPrime_d1 * (d2 / sigma);
+  
+  return vanna;
+};
+
 const DealerAttraction = () => {
   const [data, setData] = useState<GEXData[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1897,12 +1920,12 @@ const DealerAttraction = () => {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [selectedTicker, setSelectedTicker] = useState('');
   const [tickerInput, setTickerInput] = useState('');
-  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}}>({});
+  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number}}}>({});
   const [viewMode, setViewMode] = useState<'NET' | 'CP'>('CP'); // C/P by default
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
   const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}}>({});
   const [showGEX, setShowGEX] = useState(true);
-  const [gexMode, setGexMode] = useState<'GEX' | 'Net GEX'>('GEX');
+  const [gexMode, setGexMode] = useState<'GEX' | 'Net GEX' | 'Dealer'>('GEX');
 
   const [showOI, setShowOI] = useState(false);
   const [liveMode, setLiveMode] = useState(false); // Single live mode toggle for all metrics
@@ -2111,7 +2134,7 @@ const DealerAttraction = () => {
 
 
 
-  const [otmFilter, setOtmFilter] = useState<'1%' | '2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%'>('2%');
+  const [otmFilter, setOtmFilter] = useState<'2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%'>('2%');
   const [progress, setProgress] = useState(0);
 
 
@@ -2193,7 +2216,7 @@ const DealerAttraction = () => {
       
       // Initialize all data structures - these will always be calculated regardless of display settings
       const oiByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}} = {};
-      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}} = {};
+      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number}}} = {};
       const vexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}} = {};
       const allStrikes = new Set<number>();
       
@@ -2228,7 +2251,20 @@ const DealerAttraction = () => {
               // STEP 1B: Calculate GEX using the OI we just stored
               const gamma = data.greeks?.gamma || 0;
               const delta = data.greeks?.delta || 0;
-              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0 };
+              let vanna = data.greeks?.vanna || 0;
+              
+              // If vanna is 0 or missing, calculate it using Black-Scholes formula
+              if (vanna === 0 && gamma !== 0) {
+                const expirationDate = new Date(expDate);
+                const today = new Date();
+                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+                const iv = data.implied_volatility || 0.3; // Use API IV or default to 30%
+                vanna = calculateVanna(strikeNum, currentPrice, T, iv);
+                console.log(`🧮 CALCULATED VANNA - Call: Strike ${strikeNum}, T=${T.toFixed(4)}, IV=${iv.toFixed(4)}, vanna=${vanna.toFixed(8)}`);
+              }
+              
+              console.log(`📊 VANNA DEBUG - Call: Strike ${strikeNum}, gamma=${gamma}, delta=${delta}, vanna=${vanna}`);
+              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
               if (gamma) {
                 const gex = gamma * oi * (currentPrice * currentPrice) * 100;
                 gexByStrikeByExp[expDate][strikeNum].call = gex;
@@ -2290,13 +2326,26 @@ const DealerAttraction = () => {
               
               // STEP 2B: Update GEX with put data
               if (!gexByStrikeByExp[expDate][strikeNum]) {
-                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0 };
+                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0, callVanna: 0, putVanna: 0 };
               }
               const gamma = data.greeks?.gamma || 0;
               const delta = data.greeks?.delta || 0;
+              let vanna = data.greeks?.vanna || 0;
+              
+              // If vanna is 0 or missing, calculate it using Black-Scholes formula
+              if (vanna === 0 && gamma !== 0) {
+                const expirationDate = new Date(expDate);
+                const today = new Date();
+                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+                const iv = data.implied_volatility || 0.3; // Use API IV or default to 30%
+                vanna = calculateVanna(strikeNum, currentPrice, T, iv);
+                console.log(`🧮 CALCULATED VANNA - Put: Strike ${strikeNum}, T=${T.toFixed(4)}, IV=${iv.toFixed(4)}, vanna=${vanna.toFixed(8)}`);
+              }
+              
               gexByStrikeByExp[expDate][strikeNum].putOI = oi;
               gexByStrikeByExp[expDate][strikeNum].putGamma = gamma;
               gexByStrikeByExp[expDate][strikeNum].putDelta = delta;
+              gexByStrikeByExp[expDate][strikeNum].putVanna = vanna;
               if (gamma) {
                 const gex = -gamma * oi * (currentPrice * currentPrice) * 100; // Negative for puts
                 gexByStrikeByExp[expDate][strikeNum].put = gex;
@@ -2391,6 +2440,124 @@ const DealerAttraction = () => {
     }
   }, [selectedTicker]);
 
+  // Memoize ALL calculated data (unfiltered) for getTopValues to use
+  const allCalculatedData = useMemo(() => {
+    if (!gexByStrikeByExpiration || Object.keys(gexByStrikeByExpiration).length === 0) return [];
+    
+    const allStrikes = Array.from(new Set([
+      ...Object.values(gexByStrikeByExpiration).flatMap(exp => Object.keys(exp).map(Number))
+    ])).sort((a, b) => b - a);
+
+    return allStrikes.map(strike => {
+      const row: GEXData = { strike };
+      expirations.forEach(exp => {
+        const gexData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number} = gexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined };
+        const vexData: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number} = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVega: undefined, putVega: undefined };
+        
+        let callGEX = gexData.call;
+        let putGEX = gexData.put;
+        let callOI = gexData.callOI;
+        let putOI = gexData.putOI;
+        let callVEX = vexData.call;
+        let putVEX = vexData.put;
+        
+        // Apply Dealer mode calculation if selected (base mode)
+        if (gexMode === 'Dealer' && !liveMode) {
+          const expirationDate = new Date(exp);
+          const today = new Date();
+          const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+          
+          if (T > 0) {
+            if (gexData.callGamma !== undefined && gexData.callDelta !== undefined && gexData.callVanna !== undefined && gexData.callOI > 0) {
+              const beta = 0.25;
+              const rho_S_sigma = -0.7;
+              const contractMult = 100;
+              const wT = 1 / Math.sqrt(T);
+              const gammaEff = gexData.callGamma + beta * gexData.callVanna * rho_S_sigma;
+              const liveWeight = Math.abs(gexData.callDelta) * (1 - Math.abs(gexData.callDelta));
+              callGEX = gexData.callOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+            }
+            
+            if (gexData.putGamma !== undefined && gexData.putDelta !== undefined && gexData.putVanna !== undefined && gexData.putOI > 0) {
+              const beta = 0.25;
+              const rho_S_sigma = -0.7;
+              const contractMult = 100;
+              const wT = 1 / Math.sqrt(T);
+              const gammaEff = gexData.putGamma + beta * gexData.putVanna * rho_S_sigma;
+              const liveWeight = Math.abs(gexData.putDelta) * (1 - Math.abs(gexData.putDelta));
+              putGEX = -gexData.putOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+            }
+          }
+        }
+        
+        // Apply LIVE OI mode calculations if active
+        if (liveMode && liveOIData.size > 0) {
+          const callKey = `${selectedTicker}_${strike}_call_${exp}`;
+          const putKey = `${selectedTicker}_${strike}_put_${exp}`;
+          
+          const liveCallOI = liveOIData.get(callKey);
+          const livePutOI = liveOIData.get(putKey);
+          
+          const expirationDate = new Date(exp);
+          const today = new Date();
+          const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+          
+          if (liveCallOI !== undefined && gexData.callGamma) {
+            callOI = liveCallOI;
+            
+            if (gexMode === 'Dealer' && gexData.callDelta !== undefined && gexData.callVanna !== undefined && T > 0) {
+              const beta = 0.25;
+              const rho_S_sigma = -0.7;
+              const contractMult = 100;
+              const wT = 1 / Math.sqrt(T);
+              const gammaEff = gexData.callGamma + beta * gexData.callVanna * rho_S_sigma;
+              const liveWeight = Math.abs(gexData.callDelta) * (1 - Math.abs(gexData.callDelta));
+              callGEX = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+            } else {
+              callGEX = gexData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
+            }
+          }
+          
+          if (livePutOI !== undefined && gexData.putGamma) {
+            putOI = livePutOI;
+            
+            if (gexMode === 'Dealer' && gexData.putDelta !== undefined && gexData.putVanna !== undefined && T > 0) {
+              const beta = 0.25;
+              const rho_S_sigma = -0.7;
+              const contractMult = 100;
+              const wT = 1 / Math.sqrt(T);
+              const gammaEff = gexData.putGamma + beta * gexData.putVanna * rho_S_sigma;
+              const liveWeight = Math.abs(gexData.putDelta) * (1 - Math.abs(gexData.putDelta));
+              putGEX = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+            } else {
+              putGEX = -gexData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
+            }
+          }
+          
+          // Recalculate VEX with Live OI
+          if (liveCallOI !== undefined && vexData.callVega) {
+            callVEX = vexData.callVega * liveCallOI * 100;
+          }
+          
+          if (livePutOI !== undefined && vexData.putVega) {
+            putVEX = -vexData.putVega * livePutOI * 100;
+          }
+        }
+        
+        row[exp] = { 
+          call: callGEX, 
+          put: putGEX, 
+          net: callGEX + putGEX, 
+          callOI: callOI, 
+          putOI: putOI,
+          callVex: callVEX,
+          putVex: putVEX
+        };
+      });
+      return row;
+    });
+  }, [gexByStrikeByExpiration, vexByStrikeByExpiration, currentPrice, expirations, gexMode, liveMode, selectedTicker, liveOIData]);
+
   // Memoize the formatted data to prevent unnecessary recalculations during scrolling
   const formattedData = useMemo(() => {
     if (gexByStrikeByExpiration && Object.keys(gexByStrikeByExpiration).length > 0) {
@@ -2405,7 +2572,7 @@ const DealerAttraction = () => {
         const row: GEXData = { strike };
         expirations.forEach(exp => {
           // Get all data types for this strike and expiration
-          const gexData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number} = gexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined };
+          const gexData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number} = gexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined };
           const vexData: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number} = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVega: undefined, putVega: undefined };
           
           let callGEX = gexData.call;
@@ -2415,6 +2582,40 @@ const DealerAttraction = () => {
           let callVEX = vexData.call;
           let putVEX = vexData.put;
           
+          // Apply Dealer mode calculation to initial data if selected
+          if (gexMode === 'Dealer' && !liveMode) {
+            console.log(`🎯 DEALER MODE CALCULATION - Strike ${strike}, Exp ${exp}`);
+            const expirationDate = new Date(exp);
+            const today = new Date();
+            const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+            
+            if (T > 0) {
+              // Dealer mode: Enhanced GEX calculation for calls
+              if (gexData.callGamma !== undefined && gexData.callDelta !== undefined && gexData.callVanna !== undefined && gexData.callOI > 0) {
+                const beta = 0.25;
+                const rho_S_sigma = -0.7;
+                const contractMult = 100;
+                const wT = 1 / Math.sqrt(T);
+                const gammaEff = gexData.callGamma + beta * gexData.callVanna * rho_S_sigma;
+                const liveWeight = Math.abs(gexData.callDelta) * (1 - Math.abs(gexData.callDelta));
+                callGEX = gexData.callOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+                console.log(`🎯 DEALER CALL: Strike ${strike}, OI=${gexData.callOI}, gamma=${gexData.callGamma}, delta=${gexData.callDelta}, vanna=${gexData.callVanna}, T=${T.toFixed(4)}, gammaEff=${gammaEff.toFixed(6)}, liveWeight=${liveWeight.toFixed(4)}, wT=${wT.toFixed(4)}, GEX=${callGEX}`);
+              }
+              
+              // Dealer mode: Enhanced GEX calculation for puts (negative)
+              if (gexData.putGamma !== undefined && gexData.putDelta !== undefined && gexData.putVanna !== undefined && gexData.putOI > 0) {
+                const beta = 0.25;
+                const rho_S_sigma = -0.7;
+                const contractMult = 100;
+                const wT = 1 / Math.sqrt(T);
+                const gammaEff = gexData.putGamma + beta * gexData.putVanna * rho_S_sigma;
+                const liveWeight = Math.abs(gexData.putDelta) * (1 - Math.abs(gexData.putDelta));
+                putGEX = -gexData.putOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+                console.log(`🎯 DEALER PUT: Strike ${strike}, OI=${gexData.putOI}, gamma=${gexData.putGamma}, delta=${gexData.putDelta}, vanna=${gexData.putVanna}, T=${T.toFixed(4)}, gammaEff=${gammaEff.toFixed(6)}, liveWeight=${liveWeight.toFixed(4)}, wT=${wT.toFixed(4)}, GEX=${putGEX}`);
+              }
+            }
+          }
+          
           // Recalculate GEX and VEX using Live OI if available
           if (liveMode && liveOIData.size > 0) {
             const callKey = `${selectedTicker}_${strike}_call_${exp}`;
@@ -2423,19 +2624,50 @@ const DealerAttraction = () => {
             const liveCallOI = liveOIData.get(callKey);
             const livePutOI = liveOIData.get(putKey);
             
+            // Calculate time to expiration in years
+            const expirationDate = new Date(exp);
+            const today = new Date();
+            const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+            
             // If Live OI exists, recalculate GEX with it
             if (liveCallOI !== undefined && gexData.callGamma) {
               callOI = liveCallOI;
-              // GEX = Gamma × OI × Price² × 100
-              callGEX = gexData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
-              console.log(`🔥 Live OI Call GEX: Strike ${strike} = ${gexData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 = ${callGEX}`);
+              
+              if (gexMode === 'Dealer' && gexData.callDelta !== undefined && gexData.callVanna !== undefined && T > 0) {
+                // Dealer mode: Enhanced GEX calculation
+                const beta = 0.25;
+                const rho_S_sigma = -0.7;
+                const contractMult = 100;
+                const wT = 1 / Math.sqrt(T);
+                const gammaEff = gexData.callGamma + beta * gexData.callVanna * rho_S_sigma;
+                const liveWeight = Math.abs(gexData.callDelta) * (1 - Math.abs(gexData.callDelta));
+                callGEX = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+                console.log(`🎯 Dealer Call GEX: Strike ${strike} = OI(${liveCallOI}) × gammaEff(${gammaEff.toFixed(6)}) × liveWeight(${liveWeight.toFixed(4)}) × wT(${wT.toFixed(4)}) × price(${currentPrice}) × 100 = ${callGEX}`);
+              } else {
+                // Standard GEX = Gamma × OI × Price² × 100
+                callGEX = gexData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
+                console.log(`🔥 Live OI Call GEX: Strike ${strike} = ${gexData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 = ${callGEX}`);
+              }
             }
             
             if (livePutOI !== undefined && gexData.putGamma) {
               putOI = livePutOI;
-              // GEX = -Gamma × OI × Price² × 100
-              putGEX = -gexData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
-              console.log(`🔥 Live OI Put GEX: Strike ${strike} = -${gexData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 = ${putGEX}`);
+              
+              if (gexMode === 'Dealer' && gexData.putDelta !== undefined && gexData.putVanna !== undefined && T > 0) {
+                // Dealer mode: Enhanced GEX calculation (negative for puts)
+                const beta = 0.25;
+                const rho_S_sigma = -0.7;
+                const contractMult = 100;
+                const wT = 1 / Math.sqrt(T);
+                const gammaEff = gexData.putGamma + beta * gexData.putVanna * rho_S_sigma;
+                const liveWeight = Math.abs(gexData.putDelta) * (1 - Math.abs(gexData.putDelta));
+                putGEX = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
+                console.log(`🎯 Dealer Put GEX: Strike ${strike} = -OI(${livePutOI}) × gammaEff(${gammaEff.toFixed(6)}) × liveWeight(${liveWeight.toFixed(4)}) × wT(${wT.toFixed(4)}) × price(${currentPrice}) × 100 = ${putGEX}`);
+              } else {
+                // Standard GEX = -Gamma × OI × Price² × 100
+                putGEX = -gexData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
+                console.log(`🔥 Live OI Put GEX: Strike ${strike} = -${gexData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 = ${putGEX}`);
+              }
             }
             
             // Recalculate VEX with Live OI
@@ -2556,32 +2788,47 @@ const DealerAttraction = () => {
     return value.toLocaleString('en-US');
   };
 
-  const getTopValues = () => {
-    // IMPORTANT: Calculate top values from ALL strikes in the chain, not just filtered OTM range
-    // This ensures highest GEX values are identified even if they're outside the displayed OTM filter
-    const positiveValues: number[] = []; // For blue highlighting (positive GEX)
-    const negativeValues: number[] = []; // For purple highlighting (negative GEX)
+  // MEMOIZED: Top values calculated from ALL strikes (unfiltered by OTM range)
+  // This ensures highlighting is based on absolute highest values across complete chain
+  // Dependencies: ONLY allCalculatedData - NOT otmFilter, so changing OTM % doesn't affect which values are "top"
+  const topValues = useMemo(() => {
+    console.log('🔄 RECALCULATING topValues');
+    console.log('📊 allCalculatedData length:', allCalculatedData.length);
     
-    // Iterate through ALL strikes in the unfiltered data structures
-    expirations.forEach(exp => {
-      // Get GEX values from complete chain
-      if (showGEX && gexByStrikeByExpiration[exp]) {
-        Object.keys(gexByStrikeByExpiration[exp]).forEach(strikeStr => {
-          const strike = Number(strikeStr);
-          const gexData = gexByStrikeByExpiration[exp][strike];
-          
+    if (allCalculatedData.length === 0) {
+      return {
+        highest: 0,
+        second: 0,
+        third: 0,
+        top10: [],
+        top5Positive: [],
+        top5Negative: []
+      };
+    }
+    
+    // IMPORTANT: Use allCalculatedData which contains Dealer-calculated values for ALL strikes
+    const positiveValues: number[] = [];
+    const negativeValues: number[] = [];
+    
+    // Read from allCalculatedData and collect values based on current display mode
+    allCalculatedData.forEach(row => {
+      Object.keys(row).forEach(key => {
+        if (key === 'strike') return;
+        
+        const cellData = row[key];
+        if (!cellData || typeof cellData === 'number') return;
+        
+        // Collect GEX values if GEX is shown
+        if (showGEX) {
           if (gexMode === 'Net GEX') {
-            // In Net GEX mode, only consider net values (call + put)
-            const netGex = (gexData?.call || 0) + (gexData?.put || 0);
-            if (netGex > 0) {
-              positiveValues.push(Math.abs(netGex));
-            } else if (netGex < 0) {
-              negativeValues.push(Math.abs(netGex));
-            }
+            // Only collect net values in Net GEX mode
+            const netGex = cellData.net || 0;
+            if (netGex > 0) positiveValues.push(Math.abs(netGex));
+            else if (netGex < 0) negativeValues.push(Math.abs(netGex));
           } else {
-            // In regular GEX mode, consider individual call and put values
-            const callGex = gexData?.call || 0;
-            const putGex = gexData?.put || 0;
+            // Collect call and put separately in regular GEX or Dealer mode
+            const callGex = cellData.call || 0;
+            const putGex = cellData.put || 0;
             
             if (callGex > 0) positiveValues.push(Math.abs(callGex));
             else if (callGex < 0) negativeValues.push(Math.abs(callGex));
@@ -2589,27 +2836,17 @@ const DealerAttraction = () => {
             if (putGex > 0) positiveValues.push(Math.abs(putGex));
             else if (putGex < 0) negativeValues.push(Math.abs(putGex));
           }
-        });
-      }
-      
-      // Get VEX values from complete chain
-      if (showVEX && vexByStrikeByExpiration[exp]) {
-        Object.keys(vexByStrikeByExpiration[exp]).forEach(strikeStr => {
-          const strike = Number(strikeStr);
-          const vexData = vexByStrikeByExpiration[exp][strike];
-          
+        }
+        
+        // Collect VEX values if VEX is shown
+        if (showVEX) {
           if (vexMode === 'Net VEX') {
-            // In Net VEX mode, only consider net values (call + put)
-            const netVex = (vexData?.call || 0) + (vexData?.put || 0);
-            if (netVex > 0) {
-              positiveValues.push(Math.abs(netVex));
-            } else if (netVex < 0) {
-              negativeValues.push(Math.abs(netVex));
-            }
+            const netVex = (cellData.callVex || 0) + (cellData.putVex || 0);
+            if (netVex > 0) positiveValues.push(Math.abs(netVex));
+            else if (netVex < 0) negativeValues.push(Math.abs(netVex));
           } else {
-            // In regular VEX mode, consider individual call and put values
-            const callVex = vexData?.call || 0;
-            const putVex = vexData?.put || 0;
+            const callVex = cellData.callVex || 0;
+            const putVex = cellData.putVex || 0;
             
             if (callVex > 0) positiveValues.push(Math.abs(callVex));
             else if (callVex < 0) negativeValues.push(Math.abs(callVex));
@@ -2617,13 +2854,24 @@ const DealerAttraction = () => {
             if (putVex > 0) positiveValues.push(Math.abs(putVex));
             else if (putVex < 0) negativeValues.push(Math.abs(putVex));
           }
-        });
-      }
+        }
+      });
     });
+    
+    console.log('📊 Total positive values collected:', positiveValues.length);
+    console.log('📊 Total negative values collected:', negativeValues.length);
     
     // Filter out zero values and sort by absolute values (descending)
     const sortedPositive = positiveValues.filter(v => v > 0).sort((a, b) => b - a);
     const sortedNegative = negativeValues.filter(v => v > 0).sort((a, b) => b - a);
+    
+    console.log('✅ TOP VALUES LOCKED - These should NOT change when OTM filter changes:');
+    console.log('   Mode: showGEX=' + showGEX + ', gexMode=' + gexMode + ', showVEX=' + showVEX);
+    console.log('   Highest:', sortedPositive[0]);
+    console.log('   Second:', sortedPositive[1]);
+    console.log('   Third:', sortedPositive[2]);
+    console.log('   Top 5 positive:', sortedPositive.slice(0, 5).map(v => `$${(v/1e6).toFixed(1)}M`));
+    console.log('   Top 5 negative:', sortedNegative.slice(0, 5).map(v => `$${(v/1e6).toFixed(1)}M`));
     
     // Get top 5 for each category
     const top5Positive = sortedPositive.slice(0, 5);
@@ -2639,91 +2887,32 @@ const DealerAttraction = () => {
       top5Positive,
       top5Negative
     };
-  };
+  }, [allCalculatedData, showGEX, showVEX, gexMode, vexMode]);
 
   const getCellStyle = (value: number, isVexValue: boolean = false) => {
     const absValue = Math.abs(value);
-    const tops = getTopValues();
+    const tops = topValues;
     
-    // When Live OI is active, use dealer positioning logic based on GEX values
-    // This applies to both regular GEX and Net GEX modes
-    if (liveMode && showGEX && !isVexValue) {
-      // Positive GEX (long gamma) = BLUE (dealers dampen/absorb moves - magnetic pillow)
-      // Negative GEX (short gamma) = PURPLE (dealers amplify moves - pouring gas on fire)
+    // Use the same highlighting logic for both regular and Live OI modes
+    // Gold/Purple/Green/Blue for top 1st/2nd/3rd/4th-10th values
+    if ((showGEX || showVEX)) {
+      // Use tolerance-based comparison to handle floating point precision issues
+      const tolerance = 1; // $1 tolerance for large values
       
-      if (value > 0) {
-        // BRIGHT BLUE - Dealers positioned to absorb price movement (TOP 5 POSITIVE)
-        // These areas reduce volatility and can act as strong support/resistance zones
-        if (tops.top5Positive && tops.top5Positive.includes(absValue) && absValue > 0) {
-          const rank = tops.top5Positive.indexOf(absValue);
-          
-          if (rank === 0) {
-            // #1 Brightest blue
-            return 'bg-gradient-to-br from-blue-300/90 to-blue-500/90 text-blue-950 font-black shadow-[0_0_30px_rgba(59,130,246,0.8)] border-2 border-blue-300/80';
-          } else if (rank === 1) {
-            // #2 Very bright blue
-            return 'bg-gradient-to-br from-blue-400/80 to-blue-600/80 text-blue-950 font-black shadow-[0_0_25px_rgba(59,130,246,0.6)] border-2 border-blue-400/70';
-          } else if (rank === 2) {
-            // #3 Bright blue
-            return 'bg-gradient-to-br from-blue-500/70 to-blue-700/70 text-blue-950 font-bold shadow-[0_0_20px_rgba(59,130,246,0.5)] border border-blue-500/60';
-          } else if (rank === 3) {
-            // #4 Medium blue
-            return 'bg-gradient-to-br from-blue-600/60 to-blue-800/60 text-blue-100 font-bold shadow-[0_0_15px_rgba(59,130,246,0.4)]';
-          } else if (rank === 4) {
-            // #5 Darker blue
-            return 'bg-gradient-to-br from-blue-700/50 to-blue-900/50 text-blue-100 font-bold shadow-md shadow-blue-500/15';
-          }
-        }
-        // Black background with white text for other positive values outside top 5
-        if (absValue > 0) {
-          return 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
-        }
-      } else if (value < 0) {
-        // DARK PURPLE - Dealers positioned to amplify price movement (TOP 5 NEGATIVE)
-        // These areas increase volatility and can act as explosive breakout zones
-        if (tops.top5Negative && tops.top5Negative.includes(absValue) && absValue > 0) {
-          const rank = tops.top5Negative.indexOf(absValue);
-          
-          if (rank === 0) {
-            // #1 Darkest purple
-            return 'bg-gradient-to-br from-purple-900/90 to-purple-950/90 text-purple-100 font-black shadow-[0_0_30px_rgba(168,85,247,0.8)] border-2 border-purple-600/80';
-          } else if (rank === 1) {
-            // #2 Very dark purple
-            return 'bg-gradient-to-br from-purple-900/80 to-purple-950/80 text-purple-100 font-black shadow-[0_0_25px_rgba(168,85,247,0.6)] border-2 border-purple-600/70';
-          } else if (rank === 2) {
-            // #3 Dark purple
-            return 'bg-gradient-to-br from-purple-800/70 to-purple-900/70 text-purple-100 font-bold shadow-[0_0_20px_rgba(168,85,247,0.5)] border border-purple-600/60';
-          } else if (rank === 3) {
-            // #4 Medium purple
-            return 'bg-gradient-to-br from-purple-700/60 to-purple-850/60 text-purple-100 font-bold shadow-[0_0_15px_rgba(168,85,247,0.4)]';
-          } else if (rank === 4) {
-            // #5 Lighter purple
-            return 'bg-gradient-to-br from-purple-600/50 to-purple-800/50 text-purple-200 font-bold shadow-md shadow-purple-500/15';
-          }
-        }
-        // Black background with white text for other negative values outside top 5
-        if (absValue > 0) {
-          return 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
-        }
-      }
-    }
-    
-    // REGULAR MODE: Original color logic for GEX/VEX when NOT in Live OI mode
-    if (showGEX || showVEX) {
       // 1st - Gold (largest absolute value, positive or negative)
-      if (absValue === tops.highest && absValue > 0) {
+      if (absValue > 0 && Math.abs(absValue - tops.highest) < tolerance) {
         return 'bg-gradient-to-br from-yellow-600/70 to-yellow-800/70 text-yellow-100 font-bold shadow-lg shadow-yellow-500/30';
       }
       // 2nd - Purple (second largest absolute value, positive or negative)
-      if (absValue === tops.second && absValue > 0) {
+      if (absValue > 0 && Math.abs(absValue - tops.second) < tolerance) {
         return 'bg-gradient-to-br from-purple-600/70 to-purple-800/70 text-purple-100 font-bold shadow-lg shadow-purple-500/30';
       }
       // 3rd - Lime Green (third largest absolute value, positive or negative)
-      if (absValue === tops.third && absValue > 0) {
+      if (absValue > 0 && Math.abs(absValue - tops.third) < tolerance) {
         return 'bg-gradient-to-br from-lime-600/70 to-lime-800/70 text-lime-100 font-bold shadow-lg shadow-lime-500/30';
       }
       // 4th-10th - Light Blue (4th through 10th largest absolute values, positive or negative)
-      if (tops.top10.includes(absValue) && absValue > 0) {
+      if (absValue > 0 && tops.top10.some(topVal => Math.abs(absValue - topVal) < tolerance)) {
         return 'bg-gradient-to-br from-blue-600/70 to-blue-800/70 text-blue-100 font-bold shadow-lg shadow-blue-500/30';
       }
     }
@@ -2898,11 +3087,12 @@ const DealerAttraction = () => {
                             <div className="relative">
                               <select
                                 value={gexMode}
-                                onChange={(e) => setGexMode(e.target.value as 'GEX' | 'Net GEX')}
+                                onChange={(e) => setGexMode(e.target.value as 'GEX' | 'Net GEX' | 'Dealer')}
                                 className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-3 py-1.5 pr-8 text-white text-xs font-bold uppercase appearance-none cursor-pointer min-w-[80px] transition-all"
                               >
                                 <option value="GEX">GEX</option>
                                 <option value="Net GEX">Net GEX</option>
+                                <option value="Dealer">Dealer</option>
                               </select>
                               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
@@ -2992,10 +3182,9 @@ const DealerAttraction = () => {
                         <div className="relative">
                           <select
                             value={otmFilter}
-                            onChange={(e) => setOtmFilter(e.target.value as '1%' | '2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%')}
+                            onChange={(e) => setOtmFilter(e.target.value as '2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%')}
                             className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 py-2.5 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[90px] transition-all"
                           >
-                            <option value="1%">±1%</option>
                             <option value="2%">±2%</option>
                             <option value="3%">±3%</option>
                             <option value="5%">±5%</option>
@@ -3230,18 +3419,20 @@ const DealerAttraction = () => {
                           Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
                         ).strike : 0;
                         
-                        // Find the strike with the largest absolute value within current expirations (GEX or Premium)
-                        const largestValueStrike = data.reduce((largest, current) => {
-                          const currentMaxValue = Math.max(...expirations.map(exp => {
-                            const value = current[exp] as {call: number, put: number, net: number};
-                            return Math.max(Math.abs(value?.call || 0), Math.abs(value?.put || 0));
-                          }));
-                          const largestMaxValue = Math.max(...expirations.map(exp => {
-                            const value = largest[exp] as {call: number, put: number, net: number};
-                            return Math.max(Math.abs(value?.call || 0), Math.abs(value?.put || 0));
-                          }));
-                          return currentMaxValue > largestMaxValue ? current : largest;
-                        }).strike;
+                        // Find the strike with the highest GEX value using the same logic as cell highlighting
+                        // This ensures purple row highlight is always on the same strike as the gold cell
+                        const tolerance = 1;
+                        const largestValueStrike = allCalculatedData.length > 0 && topValues.highest > 0 
+                          ? (allCalculatedData.find(row => {
+                              return expirations.some(exp => {
+                                const value = row[exp] as {call: number, put: number, net: number};
+                                const callAbs = Math.abs(value?.call || 0);
+                                const putAbs = Math.abs(value?.put || 0);
+                                return Math.abs(callAbs - topValues.highest) < tolerance || 
+                                       Math.abs(putAbs - topValues.highest) < tolerance;
+                              });
+                            })?.strike ?? 0)
+                          : 0;
 
 
 
@@ -3341,7 +3532,7 @@ const DealerAttraction = () => {
                                 largestVexCell.type === 'put';
                               
                               // Dealer attraction identification (when Live OI is active)
-                              const tops = getTopValues();
+                              const tops = topValues;
                               const absCallValue = Math.abs(callValue);
                               const absPutValue = Math.abs(putValue);
                               const netValueCalculated = callValue + putValue; // Calculate net from actual call+put values
