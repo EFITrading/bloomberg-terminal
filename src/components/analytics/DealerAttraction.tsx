@@ -2423,29 +2423,19 @@ const DealerAttraction = () => {
             const liveCallOI = liveOIData.get(callKey);
             const livePutOI = liveOIData.get(putKey);
             
-            // If Live OI exists, recalculate GEX with it (DELTA-ADJUSTED)
-            if (liveCallOI !== undefined && gexData.callGamma && gexData.callDelta !== undefined) {
+            // If Live OI exists, recalculate GEX with it
+            if (liveCallOI !== undefined && gexData.callGamma) {
               callOI = liveCallOI;
-              // Delta-Adjusted GEX = Gamma × OI × Price² × 100 × |Delta|
-              const deltaAdjustment = Math.abs(gexData.callDelta);
-              callGEX = gexData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100 * deltaAdjustment;
-              console.log(`🔥 Live OI Call GEX (Delta-Adjusted): Strike ${strike} = ${gexData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 × ${deltaAdjustment} = ${callGEX}`);
-            } else if (liveCallOI !== undefined && gexData.callGamma) {
-              // Fallback to non-delta-adjusted if delta not available
-              callOI = liveCallOI;
+              // GEX = Gamma × OI × Price² × 100
               callGEX = gexData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
+              console.log(`🔥 Live OI Call GEX: Strike ${strike} = ${gexData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 = ${callGEX}`);
             }
             
-            if (livePutOI !== undefined && gexData.putGamma && gexData.putDelta !== undefined) {
+            if (livePutOI !== undefined && gexData.putGamma) {
               putOI = livePutOI;
-              // Delta-Adjusted GEX = -Gamma × OI × Price² × 100 × |Delta|
-              const deltaAdjustment = Math.abs(gexData.putDelta);
-              putGEX = -gexData.putGamma * livePutOI * (currentPrice * currentPrice) * 100 * deltaAdjustment;
-              console.log(`🔥 Live OI Put GEX (Delta-Adjusted): Strike ${strike} = -${gexData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 × ${deltaAdjustment} = ${putGEX}`);
-            } else if (livePutOI !== undefined && gexData.putGamma) {
-              // Fallback to non-delta-adjusted if delta not available
-              putOI = livePutOI;
+              // GEX = -Gamma × OI × Price² × 100
               putGEX = -gexData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
+              console.log(`🔥 Live OI Put GEX: Strike ${strike} = -${gexData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 = ${putGEX}`);
             }
             
             // Recalculate VEX with Live OI
@@ -2567,53 +2557,87 @@ const DealerAttraction = () => {
   };
 
   const getTopValues = () => {
-    const allValues = data.flatMap(row => 
-      expirations.flatMap(exp => {
-        const value = row[exp] as any;
-        const values = [];
-        
-        // Include GEX values when displayed
-        if (showGEX) {
+    // IMPORTANT: Calculate top values from ALL strikes in the chain, not just filtered OTM range
+    // This ensures highest GEX values are identified even if they're outside the displayed OTM filter
+    const positiveValues: number[] = []; // For blue highlighting (positive GEX)
+    const negativeValues: number[] = []; // For purple highlighting (negative GEX)
+    
+    // Iterate through ALL strikes in the unfiltered data structures
+    expirations.forEach(exp => {
+      // Get GEX values from complete chain
+      if (showGEX && gexByStrikeByExpiration[exp]) {
+        Object.keys(gexByStrikeByExpiration[exp]).forEach(strikeStr => {
+          const strike = Number(strikeStr);
+          const gexData = gexByStrikeByExpiration[exp][strike];
+          
           if (gexMode === 'Net GEX') {
             // In Net GEX mode, only consider net values (call + put)
-            const netGex = (value?.call || 0) + (value?.put || 0);
-            values.push(Math.abs(netGex));
+            const netGex = (gexData?.call || 0) + (gexData?.put || 0);
+            if (netGex > 0) {
+              positiveValues.push(Math.abs(netGex));
+            } else if (netGex < 0) {
+              negativeValues.push(Math.abs(netGex));
+            }
           } else {
             // In regular GEX mode, consider individual call and put values
-            values.push(
-              Math.abs(value?.call || 0),
-              Math.abs(value?.put || 0)
-            );
+            const callGex = gexData?.call || 0;
+            const putGex = gexData?.put || 0;
+            
+            if (callGex > 0) positiveValues.push(Math.abs(callGex));
+            else if (callGex < 0) negativeValues.push(Math.abs(callGex));
+            
+            if (putGex > 0) positiveValues.push(Math.abs(putGex));
+            else if (putGex < 0) negativeValues.push(Math.abs(putGex));
           }
-        }
-        
-        // Include VEX values when displayed
-        if (showVEX) {
+        });
+      }
+      
+      // Get VEX values from complete chain
+      if (showVEX && vexByStrikeByExpiration[exp]) {
+        Object.keys(vexByStrikeByExpiration[exp]).forEach(strikeStr => {
+          const strike = Number(strikeStr);
+          const vexData = vexByStrikeByExpiration[exp][strike];
+          
           if (vexMode === 'Net VEX') {
             // In Net VEX mode, only consider net values (call + put)
-            const netVex = (value?.callVex || 0) + (value?.putVex || 0);
-            values.push(Math.abs(netVex));
+            const netVex = (vexData?.call || 0) + (vexData?.put || 0);
+            if (netVex > 0) {
+              positiveValues.push(Math.abs(netVex));
+            } else if (netVex < 0) {
+              negativeValues.push(Math.abs(netVex));
+            }
           } else {
             // In regular VEX mode, consider individual call and put values
-            values.push(
-              Math.abs(value?.callVex || 0),
-              Math.abs(value?.putVex || 0)
-            );
+            const callVex = vexData?.call || 0;
+            const putVex = vexData?.put || 0;
+            
+            if (callVex > 0) positiveValues.push(Math.abs(callVex));
+            else if (callVex < 0) negativeValues.push(Math.abs(callVex));
+            
+            if (putVex > 0) positiveValues.push(Math.abs(putVex));
+            else if (putVex < 0) negativeValues.push(Math.abs(putVex));
           }
-        }
-        
-        return values;
-      })
-    ).filter(v => v > 0);
+        });
+      }
+    });
     
-    // Sort by absolute values
-    const sorted = [...allValues].sort((a, b) => b - a);
+    // Filter out zero values and sort by absolute values (descending)
+    const sortedPositive = positiveValues.filter(v => v > 0).sort((a, b) => b - a);
+    const sortedNegative = negativeValues.filter(v => v > 0).sort((a, b) => b - a);
+    
+    // Get top 5 for each category
+    const top5Positive = sortedPositive.slice(0, 5);
+    const top5Negative = sortedNegative.slice(0, 5);
     
     return {
-      highest: sorted[0] || 0,
-      second: sorted[1] || 0,
-      third: sorted[2] || 0,
-      top10: sorted.slice(3, 10) // 4th through 10th highest values
+      // For backward compatibility with existing code
+      highest: sortedPositive[0] || sortedNegative[0] || 0,
+      second: sortedPositive[1] || sortedNegative[1] || 0,
+      third: sortedPositive[2] || sortedNegative[2] || 0,
+      top10: [...sortedPositive.slice(3, 10), ...sortedNegative.slice(3, 10)],
+      // New separate top 5 arrays
+      top5Positive,
+      top5Negative
     };
   };
 
@@ -2621,57 +2645,65 @@ const DealerAttraction = () => {
     const absValue = Math.abs(value);
     const tops = getTopValues();
     
-    // HEATSEEKER MODE: When Live OI is active, use dealer positioning logic based on GEX values
+    // When Live OI is active, use dealer positioning logic based on GEX values
     // This applies to both regular GEX and Net GEX modes
     if (liveMode && showGEX && !isVexValue) {
-      // Positive GEX (long gamma) = YELLOW (dealers dampen/absorb moves - magnetic pillow)
+      // Positive GEX (long gamma) = BLUE (dealers dampen/absorb moves - magnetic pillow)
       // Negative GEX (short gamma) = PURPLE (dealers amplify moves - pouring gas on fire)
       
       if (value > 0) {
-        // BRIGHT YELLOW NODES - Dealers positioned to absorb price movement
+        // BRIGHT BLUE - Dealers positioned to absorb price movement (TOP 5 POSITIVE)
         // These areas reduce volatility and can act as strong support/resistance zones
-        if (absValue === tops.highest && absValue > 0) {
-          // ATTRACTION NODE - Brightest yellow for highest magnitude (primary EOD/EOW target)
-          return 'bg-gradient-to-br from-yellow-300/80 to-yellow-500/80 text-yellow-950 font-black shadow-[0_0_25px_rgba(234,179,8,0.6)] border-2 border-yellow-400/70';
+        if (tops.top5Positive && tops.top5Positive.includes(absValue) && absValue > 0) {
+          const rank = tops.top5Positive.indexOf(absValue);
+          
+          if (rank === 0) {
+            // #1 Brightest blue
+            return 'bg-gradient-to-br from-blue-300/90 to-blue-500/90 text-blue-950 font-black shadow-[0_0_30px_rgba(59,130,246,0.8)] border-2 border-blue-300/80';
+          } else if (rank === 1) {
+            // #2 Very bright blue
+            return 'bg-gradient-to-br from-blue-400/80 to-blue-600/80 text-blue-950 font-black shadow-[0_0_25px_rgba(59,130,246,0.6)] border-2 border-blue-400/70';
+          } else if (rank === 2) {
+            // #3 Bright blue
+            return 'bg-gradient-to-br from-blue-500/70 to-blue-700/70 text-blue-950 font-bold shadow-[0_0_20px_rgba(59,130,246,0.5)] border border-blue-500/60';
+          } else if (rank === 3) {
+            // #4 Medium blue
+            return 'bg-gradient-to-br from-blue-600/60 to-blue-800/60 text-blue-100 font-bold shadow-[0_0_15px_rgba(59,130,246,0.4)]';
+          } else if (rank === 4) {
+            // #5 Darker blue
+            return 'bg-gradient-to-br from-blue-700/50 to-blue-900/50 text-blue-100 font-bold shadow-md shadow-blue-500/15';
+          }
         }
-        if (absValue === tops.second && absValue > 0) {
-          // REVERSAL NODE - 2nd strongest (defensive rejection zone)
-          return 'bg-gradient-to-br from-yellow-400/70 to-yellow-600/70 text-yellow-950 font-black shadow-[0_0_20px_rgba(234,179,8,0.5)] border border-yellow-500/60';
-        }
-        if (absValue === tops.third && absValue > 0) {
-          // REVERSAL NODE - 3rd strongest (secondary rejection zone)
-          return 'bg-gradient-to-br from-yellow-500/60 to-yellow-700/60 text-yellow-100 font-bold shadow-[0_0_15px_rgba(234,179,8,0.3)]';
-        }
-        if (tops.top10.includes(absValue) && absValue > 0) {
-          // Significant magnets (strong pull zones)
-          return 'bg-gradient-to-br from-yellow-600/50 to-yellow-800/50 text-yellow-100 font-bold shadow-md shadow-yellow-500/15';
-        }
-        // Moderate yellow for other positive values (weaker magnets)
+        // Black background with white text for other positive values outside top 5
         if (absValue > 0) {
-          return 'bg-gradient-to-br from-yellow-700/40 to-yellow-900/40 text-yellow-300 border border-yellow-800/25';
+          return 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
         }
       } else if (value < 0) {
-        // DARK PURPLE NODES - Dealers positioned to amplify price movement
+        // DARK PURPLE - Dealers positioned to amplify price movement (TOP 5 NEGATIVE)
         // These areas increase volatility and can act as explosive breakout zones
-        if (absValue === tops.highest && absValue > 0) {
-          // ATTRACTION NODE - Darkest purple for highest magnitude (primary explosive zone)
-          return 'bg-gradient-to-br from-purple-900/80 to-purple-950/80 text-purple-100 font-black shadow-[0_0_25px_rgba(168,85,247,0.6)] border-2 border-purple-600/70';
+        if (tops.top5Negative && tops.top5Negative.includes(absValue) && absValue > 0) {
+          const rank = tops.top5Negative.indexOf(absValue);
+          
+          if (rank === 0) {
+            // #1 Darkest purple
+            return 'bg-gradient-to-br from-purple-900/90 to-purple-950/90 text-purple-100 font-black shadow-[0_0_30px_rgba(168,85,247,0.8)] border-2 border-purple-600/80';
+          } else if (rank === 1) {
+            // #2 Very dark purple
+            return 'bg-gradient-to-br from-purple-900/80 to-purple-950/80 text-purple-100 font-black shadow-[0_0_25px_rgba(168,85,247,0.6)] border-2 border-purple-600/70';
+          } else if (rank === 2) {
+            // #3 Dark purple
+            return 'bg-gradient-to-br from-purple-800/70 to-purple-900/70 text-purple-100 font-bold shadow-[0_0_20px_rgba(168,85,247,0.5)] border border-purple-600/60';
+          } else if (rank === 3) {
+            // #4 Medium purple
+            return 'bg-gradient-to-br from-purple-700/60 to-purple-850/60 text-purple-100 font-bold shadow-[0_0_15px_rgba(168,85,247,0.4)]';
+          } else if (rank === 4) {
+            // #5 Lighter purple
+            return 'bg-gradient-to-br from-purple-600/50 to-purple-800/50 text-purple-200 font-bold shadow-md shadow-purple-500/15';
+          }
         }
-        if (absValue === tops.second && absValue > 0) {
-          // REVERSAL NODE - 2nd strongest (strong amplification zone)
-          return 'bg-gradient-to-br from-purple-800/70 to-purple-900/70 text-purple-100 font-black shadow-[0_0_20px_rgba(168,85,247,0.5)] border border-purple-600/60';
-        }
-        if (absValue === tops.third && absValue > 0) {
-          // REVERSAL NODE - 3rd strongest (secondary amplification zone)
-          return 'bg-gradient-to-br from-purple-700/60 to-purple-850/60 text-purple-100 font-bold shadow-[0_0_15px_rgba(168,85,247,0.3)]';
-        }
-        if (tops.top10.includes(absValue) && absValue > 0) {
-          // Significant amplification zones
-          return 'bg-gradient-to-br from-purple-600/50 to-purple-800/50 text-purple-200 font-bold shadow-md shadow-purple-500/15';
-        }
-        // Moderate purple for other negative values (weaker amplification)
+        // Black background with white text for other negative values outside top 5
         if (absValue > 0) {
-          return 'bg-gradient-to-br from-purple-700/40 to-purple-900/40 text-purple-300 border border-purple-800/25';
+          return 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
         }
       }
     }
@@ -3130,20 +3162,20 @@ const DealerAttraction = () => {
                       <h3 className="text-sm font-black text-orange-400 uppercase tracking-wider">DEALER ATTRACTION ACTIVE</h3>
                     </div>
                     <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                      {/* Yellow Node Info */}
+                      {/* Blue Info */}
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-gradient-to-br from-yellow-400 to-yellow-600 shadow-md"></div>
+                        <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-400 to-blue-600 shadow-md"></div>
                         <div>
-                          <div className="font-bold text-yellow-400">YELLOW</div>
-                          <div className="text-gray-400 text-[10px]">CounterTrend</div>
+                          <div className="font-bold text-blue-400">BLUE</div>
+                          <div className="text-gray-400 text-[10px]">CounterTrend (Top 5)</div>
                         </div>
                       </div>
-                      {/* Purple Node Info */}
+                      {/* Purple Info */}
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded bg-gradient-to-br from-purple-800 to-purple-950 shadow-md"></div>
                         <div>
                           <div className="font-bold text-purple-400">PURPLE</div>
-                          <div className="text-gray-400 text-[10px]">Squeeze</div>
+                          <div className="text-gray-400 text-[10px]">Squeeze (Top 5)</div>
                         </div>
                       </div>
                       {/* Attraction Node Info */}
@@ -3308,23 +3340,23 @@ const DealerAttraction = () => {
                                 largestVexCell.exp === exp && 
                                 largestVexCell.type === 'put';
                               
-                              // Heatseeker node identification (when Live OI is active)
+                              // Dealer attraction identification (when Live OI is active)
                               const tops = getTopValues();
                               const absCallValue = Math.abs(callValue);
                               const absPutValue = Math.abs(putValue);
                               const netValueCalculated = callValue + putValue; // Calculate net from actual call+put values
                               const absNetValue = Math.abs(netValueCalculated);
                               
-                              // Check if this cell is a King Node or Gatekeeper Node
+                              // Check if this cell is an Attraction or Reversal level
                               // For split mode (separate call/put cells)
-                              const isKingNodeCall = liveMode && showGEX && absCallValue === tops.highest && absCallValue > 0;
-                              const isKingNodePut = liveMode && showGEX && absPutValue === tops.highest && absPutValue > 0;
-                              const isGatekeeperCall = liveMode && showGEX && (absCallValue === tops.second || absCallValue === tops.third) && absCallValue > 0;
-                              const isGatekeeperPut = liveMode && showGEX && (absPutValue === tops.second || absPutValue === tops.third) && absPutValue > 0;
+                              const isAttractionCall = liveMode && showGEX && absCallValue === tops.highest && absCallValue > 0;
+                              const isAttractionPut = liveMode && showGEX && absPutValue === tops.highest && absPutValue > 0;
+                              const isReversalCall = liveMode && showGEX && (absCallValue === tops.second || absCallValue === tops.third) && absCallValue > 0;
+                              const isReversalPut = liveMode && showGEX && (absPutValue === tops.second || absPutValue === tops.third) && absPutValue > 0;
                               
                               // For Net GEX mode (single cell with net value)
-                              const isKingNodeNet = liveMode && showGEX && gexMode === 'Net GEX' && absNetValue === tops.highest && absNetValue > 0;
-                              const isGatekeeperNet = liveMode && showGEX && gexMode === 'Net GEX' && (absNetValue === tops.second || absNetValue === tops.third) && absNetValue > 0;
+                              const isAttractionNet = liveMode && showGEX && gexMode === 'Net GEX' && absNetValue === tops.highest && absNetValue > 0;
+                              const isReversalNet = liveMode && showGEX && gexMode === 'Net GEX' && (absNetValue === tops.second || absNetValue === tops.third) && absNetValue > 0;
                               
                               return (
                                 <td
@@ -3342,14 +3374,14 @@ const DealerAttraction = () => {
                                       isLargestValueRow ? 'ring-1 ring-purple-500/50' : ''
                                     }`}>
                                       {/* Dealer Attraction badges for Net GEX Live OI mode */}
-                                      {isKingNodeNet && (
+                                      {isAttractionNet && (
                                         <div className="text-[9px] font-black mb-0.5 tracking-wider text-white" style={{ 
                                           textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
                                         }}>
                                           ATTRACT
                                         </div>
                                       )}
-                                      {isGatekeeperNet && !isKingNodeNet && (
+                                      {isReversalNet && !isAttractionNet && (
                                         <div className="text-[10px] font-bold mb-0.5 tracking-wide text-white" style={{ 
                                           textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
                                         }}>
@@ -3377,14 +3409,14 @@ const DealerAttraction = () => {
                                         boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
                                       } : {}}>
                                         {/* Dealer Attraction badges for Live OI mode */}
-                                        {isKingNodeCall && (
+                                        {isAttractionCall && (
                                           <div className="text-[9px] font-black mb-0.5 tracking-wider text-white" style={{ 
                                             textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
                                           }}>
                                             ATTRACT
                                           </div>
                                         )}
-                                        {isGatekeeperCall && !isKingNodeCall && (
+                                        {isReversalCall && !isAttractionCall && (
                                           <div className="text-[10px] font-bold mb-0.5 tracking-wide text-white" style={{ 
                                             textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
                                           }}>
@@ -3409,14 +3441,14 @@ const DealerAttraction = () => {
                                         boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
                                       } : {}}>
                                         {/* Dealer Attraction badges for Live OI mode */}
-                                        {isKingNodePut && (
+                                        {isAttractionPut && (
                                           <div className="text-[9px] font-black mb-0.5 tracking-wider text-white" style={{ 
                                             textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
                                           }}>
                                             ATTRACT
                                           </div>
                                         )}
-                                        {isGatekeeperPut && !isKingNodePut && (
+                                        {isReversalPut && !isAttractionPut && (
                                           <div className="text-[10px] font-bold mb-0.5 tracking-wide text-white" style={{ 
                                             textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
                                           }}>
