@@ -29,8 +29,8 @@ export async function GET(request: NextRequest) {
     const startTime = Date.now();
     const results: GEXResult[] = [];
 
-    // Scan top symbols (limit to prevent timeout)
-    const symbolsToScan = TOP_1000_SYMBOLS.slice(0, 100);
+    // Scan ALL symbols
+    const symbolsToScan = TOP_1000_SYMBOLS;
     
     for (const ticker of symbolsToScan) {
       try {

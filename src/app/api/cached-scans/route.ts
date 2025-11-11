@@ -15,6 +15,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Return empty results if no DATABASE_URL (local dev without DB)
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json({
+        success: true,
+        type,
+        count: 0,
+        data: [],
+        scannedAt: null,
+        timestamp: new Date().toISOString()
+      });
+    }
+
     // Get scans from last 15 minutes
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
 
