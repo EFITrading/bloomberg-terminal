@@ -4,7 +4,7 @@
  * - Comprehensive benchmarking system
  * - Optimized mathematical calculations with caching
  * - Incremental streaming for real-time results
- * - SharedArrayBuffer for ultra-fast data processing
+ * - SharedArrayBuffer for data processing
  * - Smart caching and memory management
  */
 

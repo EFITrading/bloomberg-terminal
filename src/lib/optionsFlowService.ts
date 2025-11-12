@@ -289,7 +289,7 @@ export class OptionsFlowService {
     console.log(`✅ Options Flow Service initialized with API key: ${apiKey.substring(0, 8)}...`);
   }
 
-  // ULTRA-FAST PARALLEL VERSION - Uses all CPU cores for maximum speed
+  // PARALLEL VERSION - Uses all CPU cores for maximum speed
   async fetchLiveOptionsFlowUltraFast(
     ticker?: string,
     onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
@@ -298,14 +298,20 @@ export class OptionsFlowService {
     
     if (!ticker || ticker.toLowerCase() === 'all') {
       tickersToScan = this.getTop1000Symbols();
-      console.log(`🎯 ULTRA-FAST SCAN: ${tickersToScan.length} symbols across all CPU cores`);
+      console.log(`🎯 SCAN: ${tickersToScan.length} symbols across all CPU cores`);
     } else if (ticker && ticker.includes(',')) {
       tickersToScan = ticker.split(',').map(t => t && t.trim() ? t.trim().toUpperCase() : '').filter(t => t);
-      console.log(`📋 ULTRA-FAST SCAN: ${tickersToScan.length} specific tickers`);
+      console.log(`📋 SCAN: ${tickersToScan.length} specific tickers`);
     } else {
       tickersToScan = ticker ? [ticker.toUpperCase()] : [];
       console.log(`🎯 Single ticker scan: ${ticker ? ticker.toUpperCase() : 'NONE'}`);
     }
+
+    // 🚨 TEMPORARY: Only scan SPY and AMD (remove this filter later)
+    const allowedTickers = ['SPY', 'AMD'];
+    const originalCount = tickersToScan.length;
+    tickersToScan = tickersToScan.filter(t => allowedTickers.includes(t.toUpperCase()));
+    console.log(`🚨 TEMPORARY FILTER: Reduced ${originalCount} tickers to ${tickersToScan.length} (SPY, AMD only)`);
 
     // Use parallel processor to scan all tickers using all CPU cores
     const { ParallelOptionsFlowProcessor } = require('./ParallelOptionsFlowProcessor.js');
@@ -327,7 +333,7 @@ export class OptionsFlowService {
         onProgress
       );
       
-      console.log(`✅ ULTRA-FAST SCAN COMPLETE: Found ${allTrades.length} total trades`);
+      console.log(`✅ SCAN COMPLETE: Found ${allTrades.length} total trades`);
       
       // Workers now include Vol/OI data directly - no enrichment needed!
       console.log(`✅ Vol/OI data included by workers - skipping enrichment step`);
@@ -1324,11 +1330,11 @@ export class OptionsFlowService {
       
       console.log(`📊 ${ticker}: Scanning trades for ALL ${validContracts.length} valid contracts (all expirations)...`);
       
-      // 🚀 ULTRA-FAST BATCHED PROCESSING: Maximum throughput
+      // 🚀 BATCHED PROCESSING: Maximum throughput
       const BATCH_SIZE = 500; // INCREASED from 250 to 500 - DOUBLE THE SPEED!
       const contractBatches = this.chunkArray(validContracts, BATCH_SIZE);
 
-      console.log(`⚡ ULTRA-FAST MODE: ${validContracts.length} contracts → ${contractBatches.length} batches (${BATCH_SIZE} each)`);
+      console.log(`⚡ MODE: ${validContracts.length} contracts → ${contractBatches.length} batches (${BATCH_SIZE} each)`);
       console.log(`� API calls reduced from ${validContracts.length} to ${contractBatches.length} (${((1 - contractBatches.length/validContracts.length) * 100).toFixed(1)}% reduction)`);
       
       // Process batches with MINIMAL delay for maximum speed
@@ -1722,7 +1728,7 @@ export class OptionsFlowService {
       
       if (!response.ok) {
         console.warn(`⚠️ Price API error for ${ticker}: ${response.status}`);
-        return 100; // Fallback price
+        return 0; // Return 0 instead of fake fallback
       }
       
       const data = await response.json();
@@ -1732,12 +1738,12 @@ export class OptionsFlowService {
         console.log(`✅ ${ticker} current price: $${price}`);
         return price;
       } else {
-        console.warn(`⚠️ No valid price data for ${ticker}, using fallback`);
-        return 100;
+        console.warn(`⚠️ No valid price data for ${ticker}`);
+        return 0; // Return 0 instead of fake fallback
       }
     } catch (error) {
       console.warn(`❌ Failed to get current price for ${ticker}:`, error instanceof Error ? error.message : 'Unknown error');
-      return 100; // Fallback to prevent blocking
+      return 0; // Return 0 instead of fake fallback - don't show fake data
     }
   }
 
@@ -1975,7 +1981,7 @@ export class OptionsFlowService {
 
       console.log(`📡 Processing ${contractPromises.length} contracts concurrently for ${ticker}...`);
       
-      // 🚀 LUDICROUS SPEED: Process ALL contracts simultaneously with Promise.all!
+      // Process ALL contracts simultaneously with Promise.all
       // No batching needed - let the system handle it all at once!
       const allBatchResults = await Promise.allSettled(contractPromises);
       

@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 
 interface SpecialDataPoint {
   timestamp: number;
   value: number;
+  isMarketHours?: boolean;
 }
 
 interface SpecialPerformance {
@@ -46,7 +47,14 @@ const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 const SpecialPerformanceChart: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [timeframe, setTimeframe] = useState<Timeframe>('1M');
+  
+  // Refs for performance optimization - prevent re-renders
+  const animationFrameRef = useRef<number | null>(null);
+  const timeframeRef = useRef<Timeframe>('1W');
+  const lastDrawParamsRef = useRef<string>('');
+  const crosshairRef = useRef<{ x: number; y: number } | null>(null);
+  
+  const [timeframe, setTimeframe] = useState<Timeframe>('1W');
   const [performanceData, setPerformanceData] = useState<SpecialPerformance[]>([]);
   const [loading, setLoading] = useState(true);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -56,9 +64,6 @@ const SpecialPerformanceChart: React.FC = () => {
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 1 }); // 0 to 1 as percentage
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, rangeStart: 0 });
-  
-  // Crosshair state
-  const [crosshair, setCrosshair] = useState<{ x: number; y: number } | null>(null);
   
   // Benchmarked mode state
   const [isBenchmarked, setIsBenchmarked] = useState(false);
@@ -75,6 +80,9 @@ const SpecialPerformanceChart: React.FC = () => {
     specialty: true
   });
   
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
   // Category definitions for Special ETFs
   const GROWTH_TICKERS = ['IVW', 'IJH', 'IWO', 'IWF', 'IJR'];
   const VALUE_TICKERS = ['IVE', 'IJJ', 'IWN', 'IWD'];
@@ -88,6 +96,11 @@ const SpecialPerformanceChart: React.FC = () => {
     }));
   };
   
+  // Fullscreen handler - toggles expanded view
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+  };
+  
   // Filter performance data based on active categories
   const getFilteredData = () => {
     const allowedTickers: string[] = [];
@@ -95,61 +108,114 @@ const SpecialPerformanceChart: React.FC = () => {
     if (activeCategories.value) allowedTickers.push(...VALUE_TICKERS);
     if (activeCategories.specialty) allowedTickers.push(...SPECIALTY_TICKERS);
     
-    // Don't include indexes in the chart lines (only in legend for reference)
-    // const indexTickers = ['DIA', 'SPY', 'QQQ', 'IWM'];
-    // allowedTickers.push(...indexTickers);
+    let filteredData = performanceData.filter(item => allowedTickers.includes(item.symbol));
     
-    return performanceData.filter(item => allowedTickers.includes(item.symbol));
+    // Apply benchmarking if enabled
+    if (isBenchmarked) {
+      filteredData = calculateBenchmarkedData(filteredData);
+    }
+    
+    return filteredData;
+  };
+  
+  // Calculate benchmarked performance (ticker/SPY)
+  const calculateBenchmarkedData = (data: SpecialPerformance[]): SpecialPerformance[] => {
+    const spyData = performanceData.find(sector => sector.symbol === 'SPY');
+    if (!spyData || spyData.data.length === 0) return data;
+    
+    return data.map(sector => {
+      if (sector.symbol === 'SPY') {
+        // SPY/SPY = 0% (flat line)
+        return {
+          ...sector,
+          data: sector.data.map(point => ({ ...point, value: 0 })),
+          currentPerformance: 0
+        };
+      }
+      
+      // Calculate ticker - SPY for each data point (simple subtraction)
+      const benchmarkedData = sector.data.map((point, index) => {
+        const spyPoint = spyData.data[index];
+        if (!spyPoint) return point;
+        
+        // Simple subtraction: ticker% - SPY%
+        const relativePerformance = point.value - spyPoint.value;
+        
+        return {
+          ...point,
+          value: relativePerformance
+        };
+      });
+      
+      const currentBenchmarkedPerf = benchmarkedData.length > 0 
+        ? benchmarkedData[benchmarkedData.length - 1].value 
+        : 0;
+      
+      return {
+        ...sector,
+        data: benchmarkedData,
+        currentPerformance: currentBenchmarkedPerf
+      };
+    });
   };
 
   // Get date range based on timeframe
-  const getDateRange = (tf: Timeframe): { startDate: string; endDate: string } => {
-    const end = new Date();
-    const start = new Date();
+  const getDateRange = (tf: Timeframe): { from: string; to: string } => {
+    const now = new Date();
+    const to = now.toISOString().split('T')[0];
     
-    if (useCustomDates && customStartDate && customEndDate) {
-      return { startDate: customStartDate, endDate: customEndDate };
+    // Use custom dates if start date is provided
+    if (useCustomDates && customStartDate) {
+      return { 
+        from: customStartDate, 
+        to: customEndDate || to // If no end date, use today
+      };
     }
     
+    let from = new Date();
+
     switch (tf) {
       case '1D':
-        start.setDate(end.getDate() - 1);
+        // For intraday view, start from today (not yesterday)
+        from.setDate(now.getDate());
+        from.setHours(0, 0, 0, 0);
         break;
       case '1W':
-        start.setDate(end.getDate() - 7);
+        // For 1W, show last 5 trading days
+        from.setDate(now.getDate() - 7);
         break;
       case '1M':
-        start.setMonth(end.getMonth() - 1);
+        from.setMonth(now.getMonth() - 1);
         break;
       case '3M':
-        start.setMonth(end.getMonth() - 3);
+        from.setMonth(now.getMonth() - 3);
         break;
       case '6M':
-        start.setMonth(end.getMonth() - 6);
+        from.setMonth(now.getMonth() - 6);
         break;
       case '1Y':
-        start.setFullYear(end.getFullYear() - 1);
+        from.setFullYear(now.getFullYear() - 1);
         break;
       case '2Y':
-        start.setFullYear(end.getFullYear() - 2);
+        from.setFullYear(now.getFullYear() - 2);
         break;
       case '5Y':
-        start.setFullYear(end.getFullYear() - 5);
+        from.setFullYear(now.getFullYear() - 5);
         break;
       case '10Y':
-        start.setFullYear(end.getFullYear() - 10);
+        from.setFullYear(now.getFullYear() - 10);
         break;
       case '20Y':
-        start.setFullYear(end.getFullYear() - 20);
+        from.setFullYear(now.getFullYear() - 20);
         break;
       case 'YTD':
-        start.setMonth(0, 1); // January 1st of current year
+        from.setMonth(0, 1); // January 1st of current year
         break;
     }
-    
+
     return {
-      startDate: start.toISOString().split('T')[0],
-      endDate: end.toISOString().split('T')[0]
+      from: from.toISOString().split('T')[0],
+      to
     };
   };
 
@@ -158,48 +224,115 @@ const SpecialPerformanceChart: React.FC = () => {
     setLoading(true);
     console.log('🔵 SpecialPerformanceChart: Starting data fetch...');
     try {
-      const { startDate, endDate } = getDateRange(timeframe);
-      console.log('🔵 Date range:', startDate, 'to', endDate);
+      const { from, to } = getDateRange(timeframe);
+      console.log('🔵 Date range:', from, 'to', to);
       
-      const dataPromises = SPECIAL_ETFS.map(async (etf) => {
-        try {
-          const url = `https://api.polygon.io/v2/aggs/ticker/${etf.symbol}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
-          const response = await fetch(url);
-          
-          if (!response.ok) {
-            console.warn(`Failed to fetch ${etf.symbol}`);
+      const multiplier = (timeframe === '1D' || timeframe === '1W') ? 5 : 1;
+      const timespan = (timeframe === '1D' || timeframe === '1W') ? 'minute' : 'day';
+      
+      // Helper function to check if time is during market hours (9:30 AM - 4:00 PM ET)
+      const isMarketHours = (timestamp: number): boolean => {
+        const date = new Date(timestamp);
+        const dateET = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const hoursET = dateET.getHours();
+        const minutesET = dateET.getMinutes();
+        const totalMinutesET = hoursET * 60 + minutesET;
+        
+        // 9:30 AM = 570 minutes, 4:00 PM = 960 minutes
+        return totalMinutesET >= 570 && totalMinutesET <= 960;
+      };
+
+      // Optimized fetch with aggressive retry and request reuse
+      const fetchWithRetry = async (etf: typeof SPECIAL_ETFS[0], retries = 5): Promise<SpecialPerformance | null> => {
+        const url = `https://api.polygon.io/v2/aggs/ticker/${etf.symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
+        
+        for (let attempt = 0; attempt < retries; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            const response = await fetch(url, { 
+              signal: controller.signal,
+              headers: {
+                'Connection': 'keep-alive'
+              }
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+              if (response.status === 429) {
+                await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
+                continue;
+              }
+              if (attempt < retries - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+                continue;
+              }
+              console.warn(`Failed to fetch ${etf.symbol}`);
+              return null;
+            }
+            
+            const data = await response.json();
+            
+            if (!data.results || data.results.length === 0) {
+              return null;
+            }
+            
+            let results = data.results;
+            
+            if (timeframe === '1D') {
+              results = results.filter((point: any) => isMarketHours(point.t));
+            }
+            
+            if (results.length === 0) return null;
+            
+            const firstClose = results[0].c;
+            const performancePoints: SpecialDataPoint[] = results.map((bar: any) => ({
+              timestamp: bar.t,
+              value: ((bar.c - firstClose) / firstClose) * 100,
+              isMarketHours: timeframe === '1W' ? isMarketHours(bar.t) : true
+            }));
+            
+            const currentPerformance = performancePoints[performancePoints.length - 1]?.value || 0;
+            
+            return {
+              symbol: etf.symbol,
+              name: etf.name,
+              color: etf.color,
+              data: performancePoints,
+              currentPerformance
+            };
+          } catch (error: any) {
+            if (error.name === 'AbortError') {
+              console.warn(`Timeout fetching ${etf.symbol}, attempt ${attempt + 1}/${retries}`);
+            }
+            if (attempt < retries - 1) {
+              await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+              continue;
+            }
+            console.error(`Failed to fetch ${etf.symbol} after ${retries} attempts:`, error);
             return null;
           }
-          
-          const data = await response.json();
-          
-          if (!data.results || data.results.length === 0) {
-            return null;
-          }
-          
-          // Calculate performance relative to first data point
-          const firstClose = data.results[0].c;
-          const performancePoints: SpecialDataPoint[] = data.results.map((bar: any) => ({
-            timestamp: bar.t,
-            value: ((bar.c - firstClose) / firstClose) * 100
-          }));
-          
-          const currentPerformance = performancePoints[performancePoints.length - 1]?.value || 0;
-          
-          return {
-            symbol: etf.symbol,
-            name: etf.name,
-            color: etf.color,
-            data: performancePoints,
-            currentPerformance
-          };
-        } catch (error) {
-          console.error(`Error fetching ${etf.symbol}:`, error);
-          return null;
         }
-      });
+        return null;
+      };
+
+      // Parallel processing with chunking - process 6 at a time with minimal delay
+      const chunkSize = 6;
+      const results: (SpecialPerformance | null)[] = [];
       
-      const results = await Promise.all(dataPromises);
+      for (let i = 0; i < SPECIAL_ETFS.length; i += chunkSize) {
+        const chunk = SPECIAL_ETFS.slice(i, i + chunkSize);
+        const chunkPromises = chunk.map(etf => fetchWithRetry(etf));
+        const chunkResults = await Promise.all(chunkPromises);
+        results.push(...chunkResults);
+        
+        if (i + chunkSize < SPECIAL_ETFS.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+      
       const validResults = results.filter((r): r is SpecialPerformance => r !== null);
       
       console.log('🔵 Fetched', validResults.length, 'valid results out of', SPECIAL_ETFS.length, 'ETFs');
@@ -212,14 +345,16 @@ const SpecialPerformanceChart: React.FC = () => {
             if (result.symbol !== 'SPY') {
               result.data = result.data.map((point, idx) => ({
                 timestamp: point.timestamp,
-                value: point.value - (spyData.data[idx]?.value || 0)
+                value: point.value - (spyData.data[idx]?.value || 0),
+                isMarketHours: point.isMarketHours
               }));
               result.currentPerformance = result.data[result.data.length - 1]?.value || 0;
             } else {
               // SPY becomes flat line at 0 in benchmarked mode
               result.data = result.data.map(point => ({
                 timestamp: point.timestamp,
-                value: 0
+                value: 0,
+                isMarketHours: point.isMarketHours
               }));
               result.currentPerformance = 0;
             }
@@ -237,10 +372,10 @@ const SpecialPerformanceChart: React.FC = () => {
     }
   };
 
-  // Auto-refresh every 1 minute
+  // Auto-refresh every 5 minutes
   useEffect(() => {
     fetchSpecialData();
-    const interval = setInterval(fetchSpecialData, 60000);
+    const interval = setInterval(fetchSpecialData, 300000);
     return () => clearInterval(interval);
   }, [timeframe, isBenchmarked, useCustomDates, customStartDate, customEndDate]);
 
@@ -264,6 +399,20 @@ const SpecialPerformanceChart: React.FC = () => {
       window.removeEventListener('resize', updateDimensions);
     };
   }, [loading]); // Re-run when loading changes
+  
+  // Update dimensions when fullscreen changes
+  useLayoutEffect(() => {
+    if (containerRef.current) {
+      // Wait for CSS transition to complete (300ms) then measure
+      setTimeout(() => {
+        if (containerRef.current) {
+          const { width, height } = containerRef.current.getBoundingClientRect();
+          console.log('🔵 Fullscreen dimensions update:', { width, height, isFullscreen });
+          setDimensions({ width, height });
+        }
+      }, 350); // Wait for 300ms transition + 50ms buffer
+    }
+  }, [isFullscreen]);
 
   // Draw chart
   useEffect(() => {
@@ -301,8 +450,13 @@ const SpecialPerformanceChart: React.FC = () => {
     console.log('🔵 Filtered data length:', filteredData.length);
     if (filteredData.length === 0) return;
 
-    // Chart margins - matching SectorPerformanceChart
-    const margin = { top: 40, right: 100, bottom: 80, left: 60 };
+    // Chart margins - dynamic bottom margin based on fullscreen state
+    const margin = { 
+      top: 40, 
+      right: 100, 
+      bottom: isFullscreen ? 30 : 80, 
+      left: 60 
+    };
     const chartWidth = dimensions.width - margin.left - margin.right;
     const chartHeight = dimensions.height - margin.top - margin.bottom;
 
@@ -337,6 +491,26 @@ const SpecialPerformanceChart: React.FC = () => {
     ctx.beginPath();
     ctx.rect(margin.left, margin.top, chartWidth, chartHeight);
     ctx.clip();
+
+    // Draw gray shading for pre-market and after-hours in 1W view
+    if (timeframe === '1W' && performanceData[0]?.data) {
+      ctx.fillStyle = 'rgba(100, 100, 100, 0.15)';
+      
+      performanceData[0].data.forEach((point, index) => {
+        if (index < startIdx || index >= endIdx) return;
+        
+        // If this data point is NOT during market hours, draw a gray bar
+        if (!point.isMarketHours) {
+          const x = getX(index);
+          const nextX = index < performanceData[0].data.length - 1 
+            ? getX(index + 1) 
+            : x + 2;
+          const barWidth = nextX - x;
+          
+          ctx.fillRect(x, margin.top, barWidth, chartHeight);
+        }
+      });
+    }
 
     // Draw grid lines - REMOVED dashed lines
     // ctx.strokeStyle = '#1a1a1a';
@@ -409,6 +583,7 @@ const SpecialPerformanceChart: React.FC = () => {
     ctx.restore();
 
     // Draw crosshair
+    const crosshair = crosshairRef.current;
     if (crosshair) {
       ctx.strokeStyle = '#ff6600';
       ctx.lineWidth = 1;
@@ -463,7 +638,7 @@ const SpecialPerformanceChart: React.FC = () => {
       ctx.fillText(`${value.toFixed(1)}%`, margin.left - 10, y + 4);
     }
 
-    // X-axis time labels - adaptive based on zoom (matching SectorPerformanceChart)
+    // X-axis time labels - adaptive based on zoom and timeframe (Koyfin-style)
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
@@ -471,6 +646,7 @@ const SpecialPerformanceChart: React.FC = () => {
     const zoom = 1 / (visibleRange.end - visibleRange.start);
     const xLabelCount = Math.min(12, Math.max(6, Math.floor(6 * zoom)));
     const visibleDataPoints = endIdx - startIdx;
+    let lastDateShown = '';
     
     for (let i = 0; i <= xLabelCount; i++) {
       const dataIndex = startIdx + Math.floor(visibleDataPoints * i / xLabelCount);
@@ -478,9 +654,48 @@ const SpecialPerformanceChart: React.FC = () => {
         const x = getX(dataIndex);
         if (x >= margin.left && x <= margin.left + chartWidth) {
           const date = new Date(filteredData[0].data[dataIndex].timestamp);
-          const label = timeframe === '1D' 
-            ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          const dateET = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          
+          let label: string;
+          
+          if (timeframe === '1D') {
+            // 1D: Show only time (9:30, 10:00, 14:30)
+            const hours = dateET.getHours();
+            const minutes = dateET.getMinutes();
+            label = `${hours}:${minutes.toString().padStart(2, '0')}`;
+            
+          } else if (timeframe === '1W') {
+            // 1W: Calculate visible time span to determine label format
+            const visibleTimeSpan = filteredData[0].data[endIdx - 1]?.timestamp - filteredData[0].data[startIdx]?.timestamp;
+            const daysVisible = visibleTimeSpan / (1000 * 60 * 60 * 24);
+            
+            if (daysVisible <= 3) {
+              // 3 days or less: show time only (intraday view)
+              const hours = dateET.getHours();
+              const minutes = dateET.getMinutes();
+              label = `${hours}:${minutes.toString().padStart(2, '0')}`;
+            } else {
+              // More than 3 days: show date once per day, then times
+              const month = dateET.getMonth() + 1;
+              const day = dateET.getDate();
+              const currentDate = `${month}/${day}`;
+              
+              if (currentDate !== lastDateShown) {
+                // First time seeing this date - show it
+                label = currentDate;
+                lastDateShown = currentDate;
+              } else {
+                // Same day - just show time
+                const hours = dateET.getHours();
+                const minutes = dateET.getMinutes();
+                label = `${hours}:${minutes.toString().padStart(2, '0')}`;
+              }
+            }
+            
+          } else {
+            // 1M, 3M, 6M, 1Y+: Show only dates (Mon DD format)
+            label = dateET.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          }
           
           ctx.fillText(label, x, dimensions.height - margin.bottom + 30);
         }
@@ -494,8 +709,13 @@ const SpecialPerformanceChart: React.FC = () => {
     // Sort by performance
     const sortedData = [...filteredData].sort((a, b) => b.currentPerformance - a.currentPerformance);
     
+    // Dynamic spacing and font size based on fullscreen mode
+    const itemSpacing = isFullscreen ? 32 : 28;
+    const fontSize = isFullscreen ? 12 : 10;
+    const hoveredFontSize = isFullscreen ? 13 : 11;
+    
     sortedData.forEach((etf, index) => {
-      const y = legendY + (index * 28);
+      const y = legendY + (index * itemSpacing);
       const isHovered = hoveredSector === etf.symbol;
 
       // Background for hovered item
@@ -504,18 +724,20 @@ const SpecialPerformanceChart: React.FC = () => {
         ctx.fillRect(legendX - 5, y - 14, 190, 26);
       }
 
-      // Color line
+      // Ticker - use etf color
       ctx.fillStyle = etf.color;
-      ctx.fillRect(legendX, y - 6, 24, 4);
-
-      // Symbol - only show ticker
-      ctx.fillStyle = isHovered ? '#ffffff' : '#dddddd';
-      ctx.font = isHovered ? 'bold 14px monospace' : '13px monospace';
+      ctx.font = isHovered ? `bold ${hoveredFontSize}px monospace` : `${fontSize}px monospace`;
       ctx.textAlign = 'left';
-      ctx.fillText(etf.symbol, legendX + 30, y);
+      ctx.fillText(etf.symbol, legendX, y);
+
+      // Percentage next to ticker
+      const perfColor = etf.currentPerformance >= 0 ? '#00ff00' : '#ff0000';
+      ctx.fillStyle = perfColor;
+      const perfText = ` ${etf.currentPerformance >= 0 ? '+' : ''}${etf.currentPerformance.toFixed(2)}%`;
+      ctx.fillText(perfText, legendX + 20, y);
     });
 
-  }, [performanceData, dimensions, visibleRange, hoveredSector, crosshair, activeCategories, timeframe]);
+  }, [performanceData, dimensions, visibleRange, hoveredSector, activeCategories, timeframe]);
 
   // Mouse handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -541,30 +763,33 @@ const SpecialPerformanceChart: React.FC = () => {
     const chartWidth = dimensions.width - margin.left - margin.right;
     const legendX = margin.left + chartWidth + 30;
     const legendY = margin.top + 20;
+    const itemSpacing = isFullscreen ? 32 : 28;
     
     const filteredData = getFilteredData();
     const sortedData = [...filteredData].sort((a, b) => b.currentPerformance - a.currentPerformance);
     
     let found = false;
     sortedData.forEach((etf, index) => {
-      const y = legendY + (index * 28);
+      const y = legendY + (index * itemSpacing);
       if (mouseX >= legendX - 5 && mouseX <= legendX + 185 && 
           mouseY >= y - 14 && mouseY <= y + 12) {
-        setHoveredSector(etf.symbol);
+        if (hoveredSector !== etf.symbol) {
+          setHoveredSector(etf.symbol);
+        }
         found = true;
       }
     });
     
-    if (!found && !isDragging) {
+    if (!found && !isDragging && hoveredSector !== null) {
       setHoveredSector(null);
     }
     
     // Update crosshair
     if (mouseX >= margin.left && mouseX <= dimensions.width - margin.right &&
         mouseY >= margin.top && mouseY <= dimensions.height - margin.bottom) {
-      setCrosshair({ x: mouseX, y: mouseY });
+      crosshairRef.current = { x: mouseX, y: mouseY };
     } else {
-      setCrosshair(null);
+      crosshairRef.current = null;
     }
     
     if (isDragging) {
@@ -623,19 +848,26 @@ const SpecialPerformanceChart: React.FC = () => {
   };
 
   const handleMouseLeave = () => {
-    setCrosshair(null);
+    crosshairRef.current = null;
+    if (hoveredSector !== null) {
+      setHoveredSector(null);
+    }
+    if (isDragging) {
+      setIsDragging(false);
+    }
   };
 
   return (
     <div className="sector-performance-chart" style={{ 
       width: '1000px',
-      height: '650px',
+      height: isFullscreen ? '870px' : '650px',
       backgroundColor: '#000000',
       border: '1px solid #333',
       borderRadius: '4px',
       padding: '20px',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      transition: 'height 0.3s ease'
     }}>
       {/* Header */}
       <div style={{ 
@@ -657,7 +889,11 @@ const SpecialPerformanceChart: React.FC = () => {
           </label>
           <select
             value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+            onChange={(e) => {
+              const newTimeframe = e.target.value as Timeframe;
+              setTimeframe(newTimeframe);
+              timeframeRef.current = newTimeframe;
+            }}
             style={{
               padding: '6px 12px',
               backgroundColor: '#1a1a1a',
@@ -782,9 +1018,9 @@ const SpecialPerformanceChart: React.FC = () => {
             onClick={() => setIsBenchmarked(!isBenchmarked)}
             style={{
               padding: '6px 12px',
-              backgroundColor: isBenchmarked ? '#ffaa00' : '#1a1a1a',
-              color: isBenchmarked ? '#000000' : '#999999',
-              border: isBenchmarked ? '1px solid #ffaa00' : '1px solid #333333',
+              backgroundColor: isBenchmarked ? '#9d4edd' : '#1a1a1a',
+              color: isBenchmarked ? '#ffffff' : '#999999',
+              border: isBenchmarked ? '1px solid #9d4edd' : '1px solid #333333',
               borderRadius: '3px',
               cursor: 'pointer',
               fontSize: '11px',
@@ -822,7 +1058,12 @@ const SpecialPerformanceChart: React.FC = () => {
           <input
             type="date"
             value={customStartDate}
-            onChange={(e) => setCustomStartDate(e.target.value)}
+            onChange={(e) => {
+              setCustomStartDate(e.target.value);
+              if (e.target.value) {
+                setUseCustomDates(true);
+              }
+            }}
             style={{
               padding: '4px 8px',
               backgroundColor: '#1a1a1a',
@@ -831,7 +1072,7 @@ const SpecialPerformanceChart: React.FC = () => {
               borderRadius: '3px',
               fontSize: '11px',
               fontFamily: 'monospace',
-              outline: 'none'
+              cursor: 'pointer'
             }}
           />
           <label style={{ 
@@ -845,7 +1086,12 @@ const SpecialPerformanceChart: React.FC = () => {
           <input
             type="date"
             value={customEndDate}
-            onChange={(e) => setCustomEndDate(e.target.value)}
+            onChange={(e) => {
+              setCustomEndDate(e.target.value);
+              if (customStartDate) {
+                setUseCustomDates(true);
+              }
+            }}
             style={{
               padding: '4px 8px',
               backgroundColor: '#1a1a1a',
@@ -854,52 +1100,51 @@ const SpecialPerformanceChart: React.FC = () => {
               borderRadius: '3px',
               fontSize: '11px',
               fontFamily: 'monospace',
-              outline: 'none'
+              cursor: 'pointer'
             }}
           />
-          {customStartDate && customEndDate && (
-            <>
-              <button
-                onClick={() => setUseCustomDates(!useCustomDates)}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: useCustomDates ? '#00cc88' : '#1a1a1a',
-                  color: useCustomDates ? '#000000' : '#999999',
-                  border: useCustomDates ? '1px solid #00cc88' : '1px solid #333333',
-                  borderRadius: '3px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: useCustomDates ? 'bold' : 'normal',
-                  fontFamily: 'monospace',
-                  transition: 'all 0.2s'
-                }}
-              >
-                Apply
-              </button>
-              {useCustomDates && (
-                <button
-                  onClick={() => {
-                    setUseCustomDates(false);
-                    setCustomStartDate('');
-                    setCustomEndDate('');
-                  }}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#cc0000',
-                    color: '#ffffff',
-                    border: '1px solid #cc0000',
-                    borderRadius: '3px',
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    fontFamily: 'monospace'
-                  }}
-                >
-                  Clear
-                </button>
-              )}
-            </>
+          
+          {useCustomDates && (
+            <button
+              onClick={() => {
+                setUseCustomDates(false);
+                setCustomStartDate('');
+                setCustomEndDate('');
+              }}
+              style={{
+                padding: '4px 8px',
+                backgroundColor: '#ff3333',
+                color: '#ffffff',
+                border: '1px solid #ff3333',
+                borderRadius: '3px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontFamily: 'monospace',
+                fontWeight: 'bold'
+              }}
+            >
+              Clear
+            </button>
           )}
+          
+          {/* Top/Bottom Button */}
+          <button
+            style={{
+              padding: '4px 12px',
+              background: 'linear-gradient(145deg, #1a1a1a, #0d0d0d)',
+              color: '#ff8800',
+              border: '1px solid #333333',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              fontWeight: 'bold',
+              boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.5)',
+              marginLeft: '12px'
+            }}
+          >
+            Top/Bottom
+          </button>
         </div>
       </div>
       
@@ -920,8 +1165,10 @@ const SpecialPerformanceChart: React.FC = () => {
           ref={containerRef} 
           style={{ 
             width: '100%', 
-            height: '550px',
-            position: 'relative'
+            height: isFullscreen ? '770px' : '550px',
+            position: 'relative',
+            backgroundColor: '#000000',
+            transition: 'height 0.3s ease'
           }}
         >
           <canvas
@@ -938,6 +1185,42 @@ const SpecialPerformanceChart: React.FC = () => {
             onMouseLeave={handleMouseLeave}
             onWheel={handleWheel}
           />
+          
+          {/* Fullscreen Button */}
+          <button
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            style={{
+              position: 'absolute',
+              bottom: '10px',
+              right: '10px',
+              width: '28px',
+              height: '28px',
+              backgroundColor: 'rgba(26, 26, 26, 0.8)',
+              border: '1px solid #444444',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#999999',
+              fontSize: '14px',
+              transition: 'all 0.2s',
+              zIndex: 10
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(255, 136, 0, 0.2)';
+              e.currentTarget.style.borderColor = '#ff8800';
+              e.currentTarget.style.color = '#ff8800';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(26, 26, 26, 0.8)';
+              e.currentTarget.style.borderColor = '#444444';
+              e.currentTarget.style.color = '#999999';
+            }}
+          >
+            {isFullscreen ? '⊡' : '⛶'}
+          </button>
         </div>
       )}
     </div>

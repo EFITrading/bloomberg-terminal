@@ -281,6 +281,12 @@ export default function OptionsFlowPage() {
  const streamData = JSON.parse(event.data);
  
  switch (streamData.type) {
+ case 'connected':
+ console.log('✅ Stream connected:', streamData.message);
+ setStreamingStatus('Connected - scanning options flow...');
+ setStreamError('');
+ break;
+ 
  case 'status':
  setStreamingStatus(streamData.message);
  console.log(` Stream Status: ${streamData.message}`);
@@ -448,35 +454,49 @@ export default function OptionsFlowPage() {
             
             // Don't retry if stream completed successfully
             if (isStreamComplete) {
-              console.log('Stream completed successfully, ignoring final disconnect');
+              console.log('✅ Stream completed successfully, ignoring final disconnect');
+              eventSource.close();
+              setStreamingStatus('');
+              setLoading(false);
+              return;
+            }
+            
+            // Check if this is just a normal close after completion
+            if (eventSource.readyState === 2) { // CLOSED state
+              console.log('ℹ️ Stream closed normally');
               eventSource.close();
               return;
             }
             
-            // Set user-friendly error message
-            setStreamError('Connection lost. Retrying...');
-            setStreamingStatus('Connection error - retrying...');
+            // Only show error if connection truly failed
+            if (eventSource.readyState === 0) { // CONNECTING state - connection failed
+              console.error('❌ Connection failed to establish');
+              setStreamError('Failed to establish connection');
+            } else {
+              setStreamError('Connection interrupted');
+            }
             
-            setLoading(false);
-            eventSource.close(); // Auto-retry with exponential backoff (max 3 retries)
- if (currentRetry < 3) {
- const nextRetry = currentRetry + 1;
- const backoffDelay = Math.min(1000 * Math.pow(2, currentRetry), 8000); // Max 8 seconds
- console.log(`🔄 Retrying in ${backoffDelay}ms (attempt ${nextRetry}/3)...`);
- 
- setRetryCount(nextRetry);
- 
- setTimeout(() => {
- fetchOptionsFlowStreaming(nextRetry);
- }, backoffDelay);
- } else {
- setStreamError('Connection failed after 3 attempts. Please try refreshing the page.');
- setStreamingStatus('');
- console.error('❌ Max retries reached. Falling back to regular API.');
- // Fallback to regular API
- fetchOptionsFlow();
- }
- };
+            setStreamingStatus('Connection error - retrying...');
+            eventSource.close();            // Auto-retry with exponential backoff (max 3 retries)
+            if (currentRetry < 3) {
+              const nextRetry = currentRetry + 1;
+              const backoffDelay = Math.min(2000 * Math.pow(1.5, currentRetry), 10000); // Max 10 seconds
+              console.log(`🔄 Retrying in ${backoffDelay}ms (attempt ${nextRetry}/3)...`);
+              
+              setRetryCount(nextRetry);
+              
+              setTimeout(() => {
+                fetchOptionsFlowStreaming(nextRetry);
+              }, backoffDelay);
+            } else {
+              setStreamError('Unable to establish streaming connection. Using standard fetch...');
+              setStreamingStatus('');
+              setLoading(false);
+              console.warn('⚠️ Max retries reached. Falling back to regular API.');
+              // Fallback to regular API
+              setTimeout(() => fetchOptionsFlow(), 1000);
+            }
+          };
  
  } catch (error) {
  console.error('Error starting stream:', error);
@@ -488,27 +508,32 @@ export default function OptionsFlowPage() {
 
  const fetchOptionsFlow = async () => {
  setLoading(true);
+ setStreamError('');
  try {
- console.log(`� Fetching live options flow data...`);
+ console.log(`📊 Fetching live options flow data...`);
  
  // Fetch fresh live data only
  const response = await fetch(`/api/live-options-flow?ticker=${selectedTicker}`);
  
  if (!response.ok) {
- throw new Error(`HTTP error! status: ${response.status}`);
+ const errorData = await response.json().catch(() => ({}));
+ const errorMsg = errorData.error || `HTTP error! status: ${response.status}`;
+ const suggestion = errorData.suggestion || '';
+ throw new Error(`${errorMsg}${suggestion ? ' - ' + suggestion : ''}`);
  }
  
  const result = await response.json();
  
  if (result.success) {
- setData(result.trades);
+ const trades = result.trades || result.data || [];
+ setData(trades);
  setSummary(result.summary);
  if (result.market_info) {
  setMarketInfo(result.market_info);
  }
  setLastUpdate(new Date().toLocaleString());
  
- console.log(` Options Flow Update: ${result.trades.length} trades, ${result.summary.total_premium} total premium`);
+ console.log(` Options Flow Update: ${trades.length} trades, ${result.summary.total_premium} total premium`);
  console.log(` Market Status: ${result.market_info?.status} (${result.market_info?.data_date})`);
  } else {
  console.error('Failed to fetch options flow:', result.error);

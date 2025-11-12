@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OptionsFlowService, getSmartDateRange } from '@/lib/optionsFlowService';
 
+// Configure runtime for streaming
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 // Handle preflight CORS requests
 export async function OPTIONS() {
   return new NextResponse(null, {
@@ -55,12 +60,13 @@ export async function GET(request: NextRequest) {
   // Enhanced headers for better EventSource compatibility
   const headers = {
     'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Cache-Control': 'no-cache, no-transform',
     'Connection': 'keep-alive',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET',
     'Access-Control-Allow-Headers': 'Cache-Control',
-    'X-Accel-Buffering': 'no' // Disable nginx buffering
+    'X-Accel-Buffering': 'no', // Disable nginx buffering
+    'Transfer-Encoding': 'chunked'
   };
 
   // Create shared state for the stream
@@ -87,15 +93,34 @@ export async function GET(request: NextRequest) {
         }
       };
 
+      // Send IMMEDIATE connection acknowledgment to keep stream alive
+      try {
+        sendData({
+          type: 'connected',
+          message: 'Stream connected successfully',
+          timestamp: new Date().toISOString(),
+          connectionId: Math.random().toString(36).substring(7)
+        });
+      } catch (error) {
+        console.error('Failed to send initial connection message:', error);
+        controller.close();
+        return;
+      }
+
       // Send heartbeat to keep connection alive
       streamState.heartbeatInterval = setInterval(() => {
         if (streamState.isActive) {
-          sendData({
-            type: 'heartbeat',
-            timestamp: new Date().toISOString()
-          });
+          try {
+            sendData({
+              type: 'heartbeat',
+              timestamp: new Date().toISOString()
+            });
+          } catch (error) {
+            console.error('Heartbeat failed:', error);
+            streamState.isActive = false;
+          }
         }
-      }, 30000); // Every 30 seconds
+      }, 15000); // Every 15 seconds
 
       try {
         console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${ticker || 'MARKET-WIDE'} scan`);

@@ -75,8 +75,8 @@ class SeasonalScreenerService {
  }
  console.log(` SPY benchmark loaded: ${spyData.results.length} data points`);
  
- // PHASE 2: Lightning-fast local processing (2-3 seconds)
- console.log(` PHASE 2: Lightning-fast local processing of ${allHistoricalData.size - 1} loaded datasets...`);
+ // PHASE 2: Local processing (2-3 seconds)
+ console.log(`📊 PHASE 2: Local processing of ${allHistoricalData.size - 1} loaded datasets...`);
  
  let processedCount = 0;
  const totalStocks = stocksToProcess.length;

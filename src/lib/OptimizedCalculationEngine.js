@@ -110,7 +110,7 @@ class OptimizedCalculationEngine {
  }
  
  /**
- * SharedArrayBuffer Implementation for Ultra-Fast Processing
+ * SharedArrayBuffer Implementation for Processing
  */
  calculateWithSharedBuffer(calculations) {
  const bufferStart = performance.now();
@@ -168,7 +168,7 @@ class OptimizedCalculationEngine {
  }
  
  /**
- * ULTRA-FAST BLACK-SCHOLES CALCULATION
+ * BLACK-SCHOLES CALCULATION
  * Optimized implementation without external dependencies
  */
  fastBlackScholes({ S, K, T, r, sigma, type = 'call' }) {
@@ -209,7 +209,7 @@ class OptimizedCalculationEngine {
  }
  
  /**
- * ULTRA-FAST IMPLIED VOLATILITY
+ * IMPLIED VOLATILITY
  * Newton-Raphson method with optimized convergence
  */
  fastImpliedVolatility({ marketPrice, S, K, T, r, type = 'call' }) {
@@ -251,7 +251,7 @@ class OptimizedCalculationEngine {
  }
  
  /**
- * ULTRA-FAST GREEKS CALCULATION
+ * GREEKS CALCULATION
  */
  fastGreeks({ S, K, T, r, sigma, type = 'call' }) {
  if (T <= 0 || sigma <= 0) return { delta: 0, gamma: 0, theta: 0, vega: 0 };
@@ -281,7 +281,7 @@ class OptimizedCalculationEngine {
  }
  
  /**
- * ULTRA-FAST VWAP CALCULATION
+ * VWAP CALCULATION
  */
  fastVWAP({ prices, volumes }) {
  if (!prices.length || !volumes.length) return 0;

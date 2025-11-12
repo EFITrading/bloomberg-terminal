@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 
 interface SectorDataPoint {
   timestamp: number;
   value: number;
+  isMarketHours?: boolean; // Track if this point is during market hours
 }
 
 interface SectorPerformance {
@@ -40,7 +41,10 @@ const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 const SectorPerformanceChart: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [timeframe, setTimeframe] = useState<Timeframe>('1M');
+  const animationFrameRef = useRef<number | null>(null);
+  const timeframeRef = useRef<Timeframe>('1W'); // Use ref to persist timeframe
+  const lastDrawParamsRef = useRef<any>(null); // Store last draw parameters
+  const [timeframe, setTimeframe] = useState<Timeframe>('1W'); // Default to 1W
   const [performanceData, setPerformanceData] = useState<SectorPerformance[]>([]);
   const [loading, setLoading] = useState(true);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -51,8 +55,8 @@ const SectorPerformanceChart: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, rangeStart: 0 });
   
-  // Crosshair state
-  const [crosshair, setCrosshair] = useState<{ x: number; y: number } | null>(null);
+  // Crosshair state - use ref to avoid re-renders
+  const crosshairRef = useRef<{ x: number; y: number } | null>(null);
   
   // Benchmarked mode state
   const [isBenchmarked, setIsBenchmarked] = useState(false);
@@ -69,6 +73,9 @@ const SectorPerformanceChart: React.FC = () => {
     defensives: true
   });
   
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
   // Category definitions
   const GROWTH_TICKERS = ['XLK', 'XLY', 'XLC'];
   const VALUE_TICKERS = ['XLB', 'XLF', 'XLI', 'XLE'];
@@ -82,16 +89,17 @@ const SectorPerformanceChart: React.FC = () => {
     }));
   };
   
+  // Fullscreen handler - toggles expanded view
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+  };
+  
   // Filter performance data based on active categories
   const getFilteredData = () => {
     const allowedTickers: string[] = [];
     if (activeCategories.growth) allowedTickers.push(...GROWTH_TICKERS);
     if (activeCategories.value) allowedTickers.push(...VALUE_TICKERS);
     if (activeCategories.defensives) allowedTickers.push(...DEFENSIVE_TICKERS);
-    
-    // Always show index ETFs (DIA, SPY, QQQ, IWM)
-    const indexTickers = ['DIA', 'SPY', 'QQQ', 'IWM'];
-    allowedTickers.push(...indexTickers);
     
     let filteredData = performanceData.filter(sector => allowedTickers.includes(sector.symbol));
     
@@ -146,20 +154,27 @@ const SectorPerformanceChart: React.FC = () => {
 
   // Calculate date range based on timeframe
   const getDateRange = (tf: Timeframe): { from: string; to: string } => {
-    // Use custom dates if enabled and both dates are provided
-    if (useCustomDates && customStartDate && customEndDate) {
-      return { from: customStartDate, to: customEndDate };
-    }
-    
     const now = new Date();
     const to = now.toISOString().split('T')[0];
+    
+    // Use custom dates if start date is provided
+    if (useCustomDates && customStartDate) {
+      return { 
+        from: customStartDate, 
+        to: customEndDate || to // If no end date, use today
+      };
+    }
+    
     let from = new Date();
 
     switch (tf) {
       case '1D':
-        from.setDate(now.getDate() - 1);
+        // For intraday view, start from today (not yesterday)
+        from.setDate(now.getDate());
+        from.setHours(0, 0, 0, 0);
         break;
       case '1W':
+        // For 1W, show last 5 trading days
         from.setDate(now.getDate() - 7);
         break;
       case '1M':
@@ -198,38 +213,114 @@ const SectorPerformanceChart: React.FC = () => {
   const fetchSectorData = async () => {
     setLoading(true);
     const { from, to } = getDateRange(timeframe);
-    const multiplier = timeframe === '1D' ? 5 : 1;
-    const timespan = timeframe === '1D' ? 'minute' : 'day';
+    const multiplier = (timeframe === '1D' || timeframe === '1W') ? 5 : 1;
+    const timespan = (timeframe === '1D' || timeframe === '1W') ? 'minute' : 'day';
 
     try {
-      const promises = SECTORS_AND_ETFS.map(async (sector) => {
+      // Helper function to check if time is during market hours (9:30 AM - 4:00 PM ET)
+      const isMarketHours = (timestamp: number): boolean => {
+        const date = new Date(timestamp);
+        const dateET = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const hoursET = dateET.getHours();
+        const minutesET = dateET.getMinutes();
+        const totalMinutesET = hoursET * 60 + minutesET;
+        
+        // 9:30 AM = 570 minutes, 4:00 PM = 960 minutes
+        return totalMinutesET >= 570 && totalMinutesET <= 960;
+      };
+
+      // Optimized fetch with aggressive retry and request reuse
+      const fetchWithRetry = async (sector: typeof SECTORS_AND_ETFS[0], retries = 5): Promise<SectorPerformance | null> => {
         const url = `https://api.polygon.io/v2/aggs/ticker/${sector.symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
         
-        const response = await fetch(url);
-        const data = await response.json();
+        for (let attempt = 0; attempt < retries; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+            
+            const response = await fetch(url, { 
+              signal: controller.signal,
+              headers: {
+                'Connection': 'keep-alive'
+              }
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+              if (response.status === 429) {
+                // Rate limited - wait longer
+                await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
+                continue;
+              }
+              if (attempt < retries - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+                continue;
+              }
+              return null;
+            }
+            
+            const data = await response.json();
 
-        if (data.results && data.results.length > 0) {
-          const firstPrice = data.results[0].c;
-          const normalizedData: SectorDataPoint[] = data.results.map((point: any) => ({
-            timestamp: point.t,
-            value: ((point.c - firstPrice) / firstPrice) * 100
-          }));
+            if (data.results && data.results.length > 0) {
+              let results = data.results;
+              
+              // For 1D timeframe, filter to only show market hours (9:30 AM - 4:00 PM ET)
+              if (timeframe === '1D') {
+                results = results.filter((point: any) => isMarketHours(point.t));
+              }
+              
+              if (results.length === 0) return null;
+              
+              const firstPrice = results[0].c;
+              const normalizedData: SectorDataPoint[] = results.map((point: any) => ({
+                timestamp: point.t,
+                value: ((point.c - firstPrice) / firstPrice) * 100,
+                isMarketHours: timeframe === '1W' ? isMarketHours(point.t) : true
+              }));
 
-          const currentPerformance = normalizedData[normalizedData.length - 1]?.value || 0;
+              const currentPerformance = normalizedData[normalizedData.length - 1]?.value || 0;
 
-          return {
-            symbol: sector.symbol,
-            name: sector.name,
-            color: sector.color,
-            data: normalizedData,
-            currentPerformance
-          };
+              return {
+                symbol: sector.symbol,
+                name: sector.name,
+                color: sector.color,
+                data: normalizedData,
+                currentPerformance
+              };
+            }
+            return null;
+          } catch (error: any) {
+            if (error.name === 'AbortError') {
+              console.warn(`Timeout fetching ${sector.symbol}, attempt ${attempt + 1}/${retries}`);
+            }
+            if (attempt < retries - 1) {
+              await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+              continue;
+            }
+            console.error(`Failed to fetch ${sector.symbol} after ${retries} attempts:`, error);
+            return null;
+          }
         }
-
         return null;
-      });
+      };
 
-      const results = await Promise.all(promises);
+      // Parallel processing with chunking - process 6 at a time with minimal delay
+      const chunkSize = 6;
+      const results: (SectorPerformance | null)[] = [];
+      
+      for (let i = 0; i < SECTORS_AND_ETFS.length; i += chunkSize) {
+        const chunk = SECTORS_AND_ETFS.slice(i, i + chunkSize);
+        const chunkPromises = chunk.map(sector => fetchWithRetry(sector));
+        const chunkResults = await Promise.all(chunkPromises);
+        results.push(...chunkResults);
+        
+        // Minimal delay only between chunks
+        if (i + chunkSize < SECTORS_AND_ETFS.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
       const validResults = results.filter((r): r is SectorPerformance => r !== null);
       setPerformanceData(validResults);
     } catch (error) {
@@ -252,6 +343,20 @@ const SectorPerformanceChart: React.FC = () => {
     window.addEventListener('resize', updateDimensions);
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
+  
+  // Update dimensions when fullscreen changes
+  useLayoutEffect(() => {
+    if (containerRef.current) {
+      // Wait for CSS transition to complete (300ms) then measure
+      setTimeout(() => {
+        if (containerRef.current) {
+          const { width, height } = containerRef.current.getBoundingClientRect();
+          console.log('Fullscreen dimensions update:', { width, height, isFullscreen });
+          setDimensions({ width, height });
+        }
+      }, 350); // Wait for 300ms transition + 50ms buffer
+    }
+  }, [isFullscreen]);
 
   // Fetch data when timeframe changes
   useEffect(() => {
@@ -260,7 +365,7 @@ const SectorPerformanceChart: React.FC = () => {
     // Set up 1-minute auto-refresh interval
     const refreshInterval = setInterval(() => {
       fetchSectorData();
-    }, 60000); // 60000ms = 1 minute
+    }, 300000); // 300000ms = 5 minutes
     
     return () => clearInterval(refreshInterval);
   }, [timeframe, useCustomDates, customStartDate, customEndDate]);
@@ -294,8 +399,13 @@ const SectorPerformanceChart: React.FC = () => {
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, dimensions.width, dimensions.height);
 
-      // Chart margins - reduced to make chart smaller
-      const margin = { top: 40, right: 100, bottom: 80, left: 60 };
+      // Chart margins - dynamic bottom margin based on fullscreen state
+      const margin = { 
+        top: 40, 
+        right: 100, 
+        bottom: isFullscreen ? 30 : 80, 
+        left: 60 
+      };
       const chartWidth = dimensions.width - margin.left - margin.right;
       const chartHeight = dimensions.height - margin.top - margin.bottom;
 
@@ -335,18 +445,17 @@ const SectorPerformanceChart: React.FC = () => {
     const zoom = 1 / (visibleRange.end - visibleRange.start);
     const gridLines = Math.min(10, Math.max(5, Math.floor(5 * Math.sqrt(zoom))));
     
-    // Only draw Y-axis labels, no grid lines
+    // Draw Y-axis labels
     for (let i = 0; i <= gridLines; i++) {
       const y = margin.top + (chartHeight * i / gridLines);
-      // Removed grid line drawing
-
-      // Y-axis labels
       const value = maxValue + padding - ((valueRange + 2 * padding) * i / gridLines);
+      
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 13px monospace';
+      ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'right';
       const decimals = zoom > 2 ? 2 : 1;
-      ctx.fillText(`${value.toFixed(decimals)}%`, margin.left - 15, y + 5);
+      const label = `${value.toFixed(decimals)}%`;
+      ctx.fillText(label, margin.left - 10, y + 4);
     }
     
     // ctx.setLineDash([]);
@@ -368,6 +477,37 @@ const SectorPerformanceChart: React.FC = () => {
     ctx.beginPath();
     ctx.rect(margin.left, margin.top, chartWidth, chartHeight);
     ctx.clip();
+
+    // Draw gray shading for pre-market and after-hours (only for 1W timeframe)
+    if (timeframe === '1W' && filteredData.length > 0 && filteredData[0].data.length > 0) {
+      ctx.fillStyle = 'rgba(50, 50, 50, 0.3)'; // Gray with transparency
+      
+      let shadingStart: number | null = null;
+      
+      filteredData[0].data.forEach((point, index) => {
+        if (index < startIndex || index > endIndex) return;
+        
+        const isMarket = point.isMarketHours !== false; // Default to true if not specified
+        
+        if (!isMarket && shadingStart === null) {
+          // Start of pre-market/after-hours period
+          shadingStart = index;
+        } else if (isMarket && shadingStart !== null) {
+          // End of pre-market/after-hours period - draw the shaded region
+          const x1 = xScale(shadingStart, filteredData[0].data.length);
+          const x2 = xScale(index, filteredData[0].data.length);
+          ctx.fillRect(x1, margin.top, x2 - x1, chartHeight);
+          shadingStart = null;
+        }
+      });
+      
+      // If we ended in a pre-market/after-hours period, draw to the end
+      if (shadingStart !== null) {
+        const x1 = xScale(shadingStart, filteredData[0].data.length);
+        const x2 = margin.left + chartWidth;
+        ctx.fillRect(x1, margin.top, x2 - x1, chartHeight);
+      }
+    }
 
     // Draw sector lines with antialiasing
     ctx.imageSmoothingEnabled = true;
@@ -407,8 +547,13 @@ const SectorPerformanceChart: React.FC = () => {
     // Sort by performance (use filtered data)
     const sortedData = [...filteredData].sort((a, b) => b.currentPerformance - a.currentPerformance);
 
+    // Dynamic spacing and font size based on fullscreen mode
+    const itemSpacing = isFullscreen ? 32 : 28;
+    const fontSize = isFullscreen ? 12 : 10;
+    const hoveredFontSize = isFullscreen ? 13 : 11;
+
     sortedData.forEach((sector, index) => {
-      const y = legendY + (index * 28);
+      const y = legendY + (index * itemSpacing);
       const isHovered = hoveredSector === sector.symbol;
 
       // Background for hovered item
@@ -417,32 +562,75 @@ const SectorPerformanceChart: React.FC = () => {
         ctx.fillRect(legendX - 5, y - 14, 190, 26);
       }
 
-      // Color line
+      // Ticker - use sector color
       ctx.fillStyle = sector.color;
-      ctx.fillRect(legendX, y - 6, 24, 4);
-
-      // Symbol - only show ticker
-      ctx.fillStyle = isHovered ? '#ffffff' : '#dddddd';
-      ctx.font = isHovered ? 'bold 14px monospace' : '13px monospace';
+      ctx.font = isHovered ? `bold ${hoveredFontSize}px monospace` : `${fontSize}px monospace`;
       ctx.textAlign = 'left';
-      ctx.fillText(sector.symbol, legendX + 30, y);
+      ctx.fillText(sector.symbol, legendX, y);
+      
+      // Percentage next to ticker
+      const perfColor = sector.currentPerformance >= 0 ? '#00ff00' : '#ff0000';
+      ctx.fillStyle = perfColor;
+      const perfText = ` ${sector.currentPerformance >= 0 ? '+' : ''}${sector.currentPerformance.toFixed(2)}%`;
+      ctx.fillText(perfText, legendX + 20, y);
     });
 
-    // X-axis time labels - adaptive based on zoom
+    // X-axis time labels - adaptive based on zoom and timeframe (Koyfin-style)
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
 
     const xLabelCount = Math.min(12, Math.max(6, Math.floor(6 * zoom)));
+    let lastDateShown = '';
+    
     for (let i = 0; i <= xLabelCount; i++) {
       const dataIndex = startIndex + Math.floor(visibleDataPoints * i / xLabelCount);
       if (performanceData[0]?.data[dataIndex]) {
         const x = xScale(dataIndex, totalDataPoints);
         if (x >= margin.left && x <= margin.left + chartWidth) {
           const date = new Date(performanceData[0].data[dataIndex].timestamp);
-          const label = timeframe === '1D' 
-            ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          const dateET = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          
+          let label: string;
+          
+          if (timeframe === '1D') {
+            // 1D: Show only time (9:30, 10:00, 14:30)
+            const hours = dateET.getHours();
+            const minutes = dateET.getMinutes();
+            label = `${hours}:${minutes.toString().padStart(2, '0')}`;
+            
+          } else if (timeframe === '1W') {
+            // 1W: Calculate visible time span to determine label format
+            const visibleTimeSpan = performanceData[0].data[endIndex - 1]?.timestamp - performanceData[0].data[startIndex]?.timestamp;
+            const daysVisible = visibleTimeSpan / (1000 * 60 * 60 * 24);
+            
+            if (daysVisible <= 3) {
+              // 3 days or less: show time only (intraday view)
+              const hours = dateET.getHours();
+              const minutes = dateET.getMinutes();
+              label = `${hours}:${minutes.toString().padStart(2, '0')}`;
+            } else {
+              // More than 3 days: show date once per day, then times
+              const month = dateET.getMonth() + 1;
+              const day = dateET.getDate();
+              const currentDate = `${month}/${day}`;
+              
+              if (currentDate !== lastDateShown) {
+                // First time seeing this date - show it
+                label = currentDate;
+                lastDateShown = currentDate;
+              } else {
+                // Same day - just show time
+                const hours = dateET.getHours();
+                const minutes = dateET.getMinutes();
+                label = `${hours}:${minutes.toString().padStart(2, '0')}`;
+              }
+            }
+            
+          } else {
+            // 1M, 3M, 6M, 1Y+: Show only dates (Mon DD format)
+            label = dateET.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          }
           
           ctx.fillText(label, x, dimensions.height - margin.bottom + 30);
         }
@@ -450,6 +638,7 @@ const SectorPerformanceChart: React.FC = () => {
     }
 
       // Draw crosshair if mouse is hovering
+      const crosshair = crosshairRef.current;
       if (crosshair && crosshair.x >= margin.left && crosshair.x <= margin.left + chartWidth &&
           crosshair.y >= margin.top && crosshair.y <= margin.top + chartHeight) {
         
@@ -511,7 +700,7 @@ const SectorPerformanceChart: React.FC = () => {
     };
     
     drawChart();
-  }, [performanceData, dimensions, hoveredSector, visibleRange, activeCategories, isBenchmarked, crosshair]);
+  }, [performanceData, dimensions, hoveredSector, visibleRange, activeCategories, isBenchmarked, timeframe]);
 
   // Handle mouse move for hover and drag
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -528,9 +717,9 @@ const SectorPerformanceChart: React.FC = () => {
     // Update crosshair position if mouse is within chart area
     if (mouseX >= margin.left && mouseX <= margin.left + chartWidth &&
         mouseY >= margin.top && mouseY <= margin.top + chartHeight) {
-      setCrosshair({ x: mouseX, y: mouseY });
+      crosshairRef.current = { x: mouseX, y: mouseY };
     } else {
-      setCrosshair(null);
+      crosshairRef.current = null;
     }
 
     // Handle dragging for pan
@@ -558,20 +747,23 @@ const SectorPerformanceChart: React.FC = () => {
 
     const legendX = dimensions.width - margin.right + 30;
     const legendY = margin.top + 20;
+    const itemSpacing = isFullscreen ? 32 : 28;
 
     let found = false;
     const sortedData = [...performanceData].sort((a, b) => b.currentPerformance - a.currentPerformance);
     
     sortedData.forEach((sector, index) => {
-      const y = legendY + (index * 28);
+      const y = legendY + (index * itemSpacing);
       if (mouseX >= legendX - 5 && mouseX <= legendX + 185 && 
           mouseY >= y - 14 && mouseY <= y + 12) {
-        setHoveredSector(sector.symbol);
+        if (hoveredSector !== sector.symbol) {
+          setHoveredSector(sector.symbol);
+        }
         found = true;
       }
     });
 
-    if (!found) {
+    if (!found && hoveredSector !== null) {
       setHoveredSector(null);
     }
   };
@@ -638,13 +830,14 @@ const SectorPerformanceChart: React.FC = () => {
   return (
     <div className="sector-performance-chart" style={{ 
       width: '1000px',
-      height: '600px',
+      height: isFullscreen ? '870px' : '600px',
       backgroundColor: '#000000',
       border: '1px solid #333',
       borderRadius: '4px',
       padding: '20px',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      transition: 'height 0.3s ease'
     }}>
       {/* Header */}
       <div style={{ 
@@ -666,7 +859,11 @@ const SectorPerformanceChart: React.FC = () => {
           </label>
           <select
             value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+            onChange={(e) => {
+              const newTimeframe = e.target.value as Timeframe;
+              timeframeRef.current = newTimeframe;
+              setTimeframe(newTimeframe);
+            }}
             style={{
               padding: '6px 12px',
               backgroundColor: '#1a1a1a',
@@ -838,7 +1035,7 @@ const SectorPerformanceChart: React.FC = () => {
             value={customStartDate}
             onChange={(e) => {
               setCustomStartDate(e.target.value);
-              if (e.target.value && customEndDate) {
+              if (e.target.value) {
                 setUseCustomDates(true);
               }
             }}
@@ -866,7 +1063,7 @@ const SectorPerformanceChart: React.FC = () => {
             value={customEndDate}
             onChange={(e) => {
               setCustomEndDate(e.target.value);
-              if (customStartDate && e.target.value) {
+              if (customStartDate) {
                 setUseCustomDates(true);
               }
             }}
@@ -904,6 +1101,25 @@ const SectorPerformanceChart: React.FC = () => {
               Clear
             </button>
           )}
+          
+          {/* Top/Bottom Button */}
+          <button
+            style={{
+              padding: '4px 12px',
+              background: 'linear-gradient(145deg, #1a1a1a, #0d0d0d)',
+              color: '#ff8800',
+              border: '1px solid #333333',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              fontWeight: 'bold',
+              boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.5)',
+              marginLeft: '12px'
+            }}
+          >
+            Top/Bottom
+          </button>
         </div>
       </div>
 
@@ -912,8 +1128,10 @@ const SectorPerformanceChart: React.FC = () => {
         ref={containerRef} 
         style={{ 
           width: '100%', 
-          height: '550px',
-          position: 'relative'
+          height: isFullscreen ? '770px' : '550px',
+          position: 'relative',
+          backgroundColor: '#000000',
+          transition: 'height 0.3s ease'
         }}
       >
         {loading ? (
@@ -929,22 +1147,64 @@ const SectorPerformanceChart: React.FC = () => {
             Loading data...
           </div>
         ) : (
-          <canvas
-            ref={canvasRef}
-            onMouseMove={handleMouseMove}
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={() => {
-              setHoveredSector(null);
-              setIsDragging(false);
-              setCrosshair(null);
-            }}
-            onWheel={handleWheel}
-            style={{ 
-              cursor: isDragging ? 'grabbing' : 'grab',
-              display: 'block'
-            }}
-          />
+          <>
+            <canvas
+              ref={canvasRef}
+              onMouseMove={handleMouseMove}
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={() => {
+                crosshairRef.current = null;
+                if (hoveredSector !== null) {
+                  setHoveredSector(null);
+                }
+                if (isDragging) {
+                  setIsDragging(false);
+                }
+              }}
+              onWheel={handleWheel}
+              style={{ 
+                cursor: isDragging ? 'grabbing' : 'grab',
+                display: 'block'
+              }}
+            />
+            
+            {/* Fullscreen Button */}
+            <button
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              style={{
+                position: 'absolute',
+                bottom: '10px',
+                right: '10px',
+                width: '28px',
+                height: '28px',
+                backgroundColor: 'rgba(26, 26, 26, 0.8)',
+                border: '1px solid #444444',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#999999',
+                fontSize: '14px',
+                transition: 'all 0.2s',
+                zIndex: 10
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(255, 136, 0, 0.2)';
+                e.currentTarget.style.borderColor = '#ff8800';
+                e.currentTarget.style.color = '#ff8800';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(26, 26, 26, 0.8)';
+                e.currentTarget.style.borderColor = '#444444';
+                e.currentTarget.style.color = '#999999';
+              }}
+            >
+              {isFullscreen ? '⊡' : '⛶'}
+            </button>
+          </>
         )}
       </div>
     </div>

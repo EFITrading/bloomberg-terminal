@@ -65,7 +65,10 @@ if (parentPort) {
  // Get historical spot price at exact trade time (cached)
  async function getHistoricalSpotPrice(ticker, tradeTimestamp, currentSpotPrice) {
  try {
- if (!tradeTimestamp) return currentSpotPrice; // Fallback to current price
+ if (!tradeTimestamp) {
+ console.warn(` Worker: No timestamp for ${ticker}, cannot get historical price`);
+ return 0; // Don't use fake fallbacks
+ }
  
  const tradeDate = new Date(tradeTimestamp / 1000000);
  const dateStr = tradeDate.toISOString().split('T')[0];
@@ -118,9 +121,11 @@ if (parentPort) {
  }
  }
  
- return currentSpotPrice; // Fallback to current price
+ // If no historical data, use current as last resort
+ return currentSpotPrice;
  } catch (error) {
- return currentSpotPrice; // Fallback on error
+ console.error(` Worker: Error getting historical price for ${ticker}:`, error.message);
+ return currentSpotPrice; // Return current as fallback only on error
  }
  }
 
@@ -245,7 +250,7 @@ if (parentPort) {
  });
  
  // Get CURRENT stock price for accurate 5% ITM filtering
- let spotPrice = 100; // Fallback
+ let spotPrice = 0; // Don't use fallback - must be real
  
  try {
  // Get current price
@@ -259,11 +264,18 @@ if (parentPort) {
  // Fallback to previous close if real-time unavailable
  const prevPriceUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${apiKey}`;
  priceResponse = await makePolygonRequest(prevPriceUrl);
- spotPrice = priceResponse.results?.[0]?.c || 100;
- console.log(` Worker ${workerIndex}: ${ticker} previous close $${spotPrice} (fallback)`);
+ spotPrice = priceResponse.results?.[0]?.c || 0;
+ console.log(` Worker ${workerIndex}: ${ticker} previous close $${spotPrice}`);
  }
  } catch (e) {
- console.warn(` Worker ${workerIndex}: Could not get ${ticker} price, using fallback $${spotPrice}`);
+ console.error(` Worker ${workerIndex}: Failed to get ${ticker} price:`, e.message);
+ spotPrice = 0; // No fallback to fake prices
+ }
+ 
+ // Skip ticker if we couldn't get a valid price
+ if (!spotPrice || spotPrice <= 0) {
+ console.warn(` Worker ${workerIndex}: Skipping ${ticker} - no valid price data`);
+ continue;
  }
  
  // Get options contracts first, then check for trades (like original service)
@@ -386,6 +398,17 @@ if (parentPort) {
  // Get HISTORICAL spot price at the EXACT time of the trade (cached for performance)
  const tradeTimeSpotPrice = await getHistoricalSpotPrice(ticker, actualTradeTimestamp, spotPrice);
  
+ // DEBUG: Log spot price to verify it's being set
+ if (!tradeTimeSpotPrice || tradeTimeSpotPrice <= 0) {
+ console.warn(` Worker ${workerIndex}: WARNING - Invalid spot price for ${ticker}: ${tradeTimeSpotPrice}, actual spotPrice: ${spotPrice}`);
+ }
+ 
+ // Skip trades with no valid spot price - don't show fake data
+ if (!tradeTimeSpotPrice || tradeTimeSpotPrice <= 0) {
+ console.warn(` Worker ${workerIndex}: Skipping trade - no valid spot price`);
+ return null;
+ }
+ 
  // COLLECT ALL TRADES - Tier filtering will happen AFTER aggregation in main service
  // This allows sweep detection to work properly by aggregating small trades first
  
@@ -406,7 +429,7 @@ if (parentPort) {
  }
  }
  
- // 🔥 BUILD TRADE OBJECT WITH VOL/OI DATA
+ // 🔥 BUILD TRADE OBJECT WITH VOL/OI DATA - NO FAKE PRICES
  const tradeObj = {
  underlying_ticker: ticker,
  ticker: contract.ticker,
@@ -421,7 +444,7 @@ if (parentPort) {
  strike: strikePrice,
  expiry: expiryDate,
  type: contractType || 'call',
- spot_price: tradeTimeSpotPrice, // HISTORICAL spot price at trade time
+ spot_price: tradeTimeSpotPrice, // ONLY use real historical price
  exchange: trade.exchange,
  exchange_name: getExchangeName(trade.exchange) || 'Unknown',
  moneyness: moneyness,

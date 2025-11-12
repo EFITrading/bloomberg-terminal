@@ -3102,7 +3102,7 @@ export default function TradingViewChart({
  throw new Error(`No data available for ${sym}`);
  }
  
- // BLAZING FAST data transformation with pre-allocated arrays
+ // Data transformation with pre-allocated arrays
  const rawData = result.results;
  const dataLength = rawData.length;
  const transformedData = new Array(dataLength);
@@ -3166,7 +3166,7 @@ export default function TradingViewChart({
  
  } catch (error) {
  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
- console.error(`? ULTRA-FAST FETCH FAILED: ${sym} ${timeframe}:`, errorMessage);
+ console.error(`❌ FETCH FAILED: ${sym} ${timeframe}:`, errorMessage);
  setError(`Failed to load ${timeframe} data for ${sym}: ${errorMessage}`);
  setData([]);
  setLoading(false);
@@ -10254,9 +10254,6 @@ export default function TradingViewChart({
  <div className="bg-[#1e222d] border border-[#2a2e39] rounded-lg p-6 flex items-center space-x-3">
  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#2962ff]"></div>
  <span className="text-white text-lg">Loading {config.timeframe} data for {symbol}...</span>
- <div className="mt-2 text-sm text-gray-400">
- Optimized for fast loading � Reduced dataset for speed
- </div>
  </div>
  </div>
  )}

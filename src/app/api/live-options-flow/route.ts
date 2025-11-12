@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OptionsFlowService, getSmartDateRange, isMarketOpen } from '@/lib/optionsFlowService';
 
+// Configure runtime for long-running operations
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 // Handle preflight CORS requests
 export async function OPTIONS() {
  return new NextResponse(null, {
@@ -45,7 +50,13 @@ export async function GET(request: NextRequest) {
  // Initialize the options flow service
  const optionsFlowService = new OptionsFlowService(polygonApiKey);
  
- const processedTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(ticker || undefined);
+ // Add timeout protection to prevent hanging
+ const fetchPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(ticker || undefined);
+ const timeoutPromise = new Promise<never>((_, reject) => 
+   setTimeout(() => reject(new Error('Request timeout after 4 minutes')), 240000)
+ );
+ 
+ const processedTrades = await Promise.race([fetchPromise, timeoutPromise]);
  
  const processingTime = Date.now() - startTime;
  
@@ -85,7 +96,7 @@ export async function GET(request: NextRequest) {
  success: true,
  timestamp: new Date().toISOString(),
  ticker,
- data: paginatedTrades, // Changed from 'trades' to 'data' to match frontend expectation
+ trades: paginatedTrades, // Use 'trades' for frontend compatibility
  pagination: {
  page,
  limit,
@@ -106,11 +117,16 @@ export async function GET(request: NextRequest) {
 
  } catch (error) {
  console.error(' Live options flow API error:', error);
+ 
+ const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+ const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('Timeout');
+ 
  return NextResponse.json({
  success: false,
- error: 'Failed to fetch live options flow',
- details: error instanceof Error ? error.message : 'Unknown error'
- }, { status: 500 });
+ error: isTimeout ? 'Request timed out - try a specific ticker instead of ALL' : 'Failed to fetch live options flow',
+ details: errorMessage,
+ suggestion: isTimeout ? 'Try filtering by a specific ticker (e.g., SPY, AAPL) to reduce processing time' : undefined
+ }, { status: isTimeout ? 504 : 500 });
  }
 }
 

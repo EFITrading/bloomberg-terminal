@@ -78,7 +78,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  const years = selectedPeriod?.years || 15; // FULL years as requested - no limits
  
  try {
- // Load FULL data using BLAZING FAST MASSIVE CONCURRENCY with REAL-TIME results
+ // Load FULL data using MASSIVE CONCURRENCY with REAL-TIME results
  setStreamStatus('');
  
  // Real-time progress callback to show results as they're found using WORKER THREADS
@@ -86,11 +86,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  let realOpportunities;
  
  try {
- // Try BLAZING FAST massive concurrency first
+ // Try massive concurrency first
  realOpportunities = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
  years, 
  1000, // Process more stocks with massive concurrency
- 50, // Use 50 concurrent requests for BLAZING FAST performance
+ 50, // Use 50 concurrent requests for performance
  (processed, total, foundOpportunities, currentSymbol) => {
  // Throttle updates to prevent UI overwhelming (update every 100ms max)
  const now = Date.now();
@@ -106,11 +106,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  found: foundOpportunities.length 
  });
  
- // Update status with current processing info - BLAZING FAST MASSIVE CONCURRENCY
+ // Update status with current processing info - MASSIVE CONCURRENCY
  if (currentSymbol) {
- setStreamStatus(` BLAZING FAST: ${currentSymbol} - Found ${foundOpportunities.length} qualified opportunities (${processed}/${total})`);
+ setStreamStatus(`📊 ${currentSymbol} - Found ${foundOpportunities.length} qualified opportunities (${processed}/${total})`);
  } else {
- setStreamStatus(` ${processed}/${total} processed with 50 concurrent requests - ${foundOpportunities.length} opportunities found`);
+ setStreamStatus(`📊 ${processed}/${total} processed with 50 concurrent requests - ${foundOpportunities.length} opportunities found`);
  }
  
  // Show opportunities as they're found - REAL-TIME UPDATES
@@ -151,9 +151,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  throw new Error('No seasonal opportunities found');
  }
  
- } catch (blazingFastError) {
- console.warn(' Blazing fast processing failed, falling back to regular processing:', blazingFastError);
- setStreamStatus(' 50 concurrent requests unavailable, falling back to standard processing...');
+ } catch (processingError) {
+ console.warn('📊 Concurrent processing failed, falling back to regular processing:', processingError);
+ setStreamStatus('📊 50 concurrent requests unavailable, falling back to standard processing...');
  
  // Fallback to regular method
  realOpportunities = await seasonalService.screenSeasonalOpportunities(

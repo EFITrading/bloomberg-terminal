@@ -25,7 +25,7 @@ class ParallelOptionsFlowProcessor {
     const overallStartTime = performance.now();
     console.time('🔥 TOTAL_PARALLEL_PROCESSING');
     
-    console.log(`🔥 ULTRA-FAST PARALLEL: Processing ${tickers.length} tickers across ${this.numWorkers} workers`);
+    console.log(`🔥 PARALLEL: Processing ${tickers.length} tickers across ${this.numWorkers} workers`);
     
     // 🎯 PERFORMANCE: Time batch preparation
     console.time('📦 BATCH_PREPARATION');

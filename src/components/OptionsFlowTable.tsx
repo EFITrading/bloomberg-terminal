@@ -330,12 +330,30 @@ const PriceDisplay = React.memo(function PriceDisplay({
  isLoading?: boolean; 
  ticker: string; 
 }) {
- if (isLoading) {
- return <span className="text-gray-400 animate-pulse">Loading...</span>;
+ // Don't show anything if spot price is missing or invalid
+ if (!spotPrice || spotPrice <= 0) {
+ return <span className="text-gray-500">No Price Data</span>;
  }
  
- if (!currentPrice) {
- return <span className="text-gray-500">--</span>;
+ if (isLoading) {
+ return (
+ <div className="flex items-center gap-2">
+ <span className="text-white">${spotPrice.toFixed(2)}</span>
+ <span className="text-gray-400">{'>>'} </span>
+ <span className="text-gray-400 animate-pulse">fetching...</span>
+ </div>
+ );
+ }
+ 
+ if (!currentPrice || currentPrice <= 0) {
+ // Show just spot price if current price not available
+ return (
+ <div className="flex items-center gap-2">
+ <span className="text-white">${spotPrice.toFixed(2)}</span>
+ <span className="text-gray-600">{'>>'} </span>
+ <span className="text-gray-500">--</span>
+ </div>
+ );
  }
  
  const colorClass = currentPrice > spotPrice 
@@ -544,13 +562,14 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  const data = await response.json();
  
  if (data.status === 'OK' && data.ticker) {
- // Use live price from snapshot - this is the actual current market price
- const livePrice = data.ticker.lastQuote?.P || data.ticker.lastTrade?.p || data.ticker.day?.c;
- if (livePrice) {
- pricesUpdate[ticker] = livePrice;
- console.log(` ${ticker}: LIVE $${livePrice}`);
+ // ONLY use last trade price - no fallbacks
+ const lastTradePrice = data.ticker.lastTrade?.p;
+ 
+ if (lastTradePrice && lastTradePrice > 0) {
+ pricesUpdate[ticker] = lastTradePrice;
+ console.log(` ${ticker}: LIVE $${lastTradePrice} (lastTrade)`);
  } else {
- console.log(` No live price data for ${ticker}`);
+ console.warn(` No last trade price for ${ticker}`);
  }
  } else {
  console.log(` No snapshot data for ${ticker}`);
