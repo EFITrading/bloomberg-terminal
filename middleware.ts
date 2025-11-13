@@ -1,50 +1,39 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { getToken } from 'next-auth/jwt';
 
-// The password for accessing the site
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'efitrading2025';
-
-// Public paths that don't require authentication - ONLY landing page and essential assets
-const publicPaths = [
-  '/', // Only the main landing page
-  '/login', // Login page
-  '/favicon.ico', // Favicon
-  '/_next', // Next.js static assets
-  '/images', // Static images
-  '/api' // All API routes should be accessible
-];
-
-// Protected paths that require authentication (all navigation pages)
-const protectedPaths = [
-  '/market-overview',
-  '/analysis-suite', 
-  '/data-driven',
-  '/analytics',
-  '/ai-suite',
-  '/options-flow',
-  '/optionsflow', // Alternative spelling
-  '/seasonax',
-  '/terminal'
-];
-
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // Allow public paths and static assets (includes root path "/")
-  if (publicPaths.some(path => pathname === path || (path !== '/' && pathname.startsWith(path)))) {
+  // Allow NextAuth.js routes and auth pages
+  if (pathname.startsWith('/api/auth') || pathname.startsWith('/auth/')) {
     return addSecurityHeaders(NextResponse.next());
   }
   
-  // All other paths require authentication
-  const authCookie = request.cookies.get('efi-auth');
-  
-  if (!authCookie || authCookie.value !== 'authenticated') {
-    // Redirect to login page with the current path as redirect parameter
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
+  // Allow static assets
+  if (pathname.startsWith('/_next') || pathname.startsWith('/favicon') || pathname.startsWith('/public')) {
+    return addSecurityHeaders(NextResponse.next());
   }
   
+  // Check if user is authenticated via NextAuth
+  const token = await getToken({ 
+    req: request, 
+    secret: process.env.NEXTAUTH_SECRET 
+  });
+  
+  // If not authenticated, redirect to sign-in
+  if (!token) {
+    const url = new URL('/auth/signin', request.url);
+    return NextResponse.redirect(url);
+  }
+  
+  // If authenticated but no access, redirect to no-access page
+  if (!token.hasAccess) {
+    const url = new URL('/auth/no-access', request.url);
+    return NextResponse.redirect(url);
+  }
+  
+  // User has access, continue with security headers
   return addSecurityHeaders(NextResponse.next());
 }
 

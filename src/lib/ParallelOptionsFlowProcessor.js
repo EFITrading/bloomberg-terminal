@@ -29,16 +29,20 @@ class ParallelOptionsFlowProcessor {
     
     // 🎯 PERFORMANCE: Time batch preparation
     console.time('📦 BATCH_PREPARATION');
-    // OPTIMIZED: Fixed batch size of 30 tickers per worker for better load balancing
-    const batchSize = 30;
+    
+    // OPTIMIZED: Distribute tickers evenly across ALL available workers
+    const actualWorkers = Math.min(this.numWorkers, tickers.length);
+    const optimalBatchSize = Math.ceil(tickers.length / actualWorkers);
     const batches = [];
     
-    for (let i = 0; i < tickers.length; i += batchSize) {
-      batches.push(tickers.slice(i, i + batchSize));
+    console.log(`📦 OPTIMAL DISTRIBUTION: ${tickers.length} tickers ÷ ${actualWorkers} workers = ${optimalBatchSize} tickers per worker`);
+    
+    for (let i = 0; i < tickers.length; i += optimalBatchSize) {
+      batches.push(tickers.slice(i, i + optimalBatchSize));
     }
     console.timeEnd('📦 BATCH_PREPARATION');
     
-    console.log(`📦 Split into ${batches.length} batches of ~${batchSize} tickers each`);
+    console.log(`📦 Split into ${batches.length} batches across ${actualWorkers} workers (${optimalBatchSize} tickers each)`);
     
     // 🎯 PERFORMANCE: Time worker creation phase
     console.time('🚀 WORKER_CREATION_PHASE');
@@ -47,6 +51,7 @@ class ParallelOptionsFlowProcessor {
     const promises = batches.map((batch, index) => {
       // Track when this worker starts being created
       this.benchmarks.workerCreation.set(index, performance.now());
+      console.log(`🚀 Creating Worker ${index}: ${batch.length} tickers assigned`);
       return this.createWorkerPromise(batch, index, onProgress);
     });
     
@@ -96,9 +101,11 @@ class ParallelOptionsFlowProcessor {
       
       // Send progress update to keep connection alive
       if (onProgress) {
-        onProgress([], `Processing batch ${workerIndex + 1}/${this.numWorkers}...`, {
+        const totalBatches = this.benchmarks.workerCreation.size;
+        onProgress([], `Worker ${workerIndex} processing ${batch.length} tickers (batch ${workerIndex + 1}/${totalBatches})...`, {
           current: workerIndex,
-          total: this.numWorkers
+          total: totalBatches,
+          batchSize: batch.length
         });
       }
       
@@ -132,7 +139,7 @@ class ParallelOptionsFlowProcessor {
         if (result.type === 'trades_found') {
           // ACCUMULATE TRADES and stream them immediately to keep connection alive
           allWorkerTrades.push(...result.trades);
-          console.log(`📈 Worker ${workerIndex}: Found ${result.trades.length} trades from ${result.ticker} ${result.contract} (${allWorkerTrades.length} total)`);
+          console.log(`🔥 Worker ${workerIndex}: Found ${result.trades.length} trades from ${result.ticker} ${result.contract} (${allWorkerTrades.length} total)`);
           
           // 🎯 PERFORMANCE: Track trade discovery metrics
           if (currentProcessing) {

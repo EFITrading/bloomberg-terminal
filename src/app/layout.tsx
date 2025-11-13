@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import ConditionalNavigation from '@/components/ConditionalNavigation'
 import Background from '@/components/terminal/Background'
+import ClientSessionProvider from '@/components/ClientSessionProvider'
 
 import './globals.css'
 
@@ -23,6 +24,7 @@ export default function RootLayout({
  return (
  <html lang="en">
  <body className={`${inter.variable} antialiased`}>
+ <ClientSessionProvider>
  <div className="terminal-app">
  <Background />
  <ConditionalNavigation />
@@ -30,6 +32,7 @@ export default function RootLayout({
  {children}
  </main>
  </div>
+ </ClientSessionProvider>
  </body>
  </html>
  )
