@@ -307,11 +307,8 @@ export class OptionsFlowService {
       console.log(`🎯 Single ticker scan: ${ticker ? ticker.toUpperCase() : 'NONE'}`);
     }
 
-    // 🚨 TEMPORARY: Only scan SPY and AMD (remove this filter later)
-    const allowedTickers = ['SPY', 'AMD'];
-    const originalCount = tickersToScan.length;
-    tickersToScan = tickersToScan.filter(t => allowedTickers.includes(t.toUpperCase()));
-    console.log(`🚨 TEMPORARY FILTER: Reduced ${originalCount} tickers to ${tickersToScan.length} (SPY, AMD only)`);
+    // ✅ REMOVED TEMPORARY RESTRICTION: Now scanning all symbols from your list
+    console.log(`🎯 Scanning ${tickersToScan.length} symbols from your complete list`);
 
     // Use parallel processor to scan all tickers using all CPU cores
     const { ParallelOptionsFlowProcessor } = require('./ParallelOptionsFlowProcessor.js');
