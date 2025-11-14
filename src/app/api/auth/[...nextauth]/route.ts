@@ -16,6 +16,7 @@ const handler = NextAuth({
   callbacks: {
     async jwt({ token, account, profile }) {
       if (account && profile) {
+        console.log('🔵 JWT Callback - New login detected');
         // Store Discord info in token
         token.discordId = profile.id;
         token.accessToken = account.access_token;
@@ -23,6 +24,7 @@ const handler = NextAuth({
         // Check if user is in your Discord server
         try {
           const guildId = process.env.DISCORD_GUILD_ID!;
+          console.log('🔍 Checking guild membership for guild:', guildId);
           
           // Get user's guilds
           const guildsResponse = await fetch(
@@ -36,23 +38,27 @@ const handler = NextAuth({
           
           if (guildsResponse.ok) {
             const guilds = await guildsResponse.json();
+            console.log('✅ User guilds:', guilds.map((g: any) => g.id));
             const isInGuild = guilds.some((guild: any) => guild.id === guildId);
+            console.log('🎯 Is in required guild?', isInGuild);
             token.hasAccess = isInGuild;
           } else {
+            console.error('❌ Failed to fetch guilds:', guildsResponse.status);
             token.hasAccess = false;
           }
         } catch (error) {
-          console.error('Error checking Discord guilds:', error);
+          console.error('❌ Error checking Discord guilds:', error);
           token.hasAccess = false;
         }
       }
       return token;
     },
     async session({ session, token }) {
+      console.log('🔵 Session callback - hasAccess:', token.hasAccess);
       // Pass role info to session
-      session.user.discordId = token.discordId;
-      session.user.hasAccess = token.hasAccess;
-      session.user.discordRoles = token.discordRoles;
+      (session as any).user.discordId = token.discordId;
+      (session as any).hasAccess = token.hasAccess;
+      (session as any).user.discordRoles = token.discordRoles;
       return session;
     },
     async signIn({ user, account, profile }) {

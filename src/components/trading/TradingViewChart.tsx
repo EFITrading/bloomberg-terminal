@@ -1169,7 +1169,9 @@ const fetchMarketDataForExpectedRange = async (symbol: string) => {
  const weeklyDTE = Math.max(1, getDaysUntilExpiration(weeklyDate));
  const monthlyDTE = Math.max(1, getDaysUntilExpiration(monthlyDate));
  
- console.log(`Using dynamic expiration dates: Weekly ${weeklyExpiryDate} (${weeklyDTE}d), Monthly ${monthlyExpiryDate} (${monthlyDTE}d)`);
+ console.log(`📅 EXPECTED RANGE EXPIRATION DATES:`);
+ console.log(`   Weekly: ${weeklyExpiryDate} (${weeklyDTE} days until expiration)`);
+ console.log(`   Monthly: ${monthlyExpiryDate} (${monthlyDTE} days until expiration)`);
 
  // Fetch options chains with API-level strike filtering - increased limit for better IV accuracy
  const weeklyOptionsResponse = await fetch(
@@ -1322,6 +1324,7 @@ const renderExpectedRangeLines = (
  minPrice: number,
  maxPrice: number,
  levels: any,
+ rangeType: 'weekly' | 'monthly',
  visibleData?: any[],
  visibleCandleCount?: number
 ) => {
@@ -1359,18 +1362,22 @@ const renderExpectedRangeLines = (
  return chartHeight - ((price - minPrice) / priceRange) * chartHeight;
  };
 
- // Draw horizontal lines for each level
- const linesToDraw = [
- { price: levels.weekly80Call, color: colors.weekly80Call, label: 'W80C' },
- { price: levels.weekly90Call, color: colors.weekly90Call, label: 'W90C' },
- { price: levels.weekly80Put, color: colors.weekly80Put, label: 'W80P' },
- { price: levels.weekly90Put, color: colors.weekly90Put, label: 'W90P' },
- { price: levels.monthly80Call, color: colors.monthly80Call, label: 'M80C' },
- { price: levels.monthly90Call, color: colors.monthly90Call, label: 'M90C' },
- { price: levels.monthly80Put, color: colors.monthly80Put, label: 'M80P' },
- { price: levels.monthly90Put, color: colors.monthly90Put, label: 'M90P' }
+ // Draw horizontal lines for each level - filter based on rangeType
+ const allLines = [
+ { price: levels.weekly80Call, color: colors.weekly80Call, label: 'W80C', type: 'weekly' },
+ { price: levels.weekly90Call, color: colors.weekly90Call, label: 'W90C', type: 'weekly' },
+ { price: levels.weekly80Put, color: colors.weekly80Put, label: 'W80P', type: 'weekly' },
+ { price: levels.weekly90Put, color: colors.weekly90Put, label: 'W90P', type: 'weekly' },
+ { price: levels.monthly80Call, color: colors.monthly80Call, label: 'M80C', type: 'monthly' },
+ { price: levels.monthly90Call, color: colors.monthly90Call, label: 'M90C', type: 'monthly' },
+ { price: levels.monthly80Put, color: colors.monthly80Put, label: 'M80P', type: 'monthly' },
+ { price: levels.monthly90Put, color: colors.monthly90Put, label: 'M90P', type: 'monthly' }
  ];
 
+ // Filter lines based on selected range type
+ const linesToDraw = allLines.filter(line => line.type === rangeType);
+
+ console.log(`📊 Drawing ${rangeType} Expected Range lines (${linesToDraw.length} lines)`);
  ctx.lineWidth = 3; // Make lines thicker and more visible
  ctx.font = 'bold 12px Arial';
  
@@ -1975,6 +1982,7 @@ export default function TradingViewChart({
  
  // Dropdown button refs for positioning
  const drawingsButtonRef = useRef<HTMLButtonElement>(null);
+ const expectedRangeButtonRef = useRef<HTMLButtonElement>(null);
 
  // Chart state
  const [config, setConfig] = useState<ChartConfig>({
@@ -2234,6 +2242,8 @@ export default function TradingViewChart({
  const [expectedRangeLevels, setExpectedRangeLevels] = useState<any>(null);
  const [isLoadingExpectedRange, setIsLoadingExpectedRange] = useState(false);
  const [isExpectedRangeActive, setIsExpectedRangeActive] = useState(false);
+ const [isExpectedRangeDropdownOpen, setIsExpectedRangeDropdownOpen] = useState(false);
+ const [expectedRangeType, setExpectedRangeType] = useState<'weekly' | 'monthly'>('weekly');
 
  // GEX state for gamma exposure levels
  const [isGexActive, setIsGexActive] = useState(false);
@@ -3297,6 +3307,19 @@ export default function TradingViewChart({
  fetchRealTimePrice(symbol);
  }, [symbol, fetchRealTimePrice]);
 
+ // Calculate price change when data is loaded
+ useEffect(() => {
+ if (data.length >= 2 && currentPrice > 0) {
+ const latestCandle = data[data.length - 1];
+ const previousCandle = data[data.length - 2];
+ const change = currentPrice - previousCandle.close;
+ const changePercent = (change / previousCandle.close) * 100;
+ setPriceChange(change);
+ setPriceChangePercent(changePercent);
+ console.log(`💰 PRICE CHANGE CALCULATED: ${symbol} ${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent.toFixed(2)}%)`);
+ }
+ }, [data, currentPrice, symbol]);
+
  // Set up live price updates every 5 seconds for live data
  useEffect(() => {
  const interval = setInterval(() => {
@@ -3432,7 +3455,7 @@ export default function TradingViewChart({
  ctx.shadowBlur = 3;
  ctx.shadowOffsetX = 1;
  ctx.shadowOffsetY = 1;
- ctx.fillStyle = '#FFFFFF';
+ ctx.fillStyle = '#FF6600';
  ctx.textAlign = 'center';
  ctx.fillText(priceText, width - priceTextWidth/2 - 5, priceY);
  
@@ -3462,7 +3485,7 @@ export default function TradingViewChart({
  ctx.shadowBlur = 3;
  ctx.shadowOffsetX = 1;
  ctx.shadowOffsetY = 1;
- ctx.fillStyle = '#FFFFFF';
+ ctx.fillStyle = '#FF6600';
  ctx.textAlign = 'center';
  ctx.fillText(dateText, labelX, height - 21); // Moved up to match reduced background
  
@@ -4064,6 +4087,7 @@ export default function TradingViewChart({
  adjustedMin,
  adjustedMax,
  expectedRangeLevels,
+ expectedRangeType,
  visibleData,
  visibleCandleCount
  );
@@ -4089,9 +4113,6 @@ export default function TradingViewChart({
  // Get all data for zone detection (not just visible data)
  const allZones = detectExpansionLiquidation(data);
  const validZones = invalidateTouchedZones(allZones, data);
- 
- // Update state with current zones
- setExpansionLiquidationZones(validZones);
  
  // Render zones that are in the visible range (using the same startIndex and endIndex as candlesticks)
  validZones.forEach(zone => {
@@ -4229,7 +4250,7 @@ export default function TradingViewChart({
 
  // Draw volume scale labels on the right
  ctx.fillStyle = '#ffffff';
- ctx.font = '10px Arial';
+ ctx.font = '13px Arial';
  ctx.textAlign = 'left';
 
  // Draw volume labels (3 levels: 0, 50%, 100%)
@@ -4248,7 +4269,7 @@ export default function TradingViewChart({
  }
 
  // Position volume labels even MORE RIGHT 
- ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+ ctx.fillStyle = '#ffffff';
  ctx.textAlign = 'right';
  ctx.fillText(volumeText, chartWidth + 80, y + 3); // Much further beyond chart edge
  
@@ -6273,6 +6294,37 @@ export default function TradingViewChart({
  
  // ALWAYS update crosshair position first
  setCrosshairPosition({ x, y });
+
+ // Update crosshair info with price and date/time
+ if (data.length > 0) {
+ const coords = screenToTimePriceCoordinates(x, y);
+ const price = coords.price;
+ const timestamp = coords.timestamp;
+ 
+ // Find the closest candle for OHLC data
+ const candleIndex = data.findIndex(d => d.timestamp >= timestamp);
+ const closestCandle = data[Math.max(0, Math.min(candleIndex, data.length - 1))];
+ 
+ // Format date and time
+ const date = new Date(timestamp);
+ const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+ const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+ 
+ setCrosshairInfo({
+ price: `$${price.toFixed(2)}`,
+ date: dateStr,
+ time: timeStr,
+ visible: true,
+ ohlc: closestCandle ? {
+ open: closestCandle.open,
+ high: closestCandle.high,
+ low: closestCandle.low,
+ close: closestCandle.close,
+ change: closestCandle.close - closestCandle.open,
+ changePercent: ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100
+ } : undefined
+ });
+ }
 
  // Handle horizontal ray dragging
  if (isEditingRay && selectedRay && rayDragStart) {
@@ -9071,6 +9123,29 @@ export default function TradingViewChart({
  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
  border-radius: 2px !important;
  }
+
+ /* Custom button borders */
+ .btn-gex {
+ border: 2px solid #a855f7 !important;
+ }
+
+ .btn-expected-range {
+ border: 2px solid transparent !important;
+ background-image: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%), linear-gradient(90deg, #22c55e 0%, #ef4444 100%) !important;
+ background-origin: border-box !important;
+ background-clip: padding-box, border-box !important;
+ }
+
+ .btn-expansion-liquidation {
+ border: 2px solid transparent !important;
+ background-image: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%), linear-gradient(90deg, #eab308 0%, #3b82f6 100%) !important;
+ background-origin: border-box !important;
+ background-clip: padding-box, border-box !important;
+ }
+
+ .btn-drawings {
+ border: 2px solid rgba(255, 255, 255, 0.4) !important;
+ }
  
  /* Active State - Crispy Orange */
  .btn-3d-carved.active {
@@ -9157,8 +9232,8 @@ export default function TradingViewChart({
  width: 100%;
  height: 100%;
  background: linear-gradient(90deg, transparent, rgba(128, 128, 128, 0.05), transparent);
- animation: subtleSweep 6s ease-in-out infinite;
  pointer-events: none;
+ display: none;
  }
  
  @keyframes subtleSweep {
@@ -9183,10 +9258,9 @@ export default function TradingViewChart({
  background: '#000000',
  backgroundSize: '400% 400%',
  borderColor: '#333333',
- boxShadow: '0 4px 20px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(128, 128, 128, 0.1), 0 0 15px rgba(64, 64, 64, 0.05)',
+ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(128, 128, 128, 0.1)',
  backdropFilter: 'blur(10px)',
- zIndex: 10000,
- animation: 'premiumGlow 8s ease infinite alternate'
+ zIndex: 10000
  }}
  >
  {/* Premium Gray Border Animation */}
@@ -9195,7 +9269,6 @@ export default function TradingViewChart({
  style={{
  background: 'linear-gradient(90deg, transparent, rgba(128, 128, 128, 0.3), transparent)',
  backgroundSize: '200% 100%',
- animation: 'grayBorderSweep 5s linear infinite',
  borderRadius: 'inherit',
  opacity: 0.6
  }}
@@ -9206,8 +9279,7 @@ export default function TradingViewChart({
  className="absolute inset-0 pointer-events-none"
  style={{
  background: 'linear-gradient(180deg, rgba(128, 128, 128, 0.05) 0%, transparent 30%, transparent 70%, rgba(96, 96, 96, 0.02) 100%)',
- borderRadius: 'inherit',
- animation: 'subtleShimmer 10s ease-in-out infinite'
+ borderRadius: 'inherit'
  }}
  />
  
@@ -9289,7 +9361,7 @@ export default function TradingViewChart({
  className="flex items-center timeframe-dropdown"
  style={{
  background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
- border: '1px solid rgba(255, 255, 255, 0.1)',
+ border: '2px solid rgba(255, 255, 255, 0.4)',
  borderRadius: '8px',
  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
  }}
@@ -9340,21 +9412,12 @@ export default function TradingViewChart({
  </div>
  </div>
 
- {/* Glowing Orange Separator */}
- <div className="mx-8" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
-
  {/* Chart Type Selector - Moved to left side */}
  <div 
  className="flex items-center chart-type-dropdown"
  style={{
  background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
- border: '1px solid rgba(255, 255, 255, 0.15)',
+ border: '2px solid rgba(255, 255, 255, 0.4)',
  borderRadius: '8px',
  boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4)'
  }}
@@ -9430,44 +9493,12 @@ export default function TradingViewChart({
  </div>
  </div>
 
- {/* Glowing Orange Separator */}
- <div className="mx-8" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
-
  {/* Expected Range Button - Standalone */}
- <div className="ml-4">
+ <div className="ml-4 relative">
  <button
- onClick={() => {
- const newActiveState = !isExpectedRangeActive;
- setIsExpectedRangeActive(newActiveState);
- 
- if (newActiveState) {
- // Load Expected Range levels when activated
- if (!expectedRangeLevels && !isLoadingExpectedRange) {
- setIsLoadingExpectedRange(true);
- calculateExpectedRangeLevels(symbol).then(result => {
- if (result) {
- setExpectedRangeLevels(result.levels);
- console.log('?? Expected Range levels loaded:', result.levels);
- } else {
- console.error('?? Failed to load Expected Range levels');
- }
- setIsLoadingExpectedRange(false);
- });
- }
- } else {
- // Clear levels when deactivated
- setExpectedRangeLevels(null);
- }
- 
- console.log(`?? Expected Range ${newActiveState ? 'activated' : 'deactivated'}`);
- }}
- className={`btn-3d-carved relative group flex items-center space-x-2 ${isExpectedRangeActive ? 'active' : 'text-white'}`}
+ ref={expectedRangeButtonRef}
+ onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
+ className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive ? 'active' : 'text-white'}`}
  style={{
  padding: '10px 14px',
  fontWeight: '700',
@@ -9476,23 +9507,132 @@ export default function TradingViewChart({
  }}
  >
  <span>EXPECTED RANGE</span>
+ <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+ <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+ </svg>
  {isLoadingExpectedRange && (
  <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full"></div>
  )}
- {isExpectedRangeActive && !isLoadingExpectedRange && (
- <span className="text-green-400 text-sm">?</span>
- )}
+ </button>
+
+ {/* Expected Range Dropdown */}
+ {isExpectedRangeDropdownOpen && createPortal(
+ <div
+ style={{
+ position: 'fixed',
+ top: expectedRangeButtonRef.current ? expectedRangeButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+ left: expectedRangeButtonRef.current ? expectedRangeButtonRef.current.getBoundingClientRect().left : 0,
+ zIndex: 100000,
+ background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
+ border: '2px solid rgba(255, 255, 255, 0.2)',
+ borderRadius: '8px',
+ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+ padding: '8px',
+ minWidth: '180px'
+ }}
+ >
+ <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+ <button
+ onClick={() => {
+ setExpectedRangeType('weekly');
+ const newActiveState = !isExpectedRangeActive || expectedRangeType !== 'weekly';
+ setIsExpectedRangeActive(newActiveState);
+ 
+ if (newActiveState) {
+ if (!expectedRangeLevels && !isLoadingExpectedRange) {
+ setIsLoadingExpectedRange(true);
+ calculateExpectedRangeLevels(symbol).then(result => {
+ if (result) {
+ setExpectedRangeLevels(result.levels);
+ console.log('📊 Expected Range levels loaded:', result.levels);
+ } else {
+ console.error('❌ Failed to load Expected Range levels');
+ }
+ setIsLoadingExpectedRange(false);
+ });
+ }
+ } else {
+ setExpectedRangeLevels(null);
+ }
+ 
+ setIsExpectedRangeDropdownOpen(false);
+ console.log(`📊 Expected Range ${newActiveState ? 'activated' : 'deactivated'} (Weekly)`);
+ }}
+ style={{
+ padding: '8px 12px',
+ background: expectedRangeType === 'weekly' && isExpectedRangeActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+ border: 'none',
+ color: '#ffffff',
+ textAlign: 'left',
+ cursor: 'pointer',
+ borderRadius: '4px',
+ fontSize: '13px',
+ fontWeight: '600',
+ transition: 'all 0.2s'
+ }}
+ onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
+ onMouseLeave={(e) => e.currentTarget.style.background = expectedRangeType === 'weekly' && isExpectedRangeActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent'}
+ >
+ Weekly Range
+ </button>
+ <button
+ onClick={() => {
+ setExpectedRangeType('monthly');
+ const newActiveState = !isExpectedRangeActive || expectedRangeType !== 'monthly';
+ setIsExpectedRangeActive(newActiveState);
+ 
+ if (newActiveState) {
+ if (!expectedRangeLevels && !isLoadingExpectedRange) {
+ setIsLoadingExpectedRange(true);
+ calculateExpectedRangeLevels(symbol).then(result => {
+ if (result) {
+ setExpectedRangeLevels(result.levels);
+ console.log('📊 Expected Range levels loaded:', result.levels);
+ } else {
+ console.error('❌ Failed to load Expected Range levels');
+ }
+ setIsLoadingExpectedRange(false);
+ });
+ }
+ } else {
+ setExpectedRangeLevels(null);
+ }
+ 
+ setIsExpectedRangeDropdownOpen(false);
+ console.log(`📊 Expected Range ${newActiveState ? 'activated' : 'deactivated'} (Monthly)`);
+ }}
+ style={{
+ padding: '8px 12px',
+ background: expectedRangeType === 'monthly' && isExpectedRangeActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+ border: 'none',
+ color: '#ffffff',
+ textAlign: 'left',
+ cursor: 'pointer',
+ borderRadius: '4px',
+ fontSize: '13px',
+ fontWeight: '600',
+ transition: 'all 0.2s'
+ }}
+ onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
+ onMouseLeave={(e) => e.currentTarget.style.background = expectedRangeType === 'monthly' && isExpectedRangeActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent'}
+ >
+ Monthly Range
  </button>
  </div>
+ </div>,
+ document.body
+ )}
 
- {/* Glowing Orange Separator */}
- <div className="mx-4" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
+ {/* Click outside to close dropdown */}
+ {isExpectedRangeDropdownOpen && createPortal(
+ <div 
+ className="fixed inset-0" 
+ style={{ zIndex: 99998 }}
+ onClick={() => setIsExpectedRangeDropdownOpen(false)}
+ />, 
+ document.body
+ )}
+ </div>
 
  {/* GEX Button - Next to Expected Range */}
  <div className="ml-4">
@@ -9502,7 +9642,7 @@ export default function TradingViewChart({
  setIsGexActive(newActiveState);
  console.log(`?? GEX ${newActiveState ? 'activated' : 'deactivated'}`);
  }}
- className={`btn-3d-carved relative group flex items-center space-x-2 ${isGexActive ? 'active' : 'text-white'}`}
+ className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${isGexActive ? 'active' : 'text-white'}`}
  style={{
  padding: '10px 14px',
  fontWeight: '700',
@@ -9511,20 +9651,8 @@ export default function TradingViewChart({
  }}
  >
  <span>GEX</span>
- {isGexActive && (
- <span className="text-green-400 text-sm">?</span>
- )}
  </button>
  </div>
-
- {/* Glowing Orange Separator */}
- <div className="mx-4" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
 
  {/* Expansion/Liquidation Button */}
  <div className="ml-4">
@@ -9543,7 +9671,7 @@ export default function TradingViewChart({
  console.log('?? Expansion/Liquidation indicator deactivated');
  }
  }}
- className={`btn-3d-carved relative group flex items-center space-x-2 ${isExpansionLiquidationActive ? 'active' : 'text-white'}`}
+ className={`btn-3d-carved btn-expansion-liquidation relative group flex items-center space-x-2 ${isExpansionLiquidationActive ? 'active' : 'text-white'}`}
  style={{
  padding: '10px 14px',
  fontWeight: '700',
@@ -9552,36 +9680,15 @@ export default function TradingViewChart({
  }}
  >
  <span>EXPANSION/LIQUIDATION</span>
- {isExpansionLiquidationActive && (
- <span className="text-green-400 text-sm">?</span>
- )}
  </button>
  </div>
-
- {/* Glowing Orange Separator */}
- <div className="mx-4" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
-
- {/* Glowing Orange Separator */}
- <div className="mx-4" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
 
  {/* Drawing Tools Button */}
  <div className="ml-4 relative">
  <button
  ref={drawingsButtonRef}
  onClick={() => setIsDrawingsDropdownOpen(!isDrawingsDropdownOpen)}
- className={`btn-3d-carved relative group flex items-center space-x-2 text-white ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
+ className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
  style={{
  padding: '10px 14px',
  fontWeight: '700',
@@ -9687,15 +9794,6 @@ export default function TradingViewChart({
  </button>
  )}
  </div>
-
- {/* Glowing Orange Separator */}
- <div className="mx-8" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
  </div>
 
  {/* Spacer to push remaining items to the right */}
@@ -9703,24 +9801,6 @@ export default function TradingViewChart({
 
  {/* Remaining Controls on the Right */}
  <div className="flex items-center flex-shrink-0">
-
- {/* Glowing Orange Separator */}
- <div className="mx-6" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
-
- {/* Glowing Orange Separator */}
- <div className="mx-6" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
 
  {/* Enhanced Action Buttons */}
  <div className="flex items-center space-x-4">
@@ -9812,15 +9892,6 @@ export default function TradingViewChart({
  <span className="relative z-10">AI</span>
  </button>
 
- {/* Glowing Orange Separator */}
- <div className="mx-6" style={{
- width: '4px',
- height: '50px',
- background: 'linear-gradient(180deg, transparent 0%, #ff6600 15%, #ff8833 50%, #ff6600 85%, transparent 100%)',
- boxShadow: '0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4), 0 0 32px rgba(255, 102, 0, 0.2)',
- borderRadius: '2px'
- }}></div>
-
  </div>
 
  {/* SETTINGS Button - Matches toolbar button style */}
@@ -9836,9 +9907,6 @@ export default function TradingViewChart({
  }}
  >
  SETTINGS
- {showSettings && (
- <span className="ml-2 text-green-400 text-sm">✓</span>
- )}
  </button>
  </div>
  </div>

@@ -18,6 +18,9 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '4mb',
     },
   },
+  // CRITICAL: Ensure middleware runs in Next.js 15
+  skipMiddlewareUrlNormalize: false,
+  skipTrailingSlashRedirect: false,
   serverExternalPackages: ['worker_threads'],
   // Environment variables for production
   env: {

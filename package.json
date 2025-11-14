@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
+    "dev:turbo": "next dev --turbopack",
     "dev:safe": "cd /d \"%~dp0\" && npm run dev",
     "build": "next build --turbopack",
     "vercel-build": "next build",

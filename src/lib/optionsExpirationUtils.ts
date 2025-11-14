@@ -20,14 +20,13 @@ function getEasternDate(): Date {
  const month = parseInt(parts.find(p => p.type === 'month')?.value || '0');
  const day = parseInt(parts.find(p => p.type === 'day')?.value || '0');
  
- // Create date object representing Eastern date at midnight
- const easternDate = new Date(year, month - 1, day);
+ // Create date object in UTC to avoid timezone conversion issues
+ const easternDate = new Date(Date.UTC(year, month - 1, day));
  
- console.log(' FIXED TIMEZONE: Current UTC Time:', new Date().toISOString());
- console.log(' FIXED TIMEZONE: Eastern Date Parts:', {year, month, day});
- console.log(' FIXED TIMEZONE: Parsed Date:', easternDate.toISOString());
- console.log(' FIXED TIMEZONE: Day of week:', easternDate.getDay(), '(0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)');
- console.log(' FIXED TIMEZONE: If today is Oct 1 2025 (Wed), day should be 3');
+ console.log('🕐 FIXED TIMEZONE: Current UTC Time:', new Date().toISOString());
+ console.log('🕐 FIXED TIMEZONE: Eastern Date Parts:', {year, month, day});
+ console.log('🕐 FIXED TIMEZONE: Parsed Date:', easternDate.toISOString());
+ console.log('🕐 FIXED TIMEZONE: Day of week:', easternDate.getUTCDay(), '(0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)');
  
  return easternDate;
 }
@@ -41,7 +40,7 @@ function getEasternDate(): Date {
 export function getNextFriday(fromDate?: Date): Date {
  const easternDate = fromDate ? new Date(fromDate) : getEasternDate();
  
- const dayOfWeek = easternDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
+ const dayOfWeek = easternDate.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
  console.log('📅 GET NEXT FRIDAY: Input date:', easternDate.toISOString());
  console.log('📅 GET NEXT FRIDAY: Day of week:', dayOfWeek, '(0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)');
  
@@ -68,7 +67,7 @@ export function getNextFriday(fromDate?: Date): Date {
  console.log('📊 CALCULATION: Starting from date:', easternDate.toISOString().split('T')[0]);
  
  const nextFriday = new Date(easternDate);
- nextFriday.setDate(easternDate.getDate() + daysUntilFriday);
+ nextFriday.setUTCDate(easternDate.getUTCDate() + daysUntilFriday);
  
  console.log('🎯 RESULT: Next Friday calculated as:', nextFriday.toISOString().split('T')[0]);
  
@@ -79,13 +78,27 @@ export function getNextFriday(fromDate?: Date): Date {
  * Get the third Friday of a given month (standard monthly expiration)
  */
 export function getThirdFridayOfMonth(year: number, month: number): Date {
- // Create date in Eastern Time
- const firstDay = new Date(year, month - 1, 1);
- const firstFriday = getNextFriday(firstDay);
+ // Create date in UTC to avoid timezone issues
+ const firstDay = new Date(Date.UTC(year, month - 1, 1));
+ const firstDayOfWeek = firstDay.getUTCDay();
+ 
+ // Calculate days until first Friday
+ let daysUntilFirstFriday;
+ if (firstDayOfWeek === 0) {
+ daysUntilFirstFriday = 5; // Sunday
+ } else if (firstDayOfWeek <= 5) {
+ daysUntilFirstFriday = 5 - firstDayOfWeek;
+ } else {
+ daysUntilFirstFriday = 6; // Saturday
+ }
+ 
+ const firstFriday = new Date(Date.UTC(year, month - 1, 1 + daysUntilFirstFriday));
  
  // Add 14 days to get the third Friday
  const thirdFriday = new Date(firstFriday);
- thirdFriday.setDate(firstFriday.getDate() + 14);
+ thirdFriday.setUTCDate(firstFriday.getUTCDate() + 14);
+ 
+ console.log(`📅 Third Friday of ${year}-${month.toString().padStart(2, '0')}: ${thirdFriday.toISOString().split('T')[0]} (day of week: ${thirdFriday.getUTCDay()})`);
  
  return thirdFriday;
 }
@@ -95,8 +108,8 @@ export function getThirdFridayOfMonth(year: number, month: number): Date {
  */
 export function getNextMonthlyExpiration(fromDate?: Date): Date {
  const currentDate = fromDate ? new Date(fromDate) : getEasternDate();
- const currentYear = currentDate.getFullYear();
- const currentMonth = currentDate.getMonth() + 1; // JavaScript months are 0-based
+ const currentYear = currentDate.getUTCFullYear();
+ const currentMonth = currentDate.getUTCMonth() + 1; // JavaScript months are 0-based
  
  // Get third Friday of current month
  const thisMonthExpiry = getThirdFridayOfMonth(currentYear, currentMonth);
@@ -125,17 +138,44 @@ export function formatDateForAPI(date: Date): string {
  */
 export async function fetchAvailableExpirationDates(symbol: string = 'SPY'): Promise<string[]> {
  try {
- const response = await fetch(`https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`);
- const data = await response.json();
+ const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+ let allExpirations = new Set<string>();
+ let nextUrl: string | null = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apikey=${apiKey}`;
  
- if (data.results) {
- // Extract unique expiration dates and sort them
- const expirationDates = [...new Set(data.results.map((contract: any) => contract.expiration_date as string))].sort();
- console.log(' Available expiration dates from Polygon:', expirationDates.slice(0, 10)); // Show first 10
- return expirationDates as string[];
+ // Paginate through all results
+ while (nextUrl) {
+ const response: Response = await fetch(nextUrl);
+ const data: any = await response.json();
+ 
+ if (data.status === 'OK' && data.results && data.results.length > 0) {
+ data.results.forEach((contract: any) => {
+ if (contract.expiration_date) {
+ allExpirations.add(contract.expiration_date);
+ }
+ });
+ 
+ // Check for next page and append API key
+ nextUrl = data.next_url ? `${data.next_url}&apikey=${apiKey}` : null;
+ 
+ // Rate limiting between requests
+ if (nextUrl) {
+ await new Promise(r => setTimeout(r, 100));
+ }
+ } else {
+ break;
+ }
  }
  
- return [];
+ const expirationDates = Array.from(allExpirations).sort();
+ console.log(`📦 Fetched ${expirationDates.length} unique expiration dates from Polygon`);
+ console.log('📅 Available expiration dates from Polygon (first 20):');
+ expirationDates.slice(0, 20).forEach((date, idx) => {
+ const d = new Date(date + 'T00:00:00Z');
+ const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+ console.log(`   ${idx + 1}. ${date} (${dayNames[d.getUTCDay()]})`);
+ });
+ 
+ return expirationDates as string[];
  } catch (error) {
  console.error('Error fetching expiration dates from Polygon:', error);
  return [];
@@ -152,10 +192,13 @@ export async function getExpirationDatesFromAPI(symbol: string = 'SPY'): Promise
  monthlyDate: Date;
 }> {
  const availableDates = await fetchAvailableExpirationDates(symbol);
- const now = new Date();
+ const now = getEasternDate();
  
  // Filter dates that are in the future
- const futureDates = availableDates.filter(date => new Date(date) > now);
+ const futureDates = availableDates.filter(date => {
+ const expDate = new Date(date + 'T00:00:00Z'); // Parse as UTC
+ return expDate > now;
+ });
  
  if (futureDates.length === 0) {
  // Fallback to calculated dates if API fails
@@ -164,43 +207,48 @@ export async function getExpirationDatesFromAPI(symbol: string = 'SPY'): Promise
  
  // Get current week number of the month
  const today = getEasternDate();
- const currentWeekOfMonth = Math.ceil(today.getDate() / 7);
+ const currentWeekOfMonth = Math.ceil(today.getUTCDate() / 7);
  
  // Weekly expiry: Next Friday this week or next week
  let weeklyExpiry = futureDates.find(date => {
- const expDate = new Date(date);
- return expDate.getDay() === 5 && expDate > today; // Next Friday
+ const expDate = new Date(date + 'T00:00:00Z'); // Parse as UTC
+ return expDate.getUTCDay() === 5 && expDate > today; // Next Friday
  }) || futureDates[0];
  
- // Monthly expiry logic based on current week
- let monthlyExpiry;
- if (currentWeekOfMonth >= 3) {
- // Third week or later - use next month's monthly expiry
- const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+ // Monthly expiry: Find the third Friday of current or next month
+ // Third Friday falls between the 15th and 21st of the month
+ console.log('🔍 Searching for monthly expiry (3rd Friday, days 15-21)...');
+ let monthlyExpiry = futureDates.find(date => {
+ const expDate = new Date(date + 'T00:00:00Z');
+ const dayOfMonth = expDate.getUTCDate();
+ const dayOfWeek = expDate.getUTCDay();
+ const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+ console.log(`   Checking ${date}: day ${dayOfMonth}, ${dayNames[dayOfWeek]} (${dayOfWeek})`);
+ // Must be a Friday (5) and between 15th-21st (third week)
+ const isMatch = dayOfWeek === 5 && dayOfMonth >= 15 && dayOfMonth <= 21;
+ if (isMatch) console.log(`   ✅ FOUND MONTHLY: ${date}`);
+ return isMatch;
+ });
+ 
+ // If no monthly expiry found, fall back to any Friday after the 15th
+ if (!monthlyExpiry) {
+ console.log('⚠️ No 3rd Friday found, looking for any Friday after 15th...');
  monthlyExpiry = futureDates.find(date => {
- const expDate = new Date(date);
- return expDate >= nextMonthStart && expDate.getDay() === 5;
- }) || futureDates.find(date => new Date(date) > new Date(today.getFullYear(), today.getMonth(), 15));
- } else {
- // First or second week - use current month's third Friday
- monthlyExpiry = futureDates.find(date => {
- const expDate = new Date(date);
- return expDate.getMonth() === today.getMonth() && 
- expDate.getDate() >= 15 && expDate.getDate() <= 21 &&
- expDate.getDay() === 5;
- }) || futureDates.find(date => new Date(date) > new Date(today.getFullYear(), today.getMonth(), 15));
+ const expDate = new Date(date + 'T00:00:00Z');
+ return expDate.getUTCDay() === 5 && expDate.getUTCDate() >= 15;
+ });
  }
  
- console.log(' POLYGON API RESULTS:');
- console.log(' Weekly expiry (this/next Friday):', weeklyExpiry);
- console.log(' Monthly expiry (based on week):', monthlyExpiry);
- console.log(' Current week of month:', currentWeekOfMonth);
+ console.log('📊 POLYGON API RESULTS:');
+ console.log('   Weekly expiry (this/next Friday):', weeklyExpiry);
+ console.log('   Monthly expiry (based on week):', monthlyExpiry);
+ console.log('   Current week of month:', currentWeekOfMonth);
  
  return {
  weeklyExpiry: weeklyExpiry || futureDates[0],
  monthlyExpiry: monthlyExpiry || futureDates[1] || futureDates[0],
- weeklyDate: new Date(weeklyExpiry || futureDates[0]),
- monthlyDate: new Date(monthlyExpiry || futureDates[1] || futureDates[0])
+ weeklyDate: new Date(weeklyExpiry ? weeklyExpiry + 'T00:00:00Z' : futureDates[0] + 'T00:00:00Z'),
+ monthlyDate: new Date(monthlyExpiry ? monthlyExpiry + 'T00:00:00Z' : (futureDates[1] || futureDates[0]) + 'T00:00:00Z')
  };
 }
 

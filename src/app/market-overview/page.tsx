@@ -66,22 +66,6 @@ export default function MarketPage() {
  onAIButtonClick={handleAIButtonClick}
  />
  </div>
- 
- {/* Mobile AI Button */}
- {!showChatbot && (
- <button
- onClick={handleAIButtonClick}
- className="fixed bottom-4 right-4 z-[1001] bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white flex items-center justify-center transition-all duration-300 hover:scale-105 rounded-full shadow-lg"
- style={{ 
- width: '48px', 
- height: '48px',
- fontSize: '14px',
- fontWeight: 'bold'
- }}
- >
- AI
- </button>
- )}
 
  {/* AI Trading Chatbot - Mobile Optimized */}
  {showChatbot && (

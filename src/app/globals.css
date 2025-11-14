@@ -172,10 +172,9 @@ body {
     transition: all 0.3s ease;
     backdrop-filter: blur(20px) saturate(120%);
     -webkit-backdrop-filter: blur(20px) saturate(120%);
-    border-bottom: 1px solid rgba(255, 102, 0, 0.3);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 
         0 8px 32px rgba(0, 0, 0, 0.95),
-        0 4px 16px rgba(255, 102, 0, 0.08),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
@@ -393,20 +392,17 @@ body {
     display: flex;
     gap: 3px;
     background: #000000;
-    border: 2px solid #FF6600;
+    border: 2px solid #d4af37;
     padding: 12px;
     box-shadow: 
         0 16px 64px rgba(0, 0, 0, 0.95),
-        0 8px 32px rgba(255, 102, 0, 0.15),
         0 4px 16px rgba(0, 0, 0, 0.8),
-        inset 0 3px 6px rgba(255, 102, 0, 0.2),
-        inset 0 -3px 12px rgba(0, 0, 0, 0.95),
-        0 0 40px rgba(255, 102, 0, 0.3);
+        inset 0 3px 6px rgba(0, 0, 0, 0.5),
+        inset 0 -3px 12px rgba(0, 0, 0, 0.95);
     border-radius: 16px;
     position: relative;
     backdrop-filter: blur(12px);
     overflow: hidden;
-    animation: pulse-border 4s ease-in-out infinite;
 }
 
 .nav-center::before {
@@ -416,13 +412,7 @@ body {
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, 
-        transparent 0%,
-        #FF6600 20%,
-        #FF8533 50%,
-        #FF6600 80%,
-        transparent 100%);
-    animation: nav-glow 3s ease-in-out infinite;
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .nav-center::after {
@@ -432,9 +422,9 @@ body {
     left: 4px;
     right: 4px;
     bottom: 4px;
-    background: rgba(255, 102, 0, 0.02);
+    background: rgba(0, 0, 0, 0.3);
     border-radius: 12px;
-    border: 1px solid rgba(255, 102, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     pointer-events: none;
 }
 
@@ -457,7 +447,7 @@ body {
         inset 0 -3px 6px rgba(255, 255, 255, 0.08), 
         0 6px 20px rgba(0, 0, 0, 0.6),
         0 2px 8px rgba(0, 0, 0, 0.8);
-    border: 2px solid rgba(255, 255, 255, 0.15);
+    border: 2px solid #ff6600;
     transform-style: preserve-3d;
     backdrop-filter: blur(4px);
     overflow: hidden;
@@ -608,6 +598,98 @@ body {
         0 8px 25px rgba(0, 0, 0, 0.6),
         0 0 30px rgba(0, 255, 136, 0.2);
     animation: float-subtle 5s ease-in-out infinite;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Bulls Charging - Upward momentum */
+.market-quote-bulls {
+    animation: bulls-charge 2s ease-in-out infinite !important;
+}
+
+@keyframes bulls-charge {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-3px); }
+}
+
+/* Bears Hunting - Blood drip effect */
+.market-quote-bears {
+    animation: bears-hunt 3s ease-in-out infinite !important;
+}
+
+.market-quote-bears::before {
+    content: '🩸';
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 16px;
+    animation: blood-drip 2s ease-in infinite;
+    opacity: 0.8;
+}
+
+@keyframes bears-hunt {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(2px); }
+}
+
+@keyframes blood-drip {
+    0% { top: -10px; opacity: 0; }
+    50% { opacity: 0.8; }
+    100% { top: 50px; opacity: 0; }
+}
+
+/* Volatility - Shake effect */
+.market-quote-volatility {
+    animation: volatility-shake 0.5s ease-in-out infinite !important;
+}
+
+@keyframes volatility-shake {
+    0%, 100% { transform: translateX(0px); }
+    25% { transform: translateX(-2px); }
+    75% { transform: translateX(2px); }
+}
+
+/* Gamma Squeeze - Lightning effect */
+.market-quote-gamma {
+    animation: gamma-flash 1.5s ease-in-out infinite !important;
+}
+
+.market-quote-gamma::after {
+    content: '⚡';
+    position: absolute;
+    right: -25px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 20px;
+    animation: lightning-flash 1.5s ease-in-out infinite;
+}
+
+@keyframes gamma-flash {
+    0%, 100% { box-shadow: 
+        inset 0 3px 6px rgba(0, 0, 0, 0.5), 
+        0 8px 25px rgba(0, 0, 0, 0.6); 
+    }
+    50% { box-shadow: 
+        inset 0 3px 6px rgba(0, 0, 0, 0.5), 
+        0 8px 25px rgba(0, 255, 255, 0.4),
+        0 0 40px rgba(0, 255, 255, 0.6); 
+    }
+}
+
+@keyframes lightning-flash {
+    0%, 100% { opacity: 0; transform: translateY(-50%) scale(0.5); }
+    50% { opacity: 1; transform: translateY(-50%) scale(1); }
+}
+
+/* Default pulse */
+.market-quote-pulse {
+    animation: status-pulse 2s ease-in-out infinite !important;
+}
+
+@keyframes status-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.9; transform: scale(1.02); }
 }
 
 .status-indicator {
