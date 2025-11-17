@@ -721,11 +721,11 @@
   }
   
   .search-bar-premium input {
-    width: 32px !important; /* Ultra tight for SPY text */
+    width: 19px !important; /* Ultra tight for SPY text */
     font-size: 12px !important;
     font-weight: 700 !important;
-    min-width: 28px !important;
-    max-width: 38px !important;
+    min-width: 17px !important;
+    max-width: 23px !important;
     padding: 0 1px !important; /* Minimal padding */
     text-align: center !important;
     letter-spacing: 0.2px !important;

@@ -19,6 +19,7 @@ interface GEXChartProps {
  showNegativeGamma: boolean;
  setShowPositiveGamma: (show: boolean) => void;
  setShowNegativeGamma: (show: boolean) => void;
+ compactMode?: boolean;
 }
 
 export default function GEXChart({ 
@@ -29,7 +30,8 @@ export default function GEXChart({
  showPositiveGamma,
  showNegativeGamma,
  setShowPositiveGamma,
- setShowNegativeGamma
+ setShowNegativeGamma,
+ compactMode = false
 }: GEXChartProps) {
  const [data, setData] = useState<GEXData[]>([]);
  const [loading, setLoading] = useState<boolean>(false);
@@ -447,9 +449,11 @@ export default function GEXChart({
 
  const margin = isMobile 
  ? { top: 50, right: 30, bottom: 80, left: 50 }
+ : compactMode
+ ? { top: 50, right: 20, bottom: 70, left: 60 }
  : { top: 60, right: 180, bottom: 80, left: 100 };
- const width = (isMobile ? 350 : 1500) - margin.left - margin.right;
- const height = (isMobile ? 415 : 600) - margin.top - margin.bottom;
+ const width = (isMobile ? 350 : compactMode ? 920 : 1500) - margin.left - margin.right;
+ const height = (isMobile ? 415 : compactMode ? 530 : 600) - margin.top - margin.bottom;
 
  const container = svg
  .append('g')
@@ -814,8 +818,10 @@ export default function GEXChart({
  .style('fill', '#ff9900')
  .text(showGEX ? `Gamma Exposure (GEX)` : `Delta Exposure (DEX)`);
 
- // Add Y axis label - hide on mobile
+ // Add Y axis label - hide on mobile, hide Y-axis in compact mode
  if (!isMobile) {
+ // Only show Y-axis label in Analysis Suite (not in DealerAttraction compact mode)
+ if (!compactMode) {
  container
  .append('text')
  .attr('transform', 'rotate(-90)')
@@ -826,6 +832,7 @@ export default function GEXChart({
  .style('font-size', '14px')
  .style('fill', '#ff9900')
  .text(showGEX ? 'Gamma Exposure' : 'Delta Exposure');
+ }
 
  // Add X axis label - positioned at the bottom
  container
@@ -865,7 +872,7 @@ export default function GEXChart({
  }, [data, showPositiveGamma, showNegativeGamma, showGEX]);
 
  return (
- <div style={{ marginTop: isMobile ? '0px' : '32px' }}>
+ <div style={{ marginTop: isMobile ? '0px' : compactMode ? '-20px' : '32px' }}>
  {/* Loading and Error States */}
  {loading && (
  <div style={{ 
@@ -914,12 +921,13 @@ export default function GEXChart({
  border: '1px solid #333333',
  borderTop: 'none',
  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
- position: 'relative'
+ position: 'relative',
+ marginTop: compactMode ? '20px' : '0'
  }}>
  <svg
  ref={svgRef}
- width={isMobile ? 350 : 1500}
- height={isMobile ? 415 : 560}
+ width={isMobile ? 350 : compactMode ? 1000 : 1500}
+ height={isMobile ? 415 : compactMode ? 650 : 560}
  style={{ 
  background: 'transparent',
  width: isMobile ? '100%' : 'auto',

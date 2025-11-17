@@ -5,65 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 
-// Market quotes with animation types
-const marketQuotes = [
-  { text: "BULLS CHARGING", animation: "bulls", color: "#00FF88", condition: "bullish" },
-  { text: "BEARS HUNTING", animation: "bears", color: "#FF0044", condition: "bearish" }, 
-  { text: "VOLATILITY RISING", animation: "volatility", color: "#FFD700", condition: "highVol" },
-  { text: "GAMMA SQUEEZE", animation: "gamma", color: "#00FFFF", condition: "highVolume" },
-  { text: "OPTIONS EXPIRING", animation: "pulse", color: "#FF6600", condition: "expiration" },
-  { text: "RALLY MODE", animation: "bulls", color: "#00FF88", condition: "strongBullish" },
-  { text: "SELL THE RIP", animation: "bears", color: "#FF0044", condition: "strongBearish" },
-  { text: "BUY THE DIP", animation: "bulls", color: "#00FF88", condition: "dip" },
-  { text: "RISK OFF", animation: "bears", color: "#FF0044", condition: "vixHigh" },
-  { text: "VOLUME SPIKE", animation: "gamma", color: "#00FFFF", condition: "highVolume" },
-  { text: "BREAKOUT ALERT", animation: "bulls", color: "#00FF88", condition: "breakout" },
-  { text: "MARKET LIVE", animation: "pulse", color: "#00FF88", condition: "neutral" }
-];
 
-// Function to determine market condition based on SPY data
-const getMarketCondition = (spyData: any, vixData: any) => {
-  if (!spyData || !vixData) return 'neutral';
-  
-  const priceChange = ((spyData.close - spyData.open) / spyData.open) * 100;
-  const volume = spyData.volume;
-  const avgVolume = spyData.avgVolume || 80000000; // SPY average volume
-  const vix = vixData.close;
-  
-  // Check for options expiration (Fridays)
-  const today = new Date();
-  const dayOfWeek = today.getDay();
-  if (dayOfWeek === 5) return 'expiration';
-  
-  // High VIX (fear)
-  if (vix > 25) return 'vixHigh';
-  
-  // Strong bullish (up more than 1%)
-  if (priceChange > 1) return 'strongBullish';
-  
-  // Strong bearish (down more than 1%)
-  if (priceChange < -1) return 'strongBearish';
-  
-  // High volume (50% above average)
-  if (volume > avgVolume * 1.5) return 'highVolume';
-  
-  // High volatility (VIX above 20)
-  if (vix > 20) return 'highVol';
-  
-  // Bullish (up 0.3% to 1%)
-  if (priceChange > 0.3) return 'bullish';
-  
-  // Bearish (down 0.3% to 1%)
-  if (priceChange < -0.3) return 'bearish';
-  
-  // Dip (down but not extreme)
-  if (priceChange < 0 && priceChange > -0.5) return 'dip';
-  
-  // Breakout (up significantly on high volume)
-  if (priceChange > 0.5 && volume > avgVolume * 1.2) return 'breakout';
-  
-  return 'neutral';
-};
 
 export default function Navigation() {
  const { data: session } = useSession();
@@ -71,7 +13,6 @@ export default function Navigation() {
  const [isAuthenticated, setIsAuthenticated] = useState(false);
  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
  const [isClient, setIsClient] = useState(false);
- const [marketQuote, setMarketQuote] = useState({ text: 'MARKET LIVE', animation: 'pulse', color: '#00FF88' });
  const pathname = usePathname();
  const router = useRouter();
 
@@ -79,53 +20,6 @@ export default function Navigation() {
  useEffect(() => {
  setIsClient(true);
  }, []);
-
- // Fetch live market data and update quote based on conditions
- useEffect(() => {
- if (!isClient) return;
- 
- const updateMarketQuote = async () => {
- try {
- const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
- 
- // Get SPY (market) data
- const spyResponse = await fetch(
- `https://api.polygon.io/v2/aggs/ticker/SPY/prev?adjusted=true&apikey=${POLYGON_API_KEY}`
- );
- const spyData = await spyResponse.json();
- 
- // Get VIX (volatility) data
- const vixResponse = await fetch(
- `https://api.polygon.io/v2/aggs/ticker/I:VIX/prev?adjusted=true&apikey=${POLYGON_API_KEY}`
- );
- const vixData = await vixResponse.json();
- 
- if (spyData.results && spyData.results[0] && vixData.results && vixData.results[0]) {
- const spy = spyData.results[0];
- const vix = vixData.results[0];
- 
- const condition = getMarketCondition(spy, vix);
- const matchingQuotes = marketQuotes.filter(q => q.condition === condition);
- const selectedQuote = matchingQuotes.length > 0 
- ? matchingQuotes[Math.floor(Math.random() * matchingQuotes.length)]
- : marketQuotes[marketQuotes.length - 1]; // Default to "MARKET LIVE"
- 
- setMarketQuote(selectedQuote);
- 
- console.log('📊 Market Condition:', condition, '| Quote:', selectedQuote.text);
- console.log('📈 SPY Change:', ((spy.close - spy.open) / spy.open * 100).toFixed(2) + '%', '| VIX:', vix.close.toFixed(2));
- }
- } catch (error) {
- console.error('Error fetching market data:', error);
- }
- };
- 
- updateMarketQuote(); // Initial fetch
- const interval = setInterval(updateMarketQuote, 60000); // Update every minute
- return () => clearInterval(interval);
- }, [isClient]);
-
-
 
  useEffect(() => {
  if (!isClient) return;
@@ -267,10 +161,6 @@ export default function Navigation() {
 
          {/* Desktop Status and Auth */}
          <div className="desktop-nav-right">
-           <div className={`system-status market-quote-${marketQuote.animation}`} style={{ borderColor: marketQuote.color }}>
-             <div className="status-indicator" style={{ background: marketQuote.color, boxShadow: `0 0 25px ${marketQuote.color}` }}></div>
-             <span className="status-text" style={{ color: marketQuote.color }}>{marketQuote.text || 'MARKET LIVE'}</span>
-           </div>
            {isClient && (
              <>
                {isAuthenticated ? (
@@ -410,10 +300,6 @@ export default function Navigation() {
      </div>
 
  <div className="mobile-menu-footer">
- <div className={`mobile-system-status market-quote-${marketQuote.animation}`} style={{ borderColor: marketQuote.color }}>
- <div className="status-indicator" style={{ background: marketQuote.color, boxShadow: `0 0 25px ${marketQuote.color}` }}></div>
- <span className="status-text" style={{ color: marketQuote.color }}>{marketQuote.text || 'MARKET LIVE'}</span>
- </div>
  {isClient && (
  <>
  {isAuthenticated ? (

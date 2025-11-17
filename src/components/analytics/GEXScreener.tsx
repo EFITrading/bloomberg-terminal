@@ -53,7 +53,11 @@ interface PremiumImbalance {
  callStrike: number;
 }
 
-export default function GEXScreener() {
+interface GEXScreenerProps {
+ compactMode?: boolean;
+}
+
+export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
  const [activeTab, setActiveTab] = useState('attraction');
  const [scanning, setScanning] = useState(false);
  const [selectedRow, setSelectedRow] = useState<number | null>(null);
@@ -82,6 +86,19 @@ export default function GEXScreener() {
  window.addEventListener('resize', checkMobile);
  return () => window.removeEventListener('resize', checkMobile);
  }, []);
+
+ // Auto-scan on mount for both tabs
+ useEffect(() => {
+ // Delay initial scan slightly to ensure component is fully mounted
+ const timer = setTimeout(() => {
+ // Scan GEX data (Attraction Zones)
+ fetchGEXData();
+ // Scan OTM Premiums
+ scanOTMPremiums();
+ }, 500);
+ 
+ return () => clearTimeout(timer);
+ }, []); // Empty dependency array means this runs once on mount
  
  // Responsive items per page: 10 for mobile, 20 for desktop
  const itemsPerPage = isMobile ? 10 : 20;
@@ -358,13 +375,17 @@ export default function GEXScreener() {
  <div className="px-3 md:px-8 py-3 md:py-6">
  {/* Mobile: Stack everything vertically */}
  <div className="flex flex-col gap-3 md:gap-0 md:flex-row md:items-center md:justify-between">
- {/* Title and Status Row */}
+ {/* Title and Status Row - Hidden in compact mode */}
+ {!compactMode && (
  <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-8">
  <div className="flex items-center gap-2 md:gap-4">
  <div className="space-y-1">
  <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
- <h1 className="font-semibold tracking-tight text-[#ff9900] text-base leading-tight">
- DERIVATIVE SCREENING
+ <h1 
+ className="font-semibold tracking-tight text-[#ff9900] leading-tight"
+ style={{ fontSize: compactMode ? '10px' : '16px' }}
+ >
+ GEX SCREENER
  </h1>
  <div className="flex items-center gap-2 flex-wrap">
  {expirationFilter !== 'Default' && (
@@ -388,7 +409,7 @@ export default function GEXScreener() {
  </div>
  </div>
  
- {/* Search Bar - Full width on mobile */}
+ {/* Search Bar - Full width on mobile - Hidden in compact mode */}
  <div className="relative w-full md:w-80 md:ml-8">
  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
  <Search className="h-3 w-3 md:h-4 md:w-4 text-gray-400" />
@@ -402,8 +423,10 @@ export default function GEXScreener() {
  />
  </div>
  </div>
+ )}
 
- {/* Action Buttons Row */}
+ {/* Action Buttons Row - Hidden in compact mode (moved to filters) */}
+ {!compactMode && (
  <div className="flex items-center gap-2 md:gap-4">
  <button
  onClick={handleScan}
@@ -425,6 +448,7 @@ export default function GEXScreener() {
  </div>
  )}
  </div>
+ )}
  </div>
  </div>
  </div>
@@ -441,14 +465,9 @@ export default function GEXScreener() {
  }}
  className={`flex items-center gap-2 md:gap-4 px-6 md:px-12 py-3 md:py-6 font-black text-sm md:text-lg transition-all duration-300 relative rounded-xl whitespace-nowrap flex-shrink-0 ${
  activeTab === 'attraction' 
- ? 'bg-black text-orange-400 shadow-2xl transform scale-105 border-2 border-orange-500/50 backdrop-blur-sm' 
- : 'bg-black text-gray-300 hover:text-orange-300 border-2 border-gray-600/50 hover:border-orange-500/30 shadow-xl backdrop-blur-sm'
- } bg-gradient-to-b from-gray-900/80 to-black shadow-inner`}
- style={{
- background: activeTab === 'attraction' 
- ? 'linear-gradient(145deg, #1a1a1a, #000000), linear-gradient(to bottom, rgba(255,153,0,0.1), rgba(0,0,0,0.9))'
- : 'linear-gradient(145deg, #1a1a1a, #000000), linear-gradient(to bottom, rgba(55,65,81,0.1), rgba(0,0,0,0.9))'
- }}
+ ? 'bg-gradient-to-b from-black via-gray-900 to-black text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_4px_8px_rgba(0,0,0,0.8)] border-2 border-gray-700 transform scale-105' 
+ : 'bg-gradient-to-b from-black via-gray-900 to-black text-gray-400 hover:text-white border-2 border-gray-800 hover:border-gray-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_4px_rgba(0,0,0,0.8)]'
+ }`}
  >
  <Target className="w-4 h-4 md:w-6 md:h-6" />
  <span className="hidden sm:inline tracking-wider">ATTRACTION ZONES</span>
@@ -464,42 +483,14 @@ export default function GEXScreener() {
  }}
  className={`flex items-center gap-2 md:gap-4 px-6 md:px-12 py-3 md:py-6 font-black text-sm md:text-lg transition-all duration-300 relative rounded-xl whitespace-nowrap flex-shrink-0 ${
  activeTab === 'otm-premiums' 
- ? 'bg-black text-orange-400 shadow-2xl transform scale-105 border-2 border-orange-500/50 backdrop-blur-sm' 
- : 'bg-black text-gray-300 hover:text-orange-300 border-2 border-gray-600/50 hover:border-orange-500/30 shadow-xl backdrop-blur-sm'
- } bg-gradient-to-b from-gray-900/80 to-black shadow-inner`}
- style={{
- background: activeTab === 'otm-premiums' 
- ? 'linear-gradient(145deg, #1a1a1a, #000000), linear-gradient(to bottom, rgba(255,153,0,0.1), rgba(0,0,0,0.9))'
- : 'linear-gradient(145deg, #1a1a1a, #000000), linear-gradient(to bottom, rgba(55,65,81,0.1), rgba(0,0,0,0.9))'
- }}
+ ? 'bg-gradient-to-b from-black via-gray-900 to-black text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_4px_8px_rgba(0,0,0,0.8)] border-2 border-gray-700 transform scale-105' 
+ : 'bg-gradient-to-b from-black via-gray-900 to-black text-gray-400 hover:text-white border-2 border-gray-800 hover:border-gray-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_4px_rgba(0,0,0,0.8)]'
+ }`}
  >
  <Layers className="w-4 h-4 md:w-6 md:h-6" />
  <span className="hidden sm:inline tracking-wider">OTM PREMIUMS</span>
  <span className="sm:hidden tracking-wider">OTM</span>
  {activeTab === 'otm-premiums' && (
- <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-gradient-to-r from-orange-400 to-orange-600 rounded-full shadow-lg" />
- )}
- </button>
- <button
- onClick={() => {
- setActiveTab('flip-scan');
- setCurrentPage(1);
- }}
- className={`flex items-center gap-2 md:gap-4 px-6 md:px-12 py-3 md:py-6 font-black text-sm md:text-lg transition-all duration-300 relative rounded-xl whitespace-nowrap flex-shrink-0 ${
- activeTab === 'flip-scan' 
- ? 'bg-black text-orange-400 shadow-2xl transform scale-105 border-2 border-orange-500/50 backdrop-blur-sm' 
- : 'bg-black text-gray-300 hover:text-orange-300 border-2 border-gray-600/50 hover:border-orange-500/30 shadow-xl backdrop-blur-sm'
- } bg-gradient-to-b from-gray-900/80 to-black shadow-inner`}
- style={{
- background: activeTab === 'flip-scan' 
- ? 'linear-gradient(145deg, #1a1a1a, #000000), linear-gradient(to bottom, rgba(255,153,0,0.1), rgba(0,0,0,0.9))'
- : 'linear-gradient(145deg, #1a1a1a, #000000), linear-gradient(to bottom, rgba(55,65,81,0.1), rgba(0,0,0,0.9))'
- }}
- >
- <RefreshCw className="w-4 h-4 md:w-6 md:h-6" />
- <span className="hidden sm:inline tracking-wider">FLIP SCAN</span>
- <span className="sm:hidden tracking-wider">FLIP</span>
- {activeTab === 'flip-scan' && (
  <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-gradient-to-r from-orange-400 to-orange-600 rounded-full shadow-lg" />
  )}
  </button>
@@ -528,6 +519,22 @@ export default function GEXScreener() {
  <option value="blue">🔵 Moderate Only (63-75%)</option>
  <option value="yellow">🟡 Weak Pull (40-62%)</option>
  </select>
+
+ {/* SCAN NOW button - Only visible in compact mode */}
+ {compactMode && (
+ <button
+ onClick={handleScan}
+ disabled={loading}
+ className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${
+ loading
+ ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+ : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+ }`}
+ >
+ <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${loading ? 'animate-spin' : ''}`} />
+ {loading ? 'SCANNING...' : 'SCAN NOW'}
+ </button>
+ )}
  </div>
  </div>
  </div>
@@ -559,29 +566,29 @@ export default function GEXScreener() {
  )}
  
  {/* Column Headers - Desktop Only */}
- <div className="hidden lg:block px-6 py-4 mb-4 border-b border-gray-700/30">
+ <div className="hidden lg:block px-6 py-3 mb-4 bg-gradient-to-b from-black via-gray-900 to-black border border-gray-800 rounded-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
  <div className="flex items-center gap-8">
  {/* Symbol Header */}
  <div className="w-24 flex-shrink-0">
- <div className="text-xl font-black text-orange-400 uppercase tracking-wider">SYMBOL</div>
+ <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Symbol</div>
  </div>
 
  {/* Main Data Headers */}
  <div className="flex-1 grid grid-cols-5 gap-8">
- <div>
- <div className="text-xl font-black text-orange-400 uppercase tracking-wider">CURRENT PRICE</div>
+ <div className="border-l border-gray-700/50 pl-4">
+ <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Current Price</div>
  </div>
- <div>
- <div className="text-xl font-black text-orange-400 uppercase tracking-wider">TARGET LEVEL</div>
+ <div className="border-l border-gray-700/50 pl-4">
+ <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Target Level</div>
  </div>
- <div>
- <div className="text-xl font-black text-orange-400 uppercase tracking-wider">VALUE</div>
+ <div className="border-l border-gray-700/50 pl-4">
+ <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Value</div>
  </div>
- <div>
- <div className="text-xl font-black text-orange-400 uppercase tracking-wider">WALL LEVEL</div>
+ <div className="border-l border-gray-700/50 pl-4">
+ <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Wall Level</div>
  </div>
- <div>
- <div className="text-xl font-black text-orange-400 uppercase tracking-wider">WALL VALUE</div>
+ <div className="border-l border-gray-700/50 pl-4">
+ <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Wall Value</div>
  </div>
  </div>
  </div>
@@ -1093,15 +1100,6 @@ export default function GEXScreener() {
  </div>
  </div>
  ))}
- </div>
- </div>
- )}
-
- {/* Flip Scan View */}
- {activeTab === 'flip-scan' && (
- <div>
- <div className="text-center py-8">
- <div className="text-xl font-bold text-white">Flip Scan</div>
  </div>
  </div>
  )}

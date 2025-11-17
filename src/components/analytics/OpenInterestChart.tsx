@@ -14,12 +14,16 @@ interface OpenInterestChartProps {
  selectedTicker?: string;
  onTickerChange?: (ticker: string) => void;
  onExpirationChange?: (expiration: string) => void;
+ hideTickerInput?: boolean;
+ compactMode?: boolean;
 }
 
 export default function OpenInterestChart({ 
  selectedTicker: propTicker, 
  onTickerChange, 
- onExpirationChange 
+ onExpirationChange,
+ hideTickerInput = false,
+ compactMode = false
 }: OpenInterestChartProps) {
  const [selectedTicker, setSelectedTicker] = useState<string>(propTicker || 'SPY');
  const [tickerInput, setTickerInput] = useState<string>(propTicker || 'SPY');
@@ -102,10 +106,15 @@ export default function OpenInterestChart({
  
  if (dates.length > 0) {
  console.log('Setting selectedExpiration to first available:', dates[0]);
- // Use setTimeout to ensure state update happens
+ // In compact mode, auto-select first expiration immediately
+ // In regular mode, use setTimeout to ensure state update happens
+ if (compactMode) {
+ setSelectedExpiration(dates[0]);
+ } else {
  setTimeout(() => {
  setSelectedExpiration(dates[0]);
  }, 100);
+ }
  }
  } else {
  console.error('API call failed or no data:', result);
@@ -120,7 +129,7 @@ export default function OpenInterestChart({
  };
 
  fetchExpirations();
- }, [selectedTicker]); // Back to using selectedTicker since it's now properly synced
+ }, [selectedTicker, compactMode]); // Include compactMode to ensure proper initialization
 
  // Fetch options data for selected expiration or all dates
  useEffect(() => {
@@ -128,6 +137,12 @@ export default function OpenInterestChart({
  
  if (!selectedTicker) {
  console.log('No ticker selected, returning');
+ return;
+ }
+ 
+ // In compact mode (DealerAttraction), wait for expiration dates to load first
+ if (compactMode && expirationDates.length === 0) {
+ console.log('Compact mode: waiting for expiration dates to load');
  return;
  }
  
@@ -302,7 +317,7 @@ export default function OpenInterestChart({
  };
 
  fetchOptionsData();
- }, [selectedTicker, selectedExpiration, showAllDates, expirationDates, showNetOI]); // Include showNetOI for re-rendering
+ }, [selectedTicker, selectedExpiration, showAllDates, expirationDates, showNetOI, compactMode]); // Include showNetOI and compactMode for re-rendering
 
  // D3 Chart rendering
  useEffect(() => {
@@ -322,9 +337,11 @@ export default function OpenInterestChart({
 
  const margin = isMobile 
  ? { top: 50, right: 30, bottom: 80, left: 50 }
+ : compactMode
+ ? { top: 50, right: 20, bottom: 70, left: 60 }
  : { top: 70, right: 20, bottom: 70, left: 100 };
- const width = (isMobile ? 350 : 1360) - margin.left - margin.right;
- const height = (isMobile ? 415 : 700) - margin.top - margin.bottom;
+ const width = (isMobile ? 350 : compactMode ? 920 : 1360) - margin.left - margin.right;
+ const height = (isMobile ? 415 : compactMode ? 530 : 700) - margin.top - margin.bottom;
 
  const container = svg
  .append('g')
@@ -566,8 +583,10 @@ export default function OpenInterestChart({
  .style('fill', '#ff9900')
  .text('Open Interest (OI)');
 
- // Axis labels - hide on mobile
+ // Axis labels - hide on mobile, hide Y-axis in compact mode
  if (!isMobile) {
+ // Only show Y-axis label in Analysis Suite (not in DealerAttraction compact mode)
+ if (!compactMode) {
  container
  .append('text')
  .attr('transform', 'rotate(-90)')
@@ -578,6 +597,7 @@ export default function OpenInterestChart({
  .style('fill', '#ff9900')
  .style('font-size', '14px')
  .text('Open Interest');
+ }
 
  container
  .append('text')
@@ -705,6 +725,8 @@ export default function OpenInterestChart({
  }} />
  
  {/* Current Ticker Display */}
+ {!hideTickerInput && (
+ <>
  <div style={{ 
  display: 'flex', 
  alignItems: 'center', 
@@ -766,6 +788,8 @@ export default function OpenInterestChart({
  boxShadow: '1px 0 0 rgba(255, 255, 255, 0.05)',
  display: isMobile ? 'none' : 'block'
  }} />
+ </>
+ )}
  
  <div style={{ 
  display: 'flex', 
@@ -1250,13 +1274,14 @@ export default function OpenInterestChart({
  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
  position: 'relative',
  zIndex: 1,
- width: '100%'
+ width: '100%',
+ marginTop: compactMode ? '-20px' : '0'
  }}>
  <div style={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
  <svg
  ref={svgRef}
- width={isMobile ? 350 : 1320}
- height={isMobile ? 415 : 685}
+ width={isMobile ? 350 : compactMode ? 1000 : 1320}
+ height={isMobile ? 415 : compactMode ? 650 : 685}
  style={{ 
  background: 'transparent', 
  borderRadius: '0px',
@@ -1302,6 +1327,7 @@ export default function OpenInterestChart({
  showNegativeGamma={showNegativeGamma}
  setShowPositiveGamma={setShowPositiveGamma}
  setShowNegativeGamma={setShowNegativeGamma}
+ compactMode={compactMode}
  />
  </div>
  );

@@ -53,8 +53,15 @@ const SpecialPerformanceChart: React.FC = () => {
   const timeframeRef = useRef<Timeframe>('1W');
   const lastDrawParamsRef = useRef<string>('');
   const crosshairRef = useRef<{ x: number; y: number } | null>(null);
-  
-  const [timeframe, setTimeframe] = useState<Timeframe>('1W');
+
+  // Initialize timeframe from localStorage or default to 1W
+  const [timeframe, setTimeframe] = useState<Timeframe>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('specialPerformanceTimeframe');
+      return (saved as Timeframe) || '1W';
+    }
+    return '1W';
+  });
   const [performanceData, setPerformanceData] = useState<SpecialPerformance[]>([]);
   const [loading, setLoading] = useState(true);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -230,16 +237,16 @@ const SpecialPerformanceChart: React.FC = () => {
       const multiplier = (timeframe === '1D' || timeframe === '1W') ? 5 : 1;
       const timespan = (timeframe === '1D' || timeframe === '1W') ? 'minute' : 'day';
       
-      // Helper function to check if time is during market hours (9:30 AM - 4:00 PM ET)
+      // Helper function to check if time is during market hours (6:30 AM - 1:00 PM PST)
       const isMarketHours = (timestamp: number): boolean => {
         const date = new Date(timestamp);
-        const dateET = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-        const hoursET = dateET.getHours();
-        const minutesET = dateET.getMinutes();
-        const totalMinutesET = hoursET * 60 + minutesET;
+        const datePST = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+        const hoursPST = datePST.getHours();
+        const minutesPST = datePST.getMinutes();
+        const totalMinutesPST = hoursPST * 60 + minutesPST;
         
-        // 9:30 AM = 570 minutes, 4:00 PM = 960 minutes
-        return totalMinutesET >= 570 && totalMinutesET <= 960;
+        // 6:30 AM = 390 minutes, 1:00 PM = 780 minutes
+        return totalMinutesPST >= 390 && totalMinutesPST <= 780;
       };
 
       // Optimized fetch with aggressive retry and request reuse
@@ -391,14 +398,14 @@ const SpecialPerformanceChart: React.FC = () => {
       }
     };
 
-    // Update dimensions when loading state changes (container appears)
+    // Initial dimension update
     updateDimensions();
     
     window.addEventListener('resize', updateDimensions);
     return () => {
       window.removeEventListener('resize', updateDimensions);
     };
-  }, [loading]); // Re-run when loading changes
+  }, []); // Only run once on mount
   
   // Update dimensions when fullscreen changes
   useLayoutEffect(() => {
@@ -492,24 +499,35 @@ const SpecialPerformanceChart: React.FC = () => {
     ctx.rect(margin.left, margin.top, chartWidth, chartHeight);
     ctx.clip();
 
-    // Draw gray shading for pre-market and after-hours in 1W view
-    if (timeframe === '1W' && performanceData[0]?.data) {
-      ctx.fillStyle = 'rgba(100, 100, 100, 0.15)';
+    // Draw gray shading for pre-market and after-hours
+    if (performanceData[0]?.data) {
+      ctx.fillStyle = 'rgba(50, 50, 50, 0.3)'; // Gray with transparency
+      
+      let shadingStart: number | null = null;
       
       performanceData[0].data.forEach((point, index) => {
         if (index < startIdx || index >= endIdx) return;
         
-        // If this data point is NOT during market hours, draw a gray bar
-        if (!point.isMarketHours) {
-          const x = getX(index);
-          const nextX = index < performanceData[0].data.length - 1 
-            ? getX(index + 1) 
-            : x + 2;
-          const barWidth = nextX - x;
-          
-          ctx.fillRect(x, margin.top, barWidth, chartHeight);
+        const isMarket = point.isMarketHours !== false; // Default to true if not specified
+        
+        if (!isMarket && shadingStart === null) {
+          // Start of pre-market/after-hours period
+          shadingStart = index;
+        } else if (isMarket && shadingStart !== null) {
+          // End of pre-market/after-hours period - draw the shaded region
+          const x1 = getX(shadingStart);
+          const x2 = getX(index);
+          ctx.fillRect(x1, margin.top, x2 - x1, chartHeight);
+          shadingStart = null;
         }
       });
+      
+      // If we ended in a pre-market/after-hours period, draw to the end
+      if (shadingStart !== null) {
+        const x1 = getX(shadingStart);
+        const x2 = margin.left + chartWidth;
+        ctx.fillRect(x1, margin.top, x2 - x1, chartHeight);
+      }
     }
 
     // Draw grid lines - REMOVED dashed lines
@@ -630,7 +648,7 @@ const SpecialPerformanceChart: React.FC = () => {
 
     // Draw Y-axis labels - matching SectorPerformanceChart font
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 13px monospace';
+    ctx.font = 'bold 15px monospace';
     ctx.textAlign = 'right';
     for (let i = 0; i <= 5; i++) {
       const value = (minY - yPadding) + ((yRange + 2 * yPadding) / 5) * (5 - i);
@@ -640,7 +658,7 @@ const SpecialPerformanceChart: React.FC = () => {
 
     // X-axis time labels - adaptive based on zoom and timeframe (Koyfin-style)
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px monospace';
+    ctx.font = 'bold 18px monospace';
     ctx.textAlign = 'center';
 
     const zoom = 1 / (visibleRange.end - visibleRange.start);
@@ -654,14 +672,14 @@ const SpecialPerformanceChart: React.FC = () => {
         const x = getX(dataIndex);
         if (x >= margin.left && x <= margin.left + chartWidth) {
           const date = new Date(filteredData[0].data[dataIndex].timestamp);
-          const dateET = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const datePST = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
           
           let label: string;
           
           if (timeframe === '1D') {
-            // 1D: Show only time (9:30, 10:00, 14:30)
-            const hours = dateET.getHours();
-            const minutes = dateET.getMinutes();
+            // 1D: Show only time (6:30, 7:00, 11:30)
+            const hours = datePST.getHours();
+            const minutes = datePST.getMinutes();
             label = `${hours}:${minutes.toString().padStart(2, '0')}`;
             
           } else if (timeframe === '1W') {
@@ -671,13 +689,13 @@ const SpecialPerformanceChart: React.FC = () => {
             
             if (daysVisible <= 3) {
               // 3 days or less: show time only (intraday view)
-              const hours = dateET.getHours();
-              const minutes = dateET.getMinutes();
+              const hours = datePST.getHours();
+              const minutes = datePST.getMinutes();
               label = `${hours}:${minutes.toString().padStart(2, '0')}`;
             } else {
               // More than 3 days: show date once per day, then times
-              const month = dateET.getMonth() + 1;
-              const day = dateET.getDate();
+              const month = datePST.getMonth() + 1;
+              const day = datePST.getDate();
               const currentDate = `${month}/${day}`;
               
               if (currentDate !== lastDateShown) {
@@ -686,15 +704,15 @@ const SpecialPerformanceChart: React.FC = () => {
                 lastDateShown = currentDate;
               } else {
                 // Same day - just show time
-                const hours = dateET.getHours();
-                const minutes = dateET.getMinutes();
+                const hours = datePST.getHours();
+                const minutes = datePST.getMinutes();
                 label = `${hours}:${minutes.toString().padStart(2, '0')}`;
               }
             }
             
           } else {
             // 1M, 3M, 6M, 1Y+: Show only dates (Mon DD format)
-            label = dateET.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            label = datePST.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           }
           
           ctx.fillText(label, x, dimensions.height - margin.bottom + 30);
@@ -710,9 +728,9 @@ const SpecialPerformanceChart: React.FC = () => {
     const sortedData = [...filteredData].sort((a, b) => b.currentPerformance - a.currentPerformance);
     
     // Dynamic spacing and font size based on fullscreen mode
-    const itemSpacing = isFullscreen ? 32 : 28;
-    const fontSize = isFullscreen ? 12 : 10;
-    const hoveredFontSize = isFullscreen ? 13 : 11;
+    const itemSpacing = isFullscreen ? 35 : 35;
+    const fontSize = isFullscreen ? 22.5 : 18.75;
+    const hoveredFontSize = isFullscreen ? 24.375 : 20.625;
     
     sortedData.forEach((etf, index) => {
       const y = legendY + (index * itemSpacing);
@@ -730,11 +748,12 @@ const SpecialPerformanceChart: React.FC = () => {
       ctx.textAlign = 'left';
       ctx.fillText(etf.symbol, legendX, y);
 
-      // Percentage next to ticker
+      // Percentage below ticker
       const perfColor = etf.currentPerformance >= 0 ? '#00ff00' : '#ff0000';
       ctx.fillStyle = perfColor;
-      const perfText = ` ${etf.currentPerformance >= 0 ? '+' : ''}${etf.currentPerformance.toFixed(2)}%`;
-      ctx.fillText(perfText, legendX + 20, y);
+      ctx.font = isHovered ? `bold ${hoveredFontSize - 2}px monospace` : `${fontSize - 2}px monospace`;
+      const perfText = `${etf.currentPerformance >= 0 ? '+' : ''}${etf.currentPerformance.toFixed(2)}%`;
+      ctx.fillText(perfText, legendX, y + 16);
     });
 
   }, [performanceData, dimensions, visibleRange, hoveredSector, activeCategories, timeframe]);
@@ -763,16 +782,16 @@ const SpecialPerformanceChart: React.FC = () => {
     const chartWidth = dimensions.width - margin.left - margin.right;
     const legendX = margin.left + chartWidth + 30;
     const legendY = margin.top + 20;
-    const itemSpacing = isFullscreen ? 32 : 28;
+    const itemSpacing = isFullscreen ? 35 : 35; // Match the drawing spacing
     
-    const filteredData = getFilteredData();
+    const filteredData = getFilteredData(); // Use same filtered data as drawing
     const sortedData = [...filteredData].sort((a, b) => b.currentPerformance - a.currentPerformance);
     
     let found = false;
     sortedData.forEach((etf, index) => {
       const y = legendY + (index * itemSpacing);
-      if (mouseX >= legendX - 5 && mouseX <= legendX + 185 && 
-          mouseY >= y - 14 && mouseY <= y + 12) {
+      if (mouseX >= legendX - 5 && mouseX <= legendX + 185 &&
+          mouseY >= y - 12 && mouseY <= y + 20) { // Expanded to cover ticker + percentage
         if (hoveredSector !== etf.symbol) {
           setHoveredSector(etf.symbol);
         }
@@ -816,36 +835,7 @@ const SpecialPerformanceChart: React.FC = () => {
     setIsDragging(false);
   };
 
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    
-    const mouseX = e.clientX - rect.left;
-    const padding = { left: 60, right: 80 };
-    const chartWidth = dimensions.width - padding.left - padding.right;
-    const mousePos = (mouseX - padding.left) / chartWidth;
-    
-    const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-    const currentRange = visibleRange.end - visibleRange.start;
-    const newRange = Math.min(1, Math.max(0.05, currentRange * zoomFactor));
-    
-    const zoomPoint = visibleRange.start + currentRange * mousePos;
-    let newStart = zoomPoint - newRange * mousePos;
-    let newEnd = newStart + newRange;
-    
-    if (newStart < 0) {
-      newStart = 0;
-      newEnd = newRange;
-    }
-    if (newEnd > 1) {
-      newEnd = 1;
-      newStart = 1 - newRange;
-    }
-    
-    setVisibleRange({ start: newStart, end: newEnd });
-  };
+
 
   const handleMouseLeave = () => {
     crosshairRef.current = null;
@@ -860,7 +850,7 @@ const SpecialPerformanceChart: React.FC = () => {
   return (
     <div className="sector-performance-chart" style={{ 
       width: '1000px',
-      height: isFullscreen ? '870px' : '650px',
+      height: isFullscreen ? '860px' : '860px',
       backgroundColor: '#000000',
       border: '1px solid #333',
       borderRadius: '4px',
@@ -893,6 +883,9 @@ const SpecialPerformanceChart: React.FC = () => {
               const newTimeframe = e.target.value as Timeframe;
               setTimeframe(newTimeframe);
               timeframeRef.current = newTimeframe;
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('specialPerformanceTimeframe', newTimeframe);
+              }
             }}
             style={{
               padding: '6px 12px',
@@ -1148,29 +1141,29 @@ const SpecialPerformanceChart: React.FC = () => {
         </div>
       </div>
       
-      {loading ? (
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          height: '550px',
-          color: '#999999',
-          fontSize: '14px',
-          fontFamily: 'monospace'
-        }}>
-          Loading...
-        </div>
-      ) : (
-        <div 
-          ref={containerRef} 
-          style={{ 
-            width: '100%', 
-            height: isFullscreen ? '770px' : '550px',
-            position: 'relative',
-            backgroundColor: '#000000',
-            transition: 'height 0.3s ease'
-          }}
-        >
+      <div 
+        ref={containerRef} 
+        style={{ 
+          width: '100%', 
+          height: isFullscreen ? '785px' : '785px',
+          position: 'relative',
+          backgroundColor: '#000000',
+          transition: 'height 0.3s ease'
+        }}
+      >
+        {loading ? (
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            height: '100%',
+            color: '#999999',
+            fontSize: '14px',
+            fontFamily: 'monospace'
+          }}>
+            Loading...
+          </div>
+        ) : (
           <canvas
             ref={canvasRef}
             style={{ 
@@ -1183,46 +1176,10 @@ const SpecialPerformanceChart: React.FC = () => {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseLeave}
-            onWheel={handleWheel}
+  
           />
-          
-          {/* Fullscreen Button */}
-          <button
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-            style={{
-              position: 'absolute',
-              bottom: '10px',
-              right: '10px',
-              width: '28px',
-              height: '28px',
-              backgroundColor: 'rgba(26, 26, 26, 0.8)',
-              border: '1px solid #444444',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#999999',
-              fontSize: '14px',
-              transition: 'all 0.2s',
-              zIndex: 10
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(255, 136, 0, 0.2)';
-              e.currentTarget.style.borderColor = '#ff8800';
-              e.currentTarget.style.color = '#ff8800';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(26, 26, 26, 0.8)';
-              e.currentTarget.style.borderColor = '#444444';
-              e.currentTarget.style.color = '#999999';
-            }}
-          >
-            {isFullscreen ? '⊡' : '⛶'}
-          </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };

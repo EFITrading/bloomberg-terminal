@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -1980,11 +1980,10 @@ export default function TradingViewChart({
  const chartCanvasRef = useRef<HTMLCanvasElement>(null);
  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
  
- // Dropdown button refs for positioning
- const drawingsButtonRef = useRef<HTMLButtonElement>(null);
- const expectedRangeButtonRef = useRef<HTMLButtonElement>(null);
-
- // Chart state
+  // Dropdown button refs for positioning
+  const drawingsButtonRef = useRef<HTMLButtonElement>(null);
+  const expectedRangeButtonRef = useRef<HTMLButtonElement>(null);
+  const gexButtonRef = useRef<HTMLButtonElement>(null); // Chart state
  const [config, setConfig] = useState<ChartConfig>({
  symbol,
  timeframe: initialTimeframe,
@@ -2071,7 +2070,416 @@ export default function TradingViewChart({
  // Keep ref in sync with state for reliable access
  useEffect(() => {
  drawingBrushesRef.current = drawingBrushes;
-   }, [drawingBrushes]); const [rayProperties, setRayProperties] = useState({
+   }, [drawingBrushes]);
+
+  // GEX OI Handler - Uses Polygon snapshot data (old way)
+  const handleOIGEXClick = async () => {
+    if (isGexLoading) return;
+    
+    const newActiveState = !isGexActive;
+    
+    // If deactivating, just toggle off
+    if (!newActiveState) {
+      setIsGexActive(false);
+      setLiveGexData(null);
+      console.log('🔴 OI GEX deactivated');
+      return;
+    }
+    
+    // Activate OI GEX - clear any live data and use hook data
+    setLiveGexData(null); // CRITICAL: Clear live data so gexData from hook is used
+    setIsGexActive(true);
+    console.log('🟢 OI GEX activated - using Polygon snapshot data from useGEXData hook');
+  };
+
+  // GEX Live OI Scan Handler - EXACT copy of DealerAttraction updateLiveOI logic
+  const handleLiveGEXClick = async () => {
+    if (isGexLoading) return;
+    
+    const newActiveState = !isGexActive;
+    
+    // If deactivating, just toggle off
+    if (!newActiveState) {
+      setIsGexActive(false);
+      setLiveGexData(null);
+      console.log('🔴 Live GEX deactivated');
+      return;
+    }
+    
+    // Activate and scan for live OI - EXACT DealerAttraction logic
+    console.log('🚀 Starting Live GEX scan for', symbol);
+    setIsGexLoading(true);
+    setGexProgress(0);
+    
+    const eventSource = new EventSource(`/api/stream-options-flow?ticker=${symbol}`);
+    let allTrades: any[] = [];
+    
+    eventSource.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'complete' && data.trades?.length > 0) {
+          console.log(`📊 Received ${data.trades.length} trades`);
+          allTrades = data.trades;
+          eventSource.close();
+          setGexProgress(20); // 20% - trades received
+          
+          // Step 1: Fetch volume and OI data for all trades using Polygon API
+          const uniqueExpirations = [...new Set(allTrades.map(t => t.expiry))];
+          console.log(`📅 Fetching data for ${uniqueExpirations.length} expirations`);
+          
+          const allContracts = new Map();
+          
+          // Fetch data for each expiration
+          for (let i = 0; i < uniqueExpirations.length; i++) {
+            const expiry = uniqueExpirations[i];
+            const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
+            
+            try {
+              const response = await fetch(
+                `https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${expiryParam}&limit=250&apiKey=qyKP_vdrxtME8uAj0gufQA8sTOdcoaSl`
+              );
+              
+              if (response.ok) {
+                const chainData = await response.json();
+                if (chainData.results) {
+                  chainData.results.forEach((contract: any) => {
+                    if (contract.details && contract.details.ticker) {
+                      allContracts.set(contract.details.ticker, {
+                        volume: contract.day?.volume || 0,
+                        open_interest: contract.open_interest || 0
+                      });
+                    }
+                  });
+                  console.log(`  ✅ Found ${chainData.results.length} contracts for ${expiryParam}`);
+                }
+              }
+              
+              // Update progress: 20% to 60% during contract fetching
+              setGexProgress(20 + Math.round((i + 1) / uniqueExpirations.length * 40));
+            } catch (error) {
+              console.error(`  ❌ Error fetching ${expiryParam}:`, error);
+            }
+          }
+          
+          console.log(`📊 Total contracts fetched: ${allContracts.size}`);
+          setGexProgress(60); // 60% - contracts fetched
+          
+          // Step 2: Enrich trades with volume/OI
+          const enrichedTrades = allTrades.map(trade => {
+            const contractData = allContracts.get(trade.ticker);
+            return {
+              ...trade,
+              volume: contractData?.volume || 0,
+              open_interest: contractData?.open_interest || 0,
+              underlying_ticker: trade.underlying_ticker || symbol
+            };
+          });
+          setGexProgress(70); // 70% - trades enriched
+          
+          // Step 3: Detect fill styles (EXACT AlgoFlow logic)
+          const tradesWithFillStyle = enrichedTrades.map(trade => {
+            const volume = trade.volume || 0;
+            const tradeSize = trade.trade_size || 0;
+            const oi = trade.open_interest || 0;
+            
+            // Fill style logic from AlgoFlow
+            let fillStyle = 'N/A';
+            
+            if (tradeSize > oi * 0.5) {
+              fillStyle = 'AA'; // Aggressive opening
+            } else if (tradeSize > volume * 0.3) {
+              fillStyle = 'A'; // Opening
+            } else if (tradeSize > oi * 0.1) {
+              fillStyle = 'BB'; // Block opening
+            } else {
+              fillStyle = 'B'; // Likely closing
+            }
+            
+            return {
+              ...trade,
+              fill_style: fillStyle
+            };
+          });
+          
+          console.log(`✅ Enriched ${tradesWithFillStyle.length} trades with volume/OI and fill_style`);
+          setGexProgress(80); // 80% - fill styles calculated
+          
+          // Step 4: Calculate Live OI for each unique contract - EXACT DealerAttraction logic
+          const liveOIMap = new Map<string, number>();
+          const uniqueContracts = new Set<string>();
+          
+          tradesWithFillStyle.forEach(trade => {
+            const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
+            uniqueContracts.add(contractKey);
+          });
+          
+          uniqueContracts.forEach(contractKey => {
+            const matchingTrade = tradesWithFillStyle.find(t => 
+              `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
+            );
+            
+            const originalOI = matchingTrade?.open_interest || 0;
+            
+            // Calculate Live OI using the trades
+            const contractTrades = tradesWithFillStyle.filter(t => 
+              `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
+            );
+            
+            let liveOI = originalOI;
+            const processedTradeIds = new Set<string>();
+            
+            // Sort trades chronologically
+            const sortedTrades = [...contractTrades].sort((a, b) => 
+              new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+            );
+            
+            sortedTrades.forEach(trade => {
+              const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}`;
+              
+              if (processedTradeIds.has(tradeId)) return;
+              processedTradeIds.add(tradeId);
+              
+              const contracts = trade.trade_size || 0;
+              const fillStyle = trade.fill_style;
+              
+              switch (fillStyle) {
+                case 'A':
+                case 'AA':
+                case 'BB':
+                  liveOI += contracts;
+                  break;
+                case 'B':
+                  if (contracts > originalOI) {
+                    liveOI += contracts;
+                  } else {
+                    liveOI -= contracts;
+                  }
+                  break;
+              }
+            });
+            
+            liveOI = Math.max(0, liveOI);
+            liveOIMap.set(contractKey, liveOI);
+            
+            console.log(`📊 ${contractKey}: OI ${originalOI} → Live OI ${liveOI}`);
+          });
+          
+          console.log(`✅ Live OI calculation complete: ${liveOIMap.size} contracts`);
+          setGexProgress(90);
+          
+          // Step 5: Send to GEX API
+          const liveOIArray = Array.from(liveOIMap.entries()).map(([key, oi]) => {
+            const parts = key.split('_');
+            return {
+              ticker: parts[0],
+              strike: parseFloat(parts[1]),
+              type: parts[2] === 'call' ? 'C' : 'P', // Convert "call"/"put" to "C"/"P" for API
+              expiry: parts.slice(3).join('_'),
+              liveOI: oi
+            };
+          });
+          
+          console.log(`📤 Sending ${liveOIArray.length} live OI entries to GEX API`);
+          
+          const response = await fetch('/api/gex', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              symbol,
+              liveOI: liveOIArray
+            })
+          });
+          
+          const gexResult = await response.json();
+          
+          if (gexResult.success) {
+            console.log('🔥 SETTING liveGexData with:', {
+              totalCallGEX: gexResult.gexData.totalCallGEX,
+              totalPutGEX: gexResult.gexData.totalPutGEX,
+              callWalls: gexResult.gexData.callWalls?.length,
+              putWalls: gexResult.gexData.putWalls?.length
+            });
+            
+            setLiveGexData(gexResult);
+            setIsGexActive(true);
+            setGexProgress(100);
+            console.log('✅ GEX calculation complete with live OI');
+            console.log(`📊 Total Call GEX: ${gexResult.gexData.totalCallGEX.toFixed(0)}`);
+            console.log(`📊 Total Put GEX: ${gexResult.gexData.totalPutGEX.toFixed(0)}`);
+            console.log(`📊 GEX Flip Level: $${gexResult.gexData.gexFlipLevel.toFixed(2)}`);
+            
+            // Trigger re-render
+            setTimeout(() => renderChart(), 100);
+            
+            // Hide loading after brief delay
+            setTimeout(() => {
+              setIsGexLoading(false);
+            }, 500);
+          } else {
+            throw new Error(gexResult.error || 'GEX calculation failed');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error in Live GEX scan:', error);
+        setIsGexLoading(false);
+        setIsGexActive(false);
+        setGexProgress(0);
+      }
+    };
+    
+    eventSource.onerror = (error) => {
+      console.error('❌ EventSource error:', error);
+      eventSource.close();
+      setIsGexLoading(false);
+      setGexProgress(0);
+    };
+  };
+
+  // Live FlowMoves handler - Fetches and displays 4-line flow chart
+  const handleLiveFlowMovesClick = async () => {
+    console.log('🚀 Starting Live FlowMoves scan for', symbol);
+    
+    try {
+      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${symbol}`);
+      let allTrades: any[] = [];
+      
+      eventSource.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'complete' && data.trades?.length > 0) {
+            console.log(`📊 FlowMoves: Received ${data.trades.length} trades`);
+            allTrades = data.trades;
+            eventSource.close();
+            
+            // Generate 5-minute intervals for entire trading day (6:30 AM - 1:00 PM PST)
+            const intervalData = new Map<number, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>();
+            
+            // Get the date from the first trade
+            const firstTradeDate = new Date(allTrades[0].trade_timestamp);
+            
+            // Get the trading day in PST timezone
+            const tradingDayPST = new Date(firstTradeDate.toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
+            const year = tradingDayPST.getFullYear();
+            const month = tradingDayPST.getMonth();
+            const day = tradingDayPST.getDate();
+            
+            // Create 6:30 AM and 1:00 PM PST on the trading day
+            const marketOpenPST = new Date(year, month, day, 6, 30, 0, 0);
+            const marketClosePST = new Date(year, month, day, 13, 0, 0, 0);
+            
+            // Get UTC timestamps
+            const marketOpen = marketOpenPST.getTime();
+            const marketClose = marketClosePST.getTime();
+            
+            console.log(`📅 Market open PST: ${marketOpenPST.toLocaleString("en-US", {timeZone: "America/Los_Angeles"})}`);
+            console.log(`📅 Market open UTC: ${new Date(marketOpen).toISOString()}`);
+            console.log(`📅 First trade: ${firstTradeDate.toISOString()}`);
+            
+            // Initialize all 5-minute intervals
+            for (let time = marketOpen; time <= marketClose; time += 5 * 60 * 1000) {
+              intervalData.set(time, { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 });
+            }
+            
+            console.log(`📊 Created ${intervalData.size} 5-minute intervals`);
+            
+            // Group trades by 5-minute intervals
+            allTrades.forEach(trade => {
+              const tradeTime = new Date(trade.trade_timestamp).getTime();
+              
+              // Only include trades during market hours
+              if (tradeTime < marketOpen || tradeTime > marketClose) return;
+              
+              // Round down to nearest 5-minute interval
+              const minutesSinceOpen = Math.floor((tradeTime - marketOpen) / (5 * 60 * 1000));
+              const intervalTime = marketOpen + (minutesSinceOpen * 5 * 60 * 1000);
+              
+              const interval = intervalData.get(intervalTime);
+              if (interval) {
+                // Determine bullish/bearish based on trade size
+                const isBullish = trade.total_premium >= 50000;
+                
+                if (trade.type === 'call') {
+                  if (isBullish) {
+                    interval.callsPlus += trade.total_premium;
+                  } else {
+                    interval.callsMinus += trade.total_premium;
+                  }
+                } else {
+                  if (isBullish) {
+                    interval.putsPlus += trade.total_premium;
+                  } else {
+                    interval.putsMinus += trade.total_premium;
+                  }
+                }
+              }
+            });
+            
+            // Convert to cumulative chart data
+            const sortedIntervals = Array.from(intervalData.entries()).sort((a, b) => a[0] - b[0]);
+            const chartData: Array<{
+              time: number;
+              timeLabel: string;
+              callsPlus: number;
+              callsMinus: number;
+              putsPlus: number;
+              putsMinus: number;
+            }> = [];
+            
+            let cumulative = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 };
+            
+            sortedIntervals.forEach(([timestamp, data]) => {
+              cumulative.callsPlus += data.callsPlus;
+              cumulative.callsMinus += data.callsMinus;
+              cumulative.putsPlus += data.putsPlus;
+              cumulative.putsMinus += data.putsMinus;
+              
+              const date = new Date(timestamp);
+              const hours = date.getUTCHours();
+              const minutes = date.getUTCMinutes();
+              
+              // Convert UTC to ET for display (subtract 5 hours, or 4 during DST)
+              const etHours = hours - 5; // Adjust for EST (use -4 for EDT)
+              const displayHours = etHours < 0 ? etHours + 24 : etHours;
+              const hour12 = displayHours % 12 === 0 ? 12 : displayHours % 12;
+              const ampm = displayHours < 12 ? 'AM' : 'PM';
+              
+              chartData.push({
+                time: timestamp,
+                timeLabel: `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`,
+                callsPlus: cumulative.callsPlus,
+                callsMinus: cumulative.callsMinus,
+                putsPlus: cumulative.putsPlus,
+                putsMinus: cumulative.putsMinus
+              });
+            });
+            
+            console.log('✅ FlowMoves data processed:', chartData.length, '5-minute intervals');
+            console.log('📊 Sample data points:', chartData.slice(0, 3));
+            console.log('📊 First flow point:', new Date(chartData[0].time).toISOString());
+            console.log('📊 Last flow point:', new Date(chartData[chartData.length - 1].time).toISOString());
+            setFlowChartData(chartData);
+            setIsFlowChartActive(true);
+            
+            // Trigger re-render
+            setTimeout(() => renderChart(), 100);
+          }
+        } catch (error) {
+          console.error('❌ Error processing FlowMoves data:', error);
+        }
+      };
+      
+      eventSource.onerror = (error) => {
+        console.error('❌ FlowMoves EventSource error:', error);
+        eventSource.close();
+      };
+    } catch (error) {
+      console.error('❌ Error starting FlowMoves scan:', error);
+    }
+  };
+
+ const [rayProperties, setRayProperties] = useState({
  color: '#FFD700',
  lineWidth: 2,
  lineStyle: 'solid' as const,
@@ -2244,15 +2652,43 @@ export default function TradingViewChart({
  const [isExpectedRangeActive, setIsExpectedRangeActive] = useState(false);
  const [isExpectedRangeDropdownOpen, setIsExpectedRangeDropdownOpen] = useState(false);
  const [expectedRangeType, setExpectedRangeType] = useState<'weekly' | 'monthly'>('weekly');
+ const [isWeeklyActive, setIsWeeklyActive] = useState(false);
+ const [isMonthlyActive, setIsMonthlyActive] = useState(false);
 
- // GEX state for gamma exposure levels
- const [isGexActive, setIsGexActive] = useState(false);
- 
- // GEX data hook - fetch GEX data when active
- const { data: gexData, loading: isLoadingGex, error: gexError } = useGEXData(
- symbol, 
- isGexActive // Only auto-refresh when GEX is active
- );
+  // GEX state for gamma exposure levels
+  const [isGexActive, setIsGexActive] = useState(false);
+  const [isGexLoading, setIsGexLoading] = useState(false);
+  const [gexProgress, setGexProgress] = useState(0);
+  const [liveGexData, setLiveGexData] = useState<any>(null);
+  const [gexMode, setGexMode] = useState<'live' | 'oi'>('oi'); // 'live' scans flow, 'oi' uses Polygon data
+  const [isGexDropdownOpen, setIsGexDropdownOpen] = useState(false);
+  const [isLiveGexActive, setIsLiveGexActive] = useState(false);
+  const [isOiGexActive, setIsOiGexActive] = useState(false);
+  
+  // GEX data hook - ONLY fetch when mode is 'oi', NOT for 'live' mode
+  const { data: gexData, loading: isLoadingGex, error: gexError } = useGEXData(
+    symbol, 
+    isGexActive && gexMode === 'oi' // Only auto-refresh when OI GEX is active
+  );
+
+  // Flow Chart state - 4-line chart showing bullish/bearish calls/puts
+  const [isFlowChartActive, setIsFlowChartActive] = useState(false);
+  const [flowChartHeight, setFlowChartHeight] = useState(100);
+  const [isDraggingFlowChart, setIsDraggingFlowChart] = useState(false);
+  const [flowChartData, setFlowChartData] = useState<Array<{
+    time: number;
+    timeLabel: string;
+    callsPlus: number;
+    callsMinus: number;
+    putsPlus: number;
+    putsMinus: number;
+  }>>([]);
+
+  // Flow chart resize handler
+  const handleFlowChartMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingFlowChart(true);
+  }, []);
 
  // Expansion/Liquidation indicator state
  const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false);
@@ -2805,6 +3241,43 @@ export default function TradingViewChart({
  // Chart dimensions
  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
  const chartHeight = dimensions.height;
+
+ // Flow chart resize effect
+ useEffect(() => {
+   if (!isDraggingFlowChart) return;
+
+   const handleMouseMove = (e: MouseEvent) => {
+     const canvas = chartCanvasRef.current;
+     if (!canvas) return;
+
+     const rect = canvas.getBoundingClientRect();
+     const mouseY = e.clientY - rect.top;
+     const volumeAreaHeight = 80;
+     const timeAxisHeight = 25;
+     
+     // Calculate new flow chart height based on mouse position
+     // Flow chart is between price chart and volume
+     const maxFlowHeight = chartHeight - volumeAreaHeight - timeAxisHeight - 200; // Leave min 200px for price chart
+     const minFlowHeight = 50;
+     
+     const newHeight = chartHeight - mouseY - volumeAreaHeight - timeAxisHeight;
+     const clampedHeight = Math.max(minFlowHeight, Math.min(maxFlowHeight, newHeight));
+     
+     setFlowChartHeight(clampedHeight);
+   };
+
+   const handleMouseUp = () => {
+     setIsDraggingFlowChart(false);
+   };
+
+   document.addEventListener('mousemove', handleMouseMove);
+   document.addEventListener('mouseup', handleMouseUp);
+
+   return () => {
+     document.removeEventListener('mousemove', handleMouseMove);
+     document.removeEventListener('mouseup', handleMouseUp);
+   };
+ }, [isDraggingFlowChart, chartHeight, setFlowChartHeight, setIsDraggingFlowChart]);
 
  // Overlay effect for other drawings only (not rays - they're now on main canvas)
  useEffect(() => {
@@ -3466,7 +3939,11 @@ export default function TradingViewChart({
  ctx.shadowOffsetY = 0;
 
  // X-AXIS DATE/TIME LABEL (bottom)
- const dateText = crosshairInfo.date; // Only show date, no time
+ // Show date + time for intraday timeframes (5m, 30m, 1h), date only for daily+
+ const isIntradayTimeframe = ['5m', '30m', '1h', '15m', '1m', '4h'].includes(config.timeframe);
+ const dateText = isIntradayTimeframe 
+   ? `${crosshairInfo.date} ${crosshairInfo.time}` 
+   : crosshairInfo.date;
  const dateTextWidth = ctx.measureText(dateText).width + 24; // Increased padding
  const dateX = crosshairPosition.x;
  
@@ -3826,14 +4303,17 @@ export default function TradingViewChart({
 
  // Helper function to determine if a timestamp is during market hours
  const isMarketHours = (timestamp: number): boolean => {
+ // Convert to PST/PDT timezone
  const date = new Date(timestamp);
- const hour = date.getHours();
- const minute = date.getMinutes();
+ const pstString = date.toLocaleString("en-US", {timeZone: "America/Los_Angeles"});
+ const pstDate = new Date(pstString);
+ const hour = pstDate.getHours();
+ const minute = pstDate.getMinutes();
  const totalMinutes = hour * 60 + minute;
  
- // Regular market hours: 9:30 AM - 4:00 PM ET (570 - 960 minutes)
- const marketOpen = 9 * 60 + 30; // 9:30 AM
- const marketClose = 16 * 60; // 4:00 PM
+ // Regular market hours: 6:30 AM - 1:00 PM PST (390 - 780 minutes)
+ const marketOpen = 6 * 60 + 30; // 6:30 AM PST
+ const marketClose = 13 * 60; // 1:00 PM PST
  
  return totalMinutes >= marketOpen && totalMinutes < marketClose;
  };
@@ -3908,9 +4388,10 @@ export default function TradingViewChart({
 
  // Calculate chart areas - reserve space for volume and time axis
  const timeAxisHeight = 25;
+ const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0; // Reserve space for flow chart when active
  const volumeAreaHeight = 80; // Reserve space for volume bars
  // Adjust price chart height based on active indicators
- const totalBottomSpace = volumeAreaHeight + timeAxisHeight;
+ const totalBottomSpace = actualFlowChartHeight + volumeAreaHeight + timeAxisHeight;
  const priceChartHeight = height - totalBottomSpace;
 
  // Draw grid first for price chart area (only if enabled)
@@ -4080,32 +4561,31 @@ export default function TradingViewChart({
  // Draw Expected Range lines on top of candlesticks (standalone button)
  if (isExpectedRangeActive && expectedRangeLevels) {
  console.log('?? Rendering Expected Range lines on top of chart');
- renderExpectedRangeLines(
- ctx,
- chartWidth,
- priceChartHeight,
- adjustedMin,
- adjustedMax,
- expectedRangeLevels,
- expectedRangeType,
- visibleData,
- visibleCandleCount
- );
+ if (isWeeklyActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'weekly', visibleData, visibleCandleCount); if (isMonthlyActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'monthly', visibleData, visibleCandleCount);
  console.log('?? Expected Range lines rendered on top');
  }
 
  // Draw GEX levels on top of candlesticks (standalone button)
- if (isGexActive && gexData) {
- console.log('?? Rendering GEX levels on top of chart');
+ if (isGexActive && (liveGexData || gexData)) {
+ const gexDataToUse = liveGexData || gexData;
+ console.log(`🎯 Rendering GEX levels ${liveGexData ? 'with LIVE OI' : 'with snapshot OI'}`);
+ console.log('📊 GEX Data Source:', {
+ hasLiveGexData: !!liveGexData,
+ hasGexData: !!gexData,
+ gexMode: gexMode,
+ usingLive: !!liveGexData,
+ totalCallGEX: gexDataToUse?.gexData?.totalCallGEX,
+ totalPutGEX: gexDataToUse?.gexData?.totalPutGEX
+ });
  renderGEXLevels(
  ctx,
  chartWidth,
  priceChartHeight,
  adjustedMin,
  adjustedMax,
- gexData
+ gexDataToUse
          );
-         console.log('?? GEX levels rendered on top');
+         console.log('✅ GEX levels rendered');
        } // Draw Expansion/Liquidation zones (standalone button)
  if (isExpansionLiquidationActive) {
  console.log('?? Detecting and rendering Expansion/Liquidation zones');
@@ -4137,8 +4617,34 @@ export default function TradingViewChart({
  console.log(`?? Rendered ${validZones.filter(z => z.isValid).length} valid zones`);
  }
 
+ // Draw flow chart above volume if active (only on 5min timeframe)
+ if (isFlowChartActive && flowChartData.length > 0) {
+   console.log(`🔍 Flow Chart Check: timeframe=${config.timeframe}, flowData=${flowChartData.length}, visibleData=${visibleData.length}`);
+   
+   if (config.timeframe === '5min' || config.timeframe === '5m') {
+     // Filter flow data to match visible candlestick time range
+     const visibleFlowData = flowChartData.filter(point => {
+       if (visibleData.length === 0) return false;
+       const firstCandleTime = new Date(visibleData[0].timestamp).getTime();
+       const lastCandleTime = new Date(visibleData[visibleData.length - 1].timestamp).getTime();
+       return point.time >= firstCandleTime && point.time <= lastCandleTime;
+     });
+     
+     console.log(`📊 First candle: ${new Date(visibleData[0].timestamp).toISOString()}`);
+     console.log(`📊 Last candle: ${new Date(visibleData[visibleData.length - 1].timestamp).toISOString()}`);
+     console.log(`📊 First flow: ${new Date(flowChartData[0].time).toISOString()}`);
+     console.log(`📊 Last flow: ${new Date(flowChartData[flowChartData.length - 1].time).toISOString()}`);
+     console.log(`✅ Rendering flow chart with ${visibleFlowData.length} visible points`);
+     if (visibleFlowData.length > 0) {
+       drawFlowChart(ctx, visibleFlowData, visibleData, chartWidth, priceChartHeight, visibleCandleCount, actualFlowChartHeight);
+     }
+   } else {
+     console.log(`⚠️ Flow chart only displays on 5min timeframe (current: ${config.timeframe})`);
+   }
+ }
+
  // Draw volume bars above the time axis (TradingView style)
- drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+ drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + actualFlowChartHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
 
  // Draw time axis at the bottom
  drawTimeAxis(ctx, width, height, visibleData, chartWidth, visibleCandleCount, scrollOffset, data);
@@ -4157,7 +4663,7 @@ export default function TradingViewChart({
 
  console.log(`? Integrated chart rendered successfully with ${config.theme} theme`);
 
- }, [data, dimensions, chartHeight, config.chartType, config.theme, config.showGrid, config.axisStyle, colors, scrollOffset, visibleCandleCount, drawings]);
+ }, [data, dimensions, chartHeight, config.chartType, config.theme, config.showGrid, config.axisStyle, colors, scrollOffset, visibleCandleCount, drawings, isFlowChartActive, flowChartData, flowChartHeight]);
 
  // Draw volume bars above the x-axis (TradingView style)
  const drawVolumeProfile = (
@@ -4285,8 +4791,128 @@ export default function TradingViewChart({
  // Remove volume label - text removed for cleaner look
  // ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
  // ctx.font = 'bold 10px Arial';
- // ctx.textAlign = 'left';
- // ctx.fillText('Volume', 45, volumeStartY + 15);
+ };
+
+ // Draw 4-line flow chart indicator (like AlgoFlow screener)
+ const drawFlowChart = (
+   ctx: CanvasRenderingContext2D,
+   flowData: Array<{ time: number; timeLabel: string; callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>,
+   visibleData: ChartDataPoint[],
+   chartWidth: number,
+   priceChartHeight: number,
+   visibleCandleCount: number,
+   flowChartHeight: number
+ ) => {
+   if (!flowData.length || !visibleData.length) return;
+
+   const flowStartY = priceChartHeight;
+   const flowEndY = priceChartHeight + flowChartHeight;
+
+   // Draw background
+   ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+   ctx.fillRect(40, flowStartY, chartWidth - 80, flowChartHeight);
+
+   // Find max value for scaling (across all 4 lines)
+   const allValues = flowData.flatMap(d => [d.callsPlus, d.callsMinus, d.putsPlus, d.putsMinus]);
+   const maxValue = Math.max(...allValues, 1);
+
+   // Calculate candle spacing to align with price chart
+   const candleSpacing = chartWidth / visibleCandleCount;
+
+   // Create a map of candlestick timestamps to x positions
+   const candlePositions = new Map<number, number>();
+   visibleData.forEach((candle, index) => {
+     const candleTime = new Date(candle.timestamp).getTime();
+     const x = 40 + (index * candleSpacing) + (candleSpacing / 2); // Center of candle
+     candlePositions.set(candleTime, x);
+   });
+
+   // Draw 4 lines
+   const lines = [
+     { key: 'callsPlus', color: '#22c55e', name: 'Bullish Calls' },
+     { key: 'callsMinus', color: '#ef4444', name: 'Bearish Calls' },
+     { key: 'putsPlus', color: '#3b82f6', name: 'Bullish Puts' },
+     { key: 'putsMinus', color: '#f59e0b', name: 'Bearish Puts' }
+   ];
+
+   lines.forEach(line => {
+     ctx.strokeStyle = line.color;
+     ctx.lineWidth = 3;
+     ctx.lineCap = 'round';
+     ctx.lineJoin = 'round';
+     ctx.globalAlpha = 1.0;
+     ctx.beginPath();
+
+     let firstPoint = true;
+     flowData.forEach((point) => {
+       // Find matching candlestick position
+       const x = candlePositions.get(point.time);
+       
+       if (x !== undefined) {
+         const value = (point as any)[line.key];
+         const normalizedValue = (value / maxValue) * flowChartHeight;
+         const y = flowEndY - normalizedValue;
+
+         if (firstPoint) {
+           ctx.moveTo(x, y);
+           firstPoint = false;
+         } else {
+           ctx.lineTo(x, y);
+         }
+       }
+     });
+
+     ctx.stroke();
+   });
+
+   // Reset alpha
+   ctx.globalAlpha = 1.0;
+
+   // Draw line labels at the end of each line
+   const lastPoint = flowData[flowData.length - 1];
+   const lastCandleX = candlePositions.get(lastPoint.time);
+
+   if (lastCandleX !== undefined) {
+     ctx.font = 'bold 11px Arial';
+     ctx.textAlign = 'left';
+
+     lines.forEach(line => {
+       const value = (lastPoint as any)[line.key];
+       const normalizedValue = (value / maxValue) * flowChartHeight;
+       const y = flowEndY - normalizedValue;
+
+       // Draw background box for better readability
+       const textWidth = ctx.measureText(line.name).width;
+       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+       ctx.fillRect(lastCandleX + 5, y - 10, textWidth + 8, 18);
+
+       // Draw colored label at the end of the line
+       ctx.fillStyle = line.color;
+       ctx.fillText(line.name, lastCandleX + 9, y + 3);
+     });
+   }
+
+
+   // Draw scale labels (max value at top)
+   ctx.fillStyle = '#ffffff';
+   ctx.font = '11px Arial';
+   ctx.textAlign = 'left';
+
+   for (let i = 0; i <= 2; i++) {
+     const valueLevel = (maxValue / 2) * i;
+     const y = flowEndY - (i * flowChartHeight / 2);
+
+     let valueText = '';
+     if (valueLevel >= 1000000) {
+       valueText = `$${(valueLevel / 1000000).toFixed(1)}M`;
+     } else if (valueLevel >= 1000) {
+       valueText = `$${(valueLevel / 1000).toFixed(0)}K`;
+     } else {
+       valueText = `$${valueLevel.toFixed(0)}`;
+     }
+
+     ctx.fillText(valueText, chartWidth + 10, y + 3);
+   }
  };
 
  // Draw grid lines for price chart area only
@@ -8033,26 +8659,20 @@ export default function TradingViewChart({
  )}
  </div>
 
- {/* Sector Performance Chart - Only show on Markets tab */}
- {activeTab === 'Markets' && (
- <div className="mt-6" style={{ width: '100%', overflow: 'hidden' }}>
+ {/* Sector Performance Chart - Always mounted, show/hide with display */}
+ <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Markets' ? 'block' : 'none' }}>
  <SectorPerformanceChart />
  </div>
- )}
  
- {/* Industries Performance Chart - Only show on Industries tab */}
- {activeTab === 'Industries' && (
- <div className="mt-6" style={{ width: '100%', overflow: 'hidden' }}>
+ {/* Industries Performance Chart - Always mounted, show/hide with display */}
+ <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Industries' ? 'block' : 'none' }}>
  <IndustriesPerformanceChart />
  </div>
- )}
  
- {/* Special Performance Chart - Only show on Special tab */}
- {activeTab === 'Special' && (
- <div className="mt-6" style={{ width: '100%', overflow: 'hidden' }}>
+ {/* Special Performance Chart - Always mounted, show/hide with display */}
+ <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Special' ? 'block' : 'none' }}>
  <SpecialPerformanceChart />
  </div>
- )}
  </div>
  );
  };
@@ -9534,89 +10154,69 @@ export default function TradingViewChart({
  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
  <button
  onClick={() => {
- setExpectedRangeType('weekly');
- const newActiveState = !isExpectedRangeActive || expectedRangeType !== 'weekly';
- setIsExpectedRangeActive(newActiveState);
- 
- if (newActiveState) {
- if (!expectedRangeLevels && !isLoadingExpectedRange) {
+ setIsWeeklyActive(!isWeeklyActive);
+ if (!isWeeklyActive && !expectedRangeLevels && !isLoadingExpectedRange) {
  setIsLoadingExpectedRange(true);
  calculateExpectedRangeLevels(symbol).then(result => {
  if (result) {
  setExpectedRangeLevels(result.levels);
- console.log('📊 Expected Range levels loaded:', result.levels);
- } else {
- console.error('❌ Failed to load Expected Range levels');
  }
  setIsLoadingExpectedRange(false);
  });
  }
- } else {
- setExpectedRangeLevels(null);
- }
- 
+ if (!isWeeklyActive || isMonthlyActive) setIsExpectedRangeActive(true);
+ else if (isWeeklyActive && !isMonthlyActive) setIsExpectedRangeActive(false);
  setIsExpectedRangeDropdownOpen(false);
- console.log(`📊 Expected Range ${newActiveState ? 'activated' : 'deactivated'} (Weekly)`);
  }}
  style={{
  padding: '8px 12px',
- background: expectedRangeType === 'weekly' && isExpectedRangeActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+ background: isWeeklyActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
  border: 'none',
  color: '#ffffff',
- textAlign: 'left',
  cursor: 'pointer',
  borderRadius: '4px',
  fontSize: '13px',
  fontWeight: '600',
- transition: 'all 0.2s'
+ display: 'flex',
+ alignItems: 'center',
+ justifyContent: 'space-between'
  }}
- onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
- onMouseLeave={(e) => e.currentTarget.style.background = expectedRangeType === 'weekly' && isExpectedRangeActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent'}
  >
- Weekly Range
+ <span>Weekly Range</span>
+ {isWeeklyActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
  </button>
  <button
  onClick={() => {
- setExpectedRangeType('monthly');
- const newActiveState = !isExpectedRangeActive || expectedRangeType !== 'monthly';
- setIsExpectedRangeActive(newActiveState);
- 
- if (newActiveState) {
- if (!expectedRangeLevels && !isLoadingExpectedRange) {
+ setIsMonthlyActive(!isMonthlyActive);
+ if (!isMonthlyActive && !expectedRangeLevels && !isLoadingExpectedRange) {
  setIsLoadingExpectedRange(true);
  calculateExpectedRangeLevels(symbol).then(result => {
  if (result) {
  setExpectedRangeLevels(result.levels);
- console.log('📊 Expected Range levels loaded:', result.levels);
- } else {
- console.error('❌ Failed to load Expected Range levels');
  }
  setIsLoadingExpectedRange(false);
  });
  }
- } else {
- setExpectedRangeLevels(null);
- }
- 
+ if (!isMonthlyActive || isWeeklyActive) setIsExpectedRangeActive(true);
+ else if (isMonthlyActive && !isWeeklyActive) setIsExpectedRangeActive(false);
  setIsExpectedRangeDropdownOpen(false);
- console.log(`📊 Expected Range ${newActiveState ? 'activated' : 'deactivated'} (Monthly)`);
  }}
  style={{
  padding: '8px 12px',
- background: expectedRangeType === 'monthly' && isExpectedRangeActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+ background: isMonthlyActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
  border: 'none',
  color: '#ffffff',
- textAlign: 'left',
  cursor: 'pointer',
  borderRadius: '4px',
  fontSize: '13px',
  fontWeight: '600',
- transition: 'all 0.2s'
+ display: 'flex',
+ alignItems: 'center',
+ justifyContent: 'space-between'
  }}
- onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
- onMouseLeave={(e) => e.currentTarget.style.background = expectedRangeType === 'monthly' && isExpectedRangeActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent'}
  >
- Monthly Range
+ <span>Monthly Range</span>
+ {isMonthlyActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
  </button>
  </div>
  </div>,
@@ -9634,27 +10234,109 @@ export default function TradingViewChart({
  )}
  </div>
 
- {/* GEX Button - Next to Expected Range */}
- <div className="ml-4">
- <button
- onClick={() => {
- const newActiveState = !isGexActive;
- setIsGexActive(newActiveState);
- console.log(`?? GEX ${newActiveState ? 'activated' : 'deactivated'}`);
- }}
- className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${isGexActive ? 'active' : 'text-white'}`}
- style={{
- padding: '10px 14px',
- fontWeight: '700',
- fontSize: '13px',
- borderRadius: '4px'
- }}
- >
- <span>GEX</span>
- </button>
- </div>
+              {/* GEX Button with Dropdown - Next to Expected Range */}
+              <div className="ml-4 relative">
+                <button
+                  ref={gexButtonRef}
+                  onClick={() => setIsGexDropdownOpen(!isGexDropdownOpen)}
+                  disabled={isGexLoading}
+                  className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${isGexActive ? 'active' : 'text-white'}`}
+                  style={{
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                    opacity: isGexLoading ? 0.6 : 1
+                  }}
+                >
+                  <span>{isGexLoading ? `SCANNING ${gexProgress}%` : 'GEX'}</span>
+                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                
+                {/* GEX Dropdown Menu - Using Portal */}
+                {isGexDropdownOpen && createPortal(
+                  <div 
+                    style={{
+                      position: 'fixed',
+                      top: gexButtonRef.current ? gexButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+                      left: gexButtonRef.current ? gexButtonRef.current.getBoundingClientRect().left : 0,
+                      zIndex: 100000,
+                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
+                      border: '2px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '8px',
+                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                      padding: '8px',
+                      minWidth: '180px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <button
+                        onClick={() => {
+                          setIsLiveGexActive(!isLiveGexActive);
+                          if (!isLiveGexActive) handleLiveGEXClick();
+                          if (!isLiveGexActive || isOiGexActive) setIsGexActive(true);
+                          else if (isLiveGexActive && !isOiGexActive) setIsGexActive(false);
+                          setIsGexDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          background: isLiveGexActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span>Live GEX</span>
+                        {isLiveGexActive && <span style={{ color: '#ff8c00', fontSize: '16px' }}>✓</span>}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsOiGexActive(!isOiGexActive);
+                          if (!isOiGexActive) handleOIGEXClick();
+                          if (!isOiGexActive || isLiveGexActive) setIsGexActive(true);
+                          else if (isOiGexActive && !isLiveGexActive) setIsGexActive(false);
+                          setIsGexDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          background: isOiGexActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span>OI GEX</span>
+                        {isOiGexActive && <span style={{ color: '#3b82f6', fontSize: '16px' }}>✓</span>}
+                      </button>
+                    </div>
+                  </div>,
+                  document.body
+                )}
 
- {/* Expansion/Liquidation Button */}
+                {/* Click outside to close dropdown */}
+                {isGexDropdownOpen && createPortal(
+                  <div 
+                    className="fixed inset-0" 
+                    style={{ zIndex: 99998 }}
+                    onClick={() => setIsGexDropdownOpen(false)}
+                  />, 
+                  document.body
+                )}
+              </div> {/* Expansion/Liquidation Button */}
  <div className="ml-4">
  <button
  onClick={() => {
@@ -9795,6 +10477,51 @@ export default function TradingViewChart({
  )}
  </div>
  </div>
+
+              {/* ADMIN Levels Button */}
+              <div className="ml-4 relative">
+                <button
+                  className="btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white"
+                  style={{
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                    outline: '2px solid #cc5500',
+                    outlineOffset: '-2px'
+                  }}
+                  title="ADMIN Levels"
+                >
+                  <span>ADMIN Levels</span>
+                </button>
+              </div>
+
+              {/* Live FlowMoves Button */}
+              <div className="ml-4 relative">
+                <button
+                  onClick={() => {
+                    if (!isFlowChartActive) {
+                      handleLiveFlowMovesClick();
+                    } else {
+                      setIsFlowChartActive(false);
+                      setFlowChartData([]);
+                    }
+                  }}
+                  className="btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white"
+                  style={{
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                    outline: `2px solid ${isFlowChartActive ? '#22c55e' : '#FFD700'}`,
+                    outlineOffset: '-2px'
+                  }}
+                  title="Live FlowMoves"
+                >
+                  <span>Live FlowMoves</span>
+                  {isFlowChartActive && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>}
+                </button>
+              </div>
 
  {/* Spacer to push remaining items to the right */}
  <div className="flex-1"></div>
@@ -10343,6 +11070,44 @@ export default function TradingViewChart({
  className="absolute top-0 left-0 z-10"
  style={{ height: chartHeight }}
  />
+
+ {/* Flow Chart Resize Divider */}
+ {isFlowChartActive && (
+ <div
+ onMouseDown={handleFlowChartMouseDown}
+ style={{
+ position: 'absolute',
+ left: 40,
+ right: 40,
+ top: chartHeight - flowChartHeight - 80 - 25, // Position above volume area
+ height: '4px',
+ cursor: 'ns-resize',
+ zIndex: 25,
+ background: isDraggingFlowChart ? '#2962ff' : 'transparent',
+ transition: isDraggingFlowChart ? 'none' : 'background 0.2s ease',
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.background = '#2962ff40';
+ }}
+ onMouseLeave={(e) => {
+ if (!isDraggingFlowChart) {
+ e.currentTarget.style.background = 'transparent';
+ }
+ }}
+ >
+ <div style={{
+ position: 'absolute',
+ top: '50%',
+ left: '50%',
+ transform: 'translate(-50%, -50%)',
+ width: '40px',
+ height: '3px',
+ background: isDraggingFlowChart ? '#2962ff' : '#666',
+ borderRadius: '2px',
+ transition: 'background 0.2s ease'
+ }} />
+ </div>
+ )}
 
  {/* Crosshair and Interaction Overlay */}
  <canvas
@@ -11109,3 +11874,4 @@ export default function TradingViewChart({
  </>
  );
 }
+

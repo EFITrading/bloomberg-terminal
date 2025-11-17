@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { RefreshCw, AlertCircle, TrendingUp, Activity, Target, BarChart3, Gauge } from 'lucide-react';
+import OpenInterestChart from './OpenInterestChart';
+import GEXScreener from './GEXScreener';
 
 interface GEXData {
   strike: number;
-  [key: string]: number | {call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number, callDelta?: number, putDelta?: number};
+  [key: string]: number | {call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number, callDelta?: number, putDelta?: number, flowCall?: number, flowPut?: number, flowNet?: number};
 }
 
 interface ServerGEXData {
@@ -440,7 +442,12 @@ const MPDashboard: React.FC<MPDashboardProps> = ({ selectedTicker, currentPrice,
   // Get available future expirations
   const availableExpirations = useMemo(() => {
     const today = new Date();
-    return expirations.filter(exp => new Date(exp) >= today).sort();
+    today.setHours(0, 0, 0, 0); // Reset to start of day for accurate date comparison
+    return expirations.filter(exp => {
+      const expDate = new Date(exp);
+      expDate.setHours(0, 0, 0, 0); // Reset to start of day
+      return expDate >= today; // Include expirations on or after today
+    }).sort();
   }, [expirations]);
 
   // Auto-select default expiration (monthly or next available)
@@ -1925,9 +1932,11 @@ const DealerAttraction = () => {
   const [viewMode, setViewMode] = useState<'NET' | 'CP'>('CP'); // C/P by default
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
   const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}}>({});
-  const [showGEX, setShowGEX] = useState(true);
+  const [flowGexByStrikeByExpiration, setFlowGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number}}}>({});
+  const [showGEX, setShowGEX] = useState(false);
   const [showDealer, setShowDealer] = useState(false);
   const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX');
+  const [showFlowGEX, setShowFlowGEX] = useState(false);
 
   const [showOI, setShowOI] = useState(false);
   const [liveMode, setLiveMode] = useState(false); // Single live mode toggle for all metrics
@@ -1937,7 +1946,7 @@ const DealerAttraction = () => {
   const [showVEX, setShowVEX] = useState(false);
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
-  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI'>('MM');
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'OIGEX' | 'GEXSCREENER'>('MM');
 
   const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
@@ -2107,9 +2116,20 @@ const DealerAttraction = () => {
           setLiveOIProgress(100); // 100% - complete
           console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
           
+          // Step 5: Store OI Change data for Flow-Weighted GEX
+          console.log(`🔥 Calculating Flow-Weighted GEX using OI change (Live OI - Previous OI)`);
+          const flowWeightMultiplier = 7; // 7x weight on OI change
+          
+          console.log(`📊 Live OI calculated for ${liveOIMap.size} contracts with ${flowWeightMultiplier}x multiplier on OI change`);
+          
           // Hide loading after a brief delay to show 100%
           setTimeout(() => {
             setLiveOILoading(false);
+            
+            // Auto-refresh to recalculate with new Live OI data
+            // Pass liveOIMap directly since React state might not be updated yet
+            console.log(`🔄 Live OI scan complete - auto-refreshing calculations with ${liveOIMap.size} contracts`);
+            fetchOptionsData(liveOIMap);
           }, 500);
         }
       } catch (error) {
@@ -2157,7 +2177,7 @@ const DealerAttraction = () => {
 
 
   // Fetch detailed GEX data using Web Worker for parallel processing
-  const fetchOptionsData = async () => {
+  const fetchOptionsData = async (liveOIMapOverride?: Map<string, number>) => {
     const totalStartTime = performance.now();
     setLoading(true);
     setError(null);
@@ -2223,7 +2243,19 @@ const DealerAttraction = () => {
       const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number}}} = {};
       const dealerByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number}}} = {};
       const vexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}} = {};
+      const flowGexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number}}} = {};
       const allStrikes = new Set<number>();
+      
+      // Get Live OI data from parameter (if passed) or React state
+      const liveOIDataFromState = liveOIMapOverride || liveOIData;
+      const flowWeightMultiplier = 7;
+      console.log(`🔥 Flow GEX will use ${liveOIDataFromState.size} contracts with ${flowWeightMultiplier}x weight on OI CHANGE`);
+      
+      // Debug: Show sample keys from Live OI map
+      if (liveOIDataFromState.size > 0) {
+        const sampleKeys = Array.from(liveOIDataFromState.keys()).slice(0, 5);
+        console.log(`📋 Sample Live OI keys:`, sampleKeys);
+      }
       
       // Smart batching: larger batches for more expirations
       const batchSize = allAvailableExpirations.length <= 10 ? allAvailableExpirations.length : 
@@ -2273,6 +2305,21 @@ const DealerAttraction = () => {
               gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
               dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
               
+              // Initialize Flow GEX structure
+              const callContractKey = `${selectedTicker}_${strike}_call_${expDate}`;
+              const liveCallOI = liveOIDataFromState.get(callContractKey);
+              const oiChange = liveCallOI !== undefined ? (liveCallOI - oi) : 0;
+              console.log(`🔍 Flow GEX Call: Key="${callContractKey}", PrevOI=${oi}, LiveOI=${liveCallOI}, Change=${oiChange}`);
+              if (!flowGexByStrikeByExp[expDate]) flowGexByStrikeByExp[expDate] = {};
+              flowGexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callVolume: oiChange, putVolume: 0 };
+              
+              // Calculate Flow-Weighted GEX: GEX = Gamma × Delta × (OI_change × Weight) × Spot² × 100
+              if (gamma && delta !== undefined && oiChange !== 0) {
+                const flowGex = gamma * Math.abs(delta) * (oiChange * flowWeightMultiplier) * (currentPrice * currentPrice) * 100;
+                flowGexByStrikeByExp[expDate][strikeNum].call = flowGex;
+                console.log(`🔥 FLOW GEX Call: Strike ${strikeNum} = ${gamma} × ${Math.abs(delta)} × (${oiChange} × ${flowWeightMultiplier}) × ${currentPrice}² × 100 = ${flowGex}`);
+              }
+              
               // ALWAYS calculate BOTH formulas
               // 1. NET GEX - Standard formula
               console.log(`📊 Calculating NET GEX (standard) for call`);
@@ -2311,9 +2358,27 @@ const DealerAttraction = () => {
               vexByStrikeByExp[expDate][strikeNum].callVega = vega; // Store vega for recalculation
               console.log(`🔍🚨 Call VEX Debug: Strike ${strikeNum}, OI=${oi}, Vega=${vega}, greeks:`, data.greeks);
               if (vega && vega !== 0) {
-                const vex = vega * oi * 100; // VEX = Vega × OI × 100 (no price squared)
+                // Professional VEX Formula (Goldman Sachs style):
+                // VEX = Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
+                
+                const expirationDate = new Date(expDate);
+                const today = new Date();
+                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+                
+                // Moneyness weight: ATM options have highest vega sensitivity
+                // Weight peaks at ATM and decays for OTM/ITM
+                const moneyness = strikeNum / currentPrice;
+                const moneynessWeight = Math.exp(-Math.pow(Math.log(moneyness), 2) / 0.5); // Gaussian centered at ATM
+                
+                // Time weight: Vega is highest for longer-dated options
+                // But also weight by near-term expiration impact (dealers more sensitive)
+                const timeWeight = T > 0 ? Math.sqrt(T) * (1 + 0.5 / Math.max(T, 0.01)) : 0;
+                
+                // Professional VEX with proper notional scaling
+                const vex = vega * oi * currentPrice * 100 * moneynessWeight * timeWeight;
+                
                 vexByStrikeByExp[expDate][strikeNum].call = vex;
-                console.log(`🟣 Step 1C - Call VEX: Strike ${strikeNum} = ${vega} × ${oi} × 100 = ${vex}`);
+                console.log(`🟣 Step 1C - Call VEX (Pro): Strike ${strikeNum} = ${vega} × ${oi} × ${currentPrice} × 100 × ${moneynessWeight.toFixed(3)} × ${timeWeight.toFixed(3)} = ${vex}`);
               } else {
                 console.log(`❌ Call VEX ZERO: Strike ${strikeNum} - vega is ${vega} (greeks exist: ${!!data.greeks})`);
               }
@@ -2387,6 +2452,24 @@ const DealerAttraction = () => {
               dealerByStrikeByExp[expDate][strikeNum].putDelta = delta;
               dealerByStrikeByExp[expDate][strikeNum].putVanna = vanna;
               
+              // Update Flow GEX structure for puts
+              const putContractKey = `${selectedTicker}_${strike}_put_${expDate}`;
+              const livePutOI = liveOIDataFromState.get(putContractKey);
+              const putOIChange = livePutOI !== undefined ? (livePutOI - oi) : 0;
+              console.log(`🔍 Flow GEX Put: Key="${putContractKey}", PrevOI=${oi}, LiveOI=${livePutOI}, Change=${putOIChange}`);
+              if (!flowGexByStrikeByExp[expDate][strikeNum]) {
+                flowGexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callVolume: 0, putVolume: 0 };
+              }
+              flowGexByStrikeByExp[expDate][strikeNum].putOI = oi;
+              flowGexByStrikeByExp[expDate][strikeNum].putVolume = putOIChange;
+              
+              // Calculate Flow-Weighted GEX: GEX = -Gamma × Delta × (OI_change × Weight) × Spot² × 100
+              if (gamma && delta !== undefined && putOIChange !== 0) {
+                const flowGex = -gamma * Math.abs(delta) * (putOIChange * flowWeightMultiplier) * (currentPrice * currentPrice) * 100;
+                flowGexByStrikeByExp[expDate][strikeNum].put = flowGex;
+                console.log(`🔥 FLOW GEX Put: Strike ${strikeNum} = -${gamma} × ${Math.abs(delta)} × (${putOIChange} × ${flowWeightMultiplier}) × ${currentPrice}² × 100 = ${flowGex}`);
+              }
+              
               // ALWAYS calculate BOTH formulas
               // 1. NET GEX - Standard formula
               console.log(`📊 Calculating NET GEX (standard) for put`);
@@ -2416,6 +2499,8 @@ const DealerAttraction = () => {
                 }
               }
               
+
+              
               // STEP 2C: Update VEX with put data
               if (!vexByStrikeByExp[expDate][strikeNum]) {
                 vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
@@ -2425,9 +2510,25 @@ const DealerAttraction = () => {
               vexByStrikeByExp[expDate][strikeNum].putVega = vega; // Store vega for recalculation
               console.log(`🔍 Put VEX Debug: Strike ${strikeNum}, OI=${oi}, Vega=${vega}, greeks:`, data.greeks);
               if (vega) {
-                const vex = -vega * oi * 100; // VEX = -Vega × OI × 100 for puts (no price squared)
+                // Professional VEX Formula (Goldman Sachs style):
+                // VEX = -Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
+                
+                const expirationDate = new Date(expDate);
+                const today = new Date();
+                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+                
+                // Moneyness weight: ATM options have highest vega sensitivity
+                const moneyness = strikeNum / currentPrice;
+                const moneynessWeight = Math.exp(-Math.pow(Math.log(moneyness), 2) / 0.5); // Gaussian centered at ATM
+                
+                // Time weight: Vega is highest for longer-dated options
+                const timeWeight = T > 0 ? Math.sqrt(T) * (1 + 0.5 / Math.max(T, 0.01)) : 0;
+                
+                // Professional VEX with proper notional scaling (negative for puts)
+                const vex = -vega * oi * currentPrice * 100 * moneynessWeight * timeWeight;
+                
                 vexByStrikeByExp[expDate][strikeNum].put = vex;
-                console.log(`🟣 Step 2C - Put VEX: Strike ${strikeNum} = -${vega} × ${oi} × 100 = ${vex}`);
+                console.log(`🟣 Step 2C - Put VEX (Pro): Strike ${strikeNum} = -${vega} × ${oi} × ${currentPrice} × 100 × ${moneynessWeight.toFixed(3)} × ${timeWeight.toFixed(3)} = ${vex}`);
               } else {
                 console.log(`❌ Put VEX ZERO: Strike ${strikeNum} - vega is ${vega}`);
               }
@@ -2460,6 +2561,8 @@ const DealerAttraction = () => {
       // Store both calculations - they were computed in parallel
       setGexByStrikeByExpiration(gexByStrikeByExp);
       setDealerByStrikeByExpiration(dealerByStrikeByExp);
+      setFlowGexByStrikeByExpiration(flowGexByStrikeByExp);
+      console.log(`🔥 STATE UPDATED: GEX=${Object.keys(gexByStrikeByExp).length}, DEALER=${Object.keys(dealerByStrikeByExp).length}, FLOW GEX=${Object.keys(flowGexByStrikeByExp).length} expirations`);
       setProgress(87);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
       
@@ -2471,28 +2574,33 @@ const DealerAttraction = () => {
       setProgress(95);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
       
-      // Format and display data
-      const strikeRange = getStrikeRange(currentPrice);
+      // Format and display data - store ALL strikes, filter at render time
       const relevantStrikes = Array.from(allStrikes)
-        .filter(s => s >= strikeRange.min && s <= strikeRange.max)
         .sort((a, b) => b - a);
       
         const formattedData = relevantStrikes.map(strike => {
           const row: GEXData = { strike };
           allAvailableExpirations.forEach(exp => {
             const data = gexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
-            row[exp] = { call: data.call, put: data.put, net: data.call + data.put, callOI: data.callOI, putOI: data.putOI };
-            
-            // Debug put OI specifically for Nov 10
-            if (exp === '2025-11-10' && data.putOI > 0) {
-              console.log(`🔥 NOV 10 TABLE ROW: Strike ${strike}, Put OI=${data.putOI}`);
-            }
-            if (exp === '2025-11-10' && (strike === 6700 || strike === 6750 || strike === 6850 || strike === 6900)) {
-              console.log(`🔍 NOV 10 KEY STRIKE ${strike}: callOI=${data.callOI}, putOI=${data.putOI}, data:`, data);
-            }
+            const flowData = flowGexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVolume: 0, putVolume: 0 };
+            const vexData = vexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
+            row[exp] = { 
+              call: data.call, 
+              put: data.put, 
+              net: data.call + data.put, 
+              callOI: data.callOI, 
+              putOI: data.putOI,
+              flowCall: flowData.call,
+              flowPut: flowData.put,
+              flowNet: flowData.call + flowData.put,
+              callVex: vexData.call,
+              putVex: vexData.put
+            };
           });
           return row;
         });
+      
+      console.log(`📊 FINAL FORMATTED DATA SAMPLE (first 3 rows):`, formattedData.slice(0, 3));
       setData(formattedData);
       setProgress(100);
       setLoading(false);
@@ -2502,11 +2610,18 @@ const DealerAttraction = () => {
     }
   };
 
+  // Auto-trigger Live OI scan when Flow GEX is enabled
   useEffect(() => {
-    if (selectedTicker) {
+    if (selectedTicker && showFlowGEX) {
+      console.log(`🔥🔥🔥 AUTO-TRIGGERING LIVE OI SCAN: ${selectedTicker}`);
+      setLiveMode(true);
+      // Start the scan - it will auto-call fetchOptionsData when complete
+      updateLiveOI();
+    } else if (selectedTicker && !showFlowGEX) {
+      // Flow GEX disabled - fetch normally
       fetchOptionsData();
     }
-  }, [selectedTicker]);
+  }, [selectedTicker, showFlowGEX]);
 
   // Memoize ALL calculated data (unfiltered) for getTopValues to use
   // Uses DIFFERENT data sources based on mode: gexByStrikeByExpiration for Net GEX, dealerByStrikeByExpiration for Net Dealer
@@ -2520,7 +2635,10 @@ const DealerAttraction = () => {
     
     console.log(`🔄 MODE: ${gexMode}, LIVE: ${liveMode}, Using ${gexMode === 'Net Dealer' ? 'DEALER' : 'GEX'} data source with ${Object.keys(baseDataSource).length} expirations`);
     
-    if (!baseDataSource || Object.keys(baseDataSource).length === 0) return [];
+    if (!baseDataSource || Object.keys(baseDataSource).length === 0) {
+      console.log(`⚠️ WARNING: baseDataSource is empty!`);
+      return [];
+    }
     
     const allStrikes = Array.from(new Set([
       ...Object.values(baseDataSource).flatMap(exp => Object.keys(exp).map(Number))
@@ -2619,22 +2737,6 @@ const DealerAttraction = () => {
     });
   }, [gexByStrikeByExpiration, dealerByStrikeByExpiration, vexByStrikeByExpiration, currentPrice, expirations, gexMode, liveMode, selectedTicker, liveOIData]);
 
-  // Memoize the formatted data to prevent unnecessary recalculations during scrolling
-  // Create filtered version of data for display (respects OTM filter)
-  const filteredDisplayData = useMemo(() => {
-    if (!currentPrice || allCalculatedData.length === 0) return allCalculatedData;
-    
-    const strikeRange = getStrikeRange(currentPrice);
-    return allCalculatedData.filter(row => 
-      row.strike >= strikeRange.min && row.strike <= strikeRange.max
-    );
-  }, [allCalculatedData, currentPrice, otmFilter]);
-
-  // Update data state when filtered data changes
-  useEffect(() => {
-    setData(filteredDisplayData);  // Use filtered data for display
-  }, [filteredDisplayData]);
-
   const handleTickerSubmit = () => {
     const newTicker = tickerInput.trim().toUpperCase();
     if (newTicker && newTicker !== selectedTicker) {
@@ -2717,137 +2819,168 @@ const DealerAttraction = () => {
   // This ensures highlighting is based on absolute highest values across complete chain
   // Dependencies: ONLY allCalculatedData - NOT otmFilter, so changing OTM % doesn't affect which values are "top"
   const topValues = useMemo(() => {
-    console.log('🔄 RECALCULATING topValues');
-    console.log('📊 allCalculatedData length:', allCalculatedData.length);
-    
-    if (allCalculatedData.length === 0) {
+    if (allCalculatedData.length === 0 && data.length === 0) {
       return {
         highest: 0,
         second: 0,
         third: 0,
+        fourth: 0,
         top10: [],
         top5Positive: [],
         top5Negative: []
       };
     }
     
-    // IMPORTANT: Use allCalculatedData which contains Dealer-calculated values for ALL strikes
-    const positiveValues: number[] = [];
-    const negativeValues: number[] = [];
+    // IMPORTANT: Use data (not allCalculatedData) when Flow GEX is enabled
+    const sourceData = showFlowGEX ? data : allCalculatedData;
+    const allValues: number[] = [];
     
-    // Read from allCalculatedData and collect values based on current display mode
-    allCalculatedData.forEach(row => {
+    // Read from sourceData and collect ALL absolute values (positive and negative)
+    sourceData.forEach(row => {
       Object.keys(row).forEach(key => {
         if (key === 'strike') return;
         
         const cellData = row[key];
         if (!cellData || typeof cellData === 'number') return;
         
-        // Collect GEX values if GEX or Dealer is shown
-        if (showGEX || showDealer) {
+        // Collect Flow GEX values
+        if (showFlowGEX) {
+          const flowCall = cellData.flowCall || 0;
+          const flowPut = cellData.flowPut || 0;
+          const flowNet = cellData.flowNet || 0;
+          
+          if (flowNet !== 0) allValues.push(Math.abs(flowNet));
+          if (flowCall !== 0) allValues.push(Math.abs(flowCall));
+          if (flowPut !== 0) allValues.push(Math.abs(flowPut));
+        }
+        // Collect GEX/Dealer values
+        else if (showGEX || showDealer) {
           if (gexMode === 'Net GEX' || gexMode === 'Net Dealer') {
-            // Only collect net values in Net GEX or Net Dealer mode
             const netGex = cellData.net || 0;
-            if (netGex > 0) positiveValues.push(Math.abs(netGex));
-            else if (netGex < 0) negativeValues.push(Math.abs(netGex));
+            if (netGex !== 0) allValues.push(Math.abs(netGex));
           } else {
-            // Collect call and put separately in regular GEX or Dealer mode
             const callGex = cellData.call || 0;
             const putGex = cellData.put || 0;
-            
-            if (callGex > 0) positiveValues.push(Math.abs(callGex));
-            else if (callGex < 0) negativeValues.push(Math.abs(callGex));
-            
-            if (putGex > 0) positiveValues.push(Math.abs(putGex));
-            else if (putGex < 0) negativeValues.push(Math.abs(putGex));
+            if (callGex !== 0) allValues.push(Math.abs(callGex));
+            if (putGex !== 0) allValues.push(Math.abs(putGex));
           }
         }
         
-        // Collect VEX values if VEX is shown
+        // Collect VEX values
         if (showVEX) {
           if (vexMode === 'Net VEX') {
             const netVex = (cellData.callVex || 0) + (cellData.putVex || 0);
-            if (netVex > 0) positiveValues.push(Math.abs(netVex));
-            else if (netVex < 0) negativeValues.push(Math.abs(netVex));
+            if (netVex !== 0) allValues.push(Math.abs(netVex));
           } else {
             const callVex = cellData.callVex || 0;
             const putVex = cellData.putVex || 0;
-            
-            if (callVex > 0) positiveValues.push(Math.abs(callVex));
-            else if (callVex < 0) negativeValues.push(Math.abs(callVex));
-            
-            if (putVex > 0) positiveValues.push(Math.abs(putVex));
-            else if (putVex < 0) negativeValues.push(Math.abs(putVex));
+            if (callVex !== 0) allValues.push(Math.abs(callVex));
+            if (putVex !== 0) allValues.push(Math.abs(putVex));
           }
         }
       });
     });
     
-    console.log('📊 Total positive values collected:', positiveValues.length);
-    console.log('📊 Total negative values collected:', negativeValues.length);
-    
-    // Filter out zero values and sort by absolute values (descending)
-    const sortedPositive = positiveValues.filter(v => v > 0).sort((a, b) => b - a);
-    const sortedNegative = negativeValues.filter(v => v > 0).sort((a, b) => b - a);
-    
-    console.log('✅ TOP VALUES LOCKED - These should NOT change when OTM filter changes:');
-    console.log('   Mode: showGEX=' + showGEX + ', gexMode=' + gexMode + ', showVEX=' + showVEX);
-    console.log('   Highest:', sortedPositive[0], 'Formatted:', sortedPositive[0] ? `$${(sortedPositive[0]/1e6).toFixed(2)}M` : 'N/A');
-    console.log('   Second:', sortedPositive[1], 'Formatted:', sortedPositive[1] ? `$${(sortedPositive[1]/1e6).toFixed(2)}M` : 'N/A');
-    console.log('   Third:', sortedPositive[2], 'Formatted:', sortedPositive[2] ? `$${(sortedPositive[2]/1e6).toFixed(2)}M` : 'N/A');
-    console.log('   Top 5 positive:', sortedPositive.slice(0, 5).map(v => `$${(v/1e6).toFixed(1)}M`));
-    console.log('   Top 5 negative:', sortedNegative.slice(0, 5).map(v => `$${(v/1e6).toFixed(1)}M`));
-    
-    // Get top values
-    const top5Positive = sortedPositive.slice(0, 5);
-    const top5Negative = sortedNegative.slice(0, 5);
+    // Sort ALL values by absolute value (highest to lowest)
+    const sortedValues = allValues.filter(v => v > 0).sort((a, b) => b - a);
     
     return {
-      // Top 3 individual values
-      highest: sortedPositive[0] || sortedNegative[0] || 0,
-      second: sortedPositive[1] || sortedNegative[1] || 0,
-      third: sortedPositive[2] || sortedNegative[2] || 0,
-      // Next 6 values (4th through 9th) for blue highlighting
-      top10: [...sortedPositive.slice(3, 9), ...sortedNegative.slice(3, 9)],
-      // New separate top 5 arrays
-      top5Positive,
-      top5Negative
+      // Top 4 individual values (highest absolute values regardless of positive/negative)
+      highest: sortedValues[0] || 0,
+      second: sortedValues[1] || 0,
+      third: sortedValues[2] || 0,
+      fourth: sortedValues[3] || 0,
+      // Top 10 values for cluster detection
+      top10: sortedValues.slice(0, 10),
+      // Top 10 for backward compatibility
+      top5Positive: sortedValues.slice(0, 10),
+      top5Negative: []
     };
-  }, [allCalculatedData, showGEX, showVEX, gexMode, vexMode]);
+  }, [allCalculatedData, data, showGEX, showVEX, gexMode, vexMode, showFlowGEX]);
 
-  const getCellStyle = (value: number, isVexValue: boolean = false) => {
+  const getCellStyle = (value: number, isVexValue: boolean = false, strike?: number, exp?: string): { bg: string; ring: string } => {
     const absValue = Math.abs(value);
     const tops = topValues;
     
-    // Use the same highlighting logic for both regular and Live OI modes
-    // Gold/Purple/Green/Blue for top 1st/2nd/3rd/4th-9th values
-    if ((showGEX || showDealer || showVEX)) {
-      // Use tolerance-based comparison to handle floating point precision issues
-      const tolerance = 1; // $1 tolerance for large values
+    let bgColor = '';
+    let ringColor = '';
+    
+    // VEX-specific coloring: Show directional opportunity for options buyers
+    if (showVEX && isVexValue && strike && currentPrice) {
+      const sortedValues = [...tops.top5Positive, ...tops.top5Negative].sort((a, b) => b - a);
+      const isTopValue = sortedValues.slice(0, 10).includes(absValue);
       
-      // 1st - GOLD (largest absolute net value)
-      if (absValue > 0 && Math.abs(absValue - tops.highest) < tolerance) {
-        return 'bg-gradient-to-br from-yellow-500/80 to-yellow-700/80 text-yellow-50 font-bold shadow-lg shadow-yellow-500/40';
+      if (isTopValue && absValue > 0) {
+        const strikeAbovePrice = strike > currentPrice;
+        
+        // POSITIVE VEX (Calls) - Above price = Bullish squeeze opportunity
+        if (value > 0 && strikeAbovePrice) {
+          if (absValue === sortedValues[0]) {
+            bgColor = 'bg-gradient-to-br from-green-400 to-green-600 text-black font-extrabold';
+            ringColor = 'ring-2 ring-green-400';
+          } else if (absValue === sortedValues[1] || absValue === sortedValues[2]) {
+            bgColor = 'bg-gradient-to-br from-green-500 to-green-700 text-white font-extrabold';
+          } else {
+            bgColor = 'bg-gradient-to-br from-green-500/60 to-green-700/60 text-white font-bold';
+          }
+        }
+        // NEGATIVE VEX (Puts) - Below price = Bearish crash opportunity
+        else if (value < 0 && !strikeAbovePrice) {
+          if (absValue === sortedValues[0]) {
+            bgColor = 'bg-gradient-to-br from-red-400 to-red-600 text-white font-extrabold';
+            ringColor = 'ring-2 ring-red-400';
+          } else if (absValue === sortedValues[1] || absValue === sortedValues[2]) {
+            bgColor = 'bg-gradient-to-br from-red-500 to-red-700 text-white font-extrabold';
+          } else {
+            bgColor = 'bg-gradient-to-br from-red-500/60 to-red-700/60 text-white font-bold';
+          }
+        }
+        // Wrong direction - Show in orange (dealers want price to move here, not a trade)
+        else {
+          bgColor = 'bg-gradient-to-br from-orange-500/40 to-orange-700/40 text-gray-300 font-normal';
+        }
+      } else if (value !== 0) {
+        bgColor = 'bg-gradient-to-br from-black to-gray-900 text-gray-400 border border-gray-700/30';
+      } else {
+        bgColor = 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30';
       }
-      // 2nd - PURPLE (second largest absolute net value)
-      if (absValue > 0 && Math.abs(absValue - tops.second) < tolerance) {
-        return 'bg-gradient-to-br from-purple-500/80 to-purple-700/80 text-purple-50 font-bold shadow-lg shadow-purple-500/40';
+    }
+    // Standard coloring for GEX/Dealer/Flow GEX (existing logic)
+    else if ((showGEX || showDealer || showFlowGEX) && absValue > 0) {
+      const sortedValues = [...tops.top5Positive, ...tops.top5Negative].sort((a, b) => b - a);
+      
+      // 1st - GOLD (highest value - 100% opacity)
+      if (absValue === sortedValues[0]) {
+        bgColor = 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-black font-extrabold';
       }
-      // 3rd - GREEN (third largest absolute net value)
-      if (absValue > 0 && Math.abs(absValue - tops.third) < tolerance) {
-        return 'bg-gradient-to-br from-green-500/80 to-green-700/80 text-green-50 font-bold shadow-lg shadow-green-500/40';
+      // 2nd-3rd - PURPLE (100% opacity)
+      else if (absValue === sortedValues[1] || absValue === sortedValues[2]) {
+        bgColor = 'bg-gradient-to-br from-purple-500 to-purple-700 text-white font-extrabold';
       }
-      // 4th-9th - BLUE (next 6 largest absolute net values)
-      if (absValue > 0 && tops.top10.some(topVal => Math.abs(absValue - topVal) < tolerance)) {
-        return 'bg-gradient-to-br from-blue-500/80 to-blue-700/80 text-blue-50 font-bold shadow-lg shadow-blue-500/40';
+      // 4th-6th - PURPLE (60% opacity)
+      else if (absValue === sortedValues[3] || absValue === sortedValues[4] || absValue === sortedValues[5]) {
+        bgColor = 'bg-gradient-to-br from-purple-500/60 to-purple-700/60 text-white font-bold';
+      }
+      // 7th-10th - PURPLE (30% opacity)
+      else if (absValue === sortedValues[6] || absValue === sortedValues[7] || absValue === sortedValues[8] || absValue === sortedValues[9]) {
+        bgColor = 'bg-gradient-to-br from-purple-500/30 to-purple-700/30 text-white font-bold';
+      }
+      // Everything else - Black
+      else if (value !== 0) {
+        bgColor = 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
+      } else {
+        bgColor = 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30';
+      }
+    } else {
+      // Everything else - Black
+      if (value !== 0) {
+        bgColor = 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
+      } else {
+        bgColor = 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30';
       }
     }
     
-    // Everything else - Black
-    if (value !== 0) {
-      return 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
-    }
-    return 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30';
+    return { bg: bgColor, ring: ringColor };
   };
 
   const formatDate = (dateStr: string) => {
@@ -2876,7 +3009,7 @@ const DealerAttraction = () => {
               </div>
             </div>
             <button 
-              onClick={fetchOptionsData}
+              onClick={() => fetchOptionsData()}
               className="mt-4 px-6 py-3 bg-red-600 hover:bg-red-700 transition-all rounded-lg font-medium"
             >
               Retry Connection
@@ -2977,7 +3110,7 @@ const DealerAttraction = () => {
                                 handleTickerSubmit();
                               }
                             }}
-                            className="bg-transparent border-0 outline-none flex-1 text-lg font-bold uppercase"
+                            className="bg-transparent border-0 outline-none w-20 text-lg font-bold uppercase"
                             style={{
                               color: '#ffffff',
                               textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
@@ -3021,7 +3154,7 @@ const DealerAttraction = () => {
                         </button>
                         
                         <button
-                          onClick={fetchOptionsData}
+                          onClick={() => fetchOptionsData()}
                           disabled={loading}
                           className="flex items-center justify-center gap-1 w-24 py-3 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-black text-sm uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all rounded whitespace-nowrap"
                         >
@@ -3032,35 +3165,9 @@ const DealerAttraction = () => {
 
                       {/* Row 2: Data Type Toggles (2 columns) */}
                       <div className="grid grid-cols-2 gap-3">
-                        {/* Column 1: NET DEALER, NET GEX, NET VEX */}
+                        {/* Column 1: NORMAL, MM ACTIVITY, FLOW MAP, VOLATILITY */}
                         <div className="flex flex-col gap-2.5 bg-gray-900/50 p-3 rounded-lg border border-gray-800">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={showDealer}
-                              onChange={(e) => {
-                                const isChecked = e.target.checked;
-                                setShowDealer(isChecked);
-                                if (isChecked) {
-                                  setGexMode('Net Dealer');
-                                  setShowGEX(false);
-                                }
-                              }}
-                              className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
-                            />
-                            <span 
-                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-blue-300 border-blue-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(59,130,246,0.5),inset_0_1px_0_rgba(59,130,246,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] ${
-                                showDealer ? 'animate-pulse shadow-[0_0_25px_rgba(59,130,246,0.8),0_0_40px_rgba(59,130,246,0.5),inset_0_1px_0_rgba(59,130,246,0.3)]' : ''
-                              }`}
-                              style={{ 
-                                textShadow: showDealer 
-                                  ? '0 0 15px rgba(59, 130, 246, 1), 0 0 25px rgba(59, 130, 246, 0.6), 0 1px 2px rgba(0,0,0,0.8)' 
-                                  : '0 0 10px rgba(59, 130, 246, 0.6), 0 0 15px rgba(59, 130, 246, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
-                              }}
-                            >
-                              MARKET MAKER
-                            </span>
-                          </div>
+                          {/* NORMAL (GEX) */}
                           <div className="flex items-center gap-2">
                             <input
                               type="checkbox"
@@ -3071,23 +3178,88 @@ const DealerAttraction = () => {
                                 if (isChecked) {
                                   setGexMode('Net GEX');
                                   setShowDealer(false);
+                                  setShowFlowGEX(false);
                                 }
                               }}
                               className="w-4 h-4 text-yellow-500 bg-black border-2 border-gray-600 rounded focus:ring-yellow-500 focus:ring-2"
                             />
                             <span 
-                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-yellow-300 border-yellow-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(234,179,8,0.5),inset_0_1px_0_rgba(234,179,8,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] ${
-                                showGEX ? 'animate-pulse shadow-[0_0_25px_rgba(234,179,8,0.8),0_0_40px_rgba(234,179,8,0.5),inset_0_1px_0_rgba(234,179,8,0.3)]' : ''
+                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-white border-gray-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(156,163,175,0.5),inset_0_1px_0_rgba(156,163,175,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] ${
+                                showGEX ? 'animate-pulse shadow-[0_0_25px_rgba(156,163,175,0.8),0_0_40px_rgba(156,163,175,0.5),inset_0_1px_0_rgba(156,163,175,0.3)]' : ''
                               }`}
                               style={{ 
                                 textShadow: showGEX 
+                                  ? '0 0 15px rgba(156, 163, 175, 1), 0 0 25px rgba(156, 163, 175, 0.6), 0 1px 2px rgba(0,0,0,0.8)' 
+                                  : '0 0 10px rgba(156, 163, 175, 0.6), 0 0 15px rgba(156, 163, 175, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
+                              }}
+                            >
+                              NORMAL
+                            </span>
+                          </div>
+                          {/* MM ACTIVITY (Dealer) */}
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={showDealer}
+                              onChange={(e) => {
+                                const isChecked = e.target.checked;
+                                setShowDealer(isChecked);
+                                if (isChecked) {
+                                  setGexMode('Net Dealer');
+                                  setShowGEX(false);
+                                  setShowFlowGEX(false);
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                            />
+                            <span 
+                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-yellow-300 border-yellow-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(234,179,8,0.5),inset_0_1px_0_rgba(234,179,8,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] ${
+                                showDealer ? 'animate-pulse shadow-[0_0_25px_rgba(234,179,8,0.8),0_0_40px_rgba(234,179,8,0.5),inset_0_1px_0_rgba(234,179,8,0.3)]' : ''
+                              }`}
+                              style={{ 
+                                textShadow: showDealer 
                                   ? '0 0 15px rgba(234, 179, 8, 1), 0 0 25px rgba(234, 179, 8, 0.6), 0 1px 2px rgba(0,0,0,0.8)' 
                                   : '0 0 10px rgba(234, 179, 8, 0.6), 0 0 15px rgba(234, 179, 8, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
                               }}
                             >
-                              GAMMA EXPOSURE
+                              MM ACTIVITY
                             </span>
                           </div>
+                          {/* FLOW MAP */}
+                          <div className="flex items-center gap-2">
+                            <input
+                              id="flowgex-checkbox-mobile"
+                              type="checkbox"
+                              checked={showFlowGEX}
+                              onClick={(e) => {
+                                console.log(`🔥 FLOW GEX CHECKBOX CLICKED (mobile) - Current: ${showFlowGEX}, Will be: ${!showFlowGEX}`);
+                              }}
+                              onChange={(e) => {
+                                console.log(`🔥 FLOW GEX CHECKBOX CHANGED (mobile) - New value: ${e.target.checked}`);
+                                const isChecked = e.target.checked;
+                                setShowFlowGEX(isChecked);
+                                if (isChecked) {
+                                  setShowGEX(false);
+                                  setShowDealer(false);
+                                }
+                              }}
+                              className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                            />
+                            <label 
+                              htmlFor="flowgex-checkbox-mobile"
+                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-orange-300 border-orange-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(249,115,22,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] cursor-pointer ${
+                                showFlowGEX ? 'animate-pulse shadow-[0_0_25px_rgba(249,115,22,0.8),0_0_40px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(249,115,22,0.3)]' : ''
+                              }`}
+                              style={{ 
+                                textShadow: showFlowGEX 
+                                  ? '0 0 15px rgba(249, 115, 22, 1), 0 0 25px rgba(249, 115, 22, 0.6), 0 1px 2px rgba(0,0,0,0.8)' 
+                                  : '0 0 10px rgba(249, 115, 22, 0.6), 0 0 15px rgba(249, 115, 22, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
+                              }}
+                            >
+                              FLOW MAP
+                            </label>
+                          </div>
+                          {/* VOLATILITY (VEX) */}
                           <div className="flex items-center gap-2">
                             <input
                               type="checkbox"
@@ -3110,12 +3282,12 @@ const DealerAttraction = () => {
                                   : '0 0 10px rgba(168, 85, 247, 0.6), 0 0 15px rgba(168, 85, 247, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
                               }}
                             >
-                              VOLATILITY EXPOSURE
+                              VOLATILITY
                             </span>
                           </div>
                         </div>
 
-                        {/* Column 2: OI and OTM Range */}
+                        {/* Column 2: OI and Range */}
                         <div className="flex flex-col gap-2.5 bg-gray-900/50 p-3 rounded-lg border border-gray-800">
                           <div className="flex items-center gap-2">
                             <input
@@ -3127,7 +3299,7 @@ const DealerAttraction = () => {
                             <span className="text-[10px] font-bold text-white uppercase tracking-wider whitespace-nowrap">OPEN INTEREST</span>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">OTM RANGE</span>
+                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">RANGE</span>
                             <select
                               value={otmFilter}
                               onChange={(e) => setOtmFilter(e.target.value as '2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%')}
@@ -3168,7 +3340,7 @@ const DealerAttraction = () => {
                                     handleTickerSubmit();
                                   }
                                 }}
-                                className="bg-transparent border-0 outline-none w-28 text-lg font-bold uppercase"
+                                className="bg-transparent border-0 outline-none w-20 text-lg font-bold uppercase"
                                 style={{
                                   color: '#ffffff',
                                   textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
@@ -3189,25 +3361,7 @@ const DealerAttraction = () => {
                           {/* Display Toggle Checkboxes */}
                           <div className="flex items-center gap-4">
                             <div className="flex items-center gap-6">
-                              {/* NET DEALER Checkbox */}
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={showDealer}
-                                  onChange={(e) => {
-                                    const isChecked = e.target.checked;
-                                    setShowDealer(isChecked);
-                                    if (isChecked) {
-                                      setGexMode('Net Dealer');
-                                      setShowGEX(false);
-                                    }
-                                  }}
-                                  className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
-                                />
-                                <span className="text-xs font-bold text-white uppercase tracking-wider">NET DEALER</span>
-                              </div>
-                              
-                              {/* NET GEX Checkbox */}
+                              {/* NORMAL (GEX) Checkbox */}
                               <div className="flex items-center gap-2">
                                 <input
                                   type="checkbox"
@@ -3218,25 +3372,57 @@ const DealerAttraction = () => {
                                     if (isChecked) {
                                       setGexMode('Net GEX');
                                       setShowDealer(false);
+                                      setShowFlowGEX(false);
                                     }
                                   }}
                                   className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
                                 />
-                                <span className="text-xs font-bold text-white uppercase tracking-wider">NET GEX</span>
+                                <span className="text-xs font-bold text-white uppercase tracking-wider">NORMAL</span>
                               </div>
                               
-                              {/* OI Checkbox */}
+                              {/* MM ACTIVITY (Dealer) Checkbox */}
                               <div className="flex items-center gap-2">
                                 <input
                                   type="checkbox"
-                                  checked={showOI}
-                                  onChange={(e) => setShowOI(e.target.checked)}
-                                  className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                                  checked={showDealer}
+                                  onChange={(e) => {
+                                    const isChecked = e.target.checked;
+                                    setShowDealer(isChecked);
+                                    if (isChecked) {
+                                      setGexMode('Net Dealer');
+                                      setShowGEX(false);
+                                      setShowFlowGEX(false);
+                                    }
+                                  }}
+                                  className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
                                 />
-                                <span className="text-xs font-bold text-white uppercase tracking-wider">OI</span>
+                                <span className="text-xs font-bold text-yellow-400 uppercase tracking-wider">MM ACTIVITY</span>
                               </div>
                               
-                              {/* NET VEX Checkbox */}
+                              {/* FLOW MAP Checkbox */}
+                              <div className="flex items-center gap-2">
+                                <input
+                                  id="flowgex-checkbox-desktop"
+                                  type="checkbox"
+                                  checked={showFlowGEX}
+                                  onClick={(e) => {
+                                    console.log(`🔥 FLOW GEX CHECKBOX CLICKED (desktop) - Current: ${showFlowGEX}, Will be: ${!showFlowGEX}`);
+                                  }}
+                                  onChange={(e) => {
+                                    console.log(`🔥 FLOW GEX CHECKBOX CHANGED (desktop) - New value: ${e.target.checked}`);
+                                    const isChecked = e.target.checked;
+                                    setShowFlowGEX(isChecked);
+                                    if (isChecked) {
+                                      setShowGEX(false);
+                                      setShowDealer(false);
+                                    }
+                                  }}
+                                  className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                                />
+                                <label htmlFor="flowgex-checkbox-desktop" className="text-xs font-bold text-orange-400 uppercase tracking-wider cursor-pointer">FLOW MAP</label>
+                              </div>
+                              
+                              {/* VOLATILITY (VEX) Checkbox */}
                               <div className="flex items-center gap-2">
                                 <input
                                   type="checkbox"
@@ -3249,7 +3435,18 @@ const DealerAttraction = () => {
                                   }}
                                   className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded focus:ring-purple-500 focus:ring-2"
                                 />
-                                <span className="text-xs font-bold text-white uppercase tracking-wider">NET VEX</span>
+                                <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">VOLATILITY</span>
+                              </div>
+                              
+                              {/* OI Checkbox */}
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={showOI}
+                                  onChange={(e) => setShowOI(e.target.checked)}
+                                  className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                                />
+                                <span className="text-xs font-bold text-white uppercase tracking-wider">OI</span>
                               </div>
                               
                               {/* LIVE Button */}
@@ -3304,7 +3501,7 @@ const DealerAttraction = () => {
                           
                           {/* OTM Filter Dropdown */}
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">OTM RANGE</span>
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">RANGE</span>
                             <div className="relative">
                               <select
                                 value={otmFilter}
@@ -3332,7 +3529,7 @@ const DealerAttraction = () => {
                       
                       {/* Desktop Refresh Button */}
                       <button
-                        onClick={fetchOptionsData}
+                        onClick={() => fetchOptionsData()}
                         disabled={loading}
                         className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-bold text-sm uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
                       >
@@ -3364,7 +3561,7 @@ const DealerAttraction = () => {
                                   handleTickerSubmit();
                                 }
                               }}
-                              className="bg-transparent border-0 outline-none w-28 text-lg font-bold uppercase"
+                              className="bg-transparent border-0 outline-none w-20 text-lg font-bold uppercase"
                               style={{
                                 color: '#ffffff',
                                 textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
@@ -3381,42 +3578,62 @@ const DealerAttraction = () => {
                       </div>
                       
                       <div className="flex items-center gap-3">
-                        {/* MM, MP, SI Buttons */}
-                        <div className="flex gap-2">
+                        {/* MM, MP, SI, OI/GEX Buttons */}
+                        <div className="flex gap-4">
                           <button 
                             onClick={() => setActiveWorkbenchTab('MM')}
-                            className={`px-4 py-2 font-bold text-xs uppercase tracking-wider transition-all ${
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
                               activeWorkbenchTab === 'MM' 
                                 ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]' 
-                                : 'bg-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20'
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
                             }`}
                           >
-                            MM
+                            Market Maker
                           </button>
                           <button 
                             onClick={() => setActiveWorkbenchTab('MP')}
-                            className={`px-4 py-2 font-bold text-xs uppercase tracking-wider transition-all ${
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
                               activeWorkbenchTab === 'MP' 
                                 ? 'bg-green-600 text-white border-2 border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]' 
-                                : 'bg-black text-green-400 hover:text-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-900/20'
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-green-400 hover:text-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
                             }`}
                           >
-                            MP
+                            Dealer Pressure
                           </button>
                           <button 
                             onClick={() => setActiveWorkbenchTab('SI')}
-                            className={`px-4 py-2 font-bold text-xs uppercase tracking-wider transition-all ${
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
                               activeWorkbenchTab === 'SI' 
                                 ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' 
-                                : 'bg-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20'
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
                             }`}
                           >
-                            SI
+                            Stability Index
+                          </button>
+                          <button 
+                            onClick={() => setActiveWorkbenchTab('OIGEX')}
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
+                              activeWorkbenchTab === 'OIGEX' 
+                                ? 'bg-orange-600 text-white border-2 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.4)]' 
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-orange-400 hover:text-white border-2 border-gray-800 hover:border-orange-500 hover:bg-orange-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                            }`}
+                          >
+                            Open Interest and GEX
+                          </button>
+                          <button 
+                            onClick={() => setActiveWorkbenchTab('GEXSCREENER')}
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
+                              activeWorkbenchTab === 'GEXSCREENER' 
+                                ? 'bg-cyan-600 text-white border-2 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)]' 
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-cyan-400 hover:text-white border-2 border-gray-800 hover:border-cyan-500 hover:bg-cyan-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                            }`}
+                          >
+                            GEX Screener
                           </button>
                         </div>
                         
                         <button
-                          onClick={fetchOptionsData}
+                          onClick={() => fetchOptionsData()}
                           disabled={loading}
                           className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-bold text-sm uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
                         >
@@ -3497,12 +3714,13 @@ const DealerAttraction = () => {
                 </div>
               )}
               
-              <div className="bg-gray-900 border border-gray-700 overflow-hidden">
-                <div className="overflow-x-auto">
+              <div className="bg-gray-900 border border-gray-700 overflow-hidden" style={{ maxHeight: 'calc(100vh - 400px)', display: 'flex', flexDirection: 'column' }}>
+                {/* Table Header - Fixed */}
+                <div className="overflow-x-auto flex-shrink-0">
                   <table className="w-full">
-                    <thead>
+                    <thead className="sticky top-0 z-20 bg-black">
                       <tr className="border-b border-gray-700 bg-black">
-                        <th className="px-6 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-10 border-r border-gray-700 shadow-xl">
+                        <th className="px-3 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-10 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
                           <div className="text-xs font-bold text-white uppercase">Strike</div>
                         </th>
                         {expirations.map(exp => (
@@ -3525,8 +3743,17 @@ const DealerAttraction = () => {
                         ))}
                       </tr>
                     </thead>
+                  </table>
+                </div>
+                
+                {/* Table Body - Scrollable */}
+                <div className="overflow-x-auto overflow-y-auto flex-1">
+                  <table className="w-full">
                     <tbody>
-                      {data.map((row, idx) => {
+                      {(showFlowGEX ? data : (showGEX || showDealer || showVEX ? allCalculatedData : data)).filter(row => {
+                        const strikeRange = getStrikeRange(currentPrice);
+                        return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
+                      }).map((row, idx) => {
                         // Find the single closest strike to current price
                         const closestStrike = currentPrice > 0 ? data.reduce((closest, current) => 
                           Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
@@ -3584,7 +3811,7 @@ const DealerAttraction = () => {
                               isLargestValueRow ? 'bg-purple-900/20 border-purple-500/40' : ''
                             }`}
                           >
-                            <td className={`px-6 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 ${
+                            <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 w-20 min-w-20 max-w-20 ${
                               isCurrentPriceRow ? 'bg-yellow-800/30' : 
                               isLargestValueRow ? 'bg-purple-800/30' : 'bg-black'
                             }`}>
@@ -3607,11 +3834,6 @@ const DealerAttraction = () => {
                               const netValue = value?.net || 0;
                               let callOI = value?.callOI || 0;
                               let putOI = value?.putOI || 0;
-                              
-                              // Debug put OI rendering values
-                              if (putOI > 0) {
-                                console.log(`🎯 RENDER PUT OI: Strike ${row.strike}, Exp ${exp}, putOI=${putOI}, value:`, value);
-                              }
                               
                               // Use Live OI if mode is selected
                               if (liveMode && liveOIData.size > 0) {
@@ -3670,6 +3892,38 @@ const DealerAttraction = () => {
                               const isAttractionNet = liveMode && (showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && absNetValue === tops.highest && absNetValue > 0;
                               const isReversalNet = liveMode && (showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (absNetValue === tops.second || absNetValue === tops.third) && absNetValue > 0;
                               
+                              // VEX Action Labels - Determine what to display in VEX cells
+                              const getVexActionLabel = (vexValue: number, strike: number): string | null => {
+                                if (!showVEX || vexValue === 0 || !currentPrice) return null;
+                                
+                                const absVex = Math.abs(vexValue);
+                                const sortedValues = [...tops.top5Positive, ...tops.top5Negative].sort((a, b) => b - a);
+                                const isTopValue = sortedValues.slice(0, 10).includes(absVex);
+                                
+                                if (!isTopValue) return null;
+                                
+                                const strikeAbovePrice = strike > currentPrice;
+                                const percentAway = Math.abs((strike - currentPrice) / currentPrice) * 100;
+                                
+                                // Show what dealers are doing at this strike
+                                // Positive VEX above = Call wall (resistance)
+                                if (vexValue > 0 && strikeAbovePrice) {
+                                  return percentAway < 2 ? '⚡ CEILING' : '🔴 RESIST';
+                                }
+                                
+                                // Negative VEX below = Put floor (support)
+                                if (vexValue < 0 && !strikeAbovePrice) {
+                                  return percentAway < 2 ? '⚡ FLOOR' : '🟢 SUPPORT';
+                                }
+                                
+                                // Don't show anything if criteria not met
+                                return null;
+                              };
+                              
+                              const netVexAction = getVexActionLabel(callVex + putVex, row.strike);
+                              const callVexAction = getVexActionLabel(callVex, row.strike);
+                              const putVexAction = getVexActionLabel(putVex, row.strike);
+                              
                               return (
                                 <td
                                   key={exp}
@@ -3679,9 +3933,12 @@ const DealerAttraction = () => {
                                   }`}
                                 >
                                   {/* Display separate call/put cells OR net value based on mode */}
-                                  {((gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (showGEX || showDealer)) || (vexMode === 'Net VEX' && showVEX) ? (
+                                  {showFlowGEX || ((gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (showGEX || showDealer)) || (vexMode === 'Net VEX' && showVEX) ? (
                                     // Net mode - single cell with net value
-                                    <div className={`${getCellStyle(showVEX ? callVex + putVex : callValue + putValue)} px-3 py-2 rounded-lg text-center font-mono transition-all hover:scale-105 ${
+                                    (() => {
+                                      const cellStyle = getCellStyle(showVEX ? callVex + putVex : showFlowGEX ? (value as any)?.flowNet || 0 : callValue + putValue, showVEX, row.strike, exp);
+                                      return (
+                                        <div className={`${cellStyle.bg} ${cellStyle.ring} px-3 py-2 rounded-lg text-center font-mono transition-all hover:scale-105 ${
                                       isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
                                       isLargestValueRow ? 'ring-1 ring-purple-500/50' : ''
                                     }`}>
@@ -3700,20 +3957,38 @@ const DealerAttraction = () => {
                                           REVERSE
                                         </div>
                                       )}
-                                      {(showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (
+                                      
+                                      {showFlowGEX && (
+                                        <div className="text-xs font-bold">{formatCurrency((value as any)?.flowNet || 0)}</div>
+                                      )}
+                                      {!showFlowGEX && (showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (
                                         <div className="text-xs font-bold">{formatCurrency(callValue + putValue)}</div>
                                       )}
                                       {showVEX && vexMode === 'Net VEX' && (
-                                        <div className="text-xs font-bold text-purple-400">{formatCurrency(callVex + putVex)}</div>
+                                        <>
+                                          {netVexAction && (
+                                            <div className="text-[9px] font-black mb-1 tracking-wider" style={{ 
+                                              textShadow: '0 1px 2px rgba(0,0,0,0.9)'
+                                            }}>
+                                              {netVexAction}
+                                            </div>
+                                          )}
+                                          <div className="text-xs font-bold">{formatCurrency(callVex + putVex)}</div>
+                                        </>
                                       )}
                                       {showOI && (
                                         <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(callOI + putOI)}</div>
                                       )}
                                     </div>
+                                      );
+                                    })()
                                   ) : (
                                     // Split mode - separate call/put cells
                                     <div className="flex gap-1.5">
-                                      <div className={`${getCellStyle(showVEX ? callVex : callValue)} px-3 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
+                                      {(() => {
+                                        const cellStyle = getCellStyle(showVEX ? callVex : showFlowGEX ? (value as any)?.flowCall || 0 : callValue, showVEX, row.strike, exp);
+                                        return (
+                                          <div className={`${cellStyle.bg} ${cellStyle.ring} px-3 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
                                         isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
                                         isLargestValueRow ? 'ring-1 ring-purple-500/50' : 
                                         isLargestVexCall ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50' : ''
@@ -3735,17 +4010,34 @@ const DealerAttraction = () => {
                                             REVERSE
                                           </div>
                                         )}
-                                        {(showGEX || showDealer) && (
+                                        {showFlowGEX && (
+                                          <div className="text-xs font-bold">{formatCurrency((value as any)?.flowCall || 0)}</div>
+                                        )}
+                                        {!showFlowGEX && (showGEX || showDealer) && (
                                           <div className="text-xs font-bold">{formatCurrency(callValue)}</div>
                                         )}
                                         {showVEX && (
-                                          <div className="text-xs font-bold text-purple-400">{formatCurrency(callVex)}</div>
+                                          <>
+                                            {callVexAction && (
+                                              <div className="text-[8px] font-black mb-1 tracking-wider" style={{ 
+                                                textShadow: '0 1px 2px rgba(0,0,0,0.9)'
+                                              }}>
+                                                {callVexAction}
+                                              </div>
+                                            )}
+                                            <div className="text-xs font-bold">{formatCurrency(callVex)}</div>
+                                          </>
                                         )}
                                         {showOI && (
                                           <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(callOI)}</div>
                                         )}
                                       </div>
-                                      <div className={`${getCellStyle(showVEX ? putVex : putValue)} px-3 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
+                                        );
+                                      })()}
+                                      {(() => {
+                                        const cellStyle = getCellStyle(showVEX ? putVex : showFlowGEX ? (value as any)?.flowPut || 0 : putValue, showVEX, row.strike, exp);
+                                        return (
+                                          <div className={`${cellStyle.bg} ${cellStyle.ring} px-3 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
                                         isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
                                         isLargestValueRow ? 'ring-1 ring-purple-500/50' : 
                                         isLargestVexPut ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50' : ''
@@ -3767,16 +4059,30 @@ const DealerAttraction = () => {
                                             REVERSE
                                           </div>
                                         )}
-                                        {(showGEX || showDealer) && (
+                                        {showFlowGEX && (
+                                          <div className="text-xs font-bold">{formatCurrency((value as any)?.flowPut || 0)}</div>
+                                        )}
+                                        {!showFlowGEX && (showGEX || showDealer) && (
                                           <div className="text-xs font-bold">{formatCurrency(putValue)}</div>
                                         )}
                                         {showVEX && (
-                                          <div className="text-xs font-bold text-purple-400">{formatCurrency(putVex)}</div>
+                                          <>
+                                            {putVexAction && (
+                                              <div className="text-[8px] font-black mb-1 tracking-wider" style={{ 
+                                                textShadow: '0 1px 2px rgba(0,0,0,0.9)'
+                                              }}>
+                                                {putVexAction}
+                                              </div>
+                                            )}
+                                            <div className="text-xs font-bold">{formatCurrency(putVex)}</div>
+                                          </>
                                         )}
                                         {showOI && (
                                           <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(putOI)}</div>
                                         )}
                                       </div>
+                                        );
+                                      })()}
                                     </div>
                                   )}
                                 </td>
@@ -3797,23 +4103,23 @@ const DealerAttraction = () => {
             <div className="bg-gradient-to-br from-gray-900 to-black border border-gray-700 rounded-xl p-8">
               <div className="text-center">
                 {/* Render the appropriate workbench component */}
-                {activeWorkbenchTab === 'MM' && (
+                <div style={{ display: activeWorkbenchTab === 'MM' ? 'block' : 'none' }}>
                   <MMDashboard 
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}
                     expirations={expirations}
                   />
-                )}
-                {activeWorkbenchTab === 'MP' && (
+                </div>
+                <div style={{ display: activeWorkbenchTab === 'MP' ? 'block' : 'none' }}>
                   <MPDashboard 
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}
                     expirations={expirations}
                   />
-                )}
-                {activeWorkbenchTab === 'SI' && (
+                </div>
+                <div style={{ display: activeWorkbenchTab === 'SI' ? 'block' : 'none' }}>
                   <SIDashboard 
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
@@ -3821,7 +4127,13 @@ const DealerAttraction = () => {
                     vexByStrikeByExpiration={vexByStrikeByExpiration}
                     expirations={expirations}
                   />
-                )}
+                </div>
+                <div className="space-y-0" style={{ display: activeWorkbenchTab === 'OIGEX' ? 'block' : 'none' }}>
+                  <OpenInterestChart selectedTicker={selectedTicker} hideTickerInput={true} compactMode={true} />
+                </div>
+                <div style={{ display: activeWorkbenchTab === 'GEXSCREENER' ? 'block' : 'none' }}>
+                  <GEXScreener compactMode={true} />
+                </div>
                 
 
               </div>
