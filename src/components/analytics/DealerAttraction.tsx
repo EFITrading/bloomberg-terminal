@@ -3025,26 +3025,30 @@ const DealerAttraction = () => {
       <style>{`
         /* Custom scrollbar styling */
         .overflow-x-auto::-webkit-scrollbar,
-        .overflow-y-auto::-webkit-scrollbar {
+        .overflow-y-auto::-webkit-scrollbar,
+        .overflow-auto::-webkit-scrollbar {
           width: 12px;
           height: 12px;
           background-color: #000000;
         }
         
         .overflow-x-auto::-webkit-scrollbar-track,
-        .overflow-y-auto::-webkit-scrollbar-track {
+        .overflow-y-auto::-webkit-scrollbar-track,
+        .overflow-auto::-webkit-scrollbar-track {
           background-color: #000000;
         }
         
         .overflow-x-auto::-webkit-scrollbar-thumb,
-        .overflow-y-auto::-webkit-scrollbar-thumb {
-          background-color: #1f2937;
+        .overflow-y-auto::-webkit-scrollbar-thumb,
+        .overflow-auto::-webkit-scrollbar-thumb {
+          background-color: #4b5563;
           border: 2px solid #000000;
         }
         
         .overflow-x-auto::-webkit-scrollbar-thumb:hover,
-        .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-          background-color: #374151;
+        .overflow-y-auto::-webkit-scrollbar-thumb:hover,
+        .overflow-auto::-webkit-scrollbar-thumb:hover {
+          background-color: #6b7280;
         }
         
         @media (max-width: 768px) {
@@ -3714,42 +3718,23 @@ const DealerAttraction = () => {
                 </div>
               )}
               
-              <div className="bg-gray-900 border border-gray-700 overflow-hidden" style={{ maxHeight: 'calc(100vh - 400px)', display: 'flex', flexDirection: 'column' }}>
-                {/* Table Header - Fixed */}
-                <div className="overflow-x-auto flex-shrink-0">
-                  <table className="w-full">
-                    <thead className="sticky top-0 z-20 bg-black">
-                      <tr className="border-b border-gray-700 bg-black">
-                        <th className="px-3 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-10 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
-                          <div className="text-xs font-bold text-white uppercase">Strike</div>
+              <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                <table className="w-full">
+                  <thead className="sticky top-0 z-20 bg-black">
+                    <tr className="border-b border-gray-700 bg-black">
+                      <th className="px-3 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                        <div className="text-xs font-bold text-white uppercase">Strike</div>
+                      </th>
+                      {expirations.map(exp => (
+                        <th key={exp} className="text-center bg-gradient-to-br from-black via-gray-900 to-black border-l border-r border-gray-800 shadow-lg px-4 py-3" style={{ width: '140px', minWidth: '140px', maxWidth: '140px' }}>
+                          <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                            {formatDate(exp)}
+                          </div>
                         </th>
-                        {expirations.map(exp => (
-                          <th key={exp} className="text-center bg-gradient-to-br from-black via-gray-900 to-black border-l border-r border-gray-800 shadow-lg">
-                            <div className="text-xs font-bold text-white uppercase px-2 py-2 bg-gradient-to-br from-black via-gray-900 to-black border border-gray-700/50 mb-2 shadow-inner">
-                              {formatDate(exp)}
-                            </div>
-                            {/* Show CALL/PUT labels only when NOT in Net mode */}
-                            {!showFlowGEX && (gexMode !== 'Net GEX' && gexMode !== 'Net Dealer' && vexMode !== 'Net VEX') && (
-                              <div className="flex">
-                                <div className="flex-1 text-xs font-bold text-green-400 uppercase px-2 py-1 bg-gradient-to-br from-black via-gray-900 to-black border-r border-gray-700/50">
-                                  CALL
-                                </div>
-                                <div className="flex-1 text-xs font-bold text-red-400 uppercase px-2 py-1 bg-gradient-to-br from-black via-gray-900 to-black">
-                                  PUT
-                                </div>
-                              </div>
-                            )}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                  </table>
-                </div>
-                
-                {/* Table Body - Scrollable */}
-                <div className="overflow-x-auto overflow-y-auto flex-1">
-                  <table className="w-full">
-                    <tbody>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
                       {(showFlowGEX ? data : (showGEX || showDealer || showVEX ? allCalculatedData : data)).filter(row => {
                         const strikeRange = getStrikeRange(currentPrice);
                         return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
@@ -3931,15 +3916,23 @@ const DealerAttraction = () => {
                                     isCurrentPriceRow ? 'bg-yellow-900/15' : 
                                     isLargestValueRow ? 'bg-purple-900/15' : ''
                                   }`}
-                                  style={{ width: 'auto', minWidth: '120px', maxWidth: '180px' }}
+                                  style={{ width: '140px', minWidth: '140px', maxWidth: '140px' }}
                                 >
-                                  {/* Display separate call/put cells OR net value based on mode */}
-                                  {showFlowGEX || ((gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (showGEX || showDealer)) || (vexMode === 'Net VEX' && showVEX) ? (
-                                    // Net mode - single cell with net value
-                                    (() => {
-                                      const cellStyle = getCellStyle(showVEX ? callVex + putVex : showFlowGEX ? (value as any)?.flowNet || 0 : callValue + putValue, showVEX, row.strike, exp);
-                                      return (
-                                        <div className={`${cellStyle.bg} ${cellStyle.ring} px-3 py-2 rounded-lg text-center font-mono transition-all hover:scale-105 ${
+                                  {/* Always display net value in a single cell */}
+                                  {(() => {
+                                    // Calculate net value based on active mode
+                                    let displayValue = 0;
+                                    if (showFlowGEX) {
+                                      displayValue = (value as any)?.flowNet || 0;
+                                    } else if (showVEX) {
+                                      displayValue = callVex + putVex;
+                                    } else if (showGEX || showDealer) {
+                                      displayValue = callValue + putValue;
+                                    }
+                                    
+                                    const cellStyle = getCellStyle(displayValue, showVEX, row.strike, exp);
+                                    return (
+                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-4 py-3 rounded-lg text-center font-mono transition-all hover:scale-105 ${
                                       isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
                                       isLargestValueRow ? 'ring-1 ring-purple-500/50' : ''
                                     }`}>
@@ -3959,133 +3952,27 @@ const DealerAttraction = () => {
                                         </div>
                                       )}
                                       
-                                      {showFlowGEX && (
-                                        <div className="text-xs font-bold">{formatCurrency((value as any)?.flowNet || 0)}</div>
-                                      )}
-                                      {!showFlowGEX && (showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (
-                                        <div className="text-xs font-bold">{formatCurrency(callValue + putValue)}</div>
-                                      )}
-                                      {showVEX && vexMode === 'Net VEX' && (
-                                        <>
-                                          {netVexAction && (
-                                            <div className="text-[9px] font-black mb-1 tracking-wider" style={{ 
-                                              textShadow: '0 1px 2px rgba(0,0,0,0.9)'
-                                            }}>
-                                              {netVexAction}
-                                            </div>
-                                          )}
-                                          <div className="text-xs font-bold">{formatCurrency(callVex + putVex)}</div>
-                                        </>
-                                      )}
-                                      {showOI && (
-                                        <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(callOI + putOI)}</div>
-                                      )}
-                                    </div>
-                                      );
-                                    })()
-                                  ) : (
-                                    // Split mode - separate call/put cells
-                                    <div className="flex gap-1.5">
-                                      {(() => {
-                                        const cellStyle = getCellStyle(showVEX ? callVex : showFlowGEX ? (value as any)?.flowCall || 0 : callValue, showVEX, row.strike, exp);
-                                        return (
-                                          <div className={`${cellStyle.bg} ${cellStyle.ring} px-3 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
-                                        isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
-                                        isLargestValueRow ? 'ring-1 ring-purple-500/50' : 
-                                        isLargestVexCall ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50' : ''
-                                      }`} style={isLargestVexCall ? {
-                                        boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
-                                      } : {}}>
-                                        {/* Dealer Attraction badges for Live OI mode */}
-                                        {isAttractionCall && (
-                                          <div className="text-[9px] font-black mb-0.5 tracking-wider text-white" style={{ 
-                                            textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
-                                          }}>
-                                            ATTRACT
-                                          </div>
-                                        )}
-                                        {isReversalCall && !isAttractionCall && (
-                                          <div className="text-[10px] font-bold mb-0.5 tracking-wide text-white" style={{ 
-                                            textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
-                                          }}>
-                                            REVERSE
-                                          </div>
-                                        )}
-                                        {showFlowGEX && (
-                                          <div className="text-xs font-bold">{formatCurrency((value as any)?.flowCall || 0)}</div>
-                                        )}
-                                        {!showFlowGEX && (showGEX || showDealer) && (
-                                          <div className="text-xs font-bold">{formatCurrency(callValue)}</div>
-                                        )}
-                                        {showVEX && (
-                                          <>
-                                            {callVexAction && (
-                                              <div className="text-[8px] font-black mb-1 tracking-wider" style={{ 
-                                                textShadow: '0 1px 2px rgba(0,0,0,0.9)'
-                                              }}>
-                                                {callVexAction}
-                                              </div>
-                                            )}
-                                            <div className="text-xs font-bold">{formatCurrency(callVex)}</div>
-                                          </>
-                                        )}
-                                        {showOI && (
-                                          <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(callOI)}</div>
-                                        )}
+                                    {/* Display the net value */}
+                                    <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                    
+                                    {/* Show VEX action label if applicable */}
+                                    {showVEX && netVexAction && (
+                                      <div className="text-[9px] font-black tracking-wider text-white/90" style={{ 
+                                        textShadow: '0 1px 2px rgba(0,0,0,0.9)'
+                                      }}>
+                                        {netVexAction}
                                       </div>
-                                        );
-                                      })()}
-                                      {(() => {
-                                        const cellStyle = getCellStyle(showVEX ? putVex : showFlowGEX ? (value as any)?.flowPut || 0 : putValue, showVEX, row.strike, exp);
-                                        return (
-                                          <div className={`${cellStyle.bg} ${cellStyle.ring} px-3 py-2 rounded-lg text-center font-mono flex-1 transition-all hover:scale-105 ${
-                                        isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
-                                        isLargestValueRow ? 'ring-1 ring-purple-500/50' : 
-                                        isLargestVexPut ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50' : ''
-                                      }`} style={isLargestVexPut ? {
-                                        boxShadow: '0 0 20px rgba(168, 85, 247, 0.8), 0 0 40px rgba(168, 85, 247, 0.4)'
-                                      } : {}}>
-                                        {/* Dealer Attraction badges for Live OI mode */}
-                                        {isAttractionPut && (
-                                          <div className="text-[9px] font-black mb-0.5 tracking-wider text-white" style={{ 
-                                            textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
-                                          }}>
-                                            ATTRACT
-                                          </div>
-                                        )}
-                                        {isReversalPut && !isAttractionPut && (
-                                          <div className="text-[10px] font-bold mb-0.5 tracking-wide text-white" style={{ 
-                                            textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,255,255,0.3)'
-                                          }}>
-                                            REVERSE
-                                          </div>
-                                        )}
-                                        {showFlowGEX && (
-                                          <div className="text-xs font-bold">{formatCurrency((value as any)?.flowPut || 0)}</div>
-                                        )}
-                                        {!showFlowGEX && (showGEX || showDealer) && (
-                                          <div className="text-xs font-bold">{formatCurrency(putValue)}</div>
-                                        )}
-                                        {showVEX && (
-                                          <>
-                                            {putVexAction && (
-                                              <div className="text-[8px] font-black mb-1 tracking-wider" style={{ 
-                                                textShadow: '0 1px 2px rgba(0,0,0,0.9)'
-                                              }}>
-                                                {putVexAction}
-                                              </div>
-                                            )}
-                                            <div className="text-xs font-bold">{formatCurrency(putVex)}</div>
-                                          </>
-                                        )}
-                                        {showOI && (
-                                          <div className="text-xs text-orange-500 font-bold mt-1">{formatOI(putOI)}</div>
-                                        )}
+                                    )}
+                                    
+                                    {/* Show OI if enabled */}
+                                    {showOI && (
+                                      <div className="text-xs text-orange-400 font-bold mt-1">
+                                        OI: {formatOI(callOI + putOI)}
                                       </div>
-                                        );
-                                      })()}
-                                    </div>
-                                  )}
+                                    )}
+                                  </div>
+                                    );
+                                  })()}
                                 </td>
                               );
                             })}
@@ -4095,7 +3982,6 @@ const DealerAttraction = () => {
                     </tbody>
                   </table>
                 </div>
-              </div>
 
 
             </>
