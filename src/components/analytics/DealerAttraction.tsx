@@ -3729,7 +3729,7 @@ const DealerAttraction = () => {
                               {formatDate(exp)}
                             </div>
                             {/* Show CALL/PUT labels only when NOT in Net mode */}
-                            {(gexMode !== 'Net GEX' && gexMode !== 'Net Dealer' && vexMode !== 'Net VEX') && (
+                            {!showFlowGEX && (gexMode !== 'Net GEX' && gexMode !== 'Net Dealer' && vexMode !== 'Net VEX') && (
                               <div className="flex">
                                 <div className="flex-1 text-xs font-bold text-green-400 uppercase px-2 py-1 bg-gradient-to-br from-black via-gray-900 to-black border-r border-gray-700/50">
                                   CALL
@@ -3931,6 +3931,7 @@ const DealerAttraction = () => {
                                     isCurrentPriceRow ? 'bg-yellow-900/15' : 
                                     isLargestValueRow ? 'bg-purple-900/15' : ''
                                   }`}
+                                  style={{ width: 'auto', minWidth: '120px', maxWidth: '180px' }}
                                 >
                                   {/* Display separate call/put cells OR net value based on mode */}
                                   {showFlowGEX || ((gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (showGEX || showDealer)) || (vexMode === 'Net VEX' && showVEX) ? (
