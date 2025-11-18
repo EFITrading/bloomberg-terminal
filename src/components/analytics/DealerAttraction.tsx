@@ -1950,6 +1950,26 @@ const DealerAttraction = () => {
 
   const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
+  // Calculate number of active tables and update parent container width
+  const activeTableCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length;
+  
+  React.useEffect(() => {
+    // Find the parent sidebar panel and update its width
+    const sidebarPanel = document.querySelector('.fixed.top-32.bottom-4.left-16') as HTMLElement;
+    if (sidebarPanel) {
+      if (activeTableCount === 3) {
+        // All 3 tables - full width
+        sidebarPanel.style.width = 'calc(100vw - 4.0625rem)';
+      } else if (activeTableCount === 2) {
+        // 2 tables - slightly wider
+        sidebarPanel.style.width = '1775px';
+      } else {
+        // 1 table - normal width
+        sidebarPanel.style.width = '1200px';
+      }
+    }
+  }, [activeTableCount]);
+
   // Live OI Update - Separate scan with AlgoFlow's exact logic
   const updateLiveOI = async () => {
     // Use whatever ticker is typed in the search bar
@@ -2817,9 +2837,38 @@ const DealerAttraction = () => {
 
   // MEMOIZED: Top values calculated from ALL strikes (unfiltered by OTM range)
   // This ensures highlighting is based on absolute highest values across complete chain
-  // Dependencies: ONLY allCalculatedData - NOT otmFilter, so changing OTM % doesn't affect which values are "top"
-  const topValues = useMemo(() => {
-    if (allCalculatedData.length === 0 && data.length === 0) {
+  // Helper function to calculate top values from strike/expiration map
+  const calculateTopValuesFromMap = (dataMap: {[exp: string]: {[strike: number]: {call: number, put: number}}}) => {
+    const allValues: number[] = [];
+    
+    Object.keys(dataMap).forEach(exp => {
+      Object.keys(dataMap[exp]).forEach(strikeStr => {
+        const strikeData = dataMap[exp][parseFloat(strikeStr)];
+        if (strikeData) {
+          const displayValue = (strikeData.call || 0) + (strikeData.put || 0);
+          if (displayValue !== 0) {
+            allValues.push(Math.abs(displayValue));
+          }
+        }
+      });
+    });
+    
+    const sortedValues = allValues.filter(v => v > 0).sort((a, b) => b - a);
+    
+    return {
+      highest: sortedValues[0] || 0,
+      second: sortedValues[1] || 0,
+      third: sortedValues[2] || 0,
+      fourth: sortedValues[3] || 0,
+      top10: sortedValues.slice(0, 10),
+      top5Positive: sortedValues.slice(0, 10),
+      top5Negative: []
+    };
+  };
+
+  // Helper function to calculate top values for a specific data set
+  const calculateTopValues = (sourceData: any[], mode: 'gex' | 'dealer' | 'flow' | 'vex', currentGexMode?: string, currentVexMode?: string) => {
+    if (sourceData.length === 0) {
       return {
         highest: 0,
         second: 0,
@@ -2831,11 +2880,9 @@ const DealerAttraction = () => {
       };
     }
     
-    // IMPORTANT: Use data (not allCalculatedData) when Flow GEX is enabled
-    const sourceData = showFlowGEX ? data : allCalculatedData;
     const allValues: number[] = [];
     
-    // Read from sourceData and collect ALL absolute values (positive and negative)
+    // Read from sourceData and collect ALL absolute values
     sourceData.forEach(row => {
       Object.keys(row).forEach(key => {
         if (key === 'strike') return;
@@ -2844,18 +2891,13 @@ const DealerAttraction = () => {
         if (!cellData || typeof cellData === 'number') return;
         
         // Collect Flow GEX values
-        if (showFlowGEX) {
-          const flowCall = cellData.flowCall || 0;
-          const flowPut = cellData.flowPut || 0;
+        if (mode === 'flow') {
           const flowNet = cellData.flowNet || 0;
-          
           if (flowNet !== 0) allValues.push(Math.abs(flowNet));
-          if (flowCall !== 0) allValues.push(Math.abs(flowCall));
-          if (flowPut !== 0) allValues.push(Math.abs(flowPut));
         }
         // Collect GEX/Dealer values
-        else if (showGEX || showDealer) {
-          if (gexMode === 'Net GEX' || gexMode === 'Net Dealer') {
+        else if (mode === 'gex' || mode === 'dealer') {
+          if (currentGexMode === 'Net GEX' || currentGexMode === 'Net Dealer') {
             const netGex = cellData.net || 0;
             if (netGex !== 0) allValues.push(Math.abs(netGex));
           } else {
@@ -2865,10 +2907,9 @@ const DealerAttraction = () => {
             if (putGex !== 0) allValues.push(Math.abs(putGex));
           }
         }
-        
         // Collect VEX values
-        if (showVEX) {
-          if (vexMode === 'Net VEX') {
+        else if (mode === 'vex') {
+          if (currentVexMode === 'Net VEX') {
             const netVex = (cellData.callVex || 0) + (cellData.putVex || 0);
             if (netVex !== 0) allValues.push(Math.abs(netVex));
           } else {
@@ -2885,22 +2926,34 @@ const DealerAttraction = () => {
     const sortedValues = allValues.filter(v => v > 0).sort((a, b) => b - a);
     
     return {
-      // Top 4 individual values (highest absolute values regardless of positive/negative)
       highest: sortedValues[0] || 0,
       second: sortedValues[1] || 0,
       third: sortedValues[2] || 0,
       fourth: sortedValues[3] || 0,
-      // Top 10 values for cluster detection
       top10: sortedValues.slice(0, 10),
-      // Top 10 for backward compatibility
       top5Positive: sortedValues.slice(0, 10),
       top5Negative: []
     };
-  }, [allCalculatedData, data, showGEX, showVEX, gexMode, vexMode, showFlowGEX]);
+  };
 
-  const getCellStyle = (value: number, isVexValue: boolean = false, strike?: number, exp?: string): { bg: string; ring: string } => {
+  // Calculate separate top values for each mode using the actual data sources
+  const gexTopValues = useMemo(() => calculateTopValuesFromMap(gexByStrikeByExpiration), [gexByStrikeByExpiration]);
+  const dealerTopValues = useMemo(() => calculateTopValuesFromMap(dealerByStrikeByExpiration), [dealerByStrikeByExpiration]);
+  const flowTopValues = useMemo(() => calculateTopValues(data, 'flow'), [data]);
+  const vexTopValues = useMemo(() => calculateTopValues(allCalculatedData, 'vex', gexMode, vexMode), [allCalculatedData, gexMode, vexMode]);
+  
+  // Legacy topValues for backward compatibility (uses first active mode)
+  const topValues = useMemo(() => {
+    if (showFlowGEX) return flowTopValues;
+    if (showDealer) return dealerTopValues;
+    if (showGEX) return gexTopValues;
+    if (showVEX) return vexTopValues;
+    return gexTopValues;
+  }, [showFlowGEX, showDealer, showGEX, showVEX, flowTopValues, dealerTopValues, gexTopValues, vexTopValues]);
+
+  const getCellStyle = (value: number, isVexValue: boolean = false, strike?: number, exp?: string, customTopValues?: any): { bg: string; ring: string } => {
     const absValue = Math.abs(value);
-    const tops = topValues;
+    const tops = customTopValues || topValues;
     
     let bgColor = '';
     let ringColor = '';
@@ -3058,7 +3111,7 @@ const DealerAttraction = () => {
         }
       `}</style>
       <div className="p-6 pt-24 md:pt-6 dealer-attraction-container">
-        <div className="max-w-[95vw] mx-auto">
+        <div className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[95vw]'} px-4 mx-auto`}>
           {/* Bloomberg Terminal Header */}
           <div className="mb-6 bg-black border border-gray-600/40">
             {/* Control Panel */}
@@ -3181,8 +3234,6 @@ const DealerAttraction = () => {
                                 setShowGEX(isChecked);
                                 if (isChecked) {
                                   setGexMode('Net GEX');
-                                  setShowDealer(false);
-                                  setShowFlowGEX(false);
                                 }
                               }}
                               className="w-4 h-4 text-yellow-500 bg-black border-2 border-gray-600 rounded focus:ring-yellow-500 focus:ring-2"
@@ -3210,8 +3261,6 @@ const DealerAttraction = () => {
                                 setShowDealer(isChecked);
                                 if (isChecked) {
                                   setGexMode('Net Dealer');
-                                  setShowGEX(false);
-                                  setShowFlowGEX(false);
                                 }
                               }}
                               className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
@@ -3240,12 +3289,7 @@ const DealerAttraction = () => {
                               }}
                               onChange={(e) => {
                                 console.log(`🔥 FLOW GEX CHECKBOX CHANGED (mobile) - New value: ${e.target.checked}`);
-                                const isChecked = e.target.checked;
-                                setShowFlowGEX(isChecked);
-                                if (isChecked) {
-                                  setShowGEX(false);
-                                  setShowDealer(false);
-                                }
+                                setShowFlowGEX(e.target.checked);
                               }}
                               className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
                             />
@@ -3375,8 +3419,6 @@ const DealerAttraction = () => {
                                     setShowGEX(isChecked);
                                     if (isChecked) {
                                       setGexMode('Net GEX');
-                                      setShowDealer(false);
-                                      setShowFlowGEX(false);
                                     }
                                   }}
                                   className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
@@ -3394,8 +3436,6 @@ const DealerAttraction = () => {
                                     setShowDealer(isChecked);
                                     if (isChecked) {
                                       setGexMode('Net Dealer');
-                                      setShowGEX(false);
-                                      setShowFlowGEX(false);
                                     }
                                   }}
                                   className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
@@ -3414,12 +3454,7 @@ const DealerAttraction = () => {
                                   }}
                                   onChange={(e) => {
                                     console.log(`🔥 FLOW GEX CHECKBOX CHANGED (desktop) - New value: ${e.target.checked}`);
-                                    const isChecked = e.target.checked;
-                                    setShowFlowGEX(isChecked);
-                                    if (isChecked) {
-                                      setShowGEX(false);
-                                      setShowDealer(false);
-                                    }
+                                    setShowFlowGEX(e.target.checked);
                                   }}
                                   className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
                                 />
@@ -3677,64 +3712,279 @@ const DealerAttraction = () => {
           ) : activeTab === 'ATTRACTION' ? (
             <>
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
-              {liveMode && (showGEX || showDealer) && (
-                <div className="mb-4 bg-gradient-to-r from-gray-900 via-black to-gray-900 border-2 border-orange-500/40 rounded-lg p-4 shadow-xl">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <div className="text-orange-400 text-xl">🔥</div>
-                      <h3 className="text-sm font-black text-orange-400 uppercase tracking-wider">DEALER ATTRACTION ACTIVE</h3>
-                    </div>
-                    <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                      {/* Blue Info */}
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-400 to-blue-600 shadow-md"></div>
-                        <div>
-                          <div className="font-bold text-blue-400">BLUE</div>
-                          <div className="text-gray-400 text-[10px]">CounterTrend (Top 5)</div>
-                        </div>
-                      </div>
-                      {/* Purple Info */}
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-gradient-to-br from-purple-800 to-purple-950 shadow-md"></div>
-                        <div>
-                          <div className="font-bold text-purple-400">PURPLE</div>
-                          <div className="text-gray-400 text-[10px]">Squeeze (Top 5)</div>
-                        </div>
-                      </div>
-                      {/* Attraction Node Info */}
-                      <div className="flex items-center gap-2">
-                        <div>
-                          <div className="font-bold text-white">ATTRACTION</div>
-                        </div>
-                      </div>
-                      {/* Reversal Info */}
-                      <div className="flex items-center gap-2">
-                        <div>
-                          <div className="font-bold text-white">REVERSAL</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
               
-              <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
-                <table className="w-full">
-                  <thead className="sticky top-0 z-20 bg-black">
-                    <tr className="border-b border-gray-700 bg-black">
-                      <th className="px-3 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
-                        <div className="text-xs font-bold text-white uppercase">Strike</div>
-                      </th>
-                      {expirations.map(exp => (
-                        <th key={exp} className="text-center bg-gradient-to-br from-black via-gray-900 to-black border-l border-r border-gray-800 shadow-lg px-4 py-3" style={{ width: '140px', minWidth: '140px', maxWidth: '140px' }}>
-                          <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
-                            {formatDate(exp)}
-                          </div>
+              {/* Show multiple tables side by side when multiple modes are enabled */}
+              {(showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) ? (
+                <div className="flex gap-4">
+                  {/* NORMAL (Net GEX) Table - conditionally rendered */}
+                  {showGEX && (
+                    <div className="flex-1">
+                      <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
+                        <h3 className="text-lg font-extrabold text-white uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>NORMAL</h3>
+                      </div>
+                      <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                        <table className="w-full">
+                      <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
+                        <tr className="border-b border-gray-700 bg-black">
+                          <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                            <div className="text-xs font-bold text-white uppercase">Strike</div>
+                          </th>
+                          {expirations.map(exp => (
+                            <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-4 py-5" style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}>
+                              <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                {formatDate(exp)}
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allCalculatedData.filter(row => {
+                          const strikeRange = getStrikeRange(currentPrice);
+                          return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
+                        }).map((row, idx) => {
+                          const closestStrike = currentPrice > 0 ? data.reduce((closest, current) => 
+                            Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                          ).strike : 0;
+                          
+                          const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+                          
+                          // Check if this row contains the highest value (gold cell)
+                          const hasGoldCell = expirations.some(exp => {
+                            const gexValue = gexByStrikeByExpiration[exp]?.[row.strike];
+                            const displayValue = Math.abs((gexValue?.call || 0) + (gexValue?.put || 0));
+                            return displayValue === gexTopValues.highest && displayValue > 0;
+                          });
+                          
+                          return (
+                            <tr 
+                              key={idx} 
+                              className={`border-b border-gray-800/30 hover:bg-gray-800/20 transition-colors ${
+                                isCurrentPriceRow ? 'bg-yellow-900/20 border-yellow-500/40' : hasGoldCell ? 'bg-purple-900/20 border-purple-500/40' : ''
+                              }`}
+                            >
+                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 w-20 min-w-20 max-w-20 ${
+                                isCurrentPriceRow ? 'bg-yellow-800/30' : hasGoldCell ? 'bg-purple-900/30' : 'bg-black'
+                              }`}>
+                                <div className={`text-base font-mono font-bold ${
+                                  isCurrentPriceRow ? 'text-yellow-300' : 'text-white'
+                                }`}>
+                                  {row.strike.toFixed(1)}
+                                  {isCurrentPriceRow && <span className="ml-2 text-xs text-yellow-400">●</span>}
+                                </div>
+                              </td>
+                              {expirations.map(exp => {
+                                const value = row[exp] as {call: number, put: number, net: number, callOI: number, putOI: number};
+                                const gexValue = gexByStrikeByExpiration[exp]?.[row.strike];
+                                const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
+                                const cellStyle = getCellStyle(displayValue, false, row.strike, exp, gexTopValues);
+                                
+                                return (
+                                  <td
+                                    key={exp}
+                                    className={`px-4 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
+                                    style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}
+                                  >
+                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-4 py-3 rounded-lg text-center font-mono transition-all`}>
+                                      <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
+                  {showDealer && (
+                    <div className="flex-1">
+                      <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
+                        <h3 className="text-lg font-extrabold text-yellow-400 uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>MM ACTIVITY</h3>
+                      </div>
+                      <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                        <table className="w-full">
+                      <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
+                        <tr className="border-b border-gray-700 bg-black">
+                          <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                            <div className="text-xs font-bold text-white uppercase">Strike</div>
+                          </th>
+                          {expirations.map(exp => (
+                            <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-4 py-5" style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}>
+                              <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                {formatDate(exp)}
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allCalculatedData.filter(row => {
+                          const strikeRange = getStrikeRange(currentPrice);
+                          return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
+                        }).map((row, idx) => {
+                          const closestStrike = currentPrice > 0 ? data.reduce((closest, current) => 
+                            Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                          ).strike : 0;
+                          
+                          const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+                          
+                          // Check if this row contains the highest value (gold cell)
+                          const hasGoldCell = expirations.some(exp => {
+                            const dealerValue = dealerByStrikeByExpiration[exp]?.[row.strike];
+                            const displayValue = Math.abs((dealerValue?.call || 0) + (dealerValue?.put || 0));
+                            return displayValue === dealerTopValues.highest && displayValue > 0;
+                          });
+                          
+                          return (
+                            <tr 
+                              key={idx} 
+                              className={`border-b border-gray-800/30 hover:bg-gray-800/20 transition-colors ${
+                                isCurrentPriceRow ? 'bg-yellow-900/20 border-yellow-500/40' : hasGoldCell ? 'bg-purple-900/20 border-purple-500/40' : ''
+                              }`}
+                            >
+                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 w-20 min-w-20 max-w-20 ${
+                                isCurrentPriceRow ? 'bg-yellow-800/30' : hasGoldCell ? 'bg-purple-900/30' : 'bg-black'
+                              }`}>
+                                <div className={`text-base font-mono font-bold ${
+                                  isCurrentPriceRow ? 'text-yellow-300' : 'text-white'
+                                }`}>
+                                  {row.strike.toFixed(1)}
+                                  {isCurrentPriceRow && <span className="ml-2 text-xs text-yellow-400">●</span>}
+                                </div>
+                              </td>
+                              {expirations.map(exp => {
+                                const dealerValue = dealerByStrikeByExpiration[exp]?.[row.strike];
+                                const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
+                                const cellStyle = getCellStyle(displayValue, false, row.strike, exp, dealerTopValues);
+                                
+                                return (
+                                  <td
+                                    key={exp}
+                                    className={`px-4 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
+                                    style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}
+                                  >
+                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-4 py-3 rounded-lg text-center font-mono transition-all`}>
+                                      <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* FLOW MAP Table - conditionally rendered */}
+                  {showFlowGEX && (
+                    <div className="flex-1">
+                      <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
+                        <h3 className="text-lg font-extrabold text-orange-400 uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>FLOW MAP</h3>
+                      </div>
+                      <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                        <table className="w-full">
+                        <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
+                          <tr className="border-b border-gray-700 bg-black">
+                            <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                              <div className="text-xs font-bold text-white uppercase">Strike</div>
+                            </th>
+                            {expirations.map(exp => (
+                              <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-4 py-5" style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}>
+                                <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                  {formatDate(exp)}
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.filter(row => {
+                            const strikeRange = getStrikeRange(currentPrice);
+                            return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
+                          }).map((row, idx) => {
+                            const closestStrike = currentPrice > 0 ? data.reduce((closest, current) => 
+                              Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                            ).strike : 0;
+                            
+                            const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+                            
+                            // Check if this row contains the highest value (gold cell)
+                            const hasGoldCell = expirations.some(exp => {
+                              const value = row[exp] as any;
+                              const displayValue = Math.abs(value?.flowNet || 0);
+                              return displayValue === flowTopValues.highest && displayValue > 0;
+                            });
+                            
+                            return (
+                              <tr 
+                                key={idx} 
+                                className={`border-b border-gray-800/30 hover:bg-gray-800/20 transition-colors ${
+                                  isCurrentPriceRow ? 'bg-yellow-900/20 border-yellow-500/40' : hasGoldCell ? 'bg-purple-900/20 border-purple-500/40' : ''
+                                }`}
+                              >
+                                <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 w-20 min-w-20 max-w-20 ${
+                                  isCurrentPriceRow ? 'bg-yellow-800/30' : hasGoldCell ? 'bg-purple-900/30' : 'bg-black'
+                                }`}>
+                                  <div className={`text-base font-mono font-bold ${
+                                    isCurrentPriceRow ? 'text-yellow-300' : 'text-white'
+                                  }`}>
+                                    {row.strike.toFixed(1)}
+                                    {isCurrentPriceRow && <span className="ml-2 text-xs text-yellow-400">●</span>}
+                                  </div>
+                                </td>
+                                {expirations.map(exp => {
+                                  const value = row[exp] as any;
+                                  const displayValue = (value?.flowNet || 0);
+                                  const cellStyle = getCellStyle(displayValue, false, row.strike, exp, flowTopValues);
+                                  
+                                  return (
+                                    <td
+                                      key={exp}
+                                      className={`px-4 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
+                                      style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}
+                                    >
+                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-4 py-3 rounded-lg text-center font-mono transition-all`}>
+                                        <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                      </div>
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Original single table when only one mode is active */
+                <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                  <table className="w-full">
+                    <thead className="sticky top-0 z-20 bg-black">
+                      <tr className="border-b border-gray-700 bg-black">
+                        <th className="px-3 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                          <div className="text-xs font-bold text-white uppercase">Strike</div>
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+                        {expirations.map(exp => (
+                          <th key={exp} className="text-center bg-gradient-to-br from-black via-gray-900 to-black border-l border-r border-gray-800 shadow-lg px-4 py-3" style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}>
+                            <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                              {formatDate(exp)}
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
                       {(showFlowGEX ? data : (showGEX || showDealer || showVEX ? allCalculatedData : data)).filter(row => {
                         const strikeRange = getStrikeRange(currentPrice);
                         return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
@@ -3982,6 +4232,7 @@ const DealerAttraction = () => {
                     </tbody>
                   </table>
                 </div>
+              )}
 
 
             </>
