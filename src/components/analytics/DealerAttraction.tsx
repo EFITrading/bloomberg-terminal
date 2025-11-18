@@ -122,18 +122,22 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       mmExpirations.forEach(exp => {
         const strikeData = gexByStrikeByExpiration[exp]?.[strike];
         if (strikeData) {
+          // Calculate days to expiry first for weighting
+          const expDate = new Date(exp);
+          const today = new Date();
+          const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          // Apply your time decay weighting formula: (8 - Math.min(7, daysToExp)) / 7
+          const dteWeight = daysToExp >= 0 ? (8 - Math.min(7, daysToExp)) / 7 : 1;
+          
           // Convert GEX to MM: MM = GEX / (Stock Price * 0.01) for 1% move
-          const callMM = strikeData.call / (currentPrice * 0.01);
-          const putMM = strikeData.put / (currentPrice * 0.01);
+          const callMM = (strikeData.call / (currentPrice * 0.01)) * dteWeight;
+          const putMM = (strikeData.put / (currentPrice * 0.01)) * dteWeight;
           
           totalCallMM += callMM;
           totalPutMM += putMM;
           totalOI += (strikeData.callOI || 0) + (strikeData.putOI || 0);
           
-          // Calculate days to expiry
-          const expDate = new Date(exp);
-          const today = new Date();
-          const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           avgDaysToExpiry += daysToExp;
           validExpirations++;
         }
@@ -2354,9 +2358,9 @@ const DealerAttraction = () => {
               if (gamma && delta !== undefined && vanna !== undefined) {
                 const expirationDate = new Date(expDate);
                 const today = new Date();
-                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+                const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001); // Min 0.001 to avoid division by zero
                 
-                if (T > 0) {
+                if (T >= 0) {
                   const beta = 0.25;
                   const rho_S_sigma = -0.7;
                   const contractMult = 100;
@@ -2504,9 +2508,9 @@ const DealerAttraction = () => {
               if (gamma && delta !== undefined && vanna !== undefined) {
                 const expirationDate = new Date(expDate);
                 const today = new Date();
-                const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
+                const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001); // Min 0.001 to avoid division by zero
                 
-                if (T > 0) {
+                if (T >= 0) {
                   const beta = 0.25;
                   const rho_S_sigma = -0.7;
                   const contractMult = 100;
