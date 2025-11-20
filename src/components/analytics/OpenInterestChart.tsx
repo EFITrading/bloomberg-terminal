@@ -67,6 +67,9 @@ export default function OpenInterestChart({
  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
  const [oiDropdownOpen, setOiDropdownOpen] = useState<boolean>(false);
  const [gexDropdownOpen, setGexDropdownOpen] = useState<boolean>(false);
+ const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('');
+ const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
+ const [expectedRange80, setExpectedRange80] = useState<{call: number, put: number} | null>(null);
  
  const svgRef = useRef<SVGSVGElement>(null);
 
@@ -80,6 +83,245 @@ export default function OpenInterestChart({
  window.addEventListener('resize', checkMobile);
  return () => window.removeEventListener('resize', checkMobile);
  }, []);
+
+ // Black-Scholes helper functions for Expected Range
+ const normalCDF = (x: number): number => {
+ return 0.5 * (1 + erf(x / Math.sqrt(2)));
+ };
+
+ const erf = (x: number): number => {
+ const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+ const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+ const sign = x >= 0 ? 1 : -1;
+ x = Math.abs(x);
+ const t = 1.0 / (1.0 + p * x);
+ const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+ return sign * y;
+ };
+
+ const calculateD2 = (S: number, K: number, r: number, sigma: number, T: number): number => {
+ const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+ return d1 - sigma * Math.sqrt(T);
+ };
+
+ const chanceOfProfitSellCall = (S: number, K: number, r: number, sigma: number, T: number): number => {
+ const d2 = calculateD2(S, K, r, sigma, T);
+ return (1 - normalCDF(d2)) * 100;
+ };
+
+ const chanceOfProfitSellPut = (S: number, K: number, r: number, sigma: number, T: number): number => {
+ const d2 = calculateD2(S, K, r, sigma, T);
+ return normalCDF(d2) * 100;
+ };
+
+ const findStrikeForProbability = (S: number, r: number, sigma: number, T: number, targetProb: number, isCall: boolean): number => {
+ if (isCall) {
+ let low = S + 0.01, high = S * 1.50;
+ for (let i = 0; i < 50; i++) {
+ const mid = (low + high) / 2;
+ const prob = chanceOfProfitSellCall(S, mid, r, sigma, T);
+ if (Math.abs(prob - targetProb) < 0.1) return mid;
+ if (prob < targetProb) low = mid; else high = mid;
+ }
+ return (low + high) / 2;
+ } else {
+ let low = S * 0.50, high = S - 0.01;
+ for (let i = 0; i < 50; i++) {
+ const mid = (low + high) / 2;
+ const prob = chanceOfProfitSellPut(S, mid, r, sigma, T);
+ if (Math.abs(prob - targetProb) < 0.1) return mid;
+ if (prob < targetProb) high = mid; else low = mid;
+ }
+ return (low + high) / 2;
+ }
+ };
+
+ // Calculate Expected Range and P/C Ratio
+ useEffect(() => {
+ if (!selectedTicker || !selectedExpiration || !currentPrice || data.length === 0) {
+ setExpectedRangePCRatio('');
+ setExpectedRange80(null);
+ return;
+ }
+
+ const calculateExpectedRangePCRatio = async () => {
+ try {
+ // Get IV from options chain
+ const response = await fetch(`/api/options-chain?ticker=${selectedTicker}&expiration=${selectedExpiration}`);
+ const result = await response.json();
+ 
+ if (!result.success || !result.data || !result.data[selectedExpiration]) {
+ setExpectedRangePCRatio('N/A');
+ return;
+ }
+
+ const expData = result.data[selectedExpiration];
+ 
+ // Calculate average IV from ATM options
+ const atmStrike = Object.keys(expData.calls || {})
+ .map(Number)
+ .reduce((prev, curr) => Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev);
+ 
+ const callIV = expData.calls?.[atmStrike]?.implied_volatility || 0.3;
+ const putIV = expData.puts?.[atmStrike]?.implied_volatility || 0.3;
+ const avgIV = (callIV + putIV) / 2;
+
+ // Calculate time to expiry
+ const expDate = new Date(selectedExpiration + 'T16:00:00');
+ const now = new Date();
+ const daysToExpiry = Math.max(1, Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+ const T = daysToExpiry / 365;
+
+ const r = 0.0387; // Risk-free rate
+
+ // Calculate 90% expected range
+ const call90 = findStrikeForProbability(currentPrice, r, avgIV, T, 90, true);
+ const put90 = findStrikeForProbability(currentPrice, r, avgIV, T, 90, false);
+
+ // Calculate 80% expected range for chart lines
+ const call80 = findStrikeForProbability(currentPrice, r, avgIV, T, 80, true);
+ const put80 = findStrikeForProbability(currentPrice, r, avgIV, T, 80, false);
+
+ setExpectedRange80({ call: call80, put: put80 });
+
+ console.log(`90% Expected Range: $${put90.toFixed(2)} - $${call90.toFixed(2)}`);
+ console.log(`80% Expected Range: $${put80.toFixed(2)} - $${call80.toFixed(2)}`);
+
+ // Calculate P/C ratio for OI within range
+ let totalCallOI = 0;
+ let totalPutOI = 0;
+
+ data.forEach(item => {
+ if (item.strike >= put90 && item.strike <= call90) {
+ if (item.type === 'call') {
+ totalCallOI += item.openInterest;
+ } else if (item.type === 'put') {
+ totalPutOI += item.openInterest;
+ }
+ }
+ });
+
+ console.log(`OI in range - Calls: ${totalCallOI}, Puts: ${totalPutOI}`);
+
+ if (totalCallOI === 0 && totalPutOI === 0) {
+ setExpectedRangePCRatio('N/A');
+ } else if (totalCallOI === 0) {
+ setExpectedRangePCRatio('∞ (No Calls)');
+ } else {
+ const ratio = totalPutOI / totalCallOI;
+ setExpectedRangePCRatio(`${ratio.toFixed(2)} (${put90.toFixed(0)}-${call90.toFixed(0)})`);
+ }
+ } catch (error) {
+ console.error('Error calculating Expected Range P/C Ratio:', error);
+ setExpectedRangePCRatio('Error');
+ setExpectedRange80(null);
+ }
+ };
+
+ calculateExpectedRangePCRatio();
+ }, [selectedTicker, selectedExpiration, currentPrice, data]);
+
+ // Calculate 45-Day Cumulative P/C Ratio
+ useEffect(() => {
+ if (!selectedTicker || !currentPrice || expirationDates.length === 0) {
+ setCumulativePCRatio45Days('');
+ return;
+ }
+
+ const calculate45DayPCRatio = async () => {
+ try {
+ const now = new Date();
+ const maxDate = new Date(now.getTime() + (45 * 24 * 60 * 60 * 1000));
+
+ // Filter expiration dates within 45 days
+ const validExpirations = expirationDates.filter(exp => {
+ const expDate = new Date(exp + 'T16:00:00');
+ return expDate >= now && expDate <= maxDate;
+ }).sort();
+
+ if (validExpirations.length === 0) {
+ setCumulativePCRatio45Days('N/A');
+ return;
+ }
+
+ console.log(`Calculating 45-day P/C ratio for ${validExpirations.length} expirations:`, validExpirations);
+
+ let totalCallOI = 0;
+ let totalPutOI = 0;
+ let expCount = 0;
+
+ // Fetch and accumulate OI for each expiration
+ for (const exp of validExpirations) {
+ try {
+ const response = await fetch(`/api/options-chain?ticker=${selectedTicker}&expiration=${exp}`);
+ const result = await response.json();
+
+ if (result.success && result.data && result.data[exp]) {
+ const expData = result.data[exp];
+
+ // Calculate average IV for this expiration
+ const atmStrike = Object.keys(expData.calls || {})
+ .map(Number)
+ .reduce((prev, curr) => Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev);
+
+ const callIV = expData.calls?.[atmStrike]?.implied_volatility || 0.3;
+ const putIV = expData.puts?.[atmStrike]?.implied_volatility || 0.3;
+ const avgIV = (callIV + putIV) / 2;
+
+ // Calculate time to expiry
+ const expDate = new Date(exp + 'T16:00:00');
+ const daysToExpiry = Math.max(1, Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+ const T = daysToExpiry / 365;
+ const r = 0.0387;
+
+ // Calculate 90% expected range for this expiration
+ const call90 = findStrikeForProbability(currentPrice, r, avgIV, T, 90, true);
+ const put90 = findStrikeForProbability(currentPrice, r, avgIV, T, 90, false);
+
+ // Accumulate OI within range
+ if (expData.calls) {
+ Object.entries(expData.calls).forEach(([strike, callData]: [string, any]) => {
+ const strikeNum = parseFloat(strike);
+ if (strikeNum >= put90 && strikeNum <= call90) {
+ totalCallOI += callData.open_interest || 0;
+ }
+ });
+ }
+
+ if (expData.puts) {
+ Object.entries(expData.puts).forEach(([strike, putData]: [string, any]) => {
+ const strikeNum = parseFloat(strike);
+ if (strikeNum >= put90 && strikeNum <= call90) {
+ totalPutOI += putData.open_interest || 0;
+ }
+ });
+ }
+
+ expCount++;
+ }
+ } catch (error) {
+ console.error(`Error fetching data for ${exp}:`, error);
+ }
+ }
+
+ console.log(`45-day totals - Calls: ${totalCallOI}, Puts: ${totalPutOI} (${expCount} expirations)`);
+
+ if (totalCallOI === 0 && totalPutOI === 0) {
+ setCumulativePCRatio45Days('N/A');
+ } else if (totalCallOI === 0) {
+ setCumulativePCRatio45Days('∞ (No Calls)');
+ } else {
+ const ratio = totalPutOI / totalCallOI;
+ setCumulativePCRatio45Days(`${ratio.toFixed(2)} (${expCount} exp)`);
+ }
+ } catch (error) {
+ console.error('Error calculating 45-day cumulative P/C Ratio:', error);
+ setCumulativePCRatio45Days('Error');
+ }
+ };
+
+ calculate45DayPCRatio();
+ }, [selectedTicker, currentPrice, expirationDates]);
 
  // Fetch available expiration dates
  useEffect(() => {
@@ -338,10 +580,10 @@ export default function OpenInterestChart({
  const margin = isMobile 
  ? { top: 50, right: 30, bottom: 80, left: 50 }
  : compactMode
- ? { top: 50, right: 20, bottom: 70, left: 60 }
+ ? { top: 50, right: 20, bottom: 1, left: 60 }
  : { top: 70, right: 20, bottom: 70, left: 100 };
- const width = (isMobile ? 350 : compactMode ? 920 : 1360) - margin.left - margin.right;
- const height = (isMobile ? 415 : compactMode ? 530 : 700) - margin.top - margin.bottom;
+ const width = (isMobile ? 350 : compactMode ? 1120 : 1360) - margin.left - margin.right;
+ const height = (isMobile ? 415 : compactMode ? 555 : 700) - margin.top - margin.bottom;
 
  const container = svg
  .append('g')
@@ -493,6 +735,59 @@ export default function OpenInterestChart({
  // Update the current price label position
  container.select('.current-price-label')
  .attr('x', xPosition);
+ }
+
+ // Update 80% expected range lines position during zoom
+ if (expectedRange80) {
+ const { call: call80, put: put80 } = expectedRange80;
+ 
+ // Update Put 80% line
+ const put80X = visibleStrikes.findIndex(strike => strike >= put80);
+ let putXPosition;
+ 
+ if (put80X === -1) {
+ putXPosition = width;
+ } else if (put80X === 0) {
+ putXPosition = 0;
+ } else {
+ const lowerStrike = visibleStrikes[put80X - 1];
+ const upperStrike = visibleStrikes[put80X];
+ const ratio = (put80 - lowerStrike) / (upperStrike - lowerStrike);
+ const lowerX = (newXBandScale(lowerStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+ const upperX = (newXBandScale(upperStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+ putXPosition = lowerX + ratio * (upperX - lowerX);
+ }
+ 
+ container.select('.expected-range-put-80')
+ .attr('x1', putXPosition)
+ .attr('x2', putXPosition);
+ 
+ container.select('.expected-range-put-label')
+ .attr('x', putXPosition);
+ 
+ // Update Call 80% line
+ const call80X = visibleStrikes.findIndex(strike => strike >= call80);
+ let callXPosition;
+ 
+ if (call80X === -1) {
+ callXPosition = width;
+ } else if (call80X === 0) {
+ callXPosition = 0;
+ } else {
+ const lowerStrike = visibleStrikes[call80X - 1];
+ const upperStrike = visibleStrikes[call80X];
+ const ratio = (call80 - lowerStrike) / (upperStrike - lowerStrike);
+ const lowerX = (newXBandScale(lowerStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+ const upperX = (newXBandScale(upperStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+ callXPosition = lowerX + ratio * (upperX - lowerX);
+ }
+ 
+ container.select('.expected-range-call-80')
+ .attr('x1', callXPosition)
+ .attr('x2', callXPosition);
+ 
+ container.select('.expected-range-call-label')
+ .attr('x', callXPosition);
  }
  });
 
@@ -658,6 +953,99 @@ export default function OpenInterestChart({
  .text(`Current Price: $${currentPrice.toFixed(2)}`);
  }
 
+ // Draw 80% Expected Range lines (blue dashed vertical lines)
+ if (expectedRange80) {
+ const { call: call80, put: put80 } = expectedRange80;
+ 
+ // Draw Put 80% line (lower bound)
+ const putStrikeIndex = strikes.findIndex((s, idx) => {
+ if (idx === strikes.length - 1) return true;
+ return put80 >= strikes[idx] && put80 < strikes[idx + 1];
+ });
+ 
+ if (putStrikeIndex !== -1) {
+ let putXPosition = 0;
+ 
+ if (put80 === strikes[putStrikeIndex]) {
+ putXPosition = (xScale(strikes[putStrikeIndex].toString()) || 0) + xScale.bandwidth() / 2;
+ } else {
+ const lowerStrike = strikes[putStrikeIndex];
+ const upperStrike = strikes[putStrikeIndex + 1] || lowerStrike;
+ const ratio = (put80 - lowerStrike) / (upperStrike - lowerStrike || 1);
+ const lowerX = (xScale(lowerStrike.toString()) || 0) + xScale.bandwidth() / 2;
+ const upperX = (xScale(upperStrike.toString()) || 0) + xScale.bandwidth() / 2;
+ putXPosition = lowerX + ratio * (upperX - lowerX);
+ }
+ 
+ container
+ .append('line')
+ .attr('class', 'expected-range-put-80')
+ .attr('x1', putXPosition)
+ .attr('x2', putXPosition)
+ .attr('y1', 0)
+ .attr('y2', height)
+ .style('stroke', '#3b82f6')
+ .style('stroke-width', 2)
+ .style('stroke-dasharray', '5,5')
+ .style('opacity', 0.7);
+ 
+ container
+ .append('text')
+ .attr('class', 'expected-range-put-label')
+ .attr('x', putXPosition)
+ .attr('y', -25)
+ .style('text-anchor', 'middle')
+ .style('fill', '#3b82f6')
+ .style('font-size', '11px')
+ .style('font-weight', 'bold')
+ .text(`80% Put: $${put80.toFixed(2)}`);
+ }
+ 
+ // Draw Call 80% line (upper bound)
+ const callStrikeIndex = strikes.findIndex((s, idx) => {
+ if (idx === strikes.length - 1) return true;
+ return call80 >= strikes[idx] && call80 < strikes[idx + 1];
+ });
+ 
+ if (callStrikeIndex !== -1) {
+ let callXPosition = 0;
+ 
+ if (call80 === strikes[callStrikeIndex]) {
+ callXPosition = (xScale(strikes[callStrikeIndex].toString()) || 0) + xScale.bandwidth() / 2;
+ } else {
+ const lowerStrike = strikes[callStrikeIndex];
+ const upperStrike = strikes[callStrikeIndex + 1] || lowerStrike;
+ const ratio = (call80 - lowerStrike) / (upperStrike - lowerStrike || 1);
+ const lowerX = (xScale(lowerStrike.toString()) || 0) + xScale.bandwidth() / 2;
+ const upperX = (xScale(upperStrike.toString()) || 0) + xScale.bandwidth() / 2;
+ callXPosition = lowerX + ratio * (upperX - lowerX);
+ }
+ 
+ container
+ .append('line')
+ .attr('class', 'expected-range-call-80')
+ .attr('x1', callXPosition)
+ .attr('x2', callXPosition)
+ .attr('y1', 0)
+ .attr('y2', height)
+ .style('stroke', '#3b82f6')
+ .style('stroke-width', 2)
+ .style('stroke-dasharray', '5,5')
+ .style('opacity', 0.7);
+ 
+ container
+ .append('text')
+ .attr('class', 'expected-range-call-label')
+ .attr('x', callXPosition)
+ .attr('y', -25)
+ .style('text-anchor', 'middle')
+ .style('fill', '#3b82f6')
+ .style('font-size', '11px')
+ .style('font-weight', 'bold')
+ .text(`80% Call: $${call80.toFixed(2)}`);
+ }
+ }
+
 
 
  // Add zoom rectangle AFTER all other elements - covering the entire chart area
@@ -684,10 +1072,10 @@ export default function OpenInterestChart({
  const actualBarsCreated = container.selectAll('.bar').size();
  console.log(' Chart creation complete. Total bars created:', actualBarsCreated);
 
- }, [data, showCalls, showPuts, currentPrice, showNetOI]);
+ }, [data, showCalls, showPuts, currentPrice, showNetOI, expectedRange80]);
 
  return (
- <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace', overflow: 'visible' }}>
+ <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace', overflowX: 'hidden', overflowY: 'visible' }}>
  {/* Controls */}
  <div style={{ 
  display: 'flex',
@@ -903,17 +1291,17 @@ export default function OpenInterestChart({
  textTransform: 'uppercase',
  textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
  }}>
- Expected Range
+ 90% Range P/C
  </label>
  <div style={{
  background: '#000000',
  border: '1px solid #333333',
  borderRadius: '8px',
  padding: '10px 16px',
- color: '#ffffff',
+ color: expectedRangePCRatio.startsWith('∞') ? '#ff6b6b' : expectedRangePCRatio === 'N/A' || expectedRangePCRatio === 'Error' ? '#888888' : '#00ff88',
  fontSize: '14px',
  fontWeight: '500',
- minWidth: '100px',
+ minWidth: '180px',
  textAlign: 'center',
  fontFamily: '"SF Mono", Consolas, monospace',
  boxShadow: `
@@ -923,7 +1311,56 @@ export default function OpenInterestChart({
  `,
  textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
  }}>
- -- / --
+ {expectedRangePCRatio || 'Loading...'}
+ </div>
+ </div>
+ 
+ {/* Divider */}
+ <div style={{ 
+ width: '1px', 
+ height: '32px', 
+ background: 'linear-gradient(180deg, transparent 0%, #555 50%, transparent 100%)',
+ boxShadow: '1px 0 0 rgba(255, 255, 255, 0.05)'
+ }} />
+
+ {/* 45-Day Cumulative P/C Ratio */}
+ <div style={{ 
+ display: 'flex', 
+ alignItems: 'center', 
+ gap: '8px', 
+ zIndex: 1,
+ flex: isMobile ? '1 1 30%' : '0 0 auto',
+ minWidth: isMobile ? '0' : 'auto'
+ }}>
+ <label style={{ 
+ color: '#ffffff', 
+ fontSize: '13px', 
+ fontWeight: '600',
+ letterSpacing: '0.5px',
+ textTransform: 'uppercase',
+ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
+ }}>
+ 45D P/C
+ </label>
+ <div style={{
+ background: '#000000',
+ border: '1px solid #333333',
+ borderRadius: '8px',
+ padding: '10px 16px',
+ color: cumulativePCRatio45Days.startsWith('∞') ? '#ff6b6b' : cumulativePCRatio45Days === 'N/A' || cumulativePCRatio45Days === 'Error' ? '#888888' : '#00ff88',
+ fontSize: '14px',
+ fontWeight: '500',
+ minWidth: '140px',
+ textAlign: 'center',
+ fontFamily: '"SF Mono", Consolas, monospace',
+ boxShadow: `
+ inset 0 2px 4px rgba(0, 0, 0, 0.6),
+ inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+ 0 1px 0 rgba(255, 255, 255, 0.1)
+ `,
+ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
+ }}>
+ {cumulativePCRatio45Days || 'Loading...'}
  </div>
  </div>
  
@@ -1280,8 +1717,8 @@ export default function OpenInterestChart({
  <div style={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
  <svg
  ref={svgRef}
- width={isMobile ? 350 : compactMode ? 1000 : 1320}
- height={isMobile ? 415 : compactMode ? 650 : 685}
+ width={isMobile ? 350 : compactMode ? 1200 : 1320}
+ height={isMobile ? 415 : compactMode ? 675 : 685}
  style={{ 
  background: 'transparent', 
  borderRadius: '0px',

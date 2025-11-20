@@ -452,7 +452,7 @@ export default function GEXChart({
  : compactMode
  ? { top: 50, right: 20, bottom: 70, left: 60 }
  : { top: 60, right: 180, bottom: 80, left: 100 };
- const width = (isMobile ? 350 : compactMode ? 920 : 1500) - margin.left - margin.right;
+ const width = (isMobile ? 350 : compactMode ? 1120 : 1500) - margin.left - margin.right;
  const height = (isMobile ? 415 : compactMode ? 530 : 600) - margin.top - margin.bottom;
 
  const container = svg
@@ -918,15 +918,17 @@ export default function GEXChart({
  background: '#000000', 
  borderRadius: '0px 0px 8px 8px', 
  padding: '20px',
+ paddingBottom: compactMode ? '0px' : '20px',
  border: '1px solid #333333',
  borderTop: 'none',
  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
  position: 'relative',
- marginTop: compactMode ? '20px' : '0'
+ marginTop: compactMode ? '20px' : '0',
+ marginBottom: compactMode ? '-20px' : '0'
  }}>
  <svg
  ref={svgRef}
- width={isMobile ? 350 : compactMode ? 1000 : 1500}
+ width={isMobile ? 350 : compactMode ? 1200 : 1500}
  height={isMobile ? 415 : compactMode ? 650 : 560}
  style={{ 
  background: 'transparent',

@@ -1303,7 +1303,12 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               }
             } catch (error) {
               failCount++;
-              console.error(`✗ ${symbol}`);
+              // Less noisy error logging - only log first few failures
+              if (failCount <= 5) {
+                console.warn(`Failed to fetch ${symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+              } else if (failCount === 6) {
+                console.warn(`... suppressing further error logs (${failCount}+ failures)`);
+              }
               return null;
             }
           });
@@ -1513,12 +1518,13 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     setCurrentPage(1);
   }, [screenerFilter]);
 
-  // Load screener data when component mounts
-  useEffect(() => {
-    if (screenerData.length === 0) {
-      loadScreenerData();
-    }
-  }, []);
+  // Don't auto-load screener data on mount - let user trigger it manually
+  // This prevents 1000+ API calls on page load
+  // useEffect(() => {
+  //   if (screenerData.length === 0) {
+  //     loadScreenerData();
+  //   }
+  // }, []);
 
   return (
     <div className="space-y-6">
@@ -1763,6 +1769,20 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                       <div className="text-sm text-gray-400">
                         Analyzing SI across 1400+ symbols • Results appear as found
                       </div>
+                      <div className="text-xs text-yellow-500/70 italic">
+                        Note: Some symbols may fail due to rate limits or missing data
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : screenerData.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center">
+                    <div className="space-y-3">
+                      <div className="text-gray-400">No data loaded</div>
+                      <div className="text-sm text-gray-500">
+                        Click <span className="text-purple-400 font-bold">START SCAN</span> to analyze market stability
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -1945,6 +1965,7 @@ const DealerAttraction = () => {
   const [showOI, setShowOI] = useState(false);
   const [liveMode, setLiveMode] = useState(false); // Single live mode toggle for all metrics
   const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map());
+  const [flowTradesData, setFlowTradesData] = useState<any[]>([]); // Store all trades with premiums
   const [liveOILoading, setLiveOILoading] = useState(false);
   const [liveOIProgress, setLiveOIProgress] = useState(0);
   const [showVEX, setShowVEX] = useState(false);
@@ -2076,6 +2097,10 @@ const DealerAttraction = () => {
           console.log(`✅ Enriched ${tradesWithFillStyle.length} trades with volume/OI and fill_style`);
           setLiveOIProgress(80); // 80% - fill styles calculated
           
+          // Store trades data for Flow Map
+          setFlowTradesData(tradesWithFillStyle);
+          console.log(`💰 Storing ${tradesWithFillStyle.length} trades for Flow Map calculation`);
+          
           // Step 4: Calculate Live OI for each unique contract
           const liveOIMap = new Map<string, number>();
           const uniqueContracts = new Set<string>();
@@ -2140,20 +2165,19 @@ const DealerAttraction = () => {
           setLiveOIProgress(100); // 100% - complete
           console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
           
-          // Step 5: Store OI Change data for Flow-Weighted GEX
-          console.log(`🔥 Calculating Flow-Weighted GEX using OI change (Live OI - Previous OI)`);
-          const flowWeightMultiplier = 7; // 7x weight on OI change
+          // Step 5: Calculate simple premium-based flow (no GEX, no Greeks)
+          console.log(`💰 Flow Map: Simple premium tracking for new trades (AA, A, BB fill styles)`);
           
-          console.log(`📊 Live OI calculated for ${liveOIMap.size} contracts with ${flowWeightMultiplier}x multiplier on OI change`);
+          console.log(`📊 Live OI calculated for ${liveOIMap.size} contracts`);
           
           // Hide loading after a brief delay to show 100%
           setTimeout(() => {
             setLiveOILoading(false);
             
             // Auto-refresh to recalculate with new Live OI data
-            // Pass liveOIMap directly since React state might not be updated yet
-            console.log(`🔄 Live OI scan complete - auto-refreshing calculations with ${liveOIMap.size} contracts`);
-            fetchOptionsData(liveOIMap);
+            // Pass liveOIMap and trades directly since React state might not be updated yet
+            console.log(`🔄 Live OI scan complete - auto-refreshing with ${liveOIMap.size} contracts and ${tradesWithFillStyle.length} trades`);
+            fetchOptionsData(liveOIMap, tradesWithFillStyle);
           }, 500);
         }
       } catch (error) {
@@ -2201,7 +2225,7 @@ const DealerAttraction = () => {
 
 
   // Fetch detailed GEX data using Web Worker for parallel processing
-  const fetchOptionsData = async (liveOIMapOverride?: Map<string, number>) => {
+  const fetchOptionsData = async (liveOIMapOverride?: Map<string, number>, tradesDataOverride?: any[]) => {
     const totalStartTime = performance.now();
     setLoading(true);
     setError(null);
@@ -2272,14 +2296,39 @@ const DealerAttraction = () => {
       
       // Get Live OI data from parameter (if passed) or React state
       const liveOIDataFromState = liveOIMapOverride || liveOIData;
-      const flowWeightMultiplier = 7;
-      console.log(`🔥 Flow GEX will use ${liveOIDataFromState.size} contracts with ${flowWeightMultiplier}x weight on OI CHANGE`);
+      const tradesData = tradesDataOverride || flowTradesData;
+      console.log(`💰 Flow Map: Calculating simple premium values for new trades (${tradesData.length} trades available)`);
       
-      // Debug: Show sample keys from Live OI map
-      if (liveOIDataFromState.size > 0) {
-        const sampleKeys = Array.from(liveOIDataFromState.keys()).slice(0, 5);
-        console.log(`📋 Sample Live OI keys:`, sampleKeys);
-      }
+      // Calculate premium values by strike from flow trades (AA, A, BB only)
+      const flowPremiumByStrike: {[expiration: string]: {[strike: number]: {callPremium: number, putPremium: number, callContracts: number, putContracts: number}}} = {};
+      
+      tradesData.forEach(trade => {
+        // Only count opening trades (AA, A, BB)
+        if (['AA', 'A', 'BB'].includes(trade.fill_style)) {
+          const expiry = trade.expiry;
+          const strike = trade.strike;
+          const contracts = trade.trade_size || 0;
+          const premiumPerContract = trade.premium_per_contract || trade.total_premium / contracts || 0;
+          const totalCost = trade.total_premium || (premiumPerContract * contracts * 100); // Use total_premium if available, or calculate it
+          
+          if (!flowPremiumByStrike[expiry]) flowPremiumByStrike[expiry] = {};
+          if (!flowPremiumByStrike[expiry][strike]) {
+            flowPremiumByStrike[expiry][strike] = { callPremium: 0, putPremium: 0, callContracts: 0, putContracts: 0 };
+          }
+          
+          if (trade.type === 'call') {
+            flowPremiumByStrike[expiry][strike].callPremium += totalCost;
+            flowPremiumByStrike[expiry][strike].callContracts += contracts;
+            console.log(`💰 Call: ${strike} ${expiry} = $${totalCost.toFixed(0)} (${contracts} contracts @ $${premiumPerContract.toFixed(2)})`);
+          } else {
+            flowPremiumByStrike[expiry][strike].putPremium += totalCost;
+            flowPremiumByStrike[expiry][strike].putContracts += contracts;
+            console.log(`💰 Put: ${strike} ${expiry} = $${totalCost.toFixed(0)} (${contracts} contracts @ $${premiumPerContract.toFixed(2)})`);
+          }
+        }
+      });
+      
+      console.log(`💰 Calculated premiums for ${Object.keys(flowPremiumByStrike).length} expirations:`, flowPremiumByStrike);
       
       // Smart batching: larger batches for more expirations
       const batchSize = allAvailableExpirations.length <= 10 ? allAvailableExpirations.length : 
@@ -2329,19 +2378,24 @@ const DealerAttraction = () => {
               gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
               dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
               
-              // Initialize Flow GEX structure
-              const callContractKey = `${selectedTicker}_${strike}_call_${expDate}`;
-              const liveCallOI = liveOIDataFromState.get(callContractKey);
-              const oiChange = liveCallOI !== undefined ? (liveCallOI - oi) : 0;
-              console.log(`🔍 Flow GEX Call: Key="${callContractKey}", PrevOI=${oi}, LiveOI=${liveCallOI}, Change=${oiChange}`);
+              // Flow Map: Simple premium-based calculation (no GEX, no Greeks)
               if (!flowGexByStrikeByExp[expDate]) flowGexByStrikeByExp[expDate] = {};
-              flowGexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callVolume: oiChange, putVolume: 0 };
               
-              // Calculate Flow-Weighted GEX: GEX = Gamma × Delta × (OI_change × Weight) × Spot² × 100
-              if (gamma && delta !== undefined && oiChange !== 0) {
-                const flowGex = gamma * Math.abs(delta) * (oiChange * flowWeightMultiplier) * (currentPrice * currentPrice) * 100;
-                flowGexByStrikeByExp[expDate][strikeNum].call = flowGex;
-                console.log(`🔥 FLOW GEX Call: Strike ${strikeNum} = ${gamma} × ${Math.abs(delta)} × (${oiChange} × ${flowWeightMultiplier}) × ${currentPrice}² × 100 = ${flowGex}`);
+              const flowData = flowPremiumByStrike[expDate]?.[strikeNum];
+              const callPremium = flowData?.callPremium || 0;
+              const callContracts = flowData?.callContracts || 0;
+              
+              flowGexByStrikeByExp[expDate][strikeNum] = { 
+                call: callPremium,  // Store premium directly
+                put: 0, 
+                callOI: oi, 
+                putOI: 0, 
+                callVolume: callContracts,  // Store contract count
+                putVolume: 0 
+              };
+              
+              if (callPremium > 0) {
+                console.log(`💰 FLOW MAP Call: Strike ${strikeNum} = $${callPremium.toFixed(0)} (${callContracts} contracts)`);
               }
               
               // ALWAYS calculate BOTH formulas
@@ -2476,22 +2530,21 @@ const DealerAttraction = () => {
               dealerByStrikeByExp[expDate][strikeNum].putDelta = delta;
               dealerByStrikeByExp[expDate][strikeNum].putVanna = vanna;
               
-              // Update Flow GEX structure for puts
-              const putContractKey = `${selectedTicker}_${strike}_put_${expDate}`;
-              const livePutOI = liveOIDataFromState.get(putContractKey);
-              const putOIChange = livePutOI !== undefined ? (livePutOI - oi) : 0;
-              console.log(`🔍 Flow GEX Put: Key="${putContractKey}", PrevOI=${oi}, LiveOI=${livePutOI}, Change=${putOIChange}`);
+              // Flow Map: Simple premium-based calculation for puts (no GEX, no Greeks)
               if (!flowGexByStrikeByExp[expDate][strikeNum]) {
-                flowGexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callVolume: 0, putVolume: 0 };
+                flowGexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: oi, callVolume: 0, putVolume: 0 };
               }
-              flowGexByStrikeByExp[expDate][strikeNum].putOI = oi;
-              flowGexByStrikeByExp[expDate][strikeNum].putVolume = putOIChange;
               
-              // Calculate Flow-Weighted GEX: GEX = -Gamma × Delta × (OI_change × Weight) × Spot² × 100
-              if (gamma && delta !== undefined && putOIChange !== 0) {
-                const flowGex = -gamma * Math.abs(delta) * (putOIChange * flowWeightMultiplier) * (currentPrice * currentPrice) * 100;
-                flowGexByStrikeByExp[expDate][strikeNum].put = flowGex;
-                console.log(`🔥 FLOW GEX Put: Strike ${strikeNum} = -${gamma} × ${Math.abs(delta)} × (${putOIChange} × ${flowWeightMultiplier}) × ${currentPrice}² × 100 = ${flowGex}`);
+              const putFlowData = flowPremiumByStrike[expDate]?.[strikeNum];
+              const putPremium = putFlowData?.putPremium || 0;
+              const putContracts = putFlowData?.putContracts || 0;
+              
+              flowGexByStrikeByExp[expDate][strikeNum].put = putPremium;  // Store premium directly
+              flowGexByStrikeByExp[expDate][strikeNum].putOI = oi;
+              flowGexByStrikeByExp[expDate][strikeNum].putVolume = putContracts;  // Store contract count
+              
+              if (putPremium > 0) {
+                console.log(`💰 FLOW MAP Put: Strike ${strikeNum} = $${putPremium.toFixed(0)} (${putContracts} contracts)`);
               }
               
               // ALWAYS calculate BOTH formulas
@@ -2616,7 +2669,7 @@ const DealerAttraction = () => {
               putOI: data.putOI,
               flowCall: flowData.call,
               flowPut: flowData.put,
-              flowNet: flowData.call + flowData.put,
+              flowNet: flowData.call - flowData.put,  // Net = Calls premium - Puts premium (positive = bullish)
               callVex: vexData.call,
               putVex: vexData.put
             };
@@ -3080,32 +3133,18 @@ const DealerAttraction = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white">
       <style>{`
-        /* Custom scrollbar styling */
+        /* Custom scrollbar styling - Hidden */
         .overflow-x-auto::-webkit-scrollbar,
         .overflow-y-auto::-webkit-scrollbar,
         .overflow-auto::-webkit-scrollbar {
-          width: 12px;
-          height: 12px;
-          background-color: #000000;
+          display: none;
         }
         
-        .overflow-x-auto::-webkit-scrollbar-track,
-        .overflow-y-auto::-webkit-scrollbar-track,
-        .overflow-auto::-webkit-scrollbar-track {
-          background-color: #000000;
-        }
-        
-        .overflow-x-auto::-webkit-scrollbar-thumb,
-        .overflow-y-auto::-webkit-scrollbar-thumb,
-        .overflow-auto::-webkit-scrollbar-thumb {
-          background-color: #4b5563;
-          border: 2px solid #000000;
-        }
-        
-        .overflow-x-auto::-webkit-scrollbar-thumb:hover,
-        .overflow-y-auto::-webkit-scrollbar-thumb:hover,
-        .overflow-auto::-webkit-scrollbar-thumb:hover {
-          background-color: #6b7280;
+        .overflow-x-auto,
+        .overflow-y-auto,
+        .overflow-auto {
+          scrollbar-width: none; /* Firefox */
+          -ms-overflow-style: none; /* IE and Edge */
         }
         
         @media (max-width: 768px) {
@@ -3892,6 +3931,7 @@ const DealerAttraction = () => {
                     <div className="flex-1">
                       <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
                         <h3 className="text-lg font-extrabold text-orange-400 uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>FLOW MAP</h3>
+                        <div className="text-xs text-orange-300/70 text-center mt-1">Net Premium: Calls - Puts</div>
                       </div>
                       <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
                         <table className="w-full">

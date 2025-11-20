@@ -38,6 +38,16 @@ body {
     font-size: 1rem; /* Use rem for browser zoom compatibility */
 }
 
+/* Global scrollbar hiding */
+* {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+}
+
+*::-webkit-scrollbar {
+    display: none; /* Chrome, Safari and Opera */
+}
+
 /* Hide Scrollbar Utility */
 .scrollbar-hide {
     -ms-overflow-style: none;  /* IE and Edge */
