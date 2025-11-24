@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import '../mobile-trading.css';
 
-// Dynamically import TradingViewChart to avoid SSR issues
+// Dynamically import EFICharting to avoid SSR issues
 const TradingViewChart = dynamic(
- () => import('../../components/trading/TradingViewChart'),
+ () => import('../../components/trading/EFICharting'),
  { ssr: false }
 );
 

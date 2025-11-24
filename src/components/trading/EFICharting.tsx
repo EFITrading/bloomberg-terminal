@@ -20,31 +20,7 @@ import {
  TbPencil,
  TbArrowsHorizontal,
  TbBoxMultiple,
- TbBrush,
- TbArrowRight,
- TbArrowUp,
- TbLine,
- TbLineDashed,
- TbPointer,
- TbRuler,
- TbSquare,
- TbCircle,
- TbTriangle,
- TbPolygon,
- TbWaveSine,
- TbChartArcs,
- TbChartCircles,
- TbTrendingUp3,
- TbMathFunction,
- TbTextCaption,
- TbNote,
- TbPin,
- TbFlag,
- TbArrowBigUp,
- TbArrowBigDown,
- TbCrosshair,
- TbChartDots,
- TbTimeline
+ TbBrush
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 
@@ -142,9 +118,6 @@ interface DrawingMetadata {
  [key: string]: unknown;
 }
 
-// Performance optimization: Disable debug logging in production
-const DEBUG_MODE = false; // Set to true only for debugging
-
 // Specific metadata interfaces for different drawing types
 interface MeasureDrawingMetadata extends DrawingMetadata {
  distance: number;
@@ -189,147 +162,6 @@ interface DrawingBrush {
  color: string;
  lineWidth: number;
  opacity: number;
- label: string;
- isSelected?: boolean;
-}
-
-// Trend Line interface
-interface TrendLine {
- id: string;
- point1: { timestamp: number; price: number };
- point2: { timestamp: number; price: number };
- color: string;
- lineWidth: number;
- lineStyle: 'solid' | 'dashed' | 'dotted';
- extendLeft: boolean;
- extendRight: boolean;
- label: string;
- isSelected?: boolean;
-}
-
-// Vertical Line interface
-interface VerticalLine {
- id: string;
- timestamp: number;
- color: string;
- lineWidth: number;
- lineStyle: 'solid' | 'dashed' | 'dotted';
- label: string;
- isSelected?: boolean;
-}
-
-// Horizontal Line interface
-interface HorizontalLine {
- id: string;
- price: number;
- color: string;
- lineWidth: number;
- lineStyle: 'solid' | 'dashed' | 'dotted';
- label: string;
- isSelected?: boolean;
-}
-
-// Rectangle interface
-interface Rectangle {
- id: string;
- point1: { timestamp: number; price: number };
- point2: { timestamp: number; price: number };
- borderColor: string;
- fillColor: string;
- lineWidth: number;
- fillOpacity: number;
- label: string;
- isSelected?: boolean;
-}
-
-// Circle interface
-interface Circle {
- id: string;
- center: { timestamp: number; price: number };
- radius: { x: number; y: number }; // in screen pixels for proper ellipse
- borderColor: string;
- fillColor: string;
- lineWidth: number;
- fillOpacity: number;
- label: string;
- isSelected?: boolean;
-}
-
-// Triangle interface
-interface Triangle {
- id: string;
- point1: { timestamp: number; price: number };
- point2: { timestamp: number; price: number };
- point3: { timestamp: number; price: number };
- borderColor: string;
- fillColor: string;
- lineWidth: number;
- fillOpacity: number;
- label: string;
- isSelected?: boolean;
-}
-
-// Fibonacci Retracement interface
-interface FibRetracement {
- id: string;
- point1: { timestamp: number; price: number };
- point2: { timestamp: number; price: number };
- color: string;
- lineWidth: number;
- levels: number[]; // [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
- showLabels: boolean;
- extendRight: boolean;
- label: string;
- isSelected?: boolean;
-}
-
-// Fibonacci Extension interface
-interface FibExtension {
- id: string;
- point1: { timestamp: number; price: number };
- point2: { timestamp: number; price: number };
- point3: { timestamp: number; price: number };
- color: string;
- lineWidth: number;
- levels: number[]; // [0, 0.618, 1, 1.618, 2.618, 4.236]
- showLabels: boolean;
- label: string;
- isSelected?: boolean;
-}
-
-// Text Note interface
-interface TextNote {
- id: string;
- position: { timestamp: number; price: number };
- text: string;
- color: string;
- fontSize: number;
- backgroundColor: string;
- backgroundOpacity: number;
- label: string;
- isSelected?: boolean;
-}
-
-// Arrow interface
-interface Arrow {
- id: string;
- point1: { timestamp: number; price: number };
- point2: { timestamp: number; price: number };
- color: string;
- lineWidth: number;
- arrowSize: number;
- label: string;
- isSelected?: boolean;
-}
-
-// Price Label interface
-interface PriceLabel {
- id: string;
- price: number;
- timestamp: number;
- text: string;
- color: string;
- backgroundColor: string;
  label: string;
  isSelected?: boolean;
 }
@@ -576,31 +408,6 @@ const DROPDOWN_CHART_TYPES: { label: string; value: string; icon: string }[] = [
 
 const CHART_TYPES = [...MAIN_CHART_TYPES, ...DROPDOWN_CHART_TYPES];
 
-// ? Drawing Tool Button Component for organized menu
-interface DrawingToolButtonProps {
- icon: React.ElementType;
- label: string;
- active: boolean;
- onClick: () => void;
-}
-
-const DrawingToolButton: React.FC<DrawingToolButtonProps> = ({ icon: Icon, label, active, onClick }) => {
- return (
- <button
- onClick={onClick}
- className={`flex items-center space-x-2 px-3 py-2.5 rounded-md transition-all duration-200 ${
- active 
- ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50' 
- : 'bg-gray-800/50 text-gray-300 hover:bg-gray-700/70 hover:text-white'
- }`}
- title={label}
- >
- <Icon className="w-4 h-4 flex-shrink-0" />
- <span className="text-xs font-medium truncate">{label}</span>
- </button>
- );
-};
-
 // ? TradingView-Style Drawing Properties Panel Component
 interface DrawingPropertiesPanelProps {
  selectedDrawing: Drawing | null;
@@ -663,7 +470,7 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
  onClick={onClose}
  className="text-[#868993] hover:text-white text-lg leading-none"
  >
- �
+  
  </button>
  </div>
 
@@ -2260,68 +2067,6 @@ export default function TradingViewChart({
  const [lastBrushTime, setLastBrushTime] = useState<number>(0);
  const [isMousePressed, setIsMousePressed] = useState<boolean>(false);
 
- // Additional Drawing Tool States (TradingView complete set)
- const [isTrendLineMode, setIsTrendLineMode] = useState<boolean>(false);
- const [trendLines, setTrendLines] = useState<TrendLine[]>([]);
- const [currentTrendPoints, setCurrentTrendPoints] = useState<Array<{ timestamp: number; price: number }>>([]);
- 
- const [isVerticalLineMode, setIsVerticalLineMode] = useState<boolean>(false);
- const [verticalLines, setVerticalLines] = useState<VerticalLine[]>([]);
- 
- const [isHorizontalLineMode, setIsHorizontalLineMode] = useState<boolean>(false);
- const [horizontalLines, setHorizontalLines] = useState<HorizontalLine[]>([]);
- 
- const [isRectangleMode, setIsRectangleMode] = useState<boolean>(false);
- const [rectangles, setRectangles] = useState<Rectangle[]>([]);
- const [currentRectPoints, setCurrentRectPoints] = useState<Array<{ timestamp: number; price: number }>>([]);
- 
- const [isCircleMode, setIsCircleMode] = useState<boolean>(false);
- const [circles, setCircles] = useState<Circle[]>([]);
- const [currentCirclePoints, setCurrentCirclePoints] = useState<Array<{ timestamp: number; price: number }>>([]);
- 
- const [isTriangleMode, setIsTriangleMode] = useState<boolean>(false);
- const [triangles, setTriangles] = useState<Triangle[]>([]);
- const [currentTrianglePoints, setCurrentTrianglePoints] = useState<Array<{ timestamp: number; price: number }>>([]);
- 
- const [isArrowMode, setIsArrowMode] = useState<boolean>(false);
- const [arrows, setArrows] = useState<Arrow[]>([]);
- const [currentArrowPoints, setCurrentArrowPoints] = useState<Array<{ timestamp: number; price: number }>>([]);
- 
- const [isFibRetracementMode, setIsFibRetracementMode] = useState<boolean>(false);
- const [fibRetracements, setFibRetracements] = useState<FibRetracement[]>([]);
- const [currentFibRetPoints, setCurrentFibRetPoints] = useState<Array<{ timestamp: number; price: number }>>([]);
- 
- const [isFibExtensionMode, setIsFibExtensionMode] = useState<boolean>(false);
- const [fibExtensions, setFibExtensions] = useState<FibExtension[]>([]);
- const [currentFibExtPoints, setCurrentFibExtPoints] = useState<Array<{ timestamp: number; price: number }>>([]);
- 
- const [isTextNoteMode, setIsTextNoteMode] = useState<boolean>(false);
- const [textNotes, setTextNotes] = useState<TextNote[]>([]);
- 
- const [isPriceLabelMode, setIsPriceLabelMode] = useState<boolean>(false);
- const [priceLabels, setPriceLabels] = useState<PriceLabel[]>([]);
- 
- const [isExtendedLineMode, setIsExtendedLineMode] = useState<boolean>(false);
- const [isRayMode, setIsRayMode] = useState<boolean>(false);
- const [isFibChannelMode, setIsFibChannelMode] = useState<boolean>(false);
- const [isGannBoxMode, setIsGannBoxMode] = useState<boolean>(false);
- const [isGannFanMode, setIsGannFanMode] = useState<boolean>(false);
- const [isPolygonMode, setIsPolygonMode] = useState<boolean>(false);
- const [isPathMode, setIsPathMode] = useState<boolean>(false);
- const [isPitchforkMode, setIsPitchforkMode] = useState<boolean>(false);
- const [isTextMode, setIsTextMode] = useState<boolean>(false);
- const [isNoteMode, setIsNoteMode] = useState<boolean>(false);
- const [isPriceNoteMode, setIsPriceNoteMode] = useState<boolean>(false);
- const [isArrowMarkerMode, setIsArrowMarkerMode] = useState<boolean>(false);
- const [isFlagMode, setIsFlagMode] = useState<boolean>(false);
- const [isMeasureMode, setIsMeasureMode] = useState<boolean>(false);
- const [isRulerMode, setIsRulerMode] = useState<boolean>(false);
- const [isHeadAndShouldersMode, setIsHeadAndShouldersMode] = useState<boolean>(false);
- const [isTrianglePatternMode, setIsTrianglePatternMode] = useState<boolean>(false);
- const [isElliotWaveMode, setIsElliotWaveMode] = useState<boolean>(false);
- const [isLongPositionMode, setIsLongPositionMode] = useState<boolean>(false);
- const [isShortPositionMode, setIsShortPositionMode] = useState<boolean>(false);
-
  // Keep ref in sync with state for reliable access
  useEffect(() => {
  drawingBrushesRef.current = drawingBrushes;
@@ -2758,47 +2503,9 @@ export default function TradingViewChart({
  setIsHorizontalRayMode(false);
  setIsParallelChannelMode(false);
  setIsDrawingBrushMode(false);
- setIsTrendLineMode(false);
- setIsVerticalLineMode(false);
- setIsHorizontalLineMode(false);
- setIsRectangleMode(false);
- setIsCircleMode(false);
- setIsTriangleMode(false);
- setIsArrowMode(false);
- setIsFibRetracementMode(false);
- setIsFibExtensionMode(false);
- setIsTextNoteMode(false);
- setIsPriceLabelMode(false);
- setIsExtendedLineMode(false);
- setIsRayMode(false);
- setIsFibChannelMode(false);
- setIsGannBoxMode(false);
- setIsGannFanMode(false);
- setIsPolygonMode(false);
- setIsPathMode(false);
- setIsPitchforkMode(false);
- setIsTextMode(false);
- setIsNoteMode(false);
- setIsPriceNoteMode(false);
- setIsArrowMarkerMode(false);
- setIsFlagMode(false);
- setIsMeasureMode(false);
- setIsRulerMode(false);
- setIsHeadAndShouldersMode(false);
- setIsTrianglePatternMode(false);
- setIsElliotWaveMode(false);
- setIsLongPositionMode(false);
- setIsShortPositionMode(false);
  
  // Clear any in-progress drawings
  setCurrentChannelPoints([]);
- setCurrentTrendPoints([]);
- setCurrentRectPoints([]);
- setCurrentCirclePoints([]);
- setCurrentTrianglePoints([]);
- setCurrentArrowPoints([]);
- setCurrentFibRetPoints([]);
- setCurrentFibExtPoints([]);
  setCurrentBrushStroke([]);
  setIsBrushing(false);
  setLastBrushTime(0);
@@ -2807,7 +2514,7 @@ export default function TradingViewChart({
  setChannelPreviewPoint(null);
  }, []);
 
- const activateToolExclusively = useCallback((toolName: string) => {
+ const activateToolExclusively = useCallback((toolName: 'horizontal' | 'channel' | 'brush' | 'none') => {
  clearAllDrawingTools();
  
  switch (toolName) {
@@ -2821,105 +2528,12 @@ export default function TradingViewChart({
  case 'brush':
  setIsDrawingBrushMode(true);
  break;
- case 'trendline':
- setIsTrendLineMode(true);
- break;
- case 'verticalline':
- setIsVerticalLineMode(true);
- break;
- case 'horizontalline':
- setIsHorizontalLineMode(true);
- break;
- case 'rectangle':
- setIsRectangleMode(true);
- break;
- case 'circle':
- setIsCircleMode(true);
- break;
- case 'triangle':
- setIsTriangleMode(true);
- break;
- case 'arrow':
- setIsArrowMode(true);
- break;
- case 'fibretracement':
- setIsFibRetracementMode(true);
- break;
- case 'fibextension':
- setIsFibExtensionMode(true);
- break;
- case 'textnote':
- setIsTextNoteMode(true);
- break;
- case 'pricelabel':
- setIsPriceLabelMode(true);
- break;
- case 'extendedline':
- setIsExtendedLineMode(true);
- break;
- case 'ray':
- setIsRayMode(true);
- break;
- case 'fibchannel':
- setIsFibChannelMode(true);
- break;
- case 'gannbox':
- setIsGannBoxMode(true);
- break;
- case 'gannfan':
- setIsGannFanMode(true);
- break;
- case 'polygon':
- setIsPolygonMode(true);
- break;
- case 'path':
- setIsPathMode(true);
- break;
- case 'pitchfork':
- setIsPitchforkMode(true);
- break;
- case 'text':
- setIsTextMode(true);
- break;
- case 'note':
- setIsNoteMode(true);
- break;
- case 'pricenote':
- setIsPriceNoteMode(true);
- break;
- case 'arrowmarker':
- setIsArrowMarkerMode(true);
- break;
- case 'flag':
- setIsFlagMode(true);
- break;
- case 'measure':
- setIsMeasureMode(true);
- break;
- case 'ruler':
- setIsRulerMode(true);
- break;
- case 'headandshoulders':
- setIsHeadAndShouldersMode(true);
- break;
- case 'trianglepattern':
- setIsTrianglePatternMode(true);
- break;
- case 'elliotwave':
- setIsElliotWaveMode(true);
- break;
- case 'longposition':
- setIsLongPositionMode(true);
- break;
- case 'shortposition':
- setIsShortPositionMode(true);
- break;
  case 'none':
- default:
- // Already cleared by clearAllDrawingTools
+ // Already cleared all tools above
  break;
  }
  }, [clearAllDrawingTools]);
+
 
 
  // Professional crosshair information state
@@ -3127,18 +2741,11 @@ export default function TradingViewChart({
  }} = {};
 
  try {
- if (DEBUG_MODE) {
- console.log('?? Fetching watchlist data in batches for symbols:', symbols);
- console.log(`?? Processing ${symbols.length} symbols in batches of 5`);
- }
+ console.log('?? Fetching watchlist data in parallel for symbols:', symbols);
+ console.log(`?? Processing ${symbols.length} symbols simultaneously`);
  
- // Fetch symbols in batches of 5 to prevent overwhelming the browser
- const batchSize = 5;
- const allResults: any[] = [];
- 
- for (let i = 0; i < symbols.length; i += batchSize) {
- const batch = symbols.slice(i, i + batchSize);
- const batchPromises = batch.map(async (symbol) => {
+ // Fetch ALL symbols in parallel - no artificial delays or batching
+ const allPromises = symbols.map(async (symbol) => {
  try {
  // Get recent historical data (90 days to ensure we get enough trading days)
  const endDate = new Date().toISOString().split('T')[0];
@@ -3198,15 +2805,8 @@ export default function TradingViewChart({
  }
  });
  
- // Wait for this batch to complete
- const batchResults = await Promise.all(batchPromises);
- allResults.push(...batchResults);
- 
- // Small delay between batches to prevent browser freeze
- if (i + batchSize < symbols.length) {
- await new Promise(resolve => setTimeout(resolve, 50));
- }
- }
+ // Wait for ALL fetches to complete in parallel
+ const allResults = await Promise.all(allPromises);
  
  // Process successful results
  allResults.forEach(result => {
@@ -3305,7 +2905,7 @@ export default function TradingViewChart({
  // Set up interval for regular updates (don't show loading for updates)
  const interval = setInterval(() => {
  fetchRealMarketData(false); // false = update, no spinner
- }, 120000); // Update every 2 minutes (reduced from 30s to prevent lag)
+ }, 30000); // Update every 30 seconds
  
  return () => clearInterval(interval);
  }, []); // Empty dependency array to run only once
@@ -4193,12 +3793,12 @@ export default function TradingViewChart({
  }
  }, [data, currentPrice, symbol]);
 
- // Set up live price updates every 15 seconds for live data
+ // Set up live price updates every 5 seconds for live data
  useEffect(() => {
  const interval = setInterval(() => {
- if (DEBUG_MODE) console.log(`?? Live refresh for ${symbol}...`);
+ console.log(`?? Live refresh for ${symbol}...`);
  fetchRealTimePrice(symbol);
- }, 15000); // Update every 15 seconds (reduced from 5s to prevent lag)
+ }, 5000); // Update every 5 seconds
 
  return () => clearInterval(interval);
  }, [symbol, fetchRealTimePrice]);
@@ -4435,132 +4035,6 @@ export default function TradingViewChart({
  }
  }
  
- // Draw preview for drawing tools in progress
- // Trend Line preview
- if (isTrendLineMode && currentTrendPoints.length === 1) {
- const x1 = timeToScreen(currentTrendPoints[0].timestamp);
- const y1 = priceToScreenForDrawings(currentTrendPoints[0].price);
- ctx.strokeStyle = '#00ff00';
- ctx.lineWidth = 2;
- ctx.setLineDash([5, 5]);
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(crosshairPosition.x, crosshairPosition.y);
- ctx.stroke();
- ctx.setLineDash([]);
- }
-
- // Rectangle preview
- if (isRectangleMode && currentRectPoints.length === 1) {
- const x1 = timeToScreen(currentRectPoints[0].timestamp);
- const y1 = priceToScreenForDrawings(currentRectPoints[0].price);
- const width = crosshairPosition.x - x1;
- const height = crosshairPosition.y - y1;
- ctx.strokeStyle = '#00ff00';
- ctx.lineWidth = 2;
- ctx.setLineDash([5, 5]);
- ctx.strokeRect(x1, y1, width, height);
- ctx.setLineDash([]);
- }
-
- // Circle preview
- if (isCircleMode && currentCirclePoints.length === 1) {
- const cx = timeToScreen(currentCirclePoints[0].timestamp);
- const cy = priceToScreenForDrawings(currentCirclePoints[0].price);
- const radiusX = Math.abs(crosshairPosition.x - cx);
- const radiusY = Math.abs(crosshairPosition.y - cy);
- ctx.strokeStyle = '#00ff00';
- ctx.lineWidth = 2;
- ctx.setLineDash([5, 5]);
- ctx.beginPath();
- ctx.ellipse(cx, cy, radiusX, radiusY, 0, 0, 2 * Math.PI);
- ctx.stroke();
- ctx.setLineDash([]);
- }
-
- // Triangle preview
- if (isTriangleMode && currentTrianglePoints.length > 0) {
- ctx.strokeStyle = '#00ff00';
- ctx.lineWidth = 2;
- ctx.setLineDash([5, 5]);
- ctx.beginPath();
- 
- if (currentTrianglePoints.length === 1) {
- const x1 = timeToScreen(currentTrianglePoints[0].timestamp);
- const y1 = priceToScreenForDrawings(currentTrianglePoints[0].price);
- ctx.moveTo(x1, y1);
- ctx.lineTo(crosshairPosition.x, crosshairPosition.y);
- } else if (currentTrianglePoints.length === 2) {
- const x1 = timeToScreen(currentTrianglePoints[0].timestamp);
- const y1 = priceToScreenForDrawings(currentTrianglePoints[0].price);
- const x2 = timeToScreen(currentTrianglePoints[1].timestamp);
- const y2 = priceToScreenForDrawings(currentTrianglePoints[1].price);
- ctx.moveTo(x1, y1);
- ctx.lineTo(x2, y2);
- ctx.lineTo(crosshairPosition.x, crosshairPosition.y);
- ctx.closePath();
- }
- 
- ctx.stroke();
- ctx.setLineDash([]);
- }
-
- // Arrow preview
- if (isArrowMode && currentArrowPoints.length === 1) {
- const x1 = timeToScreen(currentArrowPoints[0].timestamp);
- const y1 = priceToScreenForDrawings(currentArrowPoints[0].price);
- ctx.strokeStyle = '#00ff00';
- ctx.lineWidth = 2;
- ctx.setLineDash([5, 5]);
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(crosshairPosition.x, crosshairPosition.y);
- ctx.stroke();
- ctx.setLineDash([]);
- }
-
- // Fibonacci Retracement preview
- if (isFibRetracementMode && currentFibRetPoints.length === 1) {
- const x1 = timeToScreen(currentFibRetPoints[0].timestamp);
- const y1 = priceToScreenForDrawings(currentFibRetPoints[0].price);
- ctx.strokeStyle = '#00ff00';
- ctx.lineWidth = 1;
- ctx.setLineDash([5, 5]);
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(crosshairPosition.x, crosshairPosition.y);
- ctx.stroke();
- ctx.setLineDash([]);
- }
-
- // Fibonacci Extension preview
- if (isFibExtensionMode && currentFibExtPoints.length > 0) {
- ctx.strokeStyle = '#00ff00';
- ctx.lineWidth = 1;
- ctx.setLineDash([5, 5]);
- 
- if (currentFibExtPoints.length === 1) {
- const x1 = timeToScreen(currentFibExtPoints[0].timestamp);
- const y1 = priceToScreenForDrawings(currentFibExtPoints[0].price);
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(crosshairPosition.x, crosshairPosition.y);
- ctx.stroke();
- } else if (currentFibExtPoints.length === 2) {
- const x1 = timeToScreen(currentFibExtPoints[0].timestamp);
- const y1 = priceToScreenForDrawings(currentFibExtPoints[0].price);
- const x2 = timeToScreen(currentFibExtPoints[1].timestamp);
- const y2 = priceToScreenForDrawings(currentFibExtPoints[1].price);
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(x2, y2);
- ctx.lineTo(crosshairPosition.x, crosshairPosition.y);
- ctx.stroke();
- }
- 
- ctx.setLineDash([]);
- }
-
  // Draw box zoom selection
  if (isBoxZooming && boxZoomStart && boxZoomEnd) {
  const startX = Math.min(boxZoomStart.x, boxZoomEnd.x);
@@ -4611,10 +4085,7 @@ export default function TradingViewChart({
  const centerY = (startY + endY) / 2;
  ctx.fillText('Release to zoom', centerX, centerY);
  }
- }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd, isParallelChannelMode, 
- isTrendLineMode, currentTrendPoints, isRectangleMode, currentRectPoints, isCircleMode, currentCirclePoints,
- isTriangleMode, currentTrianglePoints, isArrowMode, currentArrowPoints, isFibRetracementMode, currentFibRetPoints,
- isFibExtensionMode, currentFibExtPoints]);
+ }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd, isParallelChannelMode]);
 
  // Update overlay when interactions change
  useEffect(() => {
@@ -4878,20 +4349,20 @@ export default function TradingViewChart({
  // Render main price chart
  const renderChart = useCallback(() => {
  const canvas = chartCanvasRef.current;
- if (DEBUG_MODE) console.log(`?? renderChart called - data.length: ${data.length}, dimensions: ${dimensions.width}x${dimensions.height}`);
+ console.log(`?? renderChart called - data.length: ${data.length}, dimensions: ${dimensions.width}x${dimensions.height}`);
  
  if (!canvas || !data.length || dimensions.width === 0 || dimensions.height === 0) {
- if (DEBUG_MODE) console.log(`?? renderChart early return - canvas: ${!!canvas}, data.length: ${data.length}, dimensions: ${dimensions.width}x${dimensions.height}`);
+ console.log(`?? renderChart early return - canvas: ${!!canvas}, data.length: ${data.length}, dimensions: ${dimensions.width}x${dimensions.height}`);
  return;
  }
 
  const ctx = canvas.getContext('2d');
  if (!ctx) {
- if (DEBUG_MODE) console.log(`?? renderChart - no canvas context`);
+ console.log(`?? renderChart - no canvas context`);
  return;
  }
 
- if (DEBUG_MODE) console.log(`? renderChart proceeding with rendering...`);
+ console.log(`? renderChart proceeding with rendering...`);
  const { width } = dimensions;
  const height = chartHeight;
 
@@ -6293,290 +5764,6 @@ export default function TradingViewChart({
  });
  }
 
- // Draw vertical lines
- if (verticalLines.length > 0) {
- verticalLines.forEach(line => {
- const x = timeToScreen(line.timestamp);
- if (x >= 40 && x <= dimensions.width - 80) {
- ctx.strokeStyle = line.color || '#00ff00';
- ctx.lineWidth = line.lineWidth || 2;
- ctx.setLineDash(line.lineStyle === 'dashed' ? [10, 5] : line.lineStyle === 'dotted' ? [2, 3] : []);
- ctx.beginPath();
- ctx.moveTo(x, 0);
- ctx.lineTo(x, dimensions.height);
- ctx.stroke();
- }
- });
- }
-
- // Draw horizontal lines
- if (horizontalLines.length > 0) {
- horizontalLines.forEach(line => {
- const y = priceToScreenForDrawings(line.price);
- if (y >= 0 && y <= dimensions.height) {
- ctx.strokeStyle = line.color || '#00ff00';
- ctx.lineWidth = line.lineWidth || 2;
- ctx.setLineDash(line.lineStyle === 'dashed' ? [10, 5] : line.lineStyle === 'dotted' ? [2, 3] : []);
- ctx.beginPath();
- ctx.moveTo(40, y);
- ctx.lineTo(dimensions.width - 80, y);
- ctx.stroke();
- }
- });
- }
-
- // Draw trend lines
- if (trendLines.length > 0) {
- trendLines.forEach(line => {
- const x1 = timeToScreen(line.point1.timestamp);
- const y1 = priceToScreenForDrawings(line.point1.price);
- const x2 = timeToScreen(line.point2.timestamp);
- const y2 = priceToScreenForDrawings(line.point2.price);
- 
- ctx.strokeStyle = line.color || '#00ff00';
- ctx.lineWidth = line.lineWidth || 2;
- ctx.setLineDash(line.lineStyle === 'dashed' ? [10, 5] : line.lineStyle === 'dotted' ? [2, 3] : []);
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(x2, y2);
- ctx.stroke();
- ctx.setLineDash([]);
- });
- }
-
- // Draw rectangles
- if (rectangles.length > 0) {
- rectangles.forEach(rect => {
- const x1 = timeToScreen(rect.point1.timestamp);
- const y1 = priceToScreenForDrawings(rect.point1.price);
- const x2 = timeToScreen(rect.point2.timestamp);
- const y2 = priceToScreenForDrawings(rect.point2.price);
- 
- const minX = Math.min(x1, x2);
- const minY = Math.min(y1, y2);
- const width = Math.abs(x2 - x1);
- const height = Math.abs(y2 - y1);
- 
- // Fill
- if (rect.fillOpacity > 0) {
- ctx.fillStyle = rect.fillColor || '#00ff0033';
- ctx.globalAlpha = rect.fillOpacity;
- ctx.fillRect(minX, minY, width, height);
- ctx.globalAlpha = 1;
- }
- 
- // Border
- ctx.strokeStyle = rect.borderColor || '#00ff00';
- ctx.lineWidth = rect.lineWidth || 2;
- ctx.strokeRect(minX, minY, width, height);
- });
- }
-
- // Draw circles
- if (circles.length > 0) {
- circles.forEach(circle => {
- const cx = timeToScreen(circle.center.timestamp);
- const cy = priceToScreenForDrawings(circle.center.price);
- 
- ctx.save();
- ctx.translate(cx, cy);
- ctx.scale(circle.radius.x, circle.radius.y);
- 
- // Fill
- if (circle.fillOpacity > 0) {
- ctx.fillStyle = circle.fillColor || '#00ff0033';
- ctx.globalAlpha = circle.fillOpacity;
- ctx.beginPath();
- ctx.arc(0, 0, 1, 0, 2 * Math.PI);
- ctx.fill();
- ctx.globalAlpha = 1;
- }
- 
- // Border
- ctx.strokeStyle = circle.borderColor || '#00ff00';
- ctx.lineWidth = circle.lineWidth || 2;
- ctx.beginPath();
- ctx.arc(0, 0, 1, 0, 2 * Math.PI);
- ctx.stroke();
- ctx.restore();
- });
- }
-
- // Draw triangles
- if (triangles.length > 0) {
- triangles.forEach(tri => {
- const x1 = timeToScreen(tri.point1.timestamp);
- const y1 = priceToScreenForDrawings(tri.point1.price);
- const x2 = timeToScreen(tri.point2.timestamp);
- const y2 = priceToScreenForDrawings(tri.point2.price);
- const x3 = timeToScreen(tri.point3.timestamp);
- const y3 = priceToScreenForDrawings(tri.point3.price);
- 
- // Fill
- if (tri.fillOpacity > 0) {
- ctx.fillStyle = tri.fillColor || '#00ff0033';
- ctx.globalAlpha = tri.fillOpacity;
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(x2, y2);
- ctx.lineTo(x3, y3);
- ctx.closePath();
- ctx.fill();
- ctx.globalAlpha = 1;
- }
- 
- // Border
- ctx.strokeStyle = tri.borderColor || '#00ff00';
- ctx.lineWidth = tri.lineWidth || 2;
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(x2, y2);
- ctx.lineTo(x3, y3);
- ctx.closePath();
- ctx.stroke();
- });
- }
-
- // Draw arrows
- if (arrows.length > 0) {
- arrows.forEach(arrow => {
- const x1 = timeToScreen(arrow.point1.timestamp);
- const y1 = priceToScreenForDrawings(arrow.point1.price);
- const x2 = timeToScreen(arrow.point2.timestamp);
- const y2 = priceToScreenForDrawings(arrow.point2.price);
- 
- // Draw line
- ctx.strokeStyle = arrow.color || '#00ff00';
- ctx.lineWidth = arrow.lineWidth || 2;
- ctx.beginPath();
- ctx.moveTo(x1, y1);
- ctx.lineTo(x2, y2);
- ctx.stroke();
- 
- // Draw arrowhead
- const angle = Math.atan2(y2 - y1, x2 - x1);
- const arrowSize = arrow.arrowSize || 10;
- ctx.fillStyle = arrow.color || '#00ff00';
- ctx.beginPath();
- ctx.moveTo(x2, y2);
- ctx.lineTo(x2 - arrowSize * Math.cos(angle - Math.PI / 6), y2 - arrowSize * Math.sin(angle - Math.PI / 6));
- ctx.lineTo(x2 - arrowSize * Math.cos(angle + Math.PI / 6), y2 - arrowSize * Math.sin(angle + Math.PI / 6));
- ctx.closePath();
- ctx.fill();
- });
- }
-
- // Draw Fibonacci Retracements
- if (fibRetracements.length > 0) {
- fibRetracements.forEach(fib => {
- const x1 = timeToScreen(fib.point1.timestamp);
- const y1 = priceToScreenForDrawings(fib.point1.price);
- const x2 = timeToScreen(fib.point2.timestamp);
- const y2 = priceToScreenForDrawings(fib.point2.price);
- 
- const priceDiff = fib.point2.price - fib.point1.price;
- 
- ctx.strokeStyle = fib.color || '#00ff00';
- ctx.lineWidth = fib.lineWidth || 1;
- ctx.setLineDash([5, 3]);
- 
- fib.levels.forEach(level => {
- const price = fib.point1.price + (priceDiff * level);
- const y = priceToScreenForDrawings(price);
- 
- ctx.beginPath();
- ctx.moveTo(x1, y);
- ctx.lineTo(fib.extendRight ? dimensions.width - 80 : x2, y);
- ctx.stroke();
- 
- if (fib.showLabels) {
- ctx.fillStyle = fib.color || '#00ff00';
- ctx.font = '12px Arial';
- ctx.fillText(`${(level * 100).toFixed(1)}% - ${price.toFixed(2)}`, x2 + 5, y - 3);
- }
- });
- ctx.setLineDash([]);
- });
- }
-
- // Draw Fibonacci Extensions
- if (fibExtensions.length > 0) {
- fibExtensions.forEach(fibExt => {
- const x1 = timeToScreen(fibExt.point1.timestamp);
- const y1 = priceToScreenForDrawings(fibExt.point1.price);
- const x2 = timeToScreen(fibExt.point2.timestamp);
- const y2 = priceToScreenForDrawings(fibExt.point2.price);
- const x3 = timeToScreen(fibExt.point3.timestamp);
- 
- const priceDiff = fibExt.point2.price - fibExt.point1.price;
- 
- ctx.strokeStyle = fibExt.color || '#00ff00';
- ctx.lineWidth = fibExt.lineWidth || 1;
- ctx.setLineDash([5, 3]);
- 
- fibExt.levels.forEach(level => {
- const price = fibExt.point3.price + (priceDiff * level);
- const y = priceToScreenForDrawings(price);
- 
- ctx.beginPath();
- ctx.moveTo(x3, y);
- ctx.lineTo(dimensions.width - 80, y);
- ctx.stroke();
- 
- if (fibExt.showLabels) {
- ctx.fillStyle = fibExt.color || '#00ff00';
- ctx.font = '12px Arial';
- ctx.fillText(`${(level * 100).toFixed(1)}% - ${price.toFixed(2)}`, x3 + 5, y - 3);
- }
- });
- ctx.setLineDash([]);
- });
- }
-
- // Draw text notes
- if (textNotes.length > 0) {
- textNotes.forEach(note => {
- const x = timeToScreen(note.position.timestamp);
- const y = priceToScreenForDrawings(note.position.price);
- 
- ctx.font = `${note.fontSize}px Arial`;
- const textMetrics = ctx.measureText(note.text);
- const textWidth = textMetrics.width;
- const textHeight = note.fontSize * 1.2;
- 
- // Background
- ctx.fillStyle = note.backgroundColor;
- ctx.globalAlpha = note.backgroundOpacity;
- ctx.fillRect(x, y - textHeight, textWidth + 8, textHeight + 8);
- ctx.globalAlpha = 1;
- 
- // Text
- ctx.fillStyle = note.color;
- ctx.textAlign = 'left';
- ctx.fillText(note.text, x + 4, y - 4);
- });
- }
-
- // Draw price labels
- if (priceLabels.length > 0) {
- priceLabels.forEach(label => {
- const x = timeToScreen(label.timestamp);
- const y = priceToScreenForDrawings(label.price);
- 
- ctx.font = '12px Arial';
- const textWidth = ctx.measureText(label.text).width;
- 
- // Background
- ctx.fillStyle = label.backgroundColor;
- ctx.fillRect(x - textWidth/2 - 4, y - 10, textWidth + 8, 20);
- 
- // Text
- ctx.fillStyle = label.color;
- ctx.textAlign = 'center';
- ctx.fillText(label.text, x, y + 5);
- });
- }
-
  // Draw current channel being created (visual feedback with live preview)
  if (isParallelChannelMode && (currentChannelPoints.length > 0 || channelPreviewPoint)) {
  // Save current context state
@@ -6791,7 +5978,7 @@ export default function TradingViewChart({
  const mainLineEndY = point2Y;
  
  // Calculate perpendicular distance from point3 to the main line
- // Formula for distance from point to line: |ax + by + c| / sqrt(a� + b�)
+ // Formula for distance from point to line: |ax + by + c| / sqrt(a  + b )
  const A = point2Y - point1Y;
  const B = point1X - point2X;
  const C = (point2X - point1X) * point1Y - (point2Y - point1Y) * point1X;
@@ -6916,10 +6103,10 @@ export default function TradingViewChart({
  // Re-render when data or settings change
  useEffect(() => {
  if (dimensions.width > 0 && dimensions.height > 0) {
- if (DEBUG_MODE) console.log(`?? Rendering chart with ${data.length} data points`);
+ console.log(`?? Rendering chart with ${data.length} data points`);
  renderChart();
  }
- }, [renderChart, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive]);
+ }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive, horizontalRays, parallelChannels, currentChannelPoints, channelPreviewPoint, isParallelChannelMode, drawingBrushes, currentBrushStroke, isBrushing]);
 
  // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
  useEffect(() => {
@@ -7280,261 +6467,6 @@ export default function TradingViewChart({
  activateToolExclusively('none'); // Clear all tools instead of just this one
  }
  
- return;
- }
-
- // Vertical Line mode
- if (isVerticalLineMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- const newLine: VerticalLine = {
- id: Date.now().toString(),
- timestamp: coords.timestamp,
- color: '#00ff00',
- lineWidth: 2,
- lineStyle: 'solid',
- label: `Vertical Line ${verticalLines.length + 1}`
- };
- setVerticalLines(prev => [...prev, newLine]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return;
- }
-
- // Horizontal Line mode
- if (isHorizontalLineMode) {
- const price = screenToPrice(y);
- const newLine: HorizontalLine = {
- id: Date.now().toString(),
- price: price,
- color: '#00ff00',
- lineWidth: 2,
- lineStyle: 'solid',
- label: `Horizontal Line ${horizontalLines.length + 1}`
- };
- setHorizontalLines(prev => [...prev, newLine]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return;
- }
-
- // Trend Line mode (two clicks)
- if (isTrendLineMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- setCurrentTrendPoints(prev => {
- if (prev.length === 0) {
- return [coords];
- } else if (prev.length === 1) {
- const newLine: TrendLine = {
- id: Date.now().toString(),
- point1: prev[0],
- point2: coords,
- color: '#00ff00',
- lineWidth: 2,
- lineStyle: 'solid',
- extendLeft: false,
- extendRight: false,
- label: `Trend Line ${trendLines.length + 1}`,
- };
- setTrendLines(prevLines => [...prevLines, newLine]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return [];
- }
- return prev;
- });
- return;
- }
-
- // Rectangle mode (two clicks)
- if (isRectangleMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- setCurrentRectPoints(prev => {
- if (prev.length === 0) {
- return [coords];
- } else if (prev.length === 1) {
- const newRect: Rectangle = {
- id: Date.now().toString(),
- point1: prev[0],
- point2: coords,
- borderColor: '#00ff00',
- fillColor: '#00ff0033',
- lineWidth: 2,
- fillOpacity: 0.2,
- label: `Rectangle ${rectangles.length + 1}`,
- };
- setRectangles(prevRects => [...prevRects, newRect]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return [];
- }
- return prev;
- });
- return;
- }
-
- // Circle mode (two clicks: center and radius)
- if (isCircleMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- setCurrentCirclePoints(prev => {
- if (prev.length === 0) {
- return [coords];
- } else if (prev.length === 1) {
- const newCircle: Circle = {
- id: Date.now().toString(),
- center: prev[0],
- radius: { x: Math.abs(x - timeToScreen(prev[0].timestamp)), y: Math.abs(y - priceToScreenForDrawings(prev[0].price)) },
- borderColor: '#00ff00',
- fillColor: '#00ff0033',
- lineWidth: 2,
- fillOpacity: 0.2,
- label: `Circle ${circles.length + 1}`,
- };
- setCircles(prevCircles => [...prevCircles, newCircle]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return [];
- }
- return prev;
- });
- return;
- }
-
- // Triangle mode (three clicks)
- if (isTriangleMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- setCurrentTrianglePoints(prev => {
- if (prev.length < 2) {
- return [...prev, coords];
- } else if (prev.length === 2) {
- const newTriangle: Triangle = {
- id: Date.now().toString(),
- point1: prev[0],
- point2: prev[1],
- point3: coords,
- borderColor: '#00ff00',
- fillColor: '#00ff0033',
- lineWidth: 2,
- fillOpacity: 0.2,
- label: `Triangle ${triangles.length + 1}`,
- };
- setTriangles(prevTriangles => [...prevTriangles, newTriangle]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return [];
- }
- return prev;
- });
- return;
- }
-
- // Arrow mode (two clicks)
- if (isArrowMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- setCurrentArrowPoints(prev => {
- if (prev.length === 0) {
- return [coords];
- } else if (prev.length === 1) {
- const newArrow: Arrow = {
- id: Date.now().toString(),
- point1: prev[0],
- point2: coords,
- color: '#00ff00',
- lineWidth: 2,
- arrowSize: 10,
- label: `Arrow ${arrows.length + 1}`,
- };
- setArrows(prevArrows => [...prevArrows, newArrow]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return [];
- }
- return prev;
- });
- return;
- }
-
- // Fibonacci Retracement mode (two clicks)
- if (isFibRetracementMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- setCurrentFibRetPoints(prev => {
- if (prev.length === 0) {
- return [coords];
- } else if (prev.length === 1) {
- const newFib: FibRetracement = {
- id: Date.now().toString(),
- point1: prev[0],
- point2: coords,
- color: '#00ff00',
- lineWidth: 1,
- levels: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1],
- showLabels: true,
- extendRight: true,
- label: `Fib Retracement ${fibRetracements.length + 1}`,
- };
- setFibRetracements(prevFibs => [...prevFibs, newFib]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return [];
- }
- return prev;
- });
- return;
- }
-
- // Fibonacci Extension mode (three clicks)
- if (isFibExtensionMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- setCurrentFibExtPoints(prev => {
- if (prev.length < 2) {
- return [...prev, coords];
- } else if (prev.length === 2) {
- const newFibExt: FibExtension = {
- id: Date.now().toString(),
- point1: prev[0],
- point2: prev[1],
- point3: coords,
- color: '#00ff00',
- lineWidth: 1,
- levels: [0, 0.618, 1, 1.618, 2.618, 4.236],
- showLabels: true,
- label: `Fib Extension ${fibExtensions.length + 1}`,
- };
- setFibExtensions(prevFibExts => [...prevFibExts, newFibExt]);
- if (!isDrawingLocked) activateToolExclusively('none');
- return [];
- }
- return prev;
- });
- return;
- }
-
- // Text Note mode
- if (isTextNoteMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- const text = prompt('Enter note text:');
- if (text) {
- const newNote: TextNote = {
- id: Date.now().toString(),
- position: coords,
- text: text,
- color: '#ffffff',
- fontSize: 14,
- backgroundColor: '#000000',
- backgroundOpacity: 0.7,
- label: `Note ${textNotes.length + 1}`,
- };
- setTextNotes(prevNotes => [...prevNotes, newNote]);
- }
- if (!isDrawingLocked) activateToolExclusively('none');
- return;
- }
-
- // Price Label mode
- if (isPriceLabelMode) {
- const coords = screenToTimePriceCoordinates(x, y);
- const newLabel: PriceLabel = {
- id: Date.now().toString(),
- price: coords.price,
- timestamp: coords.timestamp,
- text: `$${coords.price.toFixed(2)}`,
- color: '#ffffff',
- backgroundColor: '#0088ff',
- label: `Price Label ${priceLabels.length + 1}`,
- };
- setPriceLabels(prevLabels => [...prevLabels, newLabel]);
- if (!isDrawingLocked) activateToolExclusively('none');
  return;
  }
 
@@ -11438,16 +10370,7 @@ export default function TradingViewChart({
  <button
  ref={drawingsButtonRef}
  onClick={() => setIsDrawingsDropdownOpen(!isDrawingsDropdownOpen)}
- className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white ${(
- isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode || isTrendLineMode ||
- isArrowMode || isExtendedLineMode || isRayMode || isFibRetracementMode ||
- isFibExtensionMode || isFibChannelMode || isGannBoxMode || isGannFanMode ||
- isRectangleMode || isCircleMode || isTriangleMode || isPolygonMode ||
- isPathMode || isPitchforkMode || isTextMode || isNoteMode ||
- isPriceNoteMode || isArrowMarkerMode || isFlagMode || isMeasureMode ||
- isRulerMode || isHeadAndShouldersMode || isTrianglePatternMode ||
- isElliotWaveMode || isLongPositionMode || isShortPositionMode
- ) ? 'active' : ''}`}
+ className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
  style={{
  padding: '10px 14px',
  fontWeight: '700',
@@ -11461,16 +10384,7 @@ export default function TradingViewChart({
  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
  </svg>
- {(
- isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode || isTrendLineMode ||
- isArrowMode || isExtendedLineMode || isRayMode || isFibRetracementMode ||
- isFibExtensionMode || isFibChannelMode || isGannBoxMode || isGannFanMode ||
- isRectangleMode || isCircleMode || isTriangleMode || isPolygonMode ||
- isPathMode || isPitchforkMode || isTextMode || isNoteMode ||
- isPriceNoteMode || isArrowMarkerMode || isFlagMode || isMeasureMode ||
- isRulerMode || isHeadAndShouldersMode || isTrianglePatternMode ||
- isElliotWaveMode || isLongPositionMode || isShortPositionMode
- ) && (
+ {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
  <div 
  className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
  style={{
@@ -11484,269 +10398,54 @@ export default function TradingViewChart({
  {/* Dropdown Menu */}
  {isDrawingsDropdownOpen && createPortal(
  <div 
- className="absolute bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden" 
+ className="absolute w-48 bg-gray-800 border border-gray-600 rounded-md shadow-lg" 
  style={{ 
- top: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().bottom + 8 : 100,
+ top: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().bottom + 4 : 100,
  left: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().left : 400,
  zIndex: 99999,
- width: '420px',
- maxHeight: '600px',
- overflowY: 'auto',
- boxShadow: '0 20px 60px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.1)',
- background: 'linear-gradient(135deg, rgba(30, 30, 35, 0.98) 0%, rgba(20, 20, 25, 0.98) 100%)',
- backdropFilter: 'blur(20px)'
+ boxShadow: '0 10px 25px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+ background: 'rgba(40, 40, 40, 0.98)',
+ backdropFilter: 'blur(10px)'
  }}
  >
- {/* Lines & Trend Tools */}
- <div className="border-b border-gray-800">
- <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-900/50">
- Lines & Trends
- </div>
- <div className="grid grid-cols-2 gap-1 p-2">
- <DrawingToolButton
- icon={TbLine}
- label="Trend Line"
- active={isTrendLineMode}
- onClick={() => { activateToolExclusively('trendline'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbArrowsHorizontal}
- label="Horizontal Line"
- active={isHorizontalRayMode}
- onClick={() => { activateToolExclusively('horizontal'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbLineDashed}
- label="Extended Line"
- active={isExtendedLineMode}
- onClick={() => { activateToolExclusively('extendedline'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbArrowRight}
- label="Ray"
- active={isRayMode}
- onClick={() => { activateToolExclusively('ray'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbArrowUp}
- label="Arrow"
- active={isArrowMode}
- onClick={() => { activateToolExclusively('arrow'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbBoxMultiple}
- label="Parallel Channel"
- active={isParallelChannelMode}
- onClick={() => { activateToolExclusively('channel'); setIsDrawingsDropdownOpen(false); }}
- />
- </div>
- </div>
+ <div className="py-1">
+ <button
+ onClick={() => {
+ activateToolExclusively(isHorizontalRayMode ? 'none' : 'horizontal');
+ setIsDrawingsDropdownOpen(false);
+ console.log('?? Horizontal Ray mode:', !isHorizontalRayMode);
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isHorizontalRayMode ? 'bg-gray-700' : ''}`}
+ >
+ <TbArrowsHorizontal className="w-5 h-5" />
+ <span>Horizontal Ray</span>
+ </button>
+ 
+ <button
+ onClick={() => {
+ activateToolExclusively(isParallelChannelMode ? 'none' : 'channel');
+ setIsDrawingsDropdownOpen(false);
+ console.log('?? Parallel Channel mode:', !isParallelChannelMode);
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isParallelChannelMode ? 'bg-gray-700' : ''}`}
+ title="Click 3 points: 1) Start trend line 2) End trend line 3) Define channel width"
+ >
+ <TbBoxMultiple className="w-5 h-5" />
+ <span>Parallel Channels</span>
+ </button>
 
- {/* Fibonacci Tools */}
- <div className="border-b border-gray-800">
- <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-900/50">
- Fibonacci
- </div>
- <div className="grid grid-cols-2 gap-1 p-2">
- <DrawingToolButton
- icon={TbChartArcs}
- label="Fib Retracement"
- active={isFibRetracementMode}
- onClick={() => { activateToolExclusively('fibretracement'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbChartCircles}
- label="Fib Extension"
- active={isFibExtensionMode}
- onClick={() => { activateToolExclusively('fibextension'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbWaveSine}
- label="Fib Channel"
- active={isFibChannelMode}
- onClick={() => { activateToolExclusively('fibchannel'); setIsDrawingsDropdownOpen(false); }}
- />
- </div>
- </div>
-
- {/* Gann Tools */}
- <div className="border-b border-gray-800">
- <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-900/50">
- Gann & Geometry
- </div>
- <div className="grid grid-cols-2 gap-1 p-2">
- <DrawingToolButton
- icon={TbSquare}
- label="Gann Box"
- active={isGannBoxMode}
- onClick={() => { activateToolExclusively('gannbox'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbTrendingUp3}
- label="Gann Fan"
- active={isGannFanMode}
- onClick={() => { activateToolExclusively('gannfan'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbMathFunction}
- label="Pitchfork"
- active={isPitchforkMode}
- onClick={() => { activateToolExclusively('pitchfork'); setIsDrawingsDropdownOpen(false); }}
- />
- </div>
- </div>
-
- {/* Shapes */}
- <div className="border-b border-gray-800">
- <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-900/50">
- Shapes
- </div>
- <div className="grid grid-cols-2 gap-1 p-2">
- <DrawingToolButton
- icon={TbSquare}
- label="Rectangle"
- active={isRectangleMode}
- onClick={() => { activateToolExclusively('rectangle'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbCircle}
- label="Circle"
- active={isCircleMode}
- onClick={() => { activateToolExclusively('circle'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbTriangle}
- label="Triangle"
- active={isTriangleMode}
- onClick={() => { activateToolExclusively('triangle'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbPolygon}
- label="Polygon"
- active={isPolygonMode}
- onClick={() => { activateToolExclusively('polygon'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbBrush}
- label="Brush"
- active={isDrawingBrushMode}
- onClick={() => { activateToolExclusively('brush'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbChartDots}
- label="Path"
- active={isPathMode}
- onClick={() => { activateToolExclusively('path'); setIsDrawingsDropdownOpen(false); }}
- />
- </div>
- </div>
-
- {/* Annotations */}
- <div className="border-b border-gray-800">
- <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-900/50">
- Annotations
- </div>
- <div className="grid grid-cols-2 gap-1 p-2">
- <DrawingToolButton
- icon={TbTextCaption}
- label="Text"
- active={isTextMode}
- onClick={() => { activateToolExclusively('text'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbNote}
- label="Note"
- active={isNoteMode}
- onClick={() => { activateToolExclusively('note'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbPin}
- label="Price Note"
- active={isPriceNoteMode}
- onClick={() => { activateToolExclusively('pricenote'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbArrowBigUp}
- label="Arrow Marker"
- active={isArrowMarkerMode}
- onClick={() => { activateToolExclusively('arrowmarker'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbFlag}
- label="Flag"
- active={isFlagMode}
- onClick={() => { activateToolExclusively('flag'); setIsDrawingsDropdownOpen(false); }}
- />
- </div>
- </div>
-
- {/* Measurement Tools */}
- <div className="border-b border-gray-800">
- <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-900/50">
- Measurement
- </div>
- <div className="grid grid-cols-2 gap-1 p-2">
- <DrawingToolButton
- icon={TbRuler}
- label="Measure"
- active={isMeasureMode}
- onClick={() => { activateToolExclusively('measure'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbTimeline}
- label="Time Ruler"
- active={isRulerMode}
- onClick={() => { activateToolExclusively('ruler'); setIsDrawingsDropdownOpen(false); }}
- />
- </div>
- </div>
-
- {/* Patterns */}
- <div className="border-b border-gray-800">
- <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-900/50">
- Patterns
- </div>
- <div className="grid grid-cols-2 gap-1 p-2">
- <DrawingToolButton
- icon={TbTrendingUp}
- label="Head & Shoulders"
- active={isHeadAndShouldersMode}
- onClick={() => { activateToolExclusively('headandshoulders'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbTriangle}
- label="Triangle Pattern"
- active={isTrianglePatternMode}
- onClick={() => { activateToolExclusively('trianglepattern'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbWaveSine}
- label="Elliott Wave"
- active={isElliotWaveMode}
- onClick={() => { activateToolExclusively('elliotwave'); setIsDrawingsDropdownOpen(false); }}
- />
- </div>
- </div>
-
- {/* Trading Positions */}
- <div>
- <div className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-900/50">
- Trading Positions
- </div>
- <div className="grid grid-cols-2 gap-1 p-2">
- <DrawingToolButton
- icon={TbArrowBigUp}
- label="Long Position"
- active={isLongPositionMode}
- onClick={() => { activateToolExclusively('longposition'); setIsDrawingsDropdownOpen(false); }}
- />
- <DrawingToolButton
- icon={TbArrowBigDown}
- label="Short Position"
- active={isShortPositionMode}
- onClick={() => { activateToolExclusively('shortposition'); setIsDrawingsDropdownOpen(false); }}
- />
- </div>
+ <button
+ onClick={() => {
+ activateToolExclusively(isDrawingBrushMode ? 'none' : 'brush');
+ setIsDrawingsDropdownOpen(false);
+ console.log('?? Drawing Brush mode:', !isDrawingBrushMode);
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isDrawingBrushMode ? 'bg-gray-700' : ''}`}
+ title="Hold and drag to draw freehand on the chart"
+ >
+ <TbBrush className="w-5 h-5" />
+ <span>Drawing Brush</span>
+ </button>
  </div>
  </div>, 
  document.body
@@ -11763,16 +10462,7 @@ export default function TradingViewChart({
  )}
  
  {/* Drawing Lock Toggle */}
- {(
- isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode || isTrendLineMode ||
- isArrowMode || isExtendedLineMode || isRayMode || isFibRetracementMode ||
- isFibExtensionMode || isFibChannelMode || isGannBoxMode || isGannFanMode ||
- isRectangleMode || isCircleMode || isTriangleMode || isPolygonMode ||
- isPathMode || isPitchforkMode || isTextMode || isNoteMode ||
- isPriceNoteMode || isArrowMarkerMode || isFlagMode || isMeasureMode ||
- isRulerMode || isHeadAndShouldersMode || isTrianglePatternMode ||
- isElliotWaveMode || isLongPositionMode || isShortPositionMode
- ) && (
+ {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
  <button
  onClick={() => setIsDrawingLocked(!isDrawingLocked)}
  className={`btn-3d-carved absolute top-0 -right-8 w-6 h-6 flex items-center justify-center text-xs ${isDrawingLocked ? 'active' : ''}`}
@@ -11787,24 +10477,6 @@ export default function TradingViewChart({
  )}
  </div>
  </div>
-
-              {/* ADMIN Levels Button */}
-              <div className="ml-4 relative">
-                <button
-                  className="btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white"
-                  style={{
-                    padding: '10px 14px',
-                    fontWeight: '700',
-                    fontSize: '13px',
-                    borderRadius: '4px',
-                    outline: '2px solid #cc5500',
-                    outlineOffset: '-2px'
-                  }}
-                  title="ADMIN Levels"
-                >
-                  <span>ADMIN Levels</span>
-                </button>
-              </div>
 
               {/* Live FlowMoves Button */}
               <div className="ml-4 relative">
@@ -11958,7 +10630,7 @@ export default function TradingViewChart({
  onClick={() => setShowSettings(false)}
  className="text-gray-500 hover:text-white text-2xl transition-colors hover:bg-gray-900 rounded-lg w-8 h-8 flex items-center justify-center"
  >
- �
+  
  </button>
  </div>
 
@@ -12571,7 +11243,7 @@ export default function TradingViewChart({
 
  {/* Sidebar Panels */}
  {activeSidebarPanel && (
- <div className="fixed top-32 bottom-4 left-16 w-[1000px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden">
+ <div className="fixed top-32 bottom-4 left-16 w-[calc(100vw-5rem)] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden">
 {/* Sidebar panel debugging */}
  {/* Panel Header */}
  <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
@@ -12825,7 +11497,7 @@ export default function TradingViewChart({
  }}
  className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
  >
- �
+  
  </button>
  </div>
 
@@ -12984,7 +11656,7 @@ export default function TradingViewChart({
  }}
  className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
  >
- �
+  
  </button>
  </div>
 
@@ -13184,4 +11856,3 @@ export default function TradingViewChart({
  </>
  );
 }
-
