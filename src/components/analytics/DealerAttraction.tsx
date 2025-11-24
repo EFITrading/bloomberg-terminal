@@ -46,29 +46,26 @@ interface MMData {
   totalOI: number;
   daysToExpiry: number;
   impact: number;
+  // Enhanced Greeks data
+  netDelta: number;
+  netGamma: number;
+  netTheta: number;
+  netVega: number;
+  callDelta: number;
+  putDelta: number;
+  callGamma: number;
+  putGamma: number;
+  callTheta: number;
+  putTheta: number;
+  callVega: number;
+  putVega: number;
 }
 
 interface MMDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
-  expirations: string[];
-}
-
-interface PPData {
-  strike: number;
-  totalOI: number;
-  pinForce: number;
-  distance: number;
-  pullDirection: 'up' | 'down' | 'neutral';
-  pinProbability: number;
-  daysToExpiry: number;
-}
-
-interface MPDashboardProps {
-  selectedTicker: string;
-  currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callTheta?: number, putTheta?: number, callVega?: number, putVega?: number}}};
+  vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
   expirations: string[];
 }
 
@@ -80,8 +77,16 @@ interface SIDashboardProps {
   expirations: string[];
 }
 
-// MM Dashboard Component
-const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, expirations }) => {
+interface MaxPainDashboardProps {
+  selectedTicker: string;
+  currentPrice: number;
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}};
+  vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
+  expirations: string[];
+}
+
+// MM Dashboard Component - Enhanced with Full Greeks
+const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
   
   // Filter to 45-day expirations only
   const mmExpirations = useMemo(() => {
@@ -89,7 +94,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
     const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000)); // 45 days from now
     
     return expirations.filter(exp => {
-      const expDate = new Date(exp);
+      const expDate = new Date(exp + 'T00:00:00Z');
       return expDate <= maxDate;
     }).sort();
   }, [expirations]);
@@ -118,16 +123,23 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       let totalOI = 0;
       let avgDaysToExpiry = 0;
       let validExpirations = 0;
+      
+      // Enhanced Greeks aggregation
+      let totalCallDelta = 0, totalPutDelta = 0;
+      let totalCallGamma = 0, totalPutGamma = 0;
+      let totalCallTheta = 0, totalPutTheta = 0;
+      let totalCallVega = 0, totalPutVega = 0;
 
       mmExpirations.forEach(exp => {
         const strikeData = gexByStrikeByExpiration[exp]?.[strike];
+        const vexData = vexByStrikeByExpiration[exp]?.[strike];
         if (strikeData) {
           // Calculate days to expiry first for weighting
-          const expDate = new Date(exp);
+          const expDate = new Date(exp + 'T00:00:00Z');
           const today = new Date();
           const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           
-          // Apply your time decay weighting formula: (8 - Math.min(7, daysToExp)) / 7
+          // Apply time decay weighting formula: (8 - Math.min(7, daysToExp)) / 7
           const dteWeight = daysToExp >= 0 ? (8 - Math.min(7, daysToExp)) / 7 : 1;
           
           // Convert GEX to MM: MM = GEX / (Stock Price * 0.01) for 1% move
@@ -137,6 +149,35 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           totalCallMM += callMM;
           totalPutMM += putMM;
           totalOI += (strikeData.callOI || 0) + (strikeData.putOI || 0);
+          
+          // Aggregate Greeks with DTE weighting
+          const callOI = strikeData.callOI || 0;
+          const putOI = strikeData.putOI || 0;
+          
+          // Delta: Approximate based on moneyness
+          const moneyness = strike / currentPrice;
+          let callDelta = 0, putDelta = 0;
+          if (moneyness > 1.1) { callDelta = 0.1; putDelta = -0.9; }
+          else if (moneyness > 1.05) { callDelta = 0.3; putDelta = -0.7; }
+          else if (moneyness > 1.0) { callDelta = 0.4; putDelta = -0.6; }
+          else if (moneyness > 0.95) { callDelta = 0.6; putDelta = -0.4; }
+          else if (moneyness > 0.9) { callDelta = 0.7; putDelta = -0.3; }
+          else { callDelta = 0.9; putDelta = -0.1; }
+          
+          totalCallDelta += (callDelta * callOI * 100) * dteWeight;
+          totalPutDelta += (putDelta * putOI * 100) * dteWeight;
+          
+          // Gamma from GEX data
+          totalCallGamma += ((strikeData.callGamma || 0) * callOI) * dteWeight;
+          totalPutGamma += ((strikeData.putGamma || 0) * putOI) * dteWeight;
+          
+          // Theta from GEX data
+          totalCallTheta += ((strikeData.callTheta || 0) * callOI) * dteWeight;
+          totalPutTheta += ((strikeData.putTheta || 0) * putOI) * dteWeight;
+          
+          // Vega from GEX data (stored there during calculation)
+          totalCallVega += ((strikeData.callVega || 0) * callOI) * dteWeight;
+          totalPutVega += ((strikeData.putVega || 0) * putOI) * dteWeight;
           
           avgDaysToExpiry += daysToExp;
           validExpirations++;
@@ -148,6 +189,10 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       }
 
       const netMM = totalCallMM + totalPutMM;
+      const netDelta = totalCallDelta + totalPutDelta;
+      const netGamma = totalCallGamma + totalPutGamma;
+      const netTheta = totalCallTheta + totalPutTheta;
+      const netVega = totalCallVega + totalPutVega;
       
       return {
         strike,
@@ -156,27 +201,183 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         putMM: totalPutMM,
         totalOI,
         daysToExpiry: Math.round(avgDaysToExpiry),
-        impact: Math.abs(netMM)
+        impact: Math.abs(netMM),
+        netDelta,
+        netGamma,
+        netTheta,
+        netVega,
+        callDelta: totalCallDelta,
+        putDelta: totalPutDelta,
+        callGamma: totalCallGamma,
+        putGamma: totalPutGamma,
+        callTheta: totalCallTheta,
+        putTheta: totalPutTheta,
+        callVega: totalCallVega,
+        putVega: totalPutVega
       };
     }).sort((a, b) => b.strike - a.strike);
 
     return mmByStrike;
   }, [currentPrice, gexByStrikeByExpiration, mmExpirations]);
 
-  // Calculate aggregate metrics
+  // Calculate aggregate metrics with Enhanced Greeks
   const metrics = useMemo(() => {
     const totalNetMM = mmData.reduce((sum, item) => sum + item.netMM, 0);
     const maxCallWall = mmData.reduce((max, item) => item.callMM > max.callMM ? item : max, mmData[0] || { callMM: 0, strike: 0 });
     const maxPutFloor = mmData.reduce((max, item) => Math.abs(item.putMM) > Math.abs(max.putMM) ? item : max, mmData[0] || { putMM: 0, strike: 0 });
+    
+    // Aggregate Greek exposures
+    const totalNetDelta = mmData.reduce((sum, item) => sum + item.netDelta, 0);
+    const totalNetGamma = mmData.reduce((sum, item) => sum + item.netGamma, 0);
+    const totalNetTheta = mmData.reduce((sum, item) => sum + item.netTheta, 0);
+    const totalNetVega = mmData.reduce((sum, item) => sum + item.netVega, 0);
+    
+    // DEBUG: Log actual Greek totals before normalization
+    console.log('🎯 GREEK TOTALS BEFORE NORMALIZATION:', {
+      totalNetDelta,
+      totalNetGamma,
+      totalNetTheta,
+      totalNetVega,
+      mmDataCount: mmData.length
+    });
+    
+    // Calculate absolute exposure (total notional risk)
+    const totalCallDelta = mmData.reduce((sum, item) => sum + Math.abs(item.callDelta), 0);
+    const totalPutDelta = mmData.reduce((sum, item) => sum + Math.abs(item.putDelta), 0);
+    
+    // Hedging pressure: How much dealers need to hedge
+    const hedgingPressure = Math.abs(totalNetDelta) * currentPrice; // Dollar value of delta hedge
+    
+    // Volatility risk: How sensitive to IV changes
+    const volRisk = Math.abs(totalNetVega);
+    
+    // === ADVANCED GREEK-BASED SIGNAL CALCULATION ===
+    // Use ALL Greeks to determine true dealer positioning and market setup
+    
+    // 1. DELTA SCORE: Directional bias (-100 to +100)
+    // Greeks from API are PER CONTRACT, multiplied by OI already, need different normalization
+    const deltaScore = Math.max(-100, Math.min(100, totalNetDelta / 100000)); // Adjusted normalization
+    
+    // 2. GAMMA SCORE: Reflexivity (-100 to +100)
+    const gammaScore = Math.max(-100, Math.min(100, totalNetGamma / 1000)); // Adjusted normalization
+    
+    // 3. THETA SCORE: Time decay pressure (-100 to +100)
+    // Theta values are typically in thousands, normalize accordingly
+    const thetaScore = Math.max(-100, Math.min(100, totalNetTheta / 1000)); // Changed from 10000 to 1000
+    
+    // 4. VEGA SCORE: Volatility positioning (-100 to +100)
+    // Vega values are typically in thousands, normalize accordingly
+    const vegaScore = Math.max(-100, Math.min(100, totalNetVega / 1000)); // Changed from 10000 to 1000
+    
+    console.log('🎯 GREEK SCORES AFTER NORMALIZATION:', {
+      deltaScore,
+      gammaScore,
+      thetaScore,
+      vegaScore
+    });
+    
+    // === COMPOSITE SIGNAL ALGORITHM ===
+    // Weight the Greeks based on their importance for trading decisions
+    const DELTA_WEIGHT = 0.30;  // 30% - Direction matters most
+    const GAMMA_WEIGHT = 0.35;  // 35% - Reflexivity is key for dealer behavior
+    const THETA_WEIGHT = 0.20;  // 20% - Time decay creates urgency
+    const VEGA_WEIGHT = 0.15;   // 15% - Vol exposure secondary
+    
+    const compositeScore = (
+      deltaScore * DELTA_WEIGHT +
+      gammaScore * GAMMA_WEIGHT +
+      thetaScore * THETA_WEIGHT +
+      vegaScore * VEGA_WEIGHT
+    );
+    
+    console.log('🎯 COMPOSITE SCORE:', {
+      compositeScore,
+      breakdown: {
+        deltaContribution: deltaScore * DELTA_WEIGHT,
+        gammaContribution: gammaScore * GAMMA_WEIGHT,
+        thetaContribution: thetaScore * THETA_WEIGHT,
+        vegaContribution: vegaScore * VEGA_WEIGHT
+      }
+    });
+    
+    // === SIGNAL CLASSIFICATION ===
+    let signal = 'WAIT';
+    let signalColor = 'yellow';
+    let signalExplanation = 'Mixed signals - no clear edge';
+    
+    // STRONG BUY: Bullish delta + Long gamma + Positive theta + Long vol
+    if (compositeScore > 20) {
+      signal = 'BUY SETUP';
+      signalColor = 'green';
+      if (gammaScore > 30 && deltaScore > 20) {
+        signalExplanation = 'Strong long gamma + bullish delta - dealers will buy dips & stabilize';
+      } else if (thetaScore < -20 && Math.abs(deltaScore) > 30) {
+        signalExplanation = 'Large theta bleed + directional position - dealers need price movement';
+      } else {
+        signalExplanation = 'Net bullish positioning across all Greeks - favorable setup';
+      }
+    }
+    // STRONG SELL: Bearish delta + Short gamma + Negative theta + Short vol
+    else if (compositeScore < -20) {
+      signal = 'SELL SETUP';
+      signalColor = 'red';
+      if (gammaScore < -30 && deltaScore < -20) {
+        signalExplanation = 'Strong short gamma + bearish delta - dealers will sell rallies & amplify';
+      } else if (thetaScore > 20 && vegaScore < -20) {
+        signalExplanation = 'Collecting premium + short vol - dealers want compression & decay';
+      } else {
+        signalExplanation = 'Net bearish positioning across all Greeks - favorable short setup';
+      }
+    }
+    // MODERATE BUY: Positive but not overwhelming
+    else if (compositeScore > 5) {
+      signal = 'LEAN BUY';
+      signalColor = 'green';
+      signalExplanation = 'Moderate bullish bias - consider smaller long positions';
+    }
+    // MODERATE SELL: Negative but not overwhelming
+    else if (compositeScore < -5) {
+      signal = 'LEAN SELL';
+      signalColor = 'red';
+      signalExplanation = 'Moderate bearish bias - consider smaller short positions';
+    }
+    // NEUTRAL: Stay flat
+    else {
+      signal = 'WAIT';
+      signalColor = 'yellow';
+      if (Math.abs(gammaScore) < 10 && Math.abs(deltaScore) < 10) {
+        signalExplanation = 'Low conviction across all Greeks - wait for clearer setup';
+      } else {
+        signalExplanation = 'Conflicting signals - Greeks not aligned for directional trade';
+      }
+    }
     
     return {
       totalNetMM,
       maxCallWall,
       maxPutFloor,
       isLongGamma: totalNetMM > 0,
-      reflexivity: Math.abs(totalNetMM) / 1000000 // Convert to millions for display
+      reflexivity: Math.abs(totalNetMM) / 1000000,
+      totalNetDelta,
+      totalNetGamma,
+      totalNetTheta,
+      totalNetVega,
+      hedgingPressure,
+      volRisk,
+      callDeltaExposure: totalCallDelta,
+      putDeltaExposure: totalPutDelta,
+      netDirectionalBias: totalNetDelta > 0 ? 'BULLISH' : totalNetDelta < 0 ? 'BEARISH' : 'NEUTRAL',
+      // New Greek-based signal metrics
+      deltaScore,
+      gammaScore,
+      thetaScore,
+      vegaScore,
+      compositeScore,
+      signal,
+      signalColor,
+      signalExplanation
     };
-  }, [mmData]);
+  }, [mmData, currentPrice]);
 
   const formatMM = (value: number) => {
     const absValue = Math.abs(value);
@@ -212,30 +413,76 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         </div>
       </div>
 
-      {/* Trading Actions Panel */}
+      {/* Trading Actions Panel - Greek-Based Signal */}
       <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border-2 border-blue-500/50 p-6 rounded-lg">
         
         <div className="grid grid-cols-1 gap-4">
-          {/* Primary Signal */}
+          {/* Primary Signal using ALL Greeks */}
           <div className={`p-4 rounded-lg border-2 ${
-            metrics.totalNetMM > 500000000 ? 'bg-green-900/30 border-green-400' :
-            metrics.totalNetMM < -500000000 ? 'bg-red-900/30 border-red-400' :
+            metrics.signal.includes('BUY') ? 'bg-green-900/30 border-green-400' :
+            metrics.signal.includes('SELL') ? 'bg-red-900/30 border-red-400' :
             'bg-yellow-900/30 border-yellow-400'
           }`}>
             <div className="text-center">
-              <div className={`text-2xl font-bold ${
-                metrics.totalNetMM > 500000000 ? 'text-green-400' :
-                metrics.totalNetMM < -500000000 ? 'text-red-400' :
+              <div className={`text-2xl font-bold mb-2 ${
+                metrics.signal.includes('BUY') ? 'text-green-400' :
+                metrics.signal.includes('SELL') ? 'text-red-400' :
                 'text-yellow-400'
               }`}>
-                {metrics.totalNetMM > 500000000 ? '🔥 BUY SETUP' :
-                 metrics.totalNetMM < -500000000 ? '⚡ SELL SETUP' :
-                 '⏸️ WAIT'}
+                {metrics.signal.includes('BUY') ? '🔥' : metrics.signal.includes('SELL') ? '⚡' : '⏸️'} {metrics.signal}
               </div>
-              <div className="text-sm text-gray-300 mt-1">
-                {metrics.totalNetMM > 500000000 ? 'Strong Long Gamma - Dealers will buy dips' :
-                 metrics.totalNetMM < -500000000 ? 'Strong Short Gamma - Dealers will sell rallies' :
-                 'Neutral Zone - Wait for clearer signal'}
+              <div className="text-sm text-gray-300 mb-3">
+                {metrics.signalExplanation}
+              </div>
+              
+              {/* Greek Score Breakdown */}
+              <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-gray-700">
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 uppercase mb-1">Δ Delta</div>
+                  <div className={`text-sm font-bold ${
+                    metrics.deltaScore > 0 ? 'text-green-400' : metrics.deltaScore < 0 ? 'text-red-400' : 'text-gray-400'
+                  }`}>
+                    {metrics.deltaScore > 0 ? '+' : ''}{metrics.deltaScore.toFixed(0)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 uppercase mb-1">Γ Gamma</div>
+                  <div className={`text-sm font-bold ${
+                    metrics.gammaScore > 0 ? 'text-green-400' : metrics.gammaScore < 0 ? 'text-red-400' : 'text-gray-400'
+                  }`}>
+                    {metrics.gammaScore > 0 ? '+' : ''}{metrics.gammaScore.toFixed(0)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 uppercase mb-1">Θ Theta</div>
+                  <div className={`text-sm font-bold ${
+                    metrics.thetaScore > 0 ? 'text-green-400' : metrics.thetaScore < 0 ? 'text-red-400' : 'text-gray-400'
+                  }`}>
+                    {metrics.thetaScore > 0 ? '+' : ''}{metrics.thetaScore.toFixed(0)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 uppercase mb-1">ν Vega</div>
+                  <div className={`text-sm font-bold ${
+                    metrics.vegaScore > 0 ? 'text-green-400' : metrics.vegaScore < 0 ? 'text-red-400' : 'text-gray-400'
+                  }`}>
+                    {metrics.vegaScore > 0 ? '+' : ''}{metrics.vegaScore.toFixed(0)}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Composite Score */}
+              <div className="mt-3 pt-3 border-t border-gray-700">
+                <div className="text-xs text-gray-400 uppercase mb-1">Composite Score</div>
+                <div className={`text-xl font-bold ${
+                  metrics.compositeScore > 25 ? 'text-green-400' :
+                  metrics.compositeScore < -25 ? 'text-red-400' :
+                  metrics.compositeScore > 10 ? 'text-green-300' :
+                  metrics.compositeScore < -10 ? 'text-red-300' :
+                  'text-yellow-400'
+                }`}>
+                  {metrics.compositeScore > 0 ? '+' : ''}{metrics.compositeScore.toFixed(1)}
+                </div>
               </div>
             </div>
           </div>
@@ -363,6 +610,155 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         </div>
       </div>
 
+      {/* Enhanced Greek Exposure Dashboard */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-6">
+        
+        {/* Delta Exposure */}
+        <div className="bg-black border-2 border-blue-500/50 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp className="text-blue-400" size={20} />
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Delta Exposure</h3>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="text-center">
+              <div className={`text-2xl font-bold ${
+                metrics.netDirectionalBias === 'BULLISH' ? 'text-green-400' :
+                metrics.netDirectionalBias === 'BEARISH' ? 'text-red-400' : 'text-gray-400'
+              }`}>
+                {metrics.netDirectionalBias}
+              </div>
+              <div className="text-xs text-gray-400 uppercase mt-1">Net Bias</div>
+            </div>
+            
+            <div className="border-t border-gray-700 pt-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Net Delta:</span>
+                <span className={`font-bold font-mono ${
+                  metrics.totalNetDelta > 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {(metrics.totalNetDelta / 1000000).toFixed(2)}M
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Hedging:</span>
+                <span className="font-bold font-mono text-yellow-400">
+                  ${(metrics.hedgingPressure / 1000000).toFixed(1)}M
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Gamma Exposure */}
+        <div className="bg-black border-2 border-purple-500/50 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="text-purple-400" size={20} />
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Gamma Exposure</h3>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="text-center">
+              <div className={`text-2xl font-bold ${
+                metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {metrics.totalNetGamma > 0 ? 'LONG' : 'SHORT'}
+              </div>
+              <div className="text-xs text-gray-400 uppercase mt-1">Position</div>
+            </div>
+            
+            <div className="border-t border-gray-700 pt-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Net Γ:</span>
+                <span className={`font-bold font-mono ${
+                  metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {(metrics.totalNetGamma / 1000).toFixed(1)}K
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Reflexivity:</span>
+                <span className="font-bold font-mono text-purple-400">
+                  {metrics.reflexivity.toFixed(1)}M
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Theta Exposure */}
+        <div className="bg-black border-2 border-orange-500/50 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertCircle className="text-orange-400" size={20} />
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Theta Exposure</h3>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="text-center">
+              <div className={`text-2xl font-bold ${
+                metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
+              }`}>
+                {metrics.totalNetTheta < 0 ? 'DECAY' : 'GAIN'}
+              </div>
+              <div className="text-xs text-gray-400 uppercase mt-1">Time Value</div>
+            </div>
+            
+            <div className="border-t border-gray-700 pt-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Daily θ:</span>
+                <span className={`font-bold font-mono ${
+                  metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
+                }`}>
+                  ${(metrics.totalNetTheta / 1000).toFixed(1)}K
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Weekly:</span>
+                <span className="font-bold font-mono text-orange-400">
+                  ${(metrics.totalNetTheta * 5 / 1000).toFixed(1)}K
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Vega Exposure */}
+        <div className="bg-black border-2 border-cyan-500/50 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="text-cyan-400" size={20} />
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Vega Exposure</h3>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="text-center">
+              <div className={`text-2xl font-bold ${
+                metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {metrics.totalNetVega > 0 ? 'LONG VOL' : 'SHORT VOL'}
+              </div>
+              <div className="text-xs text-gray-400 uppercase mt-1">IV Sensitivity</div>
+            </div>
+            
+            <div className="border-t border-gray-700 pt-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Net ν:</span>
+                <span className={`font-bold font-mono ${
+                  metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {(metrics.totalNetVega / 1000).toFixed(1)}K
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Vol Risk:</span>
+                <span className="font-bold font-mono text-cyan-400">
+                  ${(metrics.volRisk / 1000).toFixed(1)}K
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Detailed Strike Table */}
       <div className="bg-black border border-gray-600">
         <div className="bg-black px-6 py-4 border-b border-gray-600">
@@ -438,424 +834,6 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
   );
 };
 
-// MP Dashboard Component
-const MPDashboard: React.FC<MPDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, expirations }) => {
-  
-  const [selectedExpiration, setSelectedExpiration] = useState<string>('');
-  
-  // Get available future expirations
-  const availableExpirations = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Reset to start of day for accurate date comparison
-    return expirations.filter(exp => {
-      const expDate = new Date(exp);
-      expDate.setHours(0, 0, 0, 0); // Reset to start of day
-      return expDate >= today; // Include expirations on or after today
-    }).sort();
-  }, [expirations]);
-
-  // Auto-select default expiration (monthly or next available)
-  useEffect(() => {
-    if (availableExpirations.length > 0 && !selectedExpiration) {
-      const today = new Date();
-      
-      // Find monthly expirations (usually 3rd Friday, between 14th-22nd)
-      const monthlyExps = availableExpirations.filter(exp => {
-        const expDate = new Date(exp);
-        const dayOfMonth = expDate.getDate();
-        return dayOfMonth >= 14 && dayOfMonth <= 22;
-      });
-      
-      // Default to monthly if available, otherwise next available
-      const defaultExp = monthlyExps.length > 0 ? monthlyExps[0] : availableExpirations[0];
-      setSelectedExpiration(defaultExp);
-    }
-  }, [availableExpirations, selectedExpiration]);
-
-  // Use selected expiration for analysis
-  const ppExpirations = useMemo(() => {
-    return selectedExpiration ? [selectedExpiration] : [];
-  }, [selectedExpiration]);
-
-  // Calculate Max Pain data
-  const ppData = useMemo(() => {
-    if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) return [];
-    
-    const strikeRange = currentPrice * 0.20; // ±20% range for pinning analysis
-    const minStrike = currentPrice - strikeRange;
-    const maxStrike = currentPrice + strikeRange;
-    
-    const allStrikes = new Set<number>();
-    ppExpirations.forEach(exp => {
-      if (gexByStrikeByExpiration[exp]) {
-        Object.keys(gexByStrikeByExpiration[exp])
-          .map(Number)
-          .filter(strike => strike >= minStrike && strike <= maxStrike)
-          .forEach(strike => allStrikes.add(strike));
-      }
-    });
-
-    const ppByStrike: PPData[] = Array.from(allStrikes).map(strike => {
-      let totalOI = 0;
-      let avgDaysToExpiry = 0;
-      let validExpirations = 0;
-
-      ppExpirations.forEach(exp => {
-        const strikeData = gexByStrikeByExpiration[exp]?.[strike];
-        if (strikeData) {
-          totalOI += (strikeData.callOI || 0) + (strikeData.putOI || 0);
-          
-          // Calculate days to expiry
-          const expDate = new Date(exp);
-          const today = new Date();
-          const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-          avgDaysToExpiry += daysToExp;
-          validExpirations++;
-        }
-      });
-
-      if (validExpirations > 0) {
-        avgDaysToExpiry = avgDaysToExpiry / validExpirations;
-      }
-
-      const distance = strike - currentPrice;
-      const absDistance = Math.abs(distance);
-      
-      // Calculate pin force: Higher OI + Closer to current price + Shorter time = Higher pin force
-      const distanceFactor = 1 / (1 + absDistance * 0.1); // Inverse distance weighting
-      const timeFactor = avgDaysToExpiry > 0 ? (8 - Math.min(7, avgDaysToExpiry)) / 7 : 1; // Time decay factor
-      const pinForce = totalOI * distanceFactor * timeFactor;
-      
-      // Calculate pin probability (0-100%)
-      const maxPossibleForce = 200000; // Adjust based on typical max OI
-      const pinProbability = Math.min(100, (pinForce / maxPossibleForce) * 100);
-      
-      // Determine pull direction
-      let pullDirection: 'up' | 'down' | 'neutral' = 'neutral';
-      if (distance > 0.5) pullDirection = 'down';
-      else if (distance < -0.5) pullDirection = 'up';
-      
-      return {
-        strike,
-        totalOI,
-        pinForce,
-        distance,
-        pullDirection,
-        pinProbability,
-        daysToExpiry: Math.round(avgDaysToExpiry)
-      };
-    }).filter(item => item.totalOI > 100) // Filter out strikes with minimal OI
-      .sort((a, b) => b.pinForce - a.pinForce); // Sort by pin force
-
-    return ppByStrike;
-  }, [currentPrice, gexByStrikeByExpiration, ppExpirations]);
-
-  // Calculate Max Pain and aggregate metrics
-  const metrics = useMemo(() => {
-    const maxPainStrike = ppData.reduce((max, current) => 
-      current.pinForce > max.pinForce ? current : max, 
-      ppData[0] || { pinForce: 0, strike: currentPrice, pinProbability: 0 }
-    );
-    
-    const avgDaysToExpiry = ppData.length > 0 
-      ? ppData.reduce((sum, item) => sum + item.daysToExpiry, 0) / ppData.length 
-      : 0;
-    
-    const overallPinStrength = Math.min(100, maxPainStrike.pinProbability || 0);
-    
-    // Pin strength categories
-    let pinStrengthLevel = 'LOW';
-    let pinColor = 'text-gray-400';
-    if (overallPinStrength >= 80) { pinStrengthLevel = 'VERY HIGH'; pinColor = 'text-red-400'; }
-    else if (overallPinStrength >= 60) { pinStrengthLevel = 'HIGH'; pinColor = 'text-orange-400'; }
-    else if (overallPinStrength >= 40) { pinStrengthLevel = 'MEDIUM'; pinColor = 'text-yellow-400'; }
-    
-    return {
-      maxPainStrike: maxPainStrike.strike,
-      maxPainForce: maxPainStrike.pinForce,
-      overallPinStrength,
-      pinStrengthLevel,
-      pinColor,
-      avgDaysToExpiry: Math.round(avgDaysToExpiry),
-      distanceFromMaxPain: Math.abs(currentPrice - maxPainStrike.strike)
-    };
-  }, [ppData, currentPrice]);
-
-  const formatOI = (value: number) => {
-    if (value >= 1000000) {
-      return `${(value / 1000000).toFixed(1)}M`;
-    } else if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)}K`;
-    }
-    return value.toLocaleString();
-  };
-
-  const formatDistance = (value: number) => {
-    const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}`;
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-black border-2 border-green-500/50 p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <h2 className="text-3xl font-bold text-white uppercase tracking-wider text-center">
-              PINNING PRESSURE ANALYSIS → MAX PAIN ANALYSIS
-            </h2>
-          </div>
-          
-          {/* Expiration Selector */}
-          <div className="flex items-center gap-3">
-            <span className="text-green-400 font-bold text-sm uppercase tracking-wider">EXPIRY:</span>
-            <div className="relative">
-              <select
-                value={selectedExpiration}
-                onChange={(e) => setSelectedExpiration(e.target.value)}
-                className="bg-black border-2 border-green-600 focus:border-green-400 focus:outline-none px-4 py-2 pr-10 text-white text-sm font-bold uppercase appearance-none cursor-pointer min-w-[140px] transition-all"
-              >
-                {availableExpirations.map(exp => {
-                  // Parse as local date to avoid timezone conversion issues
-                  const [year, month, day] = exp.split('-').map(Number);
-                  const expDate = new Date(year, month - 1, day); // month is 0-indexed
-                  const dayOfMonth = expDate.getDate();
-                  const isMonthly = dayOfMonth >= 14 && dayOfMonth <= 22;
-                  
-                  // Calculate days to expiry using local dates
-                  const today = new Date();
-                  const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                  const daysToExp = Math.ceil((expDate.getTime() - todayLocal.getTime()) / (1000 * 60 * 60 * 24));
-                  
-                  return (
-                    <option key={exp} value={exp}>
-                      {expDate.toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric', 
-                        year: 'numeric',
-                        timeZone: 'America/New_York' // Use ET timezone for options consistency
-                      })} {isMonthly ? '(M)' : ''} - {daysToExp}d
-                    </option>
-                  );
-                })}
-              </select>
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Dashboard Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Pin Strength Meter */}
-        <div className="bg-black border border-gray-600 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Target className="text-green-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Pin Strength</h3>
-          </div>
-          
-          <div className="text-center">
-            <div className="relative w-32 h-32 mx-auto mb-4">
-              <div className="absolute inset-0 rounded-full border-8 border-gray-800"></div>
-              <div 
-                className={`absolute inset-0 rounded-full border-8 border-transparent`}
-                style={{
-                  borderTopColor: metrics.overallPinStrength >= 80 ? '#ef4444' :
-                                 metrics.overallPinStrength >= 60 ? '#f97316' :
-                                 metrics.overallPinStrength >= 40 ? '#eab308' : '#6b7280',
-                  transform: `rotate(${(metrics.overallPinStrength / 100) * 360 - 90}deg)`,
-                  clipPath: 'polygon(50% 50%, 50% 0%, 100% 0%, 100% 100%, 50% 100%)'
-                }}
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <div className={`text-2xl font-bold ${metrics.pinColor}`}>
-                    {metrics.overallPinStrength.toFixed(0)}%
-                  </div>
-                  <div className="text-xs text-gray-400">PIN FORCE</div>
-                </div>
-              </div>
-            </div>
-            
-            <div className={`text-lg font-bold ${metrics.pinColor} mb-2`}>
-              {metrics.pinStrengthLevel}
-            </div>
-            <div className="text-sm text-gray-300">
-              {metrics.avgDaysToExpiry} days to expiry
-            </div>
-          </div>
-        </div>
-
-        {/* Max Pain Zone */}
-        <div className="bg-black border border-gray-600 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Gauge className="text-green-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Max Pain Zone</h3>
-          </div>
-          
-          <div className="space-y-4">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-red-400 mb-2">
-                ${metrics.maxPainStrike.toFixed(0)}
-              </div>
-              <div className="text-sm text-gray-300">Maximum Pain Strike</div>
-            </div>
-            
-            <div className="bg-gray-900/50 p-3 rounded">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-gray-300 text-sm">Current Price:</span>
-                <span className="text-white font-bold">${currentPrice.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-gray-300 text-sm">Distance:</span>
-                <span className={`font-bold ${
-                  metrics.distanceFromMaxPain > 2 ? 'text-green-400' : 
-                  metrics.distanceFromMaxPain > 1 ? 'text-yellow-400' : 'text-red-400'
-                }`}>
-                  ${metrics.distanceFromMaxPain.toFixed(2)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-300 text-sm">Pull Direction:</span>
-                <span className={`font-bold ${
-                  currentPrice > metrics.maxPainStrike ? 'text-red-400' : 'text-green-400'
-                }`}>
-                  {currentPrice > metrics.maxPainStrike ? 'DOWN ↓' : 'UP ↑'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Time Decay Effect */}
-        <div className="bg-black border border-gray-600 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity className="text-green-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Time Decay</h3>
-          </div>
-          
-          <div className="space-y-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-yellow-400 mb-2">
-                {metrics.avgDaysToExpiry} Days
-              </div>
-              <div className="text-sm text-gray-300">Until Expiration</div>
-            </div>
-            
-            <div className="w-full bg-gray-800 rounded-full h-4 overflow-hidden">
-              <div 
-                className={`h-full transition-all ${
-                  metrics.avgDaysToExpiry <= 1 ? 'bg-red-500' :
-                  metrics.avgDaysToExpiry <= 3 ? 'bg-orange-500' :
-                  metrics.avgDaysToExpiry <= 5 ? 'bg-yellow-500' : 'bg-green-500'
-                }`}
-                style={{ width: `${Math.max(10, 100 - (metrics.avgDaysToExpiry / 7) * 100)}%` }}
-              />
-            </div>
-            
-            <div className="text-center">
-              <div className={`text-sm font-bold ${
-                metrics.avgDaysToExpiry <= 1 ? 'text-red-400' :
-                metrics.avgDaysToExpiry <= 3 ? 'text-orange-400' :
-                metrics.avgDaysToExpiry <= 5 ? 'text-yellow-400' : 'text-green-400'
-              }`}>
-                {metrics.avgDaysToExpiry <= 1 ? 'EXTREME PINNING' :
-                 metrics.avgDaysToExpiry <= 3 ? 'HIGH PINNING' :
-                 metrics.avgDaysToExpiry <= 5 ? 'MODERATE PINNING' : 'LOW PINNING'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Strike Pin Map */}
-      <div className="bg-black border border-gray-600">
-        <div className="bg-black px-6 py-4 border-b border-gray-600">
-          <h3 className="text-white font-black uppercase text-lg tracking-widest">PIN PRESSURE BY STRIKE</h3>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-900">
-              <tr>
-                <th className="px-4 py-4 text-left text-sm font-black text-green-400 uppercase tracking-widest">Strike</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-green-400 uppercase tracking-widest">Total OI</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-green-400 uppercase tracking-widest">Pin Force</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-green-400 uppercase tracking-widest">Distance</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-green-400 uppercase tracking-widest">Pin %</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-green-400 uppercase tracking-widest">Days</th>
-                <th className="px-4 py-4 text-center text-sm font-black text-green-400 uppercase tracking-widest">Pull</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ppData.slice(0, 15).map((item, idx) => {
-                const isMaxPain = Math.abs(item.strike - metrics.maxPainStrike) < 0.1;
-                const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
-                
-                return (
-                  <tr 
-                    key={item.strike} 
-                    className={`border-b border-gray-800 hover:bg-gray-900/50 ${
-                      isMaxPain ? 'bg-red-900/20 border-red-500/30' : 
-                      isCurrentPrice ? 'bg-yellow-900/20 border-yellow-500/30' : ''
-                    }`}
-                  >
-                    <td className="px-4 py-3">
-                      <div className={`font-mono font-bold ${
-                        isMaxPain ? 'text-red-400' :
-                        isCurrentPrice ? 'text-yellow-400' : 'text-white'
-                      }`}>
-                        ${item.strike.toFixed(1)}
-                        {isMaxPain && <span className="ml-2 text-xs text-red-400">MAX PAIN</span>}
-                        {isCurrentPrice && <span className="ml-2 text-xs text-yellow-400">CURRENT</span>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-gray-300">
-                      {formatOI(item.totalOI)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-green-400">
-                      {item.pinForce.toFixed(0)}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono ${
-                      item.distance > 0 ? 'text-red-400' : item.distance < 0 ? 'text-green-400' : 'text-gray-300'
-                    }`}>
-                      {formatDistance(item.distance)}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono font-bold ${
-                      item.pinProbability >= 80 ? 'text-red-400' :
-                      item.pinProbability >= 60 ? 'text-orange-400' :
-                      item.pinProbability >= 40 ? 'text-yellow-400' : 'text-gray-400'
-                    }`}>
-                      {item.pinProbability.toFixed(0)}%
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-gray-300">
-                      {item.daysToExpiry}d
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className={`font-bold ${
-                        item.pullDirection === 'up' ? 'text-green-400' :
-                        item.pullDirection === 'down' ? 'text-red-400' : 'text-gray-400'
-                      }`}>
-                        {item.pullDirection === 'up' ? '↑' :
-                         item.pullDirection === 'down' ? '↓' : '–'}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // Import the Top 1000 symbols
 import { PRELOAD_TIERS } from '../../lib/Top1000Symbols';
 
@@ -875,7 +853,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000)); // 45 days from now
     
     return expirations.filter(exp => {
-      const expDate = new Date(exp);
+      const expDate = new Date(exp + 'T00:00:00Z');
       return expDate >= today && expDate <= maxDate;
     }).sort();
   }, [expirations]);
@@ -1024,7 +1002,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       const threeMonthsFromNow = new Date();
       threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
       const expsWithin3Months = allExps.filter(exp => {
-        const expDate = new Date(exp);
+        const expDate = new Date(exp + 'T00:00:00Z');
         return expDate <= threeMonthsFromNow;
       });
       
@@ -1032,7 +1010,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       const today = new Date();
       const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
       const validExps = expsWithin3Months.filter(exp => {
-        const expDate = new Date(exp);
+        const expDate = new Date(exp + 'T00:00:00Z');
         return expDate >= today && expDate <= maxDate;
       }).sort();
       
@@ -1345,14 +1323,14 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     const threeMonthsFromNow = new Date();
     threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
     const expsWithin3Months = allExps.filter(exp => {
-      const expDate = new Date(exp);
+      const expDate = new Date(exp + 'T00:00:00Z');
       return expDate <= threeMonthsFromNow;
     });
     
     const today = new Date();
     const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
     const validExps = expsWithin3Months.filter(exp => {
-      const expDate = new Date(exp);
+      const expDate = new Date(exp + 'T00:00:00Z');
       return expDate >= today && expDate <= maxDate;
     }).sort();
     
@@ -1920,6 +1898,466 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
   );
 };
 
+// Max Pain Dashboard Component - True MM-Optimal Expiry Target
+const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
+  
+  const [selectedExpiration, setSelectedExpiration] = useState<string>('');
+
+  // Get available future expirations
+  const availableExpirations = useMemo(() => {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    return expirations.filter(exp => {
+      const expDate = new Date(exp + 'T00:00:00Z');
+      return expDate >= today;
+    }).sort();
+  }, [expirations]);
+  // Auto-select default expiration
+  useEffect(() => {
+    if (availableExpirations.length > 0 && !selectedExpiration) {
+      const today = new Date();
+      const monthlyExps = availableExpirations.filter(exp => {
+        const expDate = new Date(exp + 'T00:00:00Z');
+        const dayOfMonth = expDate.getUTCDate();
+        return dayOfMonth >= 14 && dayOfMonth <= 22;
+      });
+      setSelectedExpiration(monthlyExps.length > 0 ? monthlyExps[0] : availableExpirations[0]);
+    }
+  }, [availableExpirations, selectedExpiration]);
+
+  // Calculate MM Risk for each strike using the TRUE formula
+  const maxPainAnalysis = useMemo(() => {
+    if (!currentPrice || !selectedExpiration || Object.keys(gexByStrikeByExpiration).length === 0) {
+      return {
+        optimalStrike: currentPrice,
+        minRisk: 0,
+        riskByStrike: [],
+        totalOI: 0,
+        avgDTE: 0
+      };
+    }
+
+    const strikeData = gexByStrikeByExpiration[selectedExpiration];
+    const vexData = vexByStrikeByExpiration[selectedExpiration];
+    if (!strikeData) {
+      return {
+        optimalStrike: currentPrice,
+        minRisk: 0,
+        riskByStrike: [],
+        totalOI: 0,
+        avgDTE: 0
+      };
+    }
+
+    // Calculate DTE
+    const expDate = new Date(selectedExpiration + 'T00:00:00Z');
+    const today = new Date();
+    const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Get all strikes and determine range dynamically based on actual options data
+    const allStrikes = Object.keys(strikeData).map(Number).sort((a, b) => a - b);
+    
+    // Find where significant OI exists (filter out strikes with < 100 total OI)
+    const significantStrikes = allStrikes.filter(strike => {
+      const data = strikeData[strike];
+      const totalOI = (data?.callOI || 0) + (data?.putOI || 0);
+      return totalOI >= 100; // Only consider strikes with meaningful OI
+    });
+
+    if (significantStrikes.length === 0) {
+      return {
+        optimalStrike: currentPrice,
+        minRisk: 0,
+        riskByStrike: [],
+        totalOI: 0,
+        avgDTE: daysToExp
+      };
+    }
+
+    // Use actual data range (where OI exists) instead of arbitrary ±15%
+    const lowestStrike = significantStrikes[0];
+    const highestStrike = significantStrikes[significantStrikes.length - 1];
+    
+    // Expand slightly beyond actual strikes (±5% buffer) to catch edge cases
+    const bufferPct = 0.05;
+    const strikeSpan = highestStrike - lowestStrike;
+    const minStrike = lowestStrike - (strikeSpan * bufferPct);
+    const maxStrike = highestStrike + (strikeSpan * bufferPct);
+    
+    const relevantStrikes = allStrikes.filter(s => s >= minStrike && s <= maxStrike);
+
+    // Test price points across the actual data range
+    const testPrices: number[] = [];
+    const testMin = Math.max(minStrike, currentPrice * 0.70); // Safety floor at -30%
+    const testMax = Math.min(maxStrike, currentPrice * 1.30); // Safety ceiling at +30%
+    const testStep = (testMax - testMin) / 100; // 100 test points
+    
+    for (let price = testMin; price <= testMax; price += testStep) {
+      testPrices.push(price);
+    }
+
+    let totalOI = 0;
+    const strikeRiskData: Array<{strike: number; risk: number; oi: number; callOI: number; putOI: number; distance: number}> = [];
+
+    // Calculate MM Risk for each test price
+    const riskResults = testPrices.map(testPrice => {
+      let totalRisk = 0;
+
+      relevantStrikes.forEach(strike => {
+        const data = strikeData[strike];
+        if (!data) return;
+
+        const callOI = data.callOI || 0;
+        const putOI = data.putOI || 0;
+        const callGamma = data.callGamma || 0;
+        const putGamma = data.putGamma || 0;
+        const callTheta = data.callTheta || 0;
+        const putTheta = data.putTheta || 0;
+        
+        // Get vega if available
+        const callVega = vexData?.[strike]?.callVega || 0;
+        const putVega = vexData?.[strike]?.putVega || 0;
+
+        // Calculate delta based on moneyness (simplified BSM approximation)
+        const moneyness = strike / testPrice;
+        let callDelta = 0;
+        let putDelta = 0;
+
+        if (moneyness > 1.1) {
+          callDelta = 0.1;
+          putDelta = -0.9;
+        } else if (moneyness > 1.05) {
+          callDelta = 0.3;
+          putDelta = -0.7;
+        } else if (moneyness > 1.0) {
+          callDelta = 0.4;
+          putDelta = -0.6;
+        } else if (moneyness > 0.95) {
+          callDelta = 0.6;
+          putDelta = -0.4;
+        } else if (moneyness > 0.9) {
+          callDelta = 0.7;
+          putDelta = -0.3;
+        } else {
+          callDelta = 0.9;
+          putDelta = -0.1;
+        }
+
+        const priceDiff = testPrice - strike;
+        const priceDiffSq = priceDiff * priceDiff;
+
+        // TRUE MM RISK FORMULA:
+        // MM_Risk = OI * M * [|Delta| * |S-K| + 0.5 * Gamma * (S-K)^2 + |Theta| + |Vega * ΔV|]
+        
+        const M = 100; // Contract multiplier
+        const deltaV = 0.02; // Assumed 2% IV shift (conservative)
+
+        // Call option risk
+        if (callOI > 0) {
+          const deltaRisk = Math.abs(callDelta) * Math.abs(priceDiff);
+          const gammaRisk = 0.5 * Math.abs(callGamma) * priceDiffSq;
+          const thetaRisk = Math.abs(callTheta);
+          const vegaRisk = Math.abs(callVega * deltaV);
+          
+          totalRisk += callOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
+        }
+
+        // Put option risk
+        if (putOI > 0) {
+          const deltaRisk = Math.abs(putDelta) * Math.abs(priceDiff);
+          const gammaRisk = 0.5 * Math.abs(putGamma) * priceDiffSq;
+          const thetaRisk = Math.abs(putTheta);
+          const vegaRisk = Math.abs(putVega * deltaV);
+          
+          totalRisk += putOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
+        }
+      });
+
+      return { testPrice, risk: totalRisk };
+    });
+
+    // Find the price with MINIMUM risk (MM optimal expiry level)
+    if (riskResults.length === 0) {
+      return {
+        optimalStrike: currentPrice,
+        minRisk: 0,
+        riskByStrike: [],
+        totalOI: 0,
+        avgDTE: daysToExp
+      };
+    }
+
+    const optimalResult = riskResults.reduce((min, current) => 
+      current.risk < min.risk ? current : min
+    );
+
+    // Find the actual strike closest to optimal price (this is the MAX PAIN strike)
+    let closestStrike = relevantStrikes[0] || currentPrice;
+    let minDistance = Math.abs(closestStrike - optimalResult.testPrice);
+    
+    relevantStrikes.forEach(strike => {
+      const distance = Math.abs(strike - optimalResult.testPrice);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestStrike = strike;
+      }
+    });
+
+    // Calculate risk profile for each actual strike
+    relevantStrikes.forEach(strike => {
+      const data = strikeData[strike];
+      if (!data) return;
+
+      const callOI = data.callOI || 0;
+      const putOI = data.putOI || 0;
+      totalOI += callOI + putOI;
+
+      // Calculate risk at this strike
+      let strikeRisk = 0;
+      const callGamma = data.callGamma || 0;
+      const putGamma = data.putGamma || 0;
+      const priceDiff = strike - currentPrice;
+      const priceDiffSq = priceDiff * priceDiff;
+
+      // Simplified risk calculation for strike display
+      strikeRisk = (callOI + putOI) * (Math.abs(callGamma) + Math.abs(putGamma)) * (1 + priceDiffSq * 0.001);
+
+      strikeRiskData.push({
+        strike,
+        risk: strikeRisk,
+        oi: callOI + putOI,
+        callOI,
+        putOI,
+        distance: strike - currentPrice
+      });
+    });
+
+    strikeRiskData.sort((a, b) => b.risk - a.risk);
+
+    return {
+      optimalStrike: closestStrike, // Return the actual strike, not test price
+      minRisk: optimalResult.risk,
+      riskByStrike: strikeRiskData,
+      totalOI,
+      avgDTE: daysToExp
+    };
+  }, [currentPrice, selectedExpiration, gexByStrikeByExpiration, vexByStrikeByExpiration]);
+
+  const formatOI = (value: number) => {
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+    return value.toLocaleString();
+  };
+
+  const formatRisk = (value: number) => {
+    if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+    if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+    return value.toFixed(0);
+  };
+
+  const priceDistance = currentPrice - maxPainAnalysis.optimalStrike;
+  const priceDistancePercent = (priceDistance / currentPrice) * 100;
+
+  return (
+    <div className="space-y-4">
+      {/* Professional Header Row */}
+      <div className="bg-gradient-to-r from-black via-gray-950 to-black border border-gray-800 rounded">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-4">
+          
+          {/* Left: Key Metrics */}
+          <div className="lg:col-span-8 grid grid-cols-3 gap-4">
+            
+            {/* Max Pain Strike */}
+            <div className="bg-black/50 border-l-4 border-red-500 px-4 py-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Max Pain</div>
+              <div className="text-3xl font-bold text-red-400 leading-none mb-1">
+                ${maxPainAnalysis.optimalStrike.toFixed(2)}
+              </div>
+              <div className={`text-[10px] font-semibold ${priceDistance > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                {priceDistance > 0 ? '↓' : '↑'} {Math.abs(priceDistancePercent).toFixed(2)}%
+              </div>
+            </div>
+
+            {/* Current Spot */}
+            <div className="bg-black/50 border-l-4 border-gray-600 px-4 py-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Current</div>
+              <div className="text-3xl font-bold text-white leading-none mb-1">
+                ${currentPrice.toFixed(2)}
+              </div>
+              <div className="text-[10px] text-gray-500">
+                Δ ${Math.abs(priceDistance).toFixed(2)}
+              </div>
+            </div>
+
+            {/* MM Risk - Liquidity Pivot */}
+            <div className="bg-black/50 border-l-4 border-purple-500 px-4 py-3">
+              <div className="text-[10px] text-purple-400 uppercase tracking-wider font-bold mb-1">Liquidity Pivot</div>
+              <div className="text-3xl font-bold text-purple-400 leading-none mb-1">
+                {formatRisk(maxPainAnalysis.minRisk)}
+              </div>
+              <div className="text-[10px] text-gray-500">
+                at optimal
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Dealer Pressure + Expiration */}
+          <div className="lg:col-span-4 flex flex-col gap-3">
+            
+            {/* Dealer Pressure */}
+            <div className={`flex-1 border-l-4 px-4 py-2 rounded ${
+              Math.abs(priceDistance) < currentPrice * 0.01 ? 'bg-yellow-950/30 border-yellow-500' :
+              priceDistance > 0 ? 'bg-red-950/30 border-red-500' :
+              'bg-green-950/30 border-green-500'
+            }`}>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">Dealer Pressure</div>
+              <div className={`text-sm font-bold leading-tight ${
+                Math.abs(priceDistance) < currentPrice * 0.01 ? 'text-yellow-400' :
+                priceDistance > 0 ? 'text-red-400' : 'text-green-400'
+              }`}>
+                {Math.abs(priceDistance) < currentPrice * 0.01 
+                  ? '● PINNED'
+                  : priceDistance > 0 
+                    ? '↓ DOWNWARD'
+                    : '↑ UPWARD'}
+              </div>
+              <div className="text-[10px] text-gray-400 mt-0.5">
+                {Math.abs(priceDistancePercent) > 2 ? 'Strong' : 'Moderate'} pressure
+              </div>
+            </div>
+
+            {/* Expiration Selector */}
+            <div className="bg-black/50 border border-gray-700 rounded px-3 py-2">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Expiration</div>
+              <select
+                value={selectedExpiration}
+                onChange={(e) => setSelectedExpiration(e.target.value)}
+                className="w-full bg-gray-900 border-none text-white text-sm font-bold focus:outline-none cursor-pointer"
+                style={{ backgroundColor: '#111827' }}
+              >
+                {availableExpirations.map(exp => {
+                  const expDate = new Date(exp + 'T00:00:00Z');
+                  const today = new Date();
+                  const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                  return (
+                    <option key={exp} value={exp} style={{ backgroundColor: '#111827', color: '#ffffff' }}>
+                      {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} ({daysToExp}d)
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Strike Risk Table */}
+      <div className="bg-black border border-gray-800 rounded">
+        <div className="border-b border-gray-800 px-4 py-3 bg-gray-950">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Strike-Level Risk Analysis</h3>
+        </div>
+        
+        <div className="overflow-y-auto" style={{ maxHeight: '500px' }}>
+          <table className="w-full">
+            <thead className="bg-gray-950 sticky top-0 z-10">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Strike</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">MM Risk</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Total OI</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Call OI</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Put OI</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Distance</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Bias</th>
+              </tr>
+            </thead>
+            <tbody>
+              {maxPainAnalysis.riskByStrike.slice(0, 30).map((item, idx) => {
+                const isMaxPain = item.strike === maxPainAnalysis.optimalStrike;
+                const isATM = Math.abs(item.strike - currentPrice) < 1;
+                const maxRisk = Math.max(...maxPainAnalysis.riskByStrike.map(s => s.risk));
+                const isHighestRisk = item.risk === maxRisk; // Highest risk = Liquidity Pivot
+                const riskPercent = (item.risk / maxRisk) * 100;
+
+                return (
+                  <tr 
+                    key={item.strike}
+                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${
+                      isMaxPain ? 'bg-red-950/20' :
+                      isHighestRisk ? 'bg-purple-950/20' :
+                      isATM ? 'bg-orange-950/10' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-mono text-sm font-semibold ${
+                          isMaxPain ? 'text-red-400' :
+                          isHighestRisk ? 'text-purple-400' :
+                          isATM ? 'text-orange-400' : 'text-white'
+                        }`}>
+                          ${item.strike.toFixed(1)}
+                        </span>
+                        {isMaxPain && <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>}
+                        {isHighestRisk && !isMaxPain && <span className="text-xs text-purple-400 font-bold">● LIQUIDITY PIVOT</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-20 bg-gray-900 rounded-sm h-2">
+                          <div 
+                            className={isHighestRisk ? 'bg-purple-500 h-full rounded-sm' : 'bg-red-500 h-full rounded-sm'}
+                            style={{ width: `${riskPercent}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-xs text-gray-300 w-16 text-right">
+                          {formatRisk(item.risk)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="font-mono text-xs text-white">
+                        {formatOI(item.oi)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="font-mono text-xs text-green-500">
+                        {formatOI(item.callOI)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="font-mono text-xs text-red-500">
+                        {formatOI(item.putOI)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className={`font-mono text-xs ${
+                        Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
+                        item.distance > 0 ? 'text-red-400' : 'text-green-400'
+                      }`}>
+                        {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className={`text-xs font-bold ${
+                        item.callOI > item.putOI * 1.5 ? 'text-green-400' :
+                        item.putOI > item.callOI * 1.5 ? 'text-red-400' :
+                        'text-gray-500'
+                      }`}>
+                        {item.callOI > item.putOI * 1.5 ? 'CALL' :
+                         item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Helper function to calculate Vanna using Black-Scholes formula
 // Vanna = -e^(-rT) × N'(d₁) × d₂/σ
 const calculateVanna = (strike: number, spotPrice: number, T: number, impliedVol: number, riskFreeRate: number = 0.0408): number => {
@@ -1951,8 +2389,8 @@ const DealerAttraction = () => {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [selectedTicker, setSelectedTicker] = useState('');
   const [tickerInput, setTickerInput] = useState('');
-  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number}}}>({});
-  const [dealerByStrikeByExpiration, setDealerByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number}}}>({});
+  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callTheta?: number, putTheta?: number}}}>({});
+  const [dealerByStrikeByExpiration, setDealerByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}}>({});
   const [viewMode, setViewMode] = useState<'NET' | 'CP'>('CP'); // C/P by default
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
   const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}}>({});
@@ -1963,6 +2401,7 @@ const DealerAttraction = () => {
   const [showFlowGEX, setShowFlowGEX] = useState(false);
 
   const [showOI, setShowOI] = useState(false);
+  const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false);
   const [liveMode, setLiveMode] = useState(false); // Single live mode toggle for all metrics
   const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map());
   const [flowTradesData, setFlowTradesData] = useState<any[]>([]); // Store all trades with premiums
@@ -1971,7 +2410,7 @@ const DealerAttraction = () => {
   const [showVEX, setShowVEX] = useState(false);
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
-  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'OIGEX' | 'GEXSCREENER'>('MM');
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'MAXPAIN' | 'OIGEX' | 'GEXSCREENER'>('MM');
 
   const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
@@ -2170,15 +2609,15 @@ const DealerAttraction = () => {
           
           console.log(`📊 Live OI calculated for ${liveOIMap.size} contracts`);
           
-          // Hide loading after a brief delay to show 100%
-          setTimeout(() => {
-            setLiveOILoading(false);
-            
-            // Auto-refresh to recalculate with new Live OI data
-            // Pass liveOIMap and trades directly since React state might not be updated yet
-            console.log(`🔄 Live OI scan complete - auto-refreshing with ${liveOIMap.size} contracts and ${tradesWithFillStyle.length} trades`);
-            fetchOptionsData(liveOIMap, tradesWithFillStyle);
-          }, 500);
+          // Keep loading active and recalculate with new Live OI data
+          console.log(`🔄 Live OI scan complete - starting recalculation with ${liveOIMap.size} contracts and ${tradesWithFillStyle.length} trades`);
+          setLiveOIProgress(90); // 90% - starting recalculation
+          
+          // Wait a brief moment to show progress, then recalculate
+          setTimeout(async () => {
+            await fetchOptionsData(liveOIMap, tradesWithFillStyle);
+            // fetchOptionsData will set loading to false when complete
+          }, 100);
         }
       } catch (error) {
         console.error('❌ Error in Live OI update:', error);
@@ -2199,7 +2638,7 @@ const DealerAttraction = () => {
     threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
     
     return expirations.filter(exp => {
-      const expDate = new Date(exp);
+      const expDate = new Date(exp + 'T00:00:00Z');
       return expDate <= threeMonthsFromNow;
     });
   };
@@ -2288,8 +2727,8 @@ const DealerAttraction = () => {
       
       // Initialize data structures - CALCULATE BOTH Net GEX and Net Dealer
       const oiByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}} = {};
-      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number}}} = {};
-      const dealerByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number}}} = {};
+      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}} = {};
+      const dealerByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}} = {};
       const vexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}} = {};
       const flowGexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number}}} = {};
       const allStrikes = new Set<number>();
@@ -2352,16 +2791,26 @@ const DealerAttraction = () => {
           console.log(`🚨 Processing expiration ${expDate}, found ${Object.keys(calls).length} call strikes`);
           Object.entries(calls).forEach(([strike, data]: [string, any]) => {
             const strikeNum = parseFloat(strike);
-            const oi = data.open_interest || 0;
+            let oi = data.open_interest || 0;
+            
+            // 🔥 USE LIVE OI IF AVAILABLE
+            const contractKey = `${selectedTicker}_${strikeNum}_call_${expDate}`;
+            if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
+              const liveOI = liveOIDataFromState.get(contractKey) || 0;
+              console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
+              oi = liveOI;
+            }
             
             if (oi > 0) {
               // STEP 1A: Calculate OI (Open Interest) - Foundation for all other calculations
               console.log(`📊 Step 1A - Call OI: Strike ${strikeNum} = ${oi}`);
               oiByStrikeByExp[expDate][strikeNum] = { call: oi, put: 0, callOI: oi, putOI: 0 };
               
-              // STEP 1B: Calculate GEX using the OI we just stored
+              // STEP 1B: Calculate GEX and get all Greeks from API
               const gamma = data.greeks?.gamma || 0;
               const delta = data.greeks?.delta || 0;
+              const vega = data.greeks?.vega || 0;
+              const theta = data.greeks?.theta || 0; // Use Polygon's theta directly
               let vanna = data.greeks?.vanna || 0;
               
               // If vanna is 0 or missing, calculate it using Black-Scholes formula
@@ -2374,8 +2823,8 @@ const DealerAttraction = () => {
                 console.log(`🧮 CALCULATED VANNA - Call: Strike ${strikeNum}, T=${T.toFixed(4)}, IV=${iv.toFixed(4)}, vanna=${vanna.toFixed(8)}`);
               }
               
-              console.log(`📊 VANNA DEBUG - Call: Strike ${strikeNum}, gamma=${gamma}, delta=${delta}, vanna=${vanna}`);
-              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
+              console.log(`📊 GREEKS DEBUG - Call: Strike ${strikeNum}, gamma=${gamma}, delta=${delta}, vanna=${vanna}, theta=${theta} (from API), vega=${vega}`);
+              gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0, callTheta: theta, putTheta: 0, callVega: vega, putVega: 0 };
               dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
               
               // Flow Map: Simple premium-based calculation (no GEX, no Greeks)
@@ -2431,7 +2880,6 @@ const DealerAttraction = () => {
               if (!vexByStrikeByExp[expDate][strikeNum]) {
                 vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
               }
-              const vega = data.greeks?.vega || 0;
               vexByStrikeByExp[expDate][strikeNum].callOI = oi;
               vexByStrikeByExp[expDate][strikeNum].callVega = vega; // Store vega for recalculation
               console.log(`🔍🚨 Call VEX Debug: Strike ${strikeNum}, OI=${oi}, Vega=${vega}, greeks:`, data.greeks);
@@ -2467,7 +2915,7 @@ const DealerAttraction = () => {
             }
           });
           
-          // STEP 2: Process puts - Same order: OI → GEX → VEX → Premium
+          // STEP 2: Process puts - Same order: OI → GEX → VEX → Premium with Theta calculation
           console.log(`🔍 PUT PROCESSING DEBUG: Found ${Object.keys(puts).length} put strikes for ${expDate}`);
           
           // Special debugging for Nov 10
@@ -2482,7 +2930,15 @@ const DealerAttraction = () => {
           
           Object.entries(puts).forEach(([strike, data]: [string, any]) => {
             const strikeNum = parseFloat(strike);
-            const oi = data.open_interest || 0;
+            let oi = data.open_interest || 0;
+            
+            // 🔥 USE LIVE OI IF AVAILABLE
+            const contractKey = `${selectedTicker}_${strikeNum}_put_${expDate}`;
+            if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
+              const liveOI = liveOIDataFromState.get(contractKey) || 0;
+              console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
+              oi = liveOI;
+            }
             
             // Log high OI puts for Nov 10
             if (expDate === '2025-11-10' && oi > 100) {
@@ -2498,16 +2954,19 @@ const DealerAttraction = () => {
               oiByStrikeByExp[expDate][strikeNum].putOI = oi;
               console.log(`📊 Step 2A - Put OI: Strike ${strikeNum} = ${oi}`);
               
-              // STEP 2B: Update GEX with put data
+              // STEP 2B: Update GEX with put data and get all Greeks from API
               if (!gexByStrikeByExp[expDate][strikeNum]) {
-                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0, callVanna: 0, putVanna: 0 };
+                gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0, callVanna: 0, putVanna: 0, callTheta: 0, putTheta: 0, callVega: 0, putVega: 0 };
               }
               // Initialize dealer data if not exists
               if (!dealerByStrikeByExp[expDate][strikeNum]) {
                 dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0, callVanna: 0, putVanna: 0 };
               }
+              
               const gamma = data.greeks?.gamma || 0;
               const delta = data.greeks?.delta || 0;
+              const vega = data.greeks?.vega || 0;
+              const theta = data.greeks?.theta || 0; // Use Polygon's theta directly
               let vanna = data.greeks?.vanna || 0;
               
               // If vanna is 0 or missing, calculate it using Black-Scholes formula
@@ -2524,6 +2983,10 @@ const DealerAttraction = () => {
               gexByStrikeByExp[expDate][strikeNum].putGamma = gamma;
               gexByStrikeByExp[expDate][strikeNum].putDelta = delta;
               gexByStrikeByExp[expDate][strikeNum].putVanna = vanna;
+              gexByStrikeByExp[expDate][strikeNum].putTheta = theta;
+              gexByStrikeByExp[expDate][strikeNum].putVega = vega;
+              
+              console.log(`📊 GREEKS DEBUG - Put: Strike ${strikeNum}, gamma=${gamma}, delta=${delta}, vanna=${vanna}, theta=${theta} (from API), vega=${vega}`);
               
               dealerByStrikeByExp[expDate][strikeNum].putOI = oi;
               dealerByStrikeByExp[expDate][strikeNum].putGamma = gamma;
@@ -2582,7 +3045,6 @@ const DealerAttraction = () => {
               if (!vexByStrikeByExp[expDate][strikeNum]) {
                 vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
               }
-              const vega = data.greeks?.vega || 0;
               vexByStrikeByExp[expDate][strikeNum].putOI = oi;
               vexByStrikeByExp[expDate][strikeNum].putVega = vega; // Store vega for recalculation
               console.log(`🔍 Put VEX Debug: Strike ${strikeNum}, OI=${oi}, Vega=${vega}, greeks:`, data.greeks);
@@ -2681,9 +3143,22 @@ const DealerAttraction = () => {
       setData(formattedData);
       setProgress(100);
       setLoading(false);
+      
+      // If this was triggered by Live OI, hide that loading state too
+      if (liveOIMapOverride) {
+        console.log(`✅ Live OI recalculation complete`);
+        setLiveOILoading(false);
+        setLiveOIProgress(100);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setLoading(false);
+      
+      // Also hide Live OI loading on error
+      if (liveOIMapOverride) {
+        setLiveOILoading(false);
+        setLiveOIProgress(0);
+      }
     }
   };
 
@@ -2724,7 +3199,7 @@ const DealerAttraction = () => {
     return allStrikes.map(strike => {
       const row: GEXData = { strike };
       expirations.forEach(exp => {
-        const greeksData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number} = baseDataSource[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined };
+        const greeksData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number} = baseDataSource[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined, callVega: undefined, putVega: undefined, callTheta: undefined, putTheta: undefined };
         const vexData: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number} = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVega: undefined, putVega: undefined };
         
         // Start with base calculated values
@@ -2743,7 +3218,7 @@ const DealerAttraction = () => {
           const liveCallOI = liveOIData.get(callKey);
           const livePutOI = liveOIData.get(putKey);
           
-          const expirationDate = new Date(exp);
+          const expirationDate = new Date(exp + 'T00:00:00Z');
           const today = new Date();
           const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
           
@@ -3098,12 +3573,17 @@ const DealerAttraction = () => {
     // Split the date string and create date in local timezone
     const [year, month, day] = dateStr.split('-').map(Number);
     const date = new Date(year, month - 1, day); // month is 0-indexed in Date constructor
-    return date.toLocaleDateString('en-US', { 
+    
+    // Format for mobile: "Nov 28, 25" instead of "Nov 28, 2025"
+    const fullDate = date.toLocaleDateString('en-US', { 
       month: 'short', 
       day: 'numeric', 
       year: 'numeric',
-      timeZone: 'America/New_York' // Use ET timezone for options expiration consistency
+      timeZone: 'America/New_York'
     });
+    
+    // Shorten year for mobile (2025 -> 25)
+    return fullDate.replace(/, (\d{4})$/, (match, year) => `, ${year.slice(-2)}`);
   };
 
   if (error) {
@@ -3192,11 +3672,12 @@ const DealerAttraction = () => {
                 {/* Only show these controls for GREEK SUITE tab */}
                 {activeTab === 'ATTRACTION' && (
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    {/* Mobile Layout - Optimized Grid */}
-                    <div className="md:hidden w-full space-y-3">
-                      {/* Row 1: Search Bar + LIVE + REFRESH */}
+                    {/* Mobile Layout - Two Rows */}
+                    <div className="md:hidden w-full space-y-2">
+                      {/* Row 1: Search + LIVE + Range + REFRESH */}
                       <div className="flex items-center gap-2">
-                        <div className="flex-1 search-bar-premium flex items-center space-x-2 px-3 py-2.5 rounded-md">
+                        {/* Search Bar */}
+                        <div className="search-bar-premium flex items-center space-x-2 px-3 rounded-md flex-shrink-0" style={{ width: '20%', minWidth: '100px', height: '46px' }}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
                             <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
                             <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2"/>
@@ -3210,7 +3691,7 @@ const DealerAttraction = () => {
                                 handleTickerSubmit();
                               }
                             }}
-                            className="bg-transparent border-0 outline-none w-20 text-lg font-bold uppercase"
+                            className="bg-transparent border-0 outline-none flex-1 text-lg font-bold uppercase"
                             style={{
                               color: '#ffffff',
                               textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
@@ -3224,6 +3705,7 @@ const DealerAttraction = () => {
                           </svg>
                         </div>
                         
+                        {/* LIVE Button */}
                         <button
                           onClick={() => {
                             const currentTicker = tickerInput.trim() || selectedTicker;
@@ -3244,172 +3726,177 @@ const DealerAttraction = () => {
                             }
                           }}
                           disabled={liveOILoading}
-                          className={`w-20 py-3 text-sm font-black uppercase tracking-wider rounded transition-all whitespace-nowrap ${
-                            liveMode 
-                              ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/50' 
-                              : 'bg-gray-800 text-white hover:bg-gray-700 border-2 border-gray-700'
-                          } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                          className="flex items-center justify-center gap-2 px-6 border-2 border-gray-800 hover:border-orange-500 text-black font-black text-sm uppercase tracking-wider transition-all rounded whitespace-nowrap"
+                          style={{
+                            background: liveMode ? '#22c55e' : '#ef4444',
+                            boxShadow: liveMode 
+                              ? 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(34,197,94,0.4)' 
+                              : 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(239,68,68,0.4)',
+                            height: '46px',
+                            minWidth: '100px',
+                            opacity: liveOILoading ? 0.5 : 1,
+                            cursor: liveOILoading ? 'not-allowed' : 'pointer'
+                          }}
                         >
-                          {liveOILoading ? `${liveOIProgress}%` : liveMode ? 'LIVE ✓' : 'LIVE'}
+                          <span style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
+                            {liveOILoading ? `${liveOIProgress}%` : 'LIVE'}
+                          </span>
                         </button>
                         
+                        {/* Range Selector */}
+                        <div className="flex items-center gap-2 flex-1" style={{ height: '46px' }}>
+                          <span className="text-white font-black text-sm uppercase tracking-wider whitespace-nowrap">RANGE</span>
+                          <select
+                            value={otmFilter}
+                            onChange={(e) => setOtmFilter(e.target.value as '2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%')}
+                            className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 text-white text-sm font-black uppercase appearance-none cursor-pointer rounded whitespace-nowrap flex-1"
+                            style={{
+                              background: '#000000',
+                              boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
+                              height: '46px'
+                            }}
+                          >
+                            <option value="2%">±2% OTM</option>
+                          <option value="3%">±3% OTM</option>
+                          <option value="5%">±5% OTM</option>
+                          <option value="10%">±10% OTM</option>
+                          <option value="20%">±20% OTM</option>
+                          <option value="40%">±40% OTM</option>
+                          <option value="50%">±50% OTM</option>
+                          <option value="100%">±100% OTM</option>
+                          </select>
+                        </div>
+                        
+                        {/* REFRESH Button */}
                         <button
                           onClick={() => fetchOptionsData()}
                           disabled={loading}
-                          className="flex items-center justify-center gap-1 w-24 py-3 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-black text-sm uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all rounded whitespace-nowrap"
+                          className="flex items-center justify-center px-4 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-black text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-all rounded"
+                          style={{
+                            background: '#000000',
+                            boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
+                            height: '46px'
+                          }}
                         >
-                          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                          {loading ? 'UPDATE' : 'REFRESH'}
+                          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                         </button>
                       </div>
-
-                      {/* Row 2: Data Type Toggles (2 columns) */}
-                      <div className="grid grid-cols-2 gap-3">
-                        {/* Column 1: NORMAL, MM ACTIVITY, FLOW MAP, VOLATILITY */}
-                        <div className="flex flex-col gap-2.5 bg-gray-900/50 p-3 rounded-lg border border-gray-800">
-                          {/* NORMAL (GEX) */}
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={showGEX}
-                              onChange={(e) => {
-                                const isChecked = e.target.checked;
-                                setShowGEX(isChecked);
-                                if (isChecked) {
-                                  setGexMode('Net GEX');
-                                }
-                              }}
-                              className="w-4 h-4 text-yellow-500 bg-black border-2 border-gray-600 rounded focus:ring-yellow-500 focus:ring-2"
-                            />
-                            <span 
-                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-white border-gray-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(156,163,175,0.5),inset_0_1px_0_rgba(156,163,175,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] ${
-                                showGEX ? 'animate-pulse shadow-[0_0_25px_rgba(156,163,175,0.8),0_0_40px_rgba(156,163,175,0.5),inset_0_1px_0_rgba(156,163,175,0.3)]' : ''
-                              }`}
-                              style={{ 
-                                textShadow: showGEX 
-                                  ? '0 0 15px rgba(156, 163, 175, 1), 0 0 25px rgba(156, 163, 175, 0.6), 0 1px 2px rgba(0,0,0,0.8)' 
-                                  : '0 0 10px rgba(156, 163, 175, 0.6), 0 0 15px rgba(156, 163, 175, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
-                              }}
-                            >
-                              NORMAL
-                            </span>
-                          </div>
-                          {/* MM ACTIVITY (Dealer) */}
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={showDealer}
-                              onChange={(e) => {
-                                const isChecked = e.target.checked;
-                                setShowDealer(isChecked);
-                                if (isChecked) {
-                                  setGexMode('Net Dealer');
-                                }
-                              }}
-                              className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
-                            />
-                            <span 
-                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-yellow-300 border-yellow-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(234,179,8,0.5),inset_0_1px_0_rgba(234,179,8,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] ${
-                                showDealer ? 'animate-pulse shadow-[0_0_25px_rgba(234,179,8,0.8),0_0_40px_rgba(234,179,8,0.5),inset_0_1px_0_rgba(234,179,8,0.3)]' : ''
-                              }`}
-                              style={{ 
-                                textShadow: showDealer 
-                                  ? '0 0 15px rgba(234, 179, 8, 1), 0 0 25px rgba(234, 179, 8, 0.6), 0 1px 2px rgba(0,0,0,0.8)' 
-                                  : '0 0 10px rgba(234, 179, 8, 0.6), 0 0 15px rgba(234, 179, 8, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
-                              }}
-                            >
-                              MM ACTIVITY
-                            </span>
-                          </div>
-                          {/* FLOW MAP */}
-                          <div className="flex items-center gap-2">
-                            <input
-                              id="flowgex-checkbox-mobile"
-                              type="checkbox"
-                              checked={showFlowGEX}
-                              onClick={(e) => {
-                                console.log(`🔥 FLOW GEX CHECKBOX CLICKED (mobile) - Current: ${showFlowGEX}, Will be: ${!showFlowGEX}`);
-                              }}
-                              onChange={(e) => {
-                                console.log(`🔥 FLOW GEX CHECKBOX CHANGED (mobile) - New value: ${e.target.checked}`);
-                                setShowFlowGEX(e.target.checked);
-                              }}
-                              className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
-                            />
-                            <label 
-                              htmlFor="flowgex-checkbox-mobile"
-                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-orange-300 border-orange-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(249,115,22,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] cursor-pointer ${
-                                showFlowGEX ? 'animate-pulse shadow-[0_0_25px_rgba(249,115,22,0.8),0_0_40px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(249,115,22,0.3)]' : ''
-                              }`}
-                              style={{ 
-                                textShadow: showFlowGEX 
-                                  ? '0 0 15px rgba(249, 115, 22, 1), 0 0 25px rgba(249, 115, 22, 0.6), 0 1px 2px rgba(0,0,0,0.8)' 
-                                  : '0 0 10px rgba(249, 115, 22, 0.6), 0 0 15px rgba(249, 115, 22, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
-                              }}
-                            >
-                              FLOW MAP
-                            </label>
-                          </div>
-                          {/* VOLATILITY (VEX) */}
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={showVEX}
-                              onChange={(e) => {
-                                setShowVEX(e.target.checked);
-                                if (e.target.checked) {
-                                  setVexMode('Net VEX');
-                                }
-                              }}
-                              className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded focus:ring-purple-500 focus:ring-2"
-                            />
-                            <span 
-                              className={`text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all px-3 py-1.5 rounded-md border-2 text-purple-300 border-purple-500/50 bg-gradient-to-b from-black via-black to-gray-950 shadow-[0_0_15px_rgba(168,85,247,0.5),inset_0_1px_0_rgba(168,85,247,0.2),inset_0_-1px_0_rgba(0,0,0,0.5)] ${
-                                showVEX ? 'animate-pulse shadow-[0_0_25px_rgba(168,85,247,0.8),0_0_40px_rgba(168,85,247,0.5),inset_0_1px_0_rgba(168,85,247,0.3)]' : ''
-                              }`}
-                              style={{ 
-                                textShadow: showVEX 
-                                  ? '0 0 15px rgba(168, 85, 247, 1), 0 0 25px rgba(168, 85, 247, 0.6), 0 1px 2px rgba(0,0,0,0.8)' 
-                                  : '0 0 10px rgba(168, 85, 247, 0.6), 0 0 15px rgba(168, 85, 247, 0.3), 0 1px 2px rgba(0,0,0,0.8)'
-                              }}
-                            >
-                              VOLATILITY
-                            </span>
-                          </div>
+                      
+                      {/* Row 2: All Mode Checkboxes */}
+                      <div className="flex items-center gap-2 overflow-x-auto">
+                        {/* NORMAL */}
+                        <div 
+                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          style={{ 
+                            height: '46px',
+                            backgroundColor: 'transparent'
+                          }}
+                          onClick={() => {
+                            const newValue = !showGEX;
+                            setShowGEX(newValue);
+                            if (newValue) setGexMode('Net GEX');
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={showGEX}
+                            onChange={() => {}}
+                            className="w-4 h-4 text-green-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                          />
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showGEX ? '#22c55e' : '#ffffff' }}>
+                            NORMAL
+                          </span>
                         </div>
-
-                        {/* Column 2: OI and Range */}
-                        <div className="flex flex-col gap-2.5 bg-gray-900/50 p-3 rounded-lg border border-gray-800">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={showOI}
-                              onChange={(e) => setShowOI(e.target.checked)}
-                              className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
-                            />
-                            <span className="text-[10px] font-bold text-white uppercase tracking-wider whitespace-nowrap">OPEN INTEREST</span>
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">RANGE</span>
-                            <select
-                              value={otmFilter}
-                              onChange={(e) => setOtmFilter(e.target.value as '2%' | '3%' | '5%' | '10%' | '20%' | '40%' | '50%' | '100%')}
-                              className="bg-black border border-gray-700 focus:border-orange-500 focus:outline-none px-2 py-1 text-white text-[10px] font-bold uppercase appearance-none cursor-pointer rounded"
-                            >
-                              <option value="2%">±2%</option>
-                              <option value="3%">±3%</option>
-                              <option value="5%">±5%</option>
-                              <option value="10%">±10%</option>
-                              <option value="20%">±20%</option>
-                              <option value="40%">±40%</option>
-                              <option value="50%">±50%</option>
-                              <option value="100%">±100%</option>
-                            </select>
-                          </div>
+                        
+                        {/* MM ACTIVITY */}
+                        <div 
+                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          style={{ 
+                            height: '46px',
+                            backgroundColor: 'transparent'
+                          }}
+                          onClick={() => {
+                            const newValue = !showDealer;
+                            setShowDealer(newValue);
+                            if (newValue) setGexMode('Net Dealer');
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={showDealer}
+                            onChange={() => {}}
+                            className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                          />
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showDealer ? '#a855f7' : '#ffffff' }}>
+                            MM ACTIVITY
+                          </span>
+                        </div>
+                        
+                        {/* FLOW MAP */}
+                        <div 
+                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          style={{ 
+                            height: '46px',
+                            backgroundColor: 'transparent'
+                          }}
+                          onClick={() => setShowFlowGEX(!showFlowGEX)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={showFlowGEX}
+                            onChange={() => {}}
+                            className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                          />
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showFlowGEX ? '#f97316' : '#ffffff' }}>
+                            FLOW MAP
+                          </span>
+                        </div>
+                        
+                        {/* VOLATILITY */}
+                        <div 
+                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          style={{ 
+                            height: '46px',
+                            backgroundColor: 'transparent'
+                          }}
+                          onClick={() => {
+                            const newValue = !showVEX;
+                            setShowVEX(newValue);
+                            if (newValue) setVexMode('Net VEX');
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={showVEX}
+                            onChange={() => {}}
+                            className="w-4 h-4 text-yellow-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                          />
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showVEX ? '#eab308' : '#ffffff' }}>
+                            VOLATILITY
+                          </span>
+                        </div>
+                        
+                        {/* OPEN INTEREST */}
+                        <div 
+                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          style={{ 
+                            height: '46px',
+                            backgroundColor: 'transparent'
+                          }}
+                          onClick={() => setShowOI(!showOI)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={showOI}
+                            onChange={() => {}}
+                            className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                          />
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showOI ? '#3b82f6' : '#ffffff' }}>
+                            OPEN INTEREST
+                          </span>
                         </div>
                       </div>
                     </div>
-
                     {/* Desktop Layout - Original Horizontal */}
                     <div className="hidden md:flex md:items-center md:justify-between w-full">
                       {/* Left Controls */}
@@ -3673,16 +4160,6 @@ const DealerAttraction = () => {
                             Market Maker
                           </button>
                           <button 
-                            onClick={() => setActiveWorkbenchTab('MP')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
-                              activeWorkbenchTab === 'MP' 
-                                ? 'bg-green-600 text-white border-2 border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]' 
-                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-green-400 hover:text-white border-2 border-gray-800 hover:border-green-500 hover:bg-green-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                            }`}
-                          >
-                            Dealer Pressure
-                          </button>
-                          <button 
                             onClick={() => setActiveWorkbenchTab('SI')}
                             className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
                               activeWorkbenchTab === 'SI' 
@@ -3691,6 +4168,16 @@ const DealerAttraction = () => {
                             }`}
                           >
                             Stability Index
+                          </button>
+                          <button 
+                            onClick={() => setActiveWorkbenchTab('MAXPAIN')}
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
+                              activeWorkbenchTab === 'MAXPAIN' 
+                                ? 'bg-red-600 text-white border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]' 
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-red-400 hover:text-white border-2 border-gray-800 hover:border-red-500 hover:bg-red-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                            }`}
+                          >
+                            Max Pain
                           </button>
                           <button 
                             onClick={() => setActiveWorkbenchTab('OIGEX')}
@@ -3752,6 +4239,40 @@ const DealerAttraction = () => {
                 </div>
               )}
             </div>
+          ) : liveOILoading && data.length > 0 ? (
+            <div className="relative">
+              {/* Show existing data in background with overlay */}
+              <div className="opacity-30 pointer-events-none">
+                {/* Render existing data here (will be shown dimmed) */}
+              </div>
+              
+              {/* Live OI Recalculation Overlay */}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50" style={{ marginTop: '80px' }}>
+                <div className="text-center py-16 px-8">
+                  <RefreshCw size={64} className="animate-spin mx-auto mb-6 text-green-400" />
+                  <p className="text-2xl font-bold text-green-400 mb-2">🔥 LIVE OI MODE ACTIVE</p>
+                  <p className="text-xl font-semibold text-gray-300">Recalculating with Live Open Interest</p>
+                  <p className="text-sm text-gray-400 mt-2">
+                    {liveOIProgress < 20 ? 'Scanning options flow...' :
+                     liveOIProgress < 60 ? 'Fetching contract data...' :
+                     liveOIProgress < 80 ? 'Enriching trades...' :
+                     liveOIProgress < 90 ? 'Calculating Live OI...' :
+                     'Recalculating all metrics...'}
+                  </p>
+                  
+                  {/* Live OI Progress Bar */}
+                  <div className="mt-6 mx-auto max-w-md">
+                    <div className="relative w-full h-4 bg-gray-800 rounded-full overflow-hidden border border-green-700">
+                      <div 
+                        className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 ease-out shadow-lg shadow-green-500/50"
+                        style={{ width: `${liveOIProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-sm text-green-400 mt-2 font-bold">{liveOIProgress}%</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : activeTab === 'ATTRACTION' ? (
             <>
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
@@ -3765,15 +4286,15 @@ const DealerAttraction = () => {
                       <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
                         <h3 className="text-lg font-extrabold text-white uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>NORMAL</h3>
                       </div>
-                      <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                      <div className="bg-gray-900 border border-gray-700 overflow-x-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
                         <table className="w-full">
                       <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
                         <tr className="border-b border-gray-700 bg-black">
-                          <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                          <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl" style={{ width: '30px', minWidth: '30px', maxWidth: '30px' }}>
                             <div className="text-xs font-bold text-white uppercase">Strike</div>
                           </th>
                           {expirations.map(exp => (
-                            <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-4 py-5" style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}>
+                            <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-1 py-5" style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}>
                               <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                 {formatDate(exp)}
                               </div>
@@ -3806,9 +4327,13 @@ const DealerAttraction = () => {
                                 isCurrentPriceRow ? 'bg-yellow-900/20 border-yellow-500/40' : hasGoldCell ? 'bg-purple-900/20 border-purple-500/40' : ''
                               }`}
                             >
-                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 w-20 min-w-20 max-w-20 ${
+                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 ${
                                 isCurrentPriceRow ? 'bg-yellow-800/30' : hasGoldCell ? 'bg-purple-900/30' : 'bg-black'
-                              }`}>
+                              }`} style={{
+                                width: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length <= 5 ? '55px' : '60px',
+                                minWidth: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length <= 5 ? '55px' : '60px',
+                                maxWidth: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length <= 5 ? '55px' : '60px'
+                              }}>
                                 <div className={`text-base font-mono font-bold ${
                                   isCurrentPriceRow ? 'text-yellow-300' : 'text-white'
                                 }`}>
@@ -3825,10 +4350,10 @@ const DealerAttraction = () => {
                                 return (
                                   <td
                                     key={exp}
-                                    className={`px-4 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
-                                    style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}
+                                    className={`px-1 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
+                                    style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}
                                   >
-                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-4 py-3 rounded-lg text-center font-mono transition-all`}>
+                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 rounded-lg text-center font-mono transition-all`}>
                                       <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                     </div>
                                   </td>
@@ -3849,15 +4374,15 @@ const DealerAttraction = () => {
                       <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
                         <h3 className="text-lg font-extrabold text-yellow-400 uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>MM ACTIVITY</h3>
                       </div>
-                      <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                      <div className="bg-gray-900 border border-gray-700 overflow-x-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
                         <table className="w-full">
                       <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
                         <tr className="border-b border-gray-700 bg-black">
-                          <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                          <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl" style={{ width: '30px', minWidth: '30px', maxWidth: '30px' }}>
                             <div className="text-xs font-bold text-white uppercase">Strike</div>
                           </th>
                           {expirations.map(exp => (
-                            <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-4 py-5" style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}>
+                            <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-1 py-5" style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}>
                               <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                 {formatDate(exp)}
                               </div>
@@ -3890,9 +4415,13 @@ const DealerAttraction = () => {
                                 isCurrentPriceRow ? 'bg-yellow-900/20 border-yellow-500/40' : hasGoldCell ? 'bg-purple-900/20 border-purple-500/40' : ''
                               }`}
                             >
-                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 w-20 min-w-20 max-w-20 ${
+                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 ${
                                 isCurrentPriceRow ? 'bg-yellow-800/30' : hasGoldCell ? 'bg-purple-900/30' : 'bg-black'
-                              }`}>
+                              }`} style={{
+                                width: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px',
+                                minWidth: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px',
+                                maxWidth: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px'
+                              }}>
                                 <div className={`text-base font-mono font-bold ${
                                   isCurrentPriceRow ? 'text-yellow-300' : 'text-white'
                                 }`}>
@@ -3908,10 +4437,10 @@ const DealerAttraction = () => {
                                 return (
                                   <td
                                     key={exp}
-                                    className={`px-4 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
-                                    style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}
+                                    className={`px-1 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
+                                    style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}
                                   >
-                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-4 py-3 rounded-lg text-center font-mono transition-all`}>
+                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 rounded-lg text-center font-mono transition-all`}>
                                       <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                     </div>
                                   </td>
@@ -3931,17 +4460,16 @@ const DealerAttraction = () => {
                     <div className="flex-1">
                       <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
                         <h3 className="text-lg font-extrabold text-orange-400 uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>FLOW MAP</h3>
-                        <div className="text-xs text-orange-300/70 text-center mt-1">Net Premium: Calls - Puts</div>
                       </div>
-                      <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                      <div className="bg-gray-900 border border-gray-700 overflow-x-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
                         <table className="w-full">
                         <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
                           <tr className="border-b border-gray-700 bg-black">
-                            <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                            <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl" style={{ width: '30px', minWidth: '30px', maxWidth: '30px' }}>
                               <div className="text-xs font-bold text-white uppercase">Strike</div>
                             </th>
                             {expirations.map(exp => (
-                              <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-4 py-5" style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}>
+                              <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-1 py-5" style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}>
                                 <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                   {formatDate(exp)}
                                 </div>
@@ -3974,9 +4502,13 @@ const DealerAttraction = () => {
                                   isCurrentPriceRow ? 'bg-yellow-900/20 border-yellow-500/40' : hasGoldCell ? 'bg-purple-900/20 border-purple-500/40' : ''
                                 }`}
                               >
-                                <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 w-20 min-w-20 max-w-20 ${
+                                <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 ${
                                   isCurrentPriceRow ? 'bg-yellow-800/30' : hasGoldCell ? 'bg-purple-900/30' : 'bg-black'
-                                }`}>
+                                }`} style={{
+                                  width: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px',
+                                  minWidth: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px',
+                                  maxWidth: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px'
+                                }}>
                                   <div className={`text-base font-mono font-bold ${
                                     isCurrentPriceRow ? 'text-yellow-300' : 'text-white'
                                   }`}>
@@ -3992,10 +4524,10 @@ const DealerAttraction = () => {
                                   return (
                                     <td
                                       key={exp}
-                                      className={`px-4 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
-                                      style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}
+                                      className={`px-1 py-3 ${isCurrentPriceRow ? 'bg-yellow-900/15' : hasGoldCell ? 'bg-purple-900/15' : ''}`}
+                                      style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}
                                     >
-                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-4 py-3 rounded-lg text-center font-mono transition-all`}>
+                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 rounded-lg text-center font-mono transition-all`}>
                                         <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                       </div>
                                     </td>
@@ -4012,15 +4544,15 @@ const DealerAttraction = () => {
                 </div>
               ) : (
                 /* Original single table when only one mode is active */
-                <div className="bg-gray-900 border border-gray-700 overflow-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+                <div className="bg-gray-900 border border-gray-700 overflow-x-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
                   <table className="w-full">
                     <thead className="sticky top-0 z-20 bg-black">
                       <tr className="border-b border-gray-700 bg-black">
-                        <th className="px-3 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-30 border-r border-gray-700 shadow-xl w-20 min-w-20 max-w-20">
+                        <th className="px-3 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-30 border-r border-gray-700 shadow-xl" style={{ width: '30px', minWidth: '30px', maxWidth: '30px' }}>
                           <div className="text-xs font-bold text-white uppercase">Strike</div>
                         </th>
                         {expirations.map(exp => (
-                          <th key={exp} className="text-center bg-gradient-to-br from-black via-gray-900 to-black border-l border-r border-gray-800 shadow-lg px-4 py-3" style={{ width: '98px', minWidth: '98px', maxWidth: '98px' }}>
+                          <th key={exp} className="text-center bg-gradient-to-br from-black via-gray-900 to-black border-l border-r border-gray-800 shadow-lg px-1 py-3" style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}>
                             <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                               {formatDate(exp)}
                             </div>
@@ -4090,10 +4622,14 @@ const DealerAttraction = () => {
                               isLargestValueRow ? 'bg-purple-900/20 border-purple-500/40' : ''
                             }`}
                           >
-                            <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 w-20 min-w-20 max-w-20 ${
+                            <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 ${
                               isCurrentPriceRow ? 'bg-yellow-800/30' : 
                               isLargestValueRow ? 'bg-purple-800/30' : 'bg-black'
-                            }`}>
+                            }`} style={{
+                              width: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px',
+                              minWidth: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px',
+                              maxWidth: row.strike.toString().replace('.', '').length <= 3 ? '20px' : row.strike.toString().replace('.', '').length === 4 ? '30px' : row.strike.toString().replace('.', '').length === 5 ? '55px' : '60px'
+                            }}>
                               <div className={`text-base font-mono font-bold ${
                                 isCurrentPriceRow ? 'text-yellow-300' : 
                                 isLargestValueRow ? 'text-purple-300' : 'text-white'
@@ -4206,11 +4742,11 @@ const DealerAttraction = () => {
                               return (
                                 <td
                                   key={exp}
-                                  className={`px-4 py-3 ${
+                                  className={`px-1 py-3 ${
                                     isCurrentPriceRow ? 'bg-yellow-900/15' : 
                                     isLargestValueRow ? 'bg-purple-900/15' : ''
                                   }`}
-                                  style={{ width: '140px', minWidth: '140px', maxWidth: '140px' }}
+                                  style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}
                                 >
                                   {/* Always display net value in a single cell */}
                                   {(() => {
@@ -4226,7 +4762,7 @@ const DealerAttraction = () => {
                                     
                                     const cellStyle = getCellStyle(displayValue, showVEX, row.strike, exp);
                                     return (
-                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-4 py-3 rounded-lg text-center font-mono transition-all hover:scale-105 ${
+                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 rounded-lg text-center font-mono transition-all hover:scale-105 ${
                                       isCurrentPriceRow ? 'ring-1 ring-yellow-500/40' : 
                                       isLargestValueRow ? 'ring-1 ring-purple-500/50' : ''
                                     }`}>
@@ -4290,19 +4826,21 @@ const DealerAttraction = () => {
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}
-                    expirations={expirations}
-                  />
-                </div>
-                <div style={{ display: activeWorkbenchTab === 'MP' ? 'block' : 'none' }}>
-                  <MPDashboard 
-                    selectedTicker={selectedTicker}
-                    currentPrice={currentPrice}
-                    gexByStrikeByExpiration={gexByStrikeByExpiration}
+                    vexByStrikeByExpiration={vexByStrikeByExpiration}
                     expirations={expirations}
                   />
                 </div>
                 <div style={{ display: activeWorkbenchTab === 'SI' ? 'block' : 'none' }}>
                   <SIDashboard 
+                    selectedTicker={selectedTicker}
+                    currentPrice={currentPrice}
+                    gexByStrikeByExpiration={gexByStrikeByExpiration}
+                    vexByStrikeByExpiration={vexByStrikeByExpiration}
+                    expirations={expirations}
+                  />
+                </div>
+                <div style={{ display: activeWorkbenchTab === 'MAXPAIN' ? 'block' : 'none' }}>
+                  <MaxPainDashboard 
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}

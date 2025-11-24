@@ -1298,7 +1298,21 @@ export default function OpenInterestChart({
  border: '1px solid #333333',
  borderRadius: '8px',
  padding: '10px 16px',
- color: expectedRangePCRatio.startsWith('∞') ? '#ff6b6b' : expectedRangePCRatio === 'N/A' || expectedRangePCRatio === 'Error' ? '#888888' : '#00ff88',
+ color: (() => {
+ if (expectedRangePCRatio === 'N/A' || expectedRangePCRatio === 'Error') return '#888888';
+ if (expectedRangePCRatio.startsWith('∞')) return '#ff6b6b';
+ // Extract numeric value before parentheses (e.g., "4.78 (638-667)" -> 4.78)
+ const match = expectedRangePCRatio.match(/^([\d.]+)/);
+ if (match) {
+ const pcValue = parseFloat(match[1]);
+ if (!isNaN(pcValue)) {
+ if (pcValue >= 2.0) return '#ff0000'; // Pure red for 2.0+
+ if (pcValue <= 0.45) return '#00ff00'; // Pure green for 0.45 or lower
+ return '#ffffff'; // White for values in between
+ }
+ }
+ return '#00ff00';
+ })(),
  fontSize: '14px',
  fontWeight: '500',
  minWidth: '180px',
@@ -1428,80 +1442,6 @@ export default function OpenInterestChart({
  }}
  >
  AI
- </button>
- 
- <button
- onClick={() => {
- // TODO: Implement Quick Chart functionality
- console.log('Quick Chart clicked');
- }}
- style={{
- background: '#000000',
- border: '1px solid #333333',
- borderRadius: '8px',
- color: '#ffffff',
- padding: '10px 16px',
- fontSize: '13px',
- fontWeight: '600',
- letterSpacing: '0.3px',
- cursor: 'pointer',
- transition: 'all 0.2s ease',
- fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
- textTransform: 'uppercase',
- boxShadow: `
- 0 2px 8px rgba(0, 0, 0, 0.4),
- inset 0 1px 0 rgba(255, 255, 255, 0.1),
- inset 0 -1px 0 rgba(0, 0, 0, 0.4)
- `,
- textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
- }}
- onMouseEnter={(e) => {
- if (!showAllDates) {
- e.currentTarget.style.background = '#d97706';
- e.currentTarget.style.color = '#000000';
- e.currentTarget.style.border = '1px solid #d97706';
- e.currentTarget.style.transform = 'translateY(-2px)';
- e.currentTarget.style.boxShadow = `
- 0 4px 16px rgba(217, 119, 6, 0.4),
- 0 2px 8px rgba(0, 0, 0, 0.6),
- inset 0 1px 0 rgba(255, 255, 255, 0.2),
- inset 0 -1px 0 rgba(0, 0, 0, 0.2)
- `;
- e.currentTarget.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.3)';
- } else {
- e.currentTarget.style.transform = 'translateY(-2px)';
- e.currentTarget.style.boxShadow = `
- 0 6px 20px rgba(217, 119, 6, 0.6),
- 0 4px 12px rgba(0, 0, 0, 0.8),
- inset 0 1px 0 rgba(255, 255, 255, 0.3),
- inset 0 -1px 0 rgba(0, 0, 0, 0.1)
- `;
- }
- }}
- onMouseLeave={(e) => {
- if (!showAllDates) {
- e.currentTarget.style.background = '#000000';
- e.currentTarget.style.color = '#ffffff';
- e.currentTarget.style.border = '1px solid #333333';
- e.currentTarget.style.transform = 'translateY(0)';
- e.currentTarget.style.boxShadow = `
- 0 2px 8px rgba(0, 0, 0, 0.4),
- inset 0 1px 0 rgba(255, 255, 255, 0.1),
- inset 0 -1px 0 rgba(0, 0, 0, 0.4)
- `;
- e.currentTarget.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.8)';
- } else {
- e.currentTarget.style.transform = 'translateY(0)';
- e.currentTarget.style.boxShadow = `
- 0 4px 16px rgba(217, 119, 6, 0.4),
- 0 2px 8px rgba(0, 0, 0, 0.6),
- inset 0 1px 0 rgba(255, 255, 255, 0.2),
- inset 0 -1px 0 rgba(0, 0, 0, 0.2)
- `;
- }
- }}
- >
- Chart
  </button>
 
  {/* OI Dropdown Button */}
