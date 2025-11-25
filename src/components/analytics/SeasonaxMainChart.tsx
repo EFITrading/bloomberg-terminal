@@ -374,45 +374,84 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
 
  // Fill areas above and below zero line with the main seasonal data
  if (processedData && processedData.length > 0) {
- // Green area (above zero line) - positive returns
- ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
+ // Create separate filled regions for positive and negative areas
+ // This ensures proper green/red shading even when line crosses zero
+ 
+ for (let i = 0; i < processedData.length - 1; i++) {
+ const currentDay = processedData[i];
+ const nextDay = processedData[i + 1];
+ 
+ const x1 = padding.left + (currentDay.dayOfYear / 365) * chartWidth;
+ const y1 = containerHeight - padding.bottom - ((currentDay.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+ const x2 = padding.left + (nextDay.dayOfYear / 365) * chartWidth;
+ const y2 = containerHeight - padding.bottom - ((nextDay.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+ 
+ // Fill green for positive segments
+ if (currentDay.cumulativeReturn >= 0 || nextDay.cumulativeReturn >= 0) {
+ ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
  ctx.beginPath();
- ctx.moveTo(padding.left, zeroY);
  
- processedData.forEach((dayData, index) => {
- const x = padding.left + (dayData.dayOfYear / 365) * chartWidth;
- const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
- 
- if (dayData.cumulativeReturn >= 0) {
- ctx.lineTo(x, y);
- } else {
- ctx.lineTo(x, zeroY);
- }
- });
- 
- ctx.lineTo(containerWidth - padding.right, zeroY);
+ // Handle different cases for proper filling
+ if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn >= 0) {
+ // Both positive - fill entire segment
+ ctx.moveTo(x1, zeroY);
+ ctx.lineTo(x1, y1);
+ ctx.lineTo(x2, y2);
+ ctx.lineTo(x2, zeroY);
  ctx.closePath();
  ctx.fill();
-
- // Red area (below zero line) - negative returns
- ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
- ctx.beginPath();
- ctx.moveTo(padding.left, zeroY);
- 
- processedData.forEach((dayData, index) => {
- const x = padding.left + (dayData.dayOfYear / 365) * chartWidth;
- const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
- 
- if (dayData.cumulativeReturn < 0) {
- ctx.lineTo(x, y);
- } else {
- ctx.lineTo(x, zeroY);
- }
- });
- 
- ctx.lineTo(containerWidth - padding.right, zeroY);
+ } else if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn < 0) {
+ // Crosses from positive to negative - fill only positive part
+ const crossX = x1 + (x2 - x1) * (currentDay.cumulativeReturn / (currentDay.cumulativeReturn - nextDay.cumulativeReturn));
+ ctx.moveTo(x1, zeroY);
+ ctx.lineTo(x1, y1);
+ ctx.lineTo(crossX, zeroY);
  ctx.closePath();
  ctx.fill();
+ } else if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn >= 0) {
+ // Crosses from negative to positive - fill only positive part
+ const crossX = x1 + (x2 - x1) * (-currentDay.cumulativeReturn / (nextDay.cumulativeReturn - currentDay.cumulativeReturn));
+ ctx.moveTo(crossX, zeroY);
+ ctx.lineTo(x2, y2);
+ ctx.lineTo(x2, zeroY);
+ ctx.closePath();
+ ctx.fill();
+ }
+ }
+ 
+ // Fill red for negative segments
+ if (currentDay.cumulativeReturn < 0 || nextDay.cumulativeReturn < 0) {
+ ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
+ ctx.beginPath();
+ 
+ // Handle different cases for proper filling
+ if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn < 0) {
+ // Both negative - fill entire segment
+ ctx.moveTo(x1, zeroY);
+ ctx.lineTo(x1, y1);
+ ctx.lineTo(x2, y2);
+ ctx.lineTo(x2, zeroY);
+ ctx.closePath();
+ ctx.fill();
+ } else if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn < 0) {
+ // Crosses from positive to negative - fill only negative part
+ const crossX = x1 + (x2 - x1) * (currentDay.cumulativeReturn / (currentDay.cumulativeReturn - nextDay.cumulativeReturn));
+ ctx.moveTo(crossX, zeroY);
+ ctx.lineTo(x2, y2);
+ ctx.lineTo(x2, zeroY);
+ ctx.closePath();
+ ctx.fill();
+ } else if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn >= 0) {
+ // Crosses from negative to positive - fill only negative part
+ const crossX = x1 + (x2 - x1) * (-currentDay.cumulativeReturn / (nextDay.cumulativeReturn - currentDay.cumulativeReturn));
+ ctx.moveTo(x1, zeroY);
+ ctx.lineTo(x1, y1);
+ ctx.lineTo(crossX, zeroY);
+ ctx.closePath();
+ ctx.fill();
+ }
+ }
+ }
  }
 
  // Draw main seasonal line with processed data

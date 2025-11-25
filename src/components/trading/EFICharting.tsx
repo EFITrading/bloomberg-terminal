@@ -23,6 +23,8 @@ import {
  TbBrush
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
+import PolygonService from '../../lib/polygonService';
+import ElectionCycleService from '../../lib/electionCycleService';
 
 // Global type declarations
 declare global {
@@ -980,6 +982,296 @@ const findStrikeForProbability = (S: number, r: number, sigma: number, T: number
  return result;
  }
 };
+
+// ==================== SEASONALITY PROJECTION FUNCTIONS ====================
+// Create service instances for seasonality data
+const polygonService = new PolygonService();
+const electionCycleService = new ElectionCycleService();
+
+// Determine current election cycle period based on the year
+const getCurrentElectionCycle = (): 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election' => {
+ const currentYear = new Date().getFullYear();
+ const yearInCycle = currentYear % 4;
+ 
+ // US Presidential elections are every 4 years (2024, 2028, 2032, etc.)
+ // 2024 = Election Year (0)
+ // 2025 = Post-Election (1)
+ // 2026 = Mid-Term (2)
+ // 2027 = Pre-Election (3)
+ 
+ switch (yearInCycle) {
+ case 0:
+ return 'Election Year';
+ case 1:
+ return 'Post-Election';
+ case 2:
+ return 'Mid-Term';
+ case 3:
+ return 'Pre-Election';
+ default:
+ return 'Election Year';
+ }
+};
+
+interface DailySeasonalData {
+ dayOfYear: number;
+ avgReturn: number;
+ occurrences: number;
+}
+
+interface PolygonDataPoint {
+ v: number;
+ vw: number;
+ o: number;
+ c: number;
+ h: number;
+ l: number;
+ t: number;
+ n: number;
+}
+
+// Calculate day of year (1-365)
+const getDayOfYear = (date: Date): number => {
+ const start = new Date(date.getFullYear(), 0, 0);
+ const diff = date.getTime() - start.getTime();
+ return Math.floor(diff / (1000 * 60 * 60 * 24));
+};
+
+// Process daily seasonal data benchmarked against SPY
+const processDailySeasonalData = (
+ symbolData: PolygonDataPoint[],
+ spyData: PolygonDataPoint[] | null,
+ years: number
+): DailySeasonalData[] => {
+ const dailyGroups: { [dayOfYear: number]: number[] } = {};
+ 
+ // Create SPY lookup map
+ const spyLookup: { [timestamp: number]: PolygonDataPoint } = {};
+ if (spyData) {
+ spyData.forEach(item => {
+ spyLookup[item.t] = item;
+ });
+ }
+ 
+ // Process historical data into daily returns
+ for (let i = 1; i < symbolData.length; i++) {
+ const currentItem = symbolData[i];
+ const previousItem = symbolData[i - 1];
+ const date = new Date(currentItem.t);
+ const dayOfYear = getDayOfYear(date);
+ 
+ // Calculate stock return
+ const stockReturn = ((currentItem.c - previousItem.c) / previousItem.c) * 100;
+ 
+ let finalReturn = stockReturn;
+ 
+ // If we have SPY data, calculate relative performance vs SPY
+ if (spyData && spyData.length > 0) {
+ const currentSpy = spyLookup[currentItem.t];
+ const previousSpy = spyLookup[previousItem.t];
+ 
+ if (currentSpy && previousSpy) {
+ const spyReturn = ((currentSpy.c - previousSpy.c) / previousSpy.c) * 100;
+ finalReturn = stockReturn - spyReturn; // Relative to SPY
+ } else {
+ continue; // Skip if no SPY data
+ }
+ }
+ 
+ if (!dailyGroups[dayOfYear]) {
+ dailyGroups[dayOfYear] = [];
+ }
+ 
+ dailyGroups[dayOfYear].push(finalReturn);
+ }
+ 
+ // Calculate average return for each day
+ const dailyData: DailySeasonalData[] = [];
+ for (let dayOfYear = 1; dayOfYear <= 365; dayOfYear++) {
+ const dayData = dailyGroups[dayOfYear] || [];
+ 
+ if (dayData.length === 0) continue;
+ 
+ const avgReturn = dayData.reduce((sum, ret) => sum + ret, 0) / dayData.length;
+ 
+ dailyData.push({
+ dayOfYear,
+ avgReturn,
+ occurrences: dayData.length
+ });
+ }
+ 
+ return dailyData;
+};
+
+// Fetch and calculate seasonality projection for next 45 days
+const calculateSeasonalityProjection = async (
+ symbol: string,
+ yearsOfData: number,
+ chartData: ChartDataPoint[],
+ electionType?: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
+): Promise<Array<{date: Date, price: number}> | null> => {
+ try {
+ console.log(`📊 Calculating seasonality projection for ${symbol} with ${yearsOfData} years`);
+ 
+ // Calculate date range
+ const endDate = new Date();
+ const startDate = new Date();
+ startDate.setFullYear(endDate.getFullYear() - yearsOfData);
+ 
+ const startDateStr = startDate.toISOString().split('T')[0];
+ const endDateStr = endDate.toISOString().split('T')[0];
+ 
+ let dailySeasonalData: DailySeasonalData[];
+ 
+ if (electionType) {
+ // Election cycle mode - use election service
+ console.log(`📊 Using election cycle data: ${electionType}`);
+ const electionData = await electionCycleService.analyzeElectionCycleSeasonality(
+ symbol,
+ electionType,
+ yearsOfData
+ );
+ 
+ if (!electionData || !electionData.dailyData) {
+ console.error('Failed to fetch election cycle data');
+ return null;
+ }
+ 
+ // Convert election data to our format
+ dailySeasonalData = electionData.dailyData.map(d => ({
+ dayOfYear: d.dayOfYear,
+ avgReturn: d.avgReturn,
+ occurrences: d.occurrences
+ }));
+ } else {
+ // Normal seasonality mode
+ // Fetch historical data for symbol and SPY using bulk method
+ const isSPY = symbol.toUpperCase() === 'SPY';
+ 
+ console.log(`📊 Fetching ${yearsOfData} years of historical data for ${symbol}`);
+ 
+ const [symbolResponse, spyResponse] = await Promise.all([
+ polygonService.getBulkHistoricalData(symbol, yearsOfData),
+ isSPY ? Promise.resolve(null) : polygonService.getBulkHistoricalData('SPY', yearsOfData)
+ ]);
+ 
+ if (!symbolResponse || !symbolResponse.results) {
+ console.error('Failed to fetch historical data');
+ return null;
+ }
+ 
+ console.log(`📊 Fetched ${symbolResponse.results.length} data points for ${symbol}`);
+ if (symbolResponse.results.length > 0) {
+ const firstDate = new Date(symbolResponse.results[0].t);
+ const lastDate = new Date(symbolResponse.results[symbolResponse.results.length - 1].t);
+ const actualYears = (lastDate.getTime() - firstDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+ console.log(`📊 Data spans from ${firstDate.toISOString().split('T')[0]} to ${lastDate.toISOString().split('T')[0]} (${actualYears.toFixed(1)} years)`);
+ }
+ 
+ if (spyResponse && spyResponse.results && spyResponse.results.length > 0) {
+ const spyFirstDate = new Date(spyResponse.results[0].t);
+ const spyLastDate = new Date(spyResponse.results[spyResponse.results.length - 1].t);
+ console.log(`📊 SPY data: ${spyResponse.results.length} points from ${spyFirstDate.toISOString().split('T')[0]} to ${spyLastDate.toISOString().split('T')[0]}`);
+ }
+ 
+ // Process data into daily seasonal format
+ dailySeasonalData = processDailySeasonalData(
+ symbolResponse.results,
+ spyResponse?.results || null,
+ yearsOfData
+ );
+ }
+ 
+ if (dailySeasonalData.length === 0) {
+ console.error('No seasonal data calculated');
+ return null;
+ }
+ 
+ console.log(`📊 Processed ${dailySeasonalData.length} days of seasonal data`);
+ 
+ // Log sample of seasonal pattern to verify differences
+ const sampleDays = [1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360];
+ console.log('📊 Sample seasonal returns by day of year:');
+ sampleDays.forEach(day => {
+ const seasonalDay = dailySeasonalData.find(d => d.dayOfYear === day);
+ if (seasonalDay) {
+ console.log(`  Day ${day}: ${seasonalDay.avgReturn.toFixed(4)}% (${seasonalDay.occurrences} occurrences)`);
+ }
+ });
+ 
+ // Get current date and find where we are in the year
+ const today = new Date();
+ const currentDayOfYear = getDayOfYear(today);
+ 
+ console.log(`📅 Today is day ${currentDayOfYear} of the year (${today.toDateString()})`);
+ 
+ // Get last candle price from chartData
+ if (!chartData || chartData.length === 0) {
+ console.error('No chart data available');
+ return null;
+ }
+ 
+ const lastCandle = chartData[chartData.length - 1];
+ let currentPrice = lastCandle.close;
+ 
+ console.log(`💰 Last candle price: $${currentPrice.toFixed(2)}`);
+ 
+ // Create projection for next 45 days
+ const projection: Array<{date: Date, price: number}> = [];
+ const projectionDays = 45;
+ 
+ let projectedPrice = currentPrice;
+ 
+ for (let i = 0; i < projectionDays; i++) {
+ const futureDate = new Date(today);
+ futureDate.setDate(futureDate.getDate() + i + 1); // Start from tomorrow
+ 
+ const futureDayOfYear = getDayOfYear(futureDate);
+ 
+ // Find seasonal data for this day
+ const seasonalDay = dailySeasonalData.find(d => d.dayOfYear === futureDayOfYear);
+ 
+ if (seasonalDay) {
+ // Apply the average return to project the price
+ const dailyReturnMultiplier = 1 + (seasonalDay.avgReturn / 100);
+ projectedPrice = projectedPrice * dailyReturnMultiplier;
+ 
+ projection.push({
+ date: futureDate,
+ price: projectedPrice
+ });
+ } else {
+ // If no data for this day, use previous price (flat line)
+ projection.push({
+ date: futureDate,
+ price: projectedPrice
+ });
+ }
+ }
+ 
+ console.log(`✅ Generated ${projection.length} days of seasonal projection`);
+ console.log(`📈 Projection: Start $${currentPrice.toFixed(2)} → End $${projection[projection.length-1].price.toFixed(2)}`);
+ 
+ // Log detailed projection path
+ console.log('📊 Projection path (every 5 days):');
+ for (let i = 0; i < projection.length; i += 5) {
+ const p = projection[i];
+ const changeFromStart = ((p.price - currentPrice) / currentPrice) * 100;
+ console.log(`  Day ${i+1}: $${p.price.toFixed(2)} (${changeFromStart > 0 ? '+' : ''}${changeFromStart.toFixed(2)}%)`);
+ }
+ const finalChange = ((projection[projection.length-1].price - currentPrice) / currentPrice) * 100;
+ console.log(`  Final (Day 45): $${projection[projection.length-1].price.toFixed(2)} (${finalChange > 0 ? '+' : ''}${finalChange.toFixed(2)}%)`);
+ 
+ return projection;
+ 
+ } catch (error) {
+ console.error('Error calculating seasonality projection:', error);
+ return null;
+ }
+};
+
+// ==================== END SEASONALITY PROJECTION FUNCTIONS ====================
 
 // Polygon API Integration for Expected Range Calculations
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
@@ -2425,6 +2717,9 @@ export default function TradingViewChart({
               callsMinus: number;
               putsPlus: number;
               putsMinus: number;
+              bullishTotal: number;
+              bearishTotal: number;
+              netFlow: number;
             }> = [];
             
             let cumulative = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 };
@@ -2445,13 +2740,21 @@ export default function TradingViewChart({
               const hour12 = displayHours % 12 === 0 ? 12 : displayHours % 12;
               const ampm = displayHours < 12 ? 'AM' : 'PM';
               
+              // Calculate combined values
+              const bullishTotal = cumulative.callsPlus + cumulative.putsPlus;
+              const bearishTotal = -(cumulative.callsMinus + cumulative.putsMinus);
+              const netFlow = (cumulative.callsPlus - cumulative.callsMinus) + (cumulative.putsPlus - cumulative.putsMinus);
+              
               chartData.push({
                 time: timestamp,
                 timeLabel: `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`,
                 callsPlus: cumulative.callsPlus,
                 callsMinus: cumulative.callsMinus,
                 putsPlus: cumulative.putsPlus,
-                putsMinus: cumulative.putsMinus
+                putsMinus: cumulative.putsMinus,
+                bullishTotal,
+                bearishTotal,
+                netFlow
               });
             });
             
@@ -2655,6 +2958,17 @@ export default function TradingViewChart({
  const [isWeeklyActive, setIsWeeklyActive] = useState(false);
  const [isMonthlyActive, setIsMonthlyActive] = useState(false);
 
+ // Seasonal state
+ const [isSeasonalDropdownOpen, setIsSeasonalDropdownOpen] = useState(false);
+ const [isSeasonalActive, setIsSeasonalActive] = useState(false);
+ const [isSeasonal20YActive, setIsSeasonal20YActive] = useState(false);
+ const [isSeasonal15YActive, setIsSeasonal15YActive] = useState(false);
+ const [isSeasonal10YActive, setIsSeasonal10YActive] = useState(false);
+ const [isSeasonalElectionActive, setIsSeasonalElectionActive] = useState(false);
+ const seasonalButtonRef = useRef<HTMLButtonElement>(null);
+ const [seasonalProjectionData, setSeasonalProjectionData] = useState<Array<{date: Date, price: number}> | null>(null);
+ const [isLoadingSeasonalProjection, setIsLoadingSeasonalProjection] = useState(false);
+
   // GEX state for gamma exposure levels
   const [isGexActive, setIsGexActive] = useState(false);
   const [isGexLoading, setIsGexLoading] = useState(false);
@@ -2675,6 +2989,10 @@ export default function TradingViewChart({
   const [isFlowChartActive, setIsFlowChartActive] = useState(false);
   const [flowChartHeight, setFlowChartHeight] = useState(100);
   const [isDraggingFlowChart, setIsDraggingFlowChart] = useState(false);
+  const [flowChartViewMode, setFlowChartViewMode] = useState<'detailed' | 'simplified' | 'net'>('detailed');
+  const [flowChartButtonX, setFlowChartButtonX] = useState(800); // X position for buttons based on 5:00 AM
+  const [last5AMTimestamp, setLast5AMTimestamp] = useState<number | null>(null); // Track which 5AM we're anchored to
+  const [is5AMVisible, setIs5AMVisible] = useState(false); // Track if 5AM is currently visible
   const [flowChartData, setFlowChartData] = useState<Array<{
     time: number;
     timeLabel: string;
@@ -2682,6 +3000,9 @@ export default function TradingViewChart({
     callsMinus: number;
     putsPlus: number;
     putsMinus: number;
+    bullishTotal: number;
+    bearishTotal: number;
+    netFlow: number;
   }>>([]);
 
   // Flow chart resize handler
@@ -4565,6 +4886,82 @@ export default function TradingViewChart({
  console.log('?? Expected Range lines rendered on top');
  }
 
+ // Draw Seasonal Projection line on top of candlesticks
+ if (isSeasonalActive && seasonalProjectionData && seasonalProjectionData.length > 0) {
+ 
+ // Get last candle position from visible data
+ if (visibleData && visibleData.length > 0) {
+ const lastVisibleCandle = visibleData[visibleData.length - 1];
+ const lastCandleTime = new Date(lastVisibleCandle.timestamp).getTime();
+ const lastCandlePrice = lastVisibleCandle.close;
+ 
+ // Calculate last candle x position using same coordinate system as candlesticks
+ // Last visible candle is at index (visibleData.length - 1)
+ const lastCandleIndex = visibleData.length - 1;
+ const lastCandleX = 40 + (lastCandleIndex * candleSpacing) + candleSpacing / 2;
+ 
+ // Draw the projection line starting from last visible candle
+ ctx.save();
+ ctx.strokeStyle = '#FFFFFF'; // Crispy white color
+ ctx.lineWidth = 2;
+ 
+ ctx.beginPath();
+ 
+ // Start from last candle price
+ const lastCandleY = priceChartHeight - ((lastCandlePrice - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+ ctx.moveTo(lastCandleX, lastCandleY);
+ 
+ // Draw projection points
+ let pointsDrawn = 0;
+ let maxX = lastCandleX;
+ 
+ seasonalProjectionData.forEach((point, index) => {
+ const pointTime = point.date.getTime();
+ 
+ // Calculate days from last candle
+ const timeDiff = pointTime - lastCandleTime;
+ const daysFromEnd = timeDiff / (24 * 60 * 60 * 1000);
+ 
+ // Calculate x position (extend to the right from last candle)
+ const x = lastCandleX + (daysFromEnd * candleSpacing);
+ 
+ // Calculate y position based on price
+ const y = priceChartHeight - ((point.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+ 
+ // Draw all points (even if off screen to the right)
+ if (y >= 0 && y <= priceChartHeight) {
+ ctx.lineTo(x, y);
+ pointsDrawn++;
+ maxX = Math.max(maxX, x);
+ }
+ });
+ 
+ ctx.stroke();
+ 
+ // Draw start marker at last candle
+ ctx.beginPath();
+ ctx.arc(lastCandleX, lastCandleY, 4, 0, 2 * Math.PI);
+ ctx.fillStyle = '#FFFFFF';
+ ctx.fill();
+ 
+ // Draw end marker
+ const lastPoint = seasonalProjectionData[seasonalProjectionData.length - 1];
+ const lastPointTime = lastPoint.date.getTime();
+ const daysFromEnd = (lastPointTime - lastCandleTime) / (24 * 60 * 60 * 1000);
+ const endX = lastCandleX + (daysFromEnd * candleSpacing);
+ const endY = priceChartHeight - ((lastPoint.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+ 
+ if (endY >= 0 && endY <= priceChartHeight) {
+ ctx.beginPath();
+ ctx.arc(endX, endY, 4, 0, 2 * Math.PI);
+ ctx.fillStyle = '#FFFFFF';
+ ctx.fill();
+ }
+ 
+ ctx.restore();
+ }
+ }
+
  // Draw GEX levels on top of candlesticks (standalone button)
  if (isGexActive && (liveGexData || gexData)) {
  const gexDataToUse = liveGexData || gexData;
@@ -4630,13 +5027,56 @@ export default function TradingViewChart({
        return point.time >= firstCandleTime && point.time <= lastCandleTime;
      });
      
-     console.log(`📊 First candle: ${new Date(visibleData[0].timestamp).toISOString()}`);
-     console.log(`📊 Last candle: ${new Date(visibleData[visibleData.length - 1].timestamp).toISOString()}`);
-     console.log(`📊 First flow: ${new Date(flowChartData[0].time).toISOString()}`);
-     console.log(`📊 Last flow: ${new Date(flowChartData[flowChartData.length - 1].time).toISOString()}`);
+     if (visibleData.length > 0) {
+       console.log(`📊 First candle: ${new Date(visibleData[0].timestamp).toISOString()}`);
+       console.log(`📊 Last candle: ${new Date(visibleData[visibleData.length - 1].timestamp).toISOString()}`);
+       console.log(`📊 First flow: ${new Date(flowChartData[0].time).toISOString()}`);
+       console.log(`📊 Last flow: ${new Date(flowChartData[flowChartData.length - 1].time).toISOString()}`);
+     }
      console.log(`✅ Rendering flow chart with ${visibleFlowData.length} visible points`);
      if (visibleFlowData.length > 0) {
-       drawFlowChart(ctx, visibleFlowData, visibleData, chartWidth, priceChartHeight, visibleCandleCount, actualFlowChartHeight);
+       // Calculate button X position based on 5:00 AM of the current trading day
+       // Find 5:00 AM in the FULL dataset, then check if it's visible
+       const candleSpacing = chartWidth / visibleCandleCount;
+       let fiveAMIndex = -1;
+       let threePMIndex = -1;
+       
+       // Search the full data for today's 5:00 AM and 3:00 PM
+       const today = new Date();
+       for (let i = data.length - 1; i >= 0; i--) {
+         const candleDate = new Date(data[i].timestamp);
+         const hours = candleDate.getHours();
+         const minutes = candleDate.getMinutes();
+         
+         // Check if this candle is 5:00 AM
+         if (hours === 5 && minutes === 0 && fiveAMIndex === -1) {
+           fiveAMIndex = i;
+         }
+         
+         // Check if this candle is 3:00 PM (15:00)
+         if (hours === 15 && minutes === 0 && threePMIndex === -1) {
+           threePMIndex = i;
+         }
+         
+         if (fiveAMIndex !== -1 && threePMIndex !== -1) break;
+       }
+       
+       // Check if 5AM is currently visible to calculate button position
+       // Buttons move WITH the 5AM candle as you scroll
+       if (fiveAMIndex !== -1 && fiveAMIndex >= startIndex && fiveAMIndex < startIndex + visibleCandleCount) {
+         const relativeIndex = fiveAMIndex - startIndex;
+         const buttonXPos = 40 + (relativeIndex * candleSpacing) + (candleSpacing / 2);
+         setFlowChartButtonX(buttonXPos);
+         setLast5AMTimestamp(data[fiveAMIndex].timestamp);
+         setIs5AMVisible(true);
+       } else {
+         setIs5AMVisible(false);
+       }
+       
+       // Y-axis at fixed position on the right
+       const yAxisXPos = chartWidth - 85;
+       
+       drawFlowChart(ctx, visibleFlowData, visibleData, chartWidth, priceChartHeight, visibleCandleCount, actualFlowChartHeight, yAxisXPos);
      }
    } else {
      console.log(`⚠️ Flow chart only displays on 5min timeframe (current: ${config.timeframe})`);
@@ -4756,8 +5196,9 @@ export default function TradingViewChart({
 
  // Draw volume scale labels on the right
  ctx.fillStyle = '#ffffff';
- ctx.font = '13px Arial';
+ ctx.font = 'bold 18px Arial';
  ctx.textAlign = 'left';
+ ctx.globalAlpha = 1.0;
 
  // Draw volume labels (3 levels: 0, 50%, 100%)
  for (let i = 0; i <= 2; i++) {
@@ -4777,7 +5218,7 @@ export default function TradingViewChart({
  // Position volume labels even MORE RIGHT 
  ctx.fillStyle = '#ffffff';
  ctx.textAlign = 'right';
- ctx.fillText(volumeText, chartWidth + 80, y + 3); // Much further beyond chart edge
+ ctx.fillText(volumeText, chartWidth + 80, y + 6); // Much further beyond chart edge
  
  // Draw tick mark at edge
  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -4796,12 +5237,13 @@ export default function TradingViewChart({
  // Draw 4-line flow chart indicator (like AlgoFlow screener)
  const drawFlowChart = (
    ctx: CanvasRenderingContext2D,
-   flowData: Array<{ time: number; timeLabel: string; callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>,
+   flowData: Array<{ time: number; timeLabel: string; callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number; bullishTotal: number; bearishTotal: number; netFlow: number }>,
    visibleData: ChartDataPoint[],
    chartWidth: number,
    priceChartHeight: number,
    visibleCandleCount: number,
-   flowChartHeight: number
+   flowChartHeight: number,
+   yAxisXPosition: number
  ) => {
    if (!flowData.length || !visibleData.length) return;
 
@@ -4810,11 +5252,13 @@ export default function TradingViewChart({
 
    // Draw background
    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-   ctx.fillRect(40, flowStartY, chartWidth - 80, flowChartHeight);
+   ctx.fillRect(40, flowStartY, chartWidth - 120, flowChartHeight);
 
-   // Find max value for scaling (across all 4 lines)
-   const allValues = flowData.flatMap(d => [d.callsPlus, d.callsMinus, d.putsPlus, d.putsMinus]);
-   const maxValue = Math.max(...allValues, 1);
+   // Add padding for Y-axis labels inside the box
+   const yAxisPadding = 25;
+   const effectiveFlowStartY = flowStartY + yAxisPadding;
+   const effectiveFlowEndY = flowEndY - yAxisPadding;
+   const effectiveFlowHeight = effectiveFlowEndY - effectiveFlowStartY;
 
    // Calculate candle spacing to align with price chart
    const candleSpacing = chartWidth / visibleCandleCount;
@@ -4827,42 +5271,129 @@ export default function TradingViewChart({
      candlePositions.set(candleTime, x);
    });
 
-   // Draw 4 lines
-   const lines = [
-     { key: 'callsPlus', color: '#22c55e', name: 'Bullish Calls' },
-     { key: 'callsMinus', color: '#ef4444', name: 'Bearish Calls' },
-     { key: 'putsPlus', color: '#3b82f6', name: 'Bullish Puts' },
-     { key: 'putsMinus', color: '#f59e0b', name: 'Bearish Puts' }
-   ];
+   // Determine which lines to draw based on flowChartViewMode
+   let linesToDraw: Array<{ key: string; color: string; name: string; isNegative?: boolean }> = [];
+   let maxValue = 1;
 
-   lines.forEach(line => {
-     ctx.strokeStyle = line.color;
-     ctx.lineWidth = 3;
-     ctx.lineCap = 'round';
-     ctx.lineJoin = 'round';
-     ctx.globalAlpha = 1.0;
+   if (flowChartViewMode === 'detailed') {
+     // Find max value for scaling (across all 4 lines)
+     const allValues = flowData.flatMap(d => [d.callsPlus, d.callsMinus, d.putsPlus, d.putsMinus]);
+     maxValue = Math.max(...allValues, 1);
+
+     linesToDraw = [
+       { key: 'callsPlus', color: '#00FF00', name: 'Bullish Calls' },
+       { key: 'callsMinus', color: '#0066FF', name: 'Bearish Calls' },
+       { key: 'putsPlus', color: '#FF8800', name: 'Bullish Puts' },
+       { key: 'putsMinus', color: '#FF0000', name: 'Bearish Puts' }
+     ];
+   } else if (flowChartViewMode === 'simplified') {
+     // Find max absolute value for scaling (bullishTotal positive, bearishTotal negative)
+     const allValues = flowData.flatMap(d => [Math.abs(d.bullishTotal), Math.abs(d.bearishTotal)]);
+     maxValue = Math.max(...allValues, 1);
+
+     linesToDraw = [
+       { key: 'bullishTotal', color: '#00FF00', name: 'Bullish Total', isNegative: false },
+       { key: 'bearishTotal', color: '#FF0000', name: 'Bearish Total', isNegative: true }
+     ];
+   } else if (flowChartViewMode === 'net') {
+     // Find max absolute value for scaling (netFlow can be positive or negative)
+     const allValues = flowData.map(d => Math.abs(d.netFlow));
+     maxValue = Math.max(...allValues, 1);
+
+     linesToDraw = [
+       { key: 'netFlow', color: '#ffffff', name: 'Net Flow' }
+     ];
+   }
+
+   // Draw horizontal zero line for simplified and net modes
+   if (flowChartViewMode === 'simplified' || flowChartViewMode === 'net') {
+     const zeroY = effectiveFlowStartY + (effectiveFlowHeight / 2);
+     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+     ctx.lineWidth = 1;
+     ctx.setLineDash([5, 5]);
      ctx.beginPath();
-
-     let firstPoint = true;
-     flowData.forEach((point) => {
-       // Find matching candlestick position
-       const x = candlePositions.get(point.time);
-       
-       if (x !== undefined) {
-         const value = (point as any)[line.key];
-         const normalizedValue = (value / maxValue) * flowChartHeight;
-         const y = flowEndY - normalizedValue;
-
-         if (firstPoint) {
-           ctx.moveTo(x, y);
-           firstPoint = false;
-         } else {
-           ctx.lineTo(x, y);
-         }
-       }
-     });
-
+     ctx.moveTo(40, zeroY);
+     ctx.lineTo(chartWidth - 40, zeroY);
      ctx.stroke();
+     ctx.setLineDash([]);
+   }
+
+   // Draw lines
+   linesToDraw.forEach(line => {
+     if (flowChartViewMode === 'net') {
+       // For net flow mode, draw segment by segment with color based on value
+       let firstPoint = true;
+       let prevX: number | null = null;
+       let prevY: number | null = null;
+       let prevValue: number | null = null;
+
+       flowData.forEach((point, index) => {
+         const x = candlePositions.get(point.time);
+         
+         if (x !== undefined) {
+           let value = (point as any)[line.key];
+           const centerY = effectiveFlowStartY + (effectiveFlowHeight / 2);
+           const normalizedValue = (Math.abs(value) / maxValue) * (effectiveFlowHeight / 2);
+           const y = value >= 0 ? centerY - normalizedValue : centerY + normalizedValue;
+
+           if (!firstPoint && prevX !== null && prevY !== null && prevValue !== null) {
+             // Draw segment with color based on current value
+             ctx.strokeStyle = value >= 0 ? '#00FF00' : '#FF0000';
+             ctx.lineWidth = 3;
+             ctx.lineCap = 'round';
+             ctx.lineJoin = 'round';
+             ctx.globalAlpha = 1.0;
+             ctx.beginPath();
+             ctx.moveTo(prevX, prevY);
+             ctx.lineTo(x, y);
+             ctx.stroke();
+           }
+
+           prevX = x;
+           prevY = y;
+           prevValue = value;
+           firstPoint = false;
+         }
+       });
+     } else {
+       // Original logic for detailed and simplified modes
+       ctx.strokeStyle = line.color;
+       ctx.lineWidth = 3;
+       ctx.lineCap = 'round';
+       ctx.lineJoin = 'round';
+       ctx.globalAlpha = 1.0;
+       ctx.beginPath();
+
+       let firstPoint = true;
+       flowData.forEach((point) => {
+         const x = candlePositions.get(point.time);
+         
+         if (x !== undefined) {
+           let value = (point as any)[line.key];
+           
+           // For simplified/net modes, normalize around center line
+           let y: number;
+           if (flowChartViewMode === 'simplified' || flowChartViewMode === 'net') {
+             const centerY = effectiveFlowStartY + (effectiveFlowHeight / 2);
+             const normalizedValue = (Math.abs(value) / maxValue) * (effectiveFlowHeight / 2);
+             y = value >= 0 ? centerY - normalizedValue : centerY + normalizedValue;
+           } else {
+             // Detailed mode: scale from bottom
+             const normalizedValue = (value / maxValue) * effectiveFlowHeight;
+             y = effectiveFlowEndY - normalizedValue;
+           }
+
+           if (firstPoint) {
+             ctx.moveTo(x, y);
+             firstPoint = false;
+           } else {
+             ctx.lineTo(x, y);
+           }
+         }
+       });
+
+       ctx.stroke();
+     }
    });
 
    // Reset alpha
@@ -4873,45 +5404,114 @@ export default function TradingViewChart({
    const lastCandleX = candlePositions.get(lastPoint.time);
 
    if (lastCandleX !== undefined) {
-     ctx.font = 'bold 11px Arial';
+     ctx.font = 'bold 16px Arial';
      ctx.textAlign = 'left';
 
-     lines.forEach(line => {
-       const value = (lastPoint as any)[line.key];
-       const normalizedValue = (value / maxValue) * flowChartHeight;
-       const y = flowEndY - normalizedValue;
+     // Calculate vertical positions to avoid overlap
+     let labelYPositions: Array<{ y: number; height: number }> = [];
+
+     linesToDraw.forEach((line, index) => {
+       let value = (lastPoint as any)[line.key];
+       
+       // Calculate y position based on line value
+       let targetY: number;
+       if (flowChartViewMode === 'simplified' || flowChartViewMode === 'net') {
+         const centerY = effectiveFlowStartY + (effectiveFlowHeight / 2);
+         const normalizedValue = (Math.abs(value) / maxValue) * (effectiveFlowHeight / 2);
+         targetY = value >= 0 ? centerY - normalizedValue : centerY + normalizedValue;
+       } else {
+         const normalizedValue = (value / maxValue) * effectiveFlowHeight;
+         targetY = effectiveFlowEndY - normalizedValue;
+       }
+
+       // Adjust y position to avoid overlap with previously drawn labels
+       let adjustedY = targetY;
+       const labelHeight = 24;
+       const minSpacing = 30;
+       
+       for (const prevLabel of labelYPositions) {
+         if (Math.abs(adjustedY - prevLabel.y) < minSpacing) {
+           // Overlap detected, shift down
+           if (adjustedY >= prevLabel.y) {
+             adjustedY = prevLabel.y + minSpacing;
+           } else {
+             adjustedY = prevLabel.y - minSpacing;
+           }
+         }
+       }
+
+       labelYPositions.push({ y: adjustedY, height: labelHeight });
 
        // Draw background box for better readability
        const textWidth = ctx.measureText(line.name).width;
-       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-       ctx.fillRect(lastCandleX + 5, y - 10, textWidth + 8, 18);
+       ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+       ctx.fillRect(lastCandleX + 8, adjustedY - 14, textWidth + 12, 24);
 
        // Draw colored label at the end of the line
-       ctx.fillStyle = line.color;
-       ctx.fillText(line.name, lastCandleX + 9, y + 3);
+       // For net flow mode, use the color based on current value
+       if (flowChartViewMode === 'net') {
+         ctx.fillStyle = value >= 0 ? '#00FF00' : '#FF0000';
+       } else {
+         ctx.fillStyle = line.color;
+       }
+       ctx.fillText(line.name, lastCandleX + 14, adjustedY + 4);
      });
    }
 
+   // Draw scale labels (always visible)
+   ctx.font = 'bold 18px Arial';
+   ctx.textAlign = 'right';
+   ctx.globalAlpha = 1.0;
 
-   // Draw scale labels (max value at top)
-   ctx.fillStyle = '#ffffff';
-   ctx.font = '11px Arial';
-   ctx.textAlign = 'left';
+   if (flowChartViewMode === 'detailed') {
+     // Detailed mode: 0 at bottom, max at top (4 values)
+     ctx.fillStyle = '#FF8800';
+     for (let i = 0; i <= 3; i++) {
+       const valueLevel = (maxValue / 3) * i;
+       const y = effectiveFlowEndY - (i * effectiveFlowHeight / 3);
 
-   for (let i = 0; i <= 2; i++) {
-     const valueLevel = (maxValue / 2) * i;
-     const y = flowEndY - (i * flowChartHeight / 2);
+       let valueText = '';
+       if (valueLevel >= 1000000) {
+         valueText = `$${(valueLevel / 1000000).toFixed(1)}M`;
+       } else if (valueLevel >= 1000) {
+         valueText = `$${(valueLevel / 1000).toFixed(0)}K`;
+       } else {
+         valueText = `$${valueLevel.toFixed(0)}`;
+       }
 
-     let valueText = '';
-     if (valueLevel >= 1000000) {
-       valueText = `$${(valueLevel / 1000000).toFixed(1)}M`;
-     } else if (valueLevel >= 1000) {
-       valueText = `$${(valueLevel / 1000).toFixed(0)}K`;
-     } else {
-       valueText = `$${valueLevel.toFixed(0)}`;
+       ctx.fillText(valueText, yAxisXPosition, y + 6);
      }
-
-     ctx.fillText(valueText, chartWidth + 10, y + 3);
+   } else {
+     // Simplified/Net mode: negative at bottom, 0 in center, positive at top
+     const centerY = effectiveFlowStartY + (effectiveFlowHeight / 2);
+     const steps = 2; // 2 steps above and 2 below zero = 5 total labels
+     
+     for (let i = -steps; i <= steps; i++) {
+       const valueLevel = (maxValue / steps) * i;
+       const y = centerY - (i * effectiveFlowHeight / (steps * 2));
+       
+       // Color based on value: green for positive, orange for zero, red for negative
+       if (i > 0) {
+         ctx.fillStyle = '#00FF00'; // Green for positive
+       } else if (i < 0) {
+         ctx.fillStyle = '#FF0000'; // Red for negative
+       } else {
+         ctx.fillStyle = '#FF8800'; // Orange for zero
+       }
+       
+       let valueText = '';
+       if (i === 0) {
+         valueText = '$0';
+       } else if (Math.abs(valueLevel) >= 1000000) {
+         valueText = `${i < 0 ? '-' : ''}$${(Math.abs(valueLevel) / 1000000).toFixed(1)}M`;
+       } else if (Math.abs(valueLevel) >= 1000) {
+         valueText = `${i < 0 ? '-' : ''}$${(Math.abs(valueLevel) / 1000).toFixed(0)}K`;
+       } else {
+         valueText = `${i < 0 ? '-' : ''}$${Math.abs(valueLevel).toFixed(0)}`;
+       }
+       
+       ctx.fillText(valueText, yAxisXPosition, y + 6);
+     }
    }
  };
 
@@ -4941,18 +5541,18 @@ export default function TradingViewChart({
 
  // Helper function to calculate future periods for 4 weeks
  const getFuturePeriods = (timeframe: string): number => {
- // EXPANDED: Allow much more future scrolling like TradingView
+ // Allow reasonable future scrolling - just a few days ahead
  switch (timeframe) {
- case '1m': return 52 * 7 * 24 * 60; // 1 year of minute data for future scrolling
- case '5m': return 52 * 7 * 24 * 12; // 1 year of 5-minute data
- case '15m': return 52 * 7 * 24 * 4; // 1 year of 15-minute data
- case '30m': return 52 * 7 * 24 * 2; // 1 year of 30-minute data
- case '1h': return 52 * 7 * 24; // 1 year of hourly data
- case '4h': return 52 * 7 * 6; // 1 year of 4-hour data
- case '1d': return 365 * 5; // 5 YEARS of daily future scrolling (MUCH more space)
- case '1w': return 52 * 5; // 5 years of weekly data
- case '1mo': return 12 * 5; // 5 years of monthly data
- default: return 365 * 2; // Default to 2 years in days
+ case '1m': return 3 * 24 * 60; // 3 days of minute data
+ case '5m': return 3 * 24 * 12; // 3 days of 5-minute data (864 periods)
+ case '15m': return 3 * 24 * 4; // 3 days of 15-minute data
+ case '30m': return 3 * 24 * 2; // 3 days of 30-minute data
+ case '1h': return 3 * 24; // 3 days of hourly data
+ case '4h': return 3 * 6; // 3 days of 4-hour data
+ case '1d': return 30; // 30 days ahead
+ case '1w': return 12; // 12 weeks ahead
+ case '1mo': return 6; // 6 months ahead
+ default: return 30; // Default to 30 days
  }
  };
 
@@ -5682,6 +6282,7 @@ export default function TradingViewChart({
  default: milliseconds = 24 * 60 * 60 * 1000; break;
  }
  
+ // Simple linear calculation - just add the time intervals
  return baseTimestamp + (periodsAhead * milliseconds);
  };
 
@@ -6106,7 +6707,7 @@ export default function TradingViewChart({
  console.log(`?? Rendering chart with ${data.length} data points`);
  renderChart();
  }
- }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive, horizontalRays, parallelChannels, currentChannelPoints, channelPreviewPoint, isParallelChannelMode, drawingBrushes, currentBrushStroke, isBrushing]);
+ }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive, horizontalRays, parallelChannels, currentChannelPoints, channelPreviewPoint, isParallelChannelMode, drawingBrushes, currentBrushStroke, isBrushing, seasonalProjectionData, isSeasonalActive]);
 
  // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
  useEffect(() => {
@@ -6321,8 +6922,20 @@ export default function TradingViewChart({
  const relativeX = Math.max(0, screenX - 40); // Account for left margin (match crosshair)
  const visibleCandleIndex = Math.floor(relativeX / candleWidth);
  const absoluteCandleIndex = scrollOffset + visibleCandleIndex;
+ 
+ // Handle future dates beyond last candle (for seasonal projection)
+ let timestamp: number;
+ if (absoluteCandleIndex >= data.length) {
+ // We're beyond the last candle - calculate future date
+ const lastCandle = data[data.length - 1];
+ const daysIntoFuture = absoluteCandleIndex - (data.length - 1);
+ const futureDate = new Date(lastCandle.timestamp);
+ futureDate.setDate(futureDate.getDate() + daysIntoFuture);
+ timestamp = futureDate.getTime();
+ } else {
  const boundedIndex = Math.max(0, Math.min(absoluteCandleIndex, data.length - 1));
- const timestamp = data[boundedIndex]?.timestamp || Date.now();
+ timestamp = data[boundedIndex]?.timestamp || Date.now();
+ }
  
  // Convert screen Y to actual price using EXACT same logic as crosshair calculation
  const startIndex = Math.max(0, Math.floor(scrollOffset));
@@ -6346,7 +6959,7 @@ export default function TradingViewChart({
  adjustedMax - ((screenY / priceChartHeight) * (adjustedMax - adjustedMin));
  
  return { timestamp, price };
- }, [actualPriceChartHeight, dimensions.width, visibleCandleCount, scrollOffset, data]);
+ }, [actualPriceChartHeight, dimensions.width, visibleCandleCount, scrollOffset, data, seasonalProjectionData]);
 
  // Unified mouse handler that prioritizes drawing interaction over chart panning
  const handleUnifiedMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -6927,9 +7540,24 @@ export default function TradingViewChart({
  const price = coords.price;
  const timestamp = coords.timestamp;
  
- // Find the closest candle for OHLC data
+ // Check if we're in the future (seasonal projection area)
+ const lastCandle = data[data.length - 1];
+ const isInFuture = timestamp > lastCandle.timestamp;
+ 
+ // Find the closest candle or seasonal projection point for OHLC data
+ let closestCandle = null;
+ let seasonalProjectionPrice = null;
+ 
+ if (isInFuture && seasonalProjectionData && seasonalProjectionData.length > 0) {
+ // Find closest seasonal projection point
+ const projectionPoint = seasonalProjectionData.find(p => p.date.getTime() >= timestamp) || 
+ seasonalProjectionData[seasonalProjectionData.length - 1];
+ seasonalProjectionPrice = projectionPoint.price;
+ } else {
+ // Find the closest historical candle
  const candleIndex = data.findIndex(d => d.timestamp >= timestamp);
- const closestCandle = data[Math.max(0, Math.min(candleIndex, data.length - 1))];
+ closestCandle = data[Math.max(0, Math.min(candleIndex, data.length - 1))];
+ }
  
  // Format date and time
  const date = new Date(timestamp);
@@ -6937,7 +7565,7 @@ export default function TradingViewChart({
  const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
  
  setCrosshairInfo({
- price: `$${price.toFixed(2)}`,
+ price: isInFuture && seasonalProjectionPrice ? `$${seasonalProjectionPrice.toFixed(2)} (Projection)` : `$${price.toFixed(2)}`,
  date: dateStr,
  time: timeStr,
  visible: true,
@@ -7216,7 +7844,7 @@ export default function TradingViewChart({
  setLastMouseX(x);
  return;
  }
- }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight]);
+ }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition]);
 
  const handleMouseUp = useCallback(() => {
  // Handle box zoom completion
@@ -10234,6 +10862,202 @@ export default function TradingViewChart({
  )}
  </div>
 
+              {/* Seasonal Button with Dropdown */}
+              <div className="ml-4 relative">
+                <button
+                  ref={seasonalButtonRef}
+                  onClick={() => setIsSeasonalDropdownOpen(!isSeasonalDropdownOpen)}
+                  className={`btn-3d-carved btn-seasonal relative group flex items-center space-x-2`}
+                  style={{
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                    color: isSeasonalActive ? '#FF8C00' : '#FFFFFF',
+                    border: isSeasonalActive ? '2px solid #1E3A8A' : '2px solid transparent',
+                    outline: isSeasonalActive ? '2px solid #1E3A8A' : 'none',
+                    outlineOffset: '-2px',
+                    boxShadow: isSeasonalActive ? '0 0 0 2px #1E3A8A' : 'none',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <span>SEASONAL</span>
+                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Seasonal Dropdown */}
+                {isSeasonalDropdownOpen && createPortal(
+                  <div
+                    style={{
+                      position: 'fixed',
+                      top: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+                      left: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().left : 0,
+                      zIndex: 100000,
+                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
+                      border: '2px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '8px',
+                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                      padding: '8px',
+                      minWidth: '180px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <button
+                        onClick={async () => {
+                          // Clear old data and set states
+                          setSeasonalProjectionData(null);
+                          setIsSeasonalActive(true);
+                          setIsSeasonal20YActive(true);
+                          setIsSeasonal15YActive(false);
+                          setIsSeasonal10YActive(false);
+                          setIsSeasonalElectionActive(false);
+                          setIsLoadingSeasonalProjection(true);
+                          setIsSeasonalDropdownOpen(false);
+                          
+                          // Load new data
+                          const projection = await calculateSeasonalityProjection(symbol, 20, data);
+                          setSeasonalProjectionData(projection);
+                          setIsLoadingSeasonalProjection(false);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          background: isSeasonal20YActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span>20 Y</span>
+                        {isSeasonal20YActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          // Clear old data and set states
+                          setSeasonalProjectionData(null);
+                          setIsSeasonalActive(true);
+                          setIsSeasonal20YActive(false);
+                          setIsSeasonal15YActive(true);
+                          setIsSeasonal10YActive(false);
+                          setIsSeasonalElectionActive(false);
+                          setIsLoadingSeasonalProjection(true);
+                          setIsSeasonalDropdownOpen(false);
+                          
+                          // Load new data
+                          const projection = await calculateSeasonalityProjection(symbol, 15, data);
+                          setSeasonalProjectionData(projection);
+                          setIsLoadingSeasonalProjection(false);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          background: isSeasonal15YActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span>15 Y</span>
+                        {isSeasonal15YActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          // Clear old data and set states
+                          setSeasonalProjectionData(null);
+                          setIsSeasonalActive(true);
+                          setIsSeasonal20YActive(false);
+                          setIsSeasonal15YActive(false);
+                          setIsSeasonal10YActive(true);
+                          setIsSeasonalElectionActive(false);
+                          setIsLoadingSeasonalProjection(true);
+                          setIsSeasonalDropdownOpen(false);
+                          
+                          // Load new data
+                          const projection = await calculateSeasonalityProjection(symbol, 10, data);
+                          setSeasonalProjectionData(projection);
+                          setIsLoadingSeasonalProjection(false);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          background: isSeasonal10YActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span>10 Y</span>
+                        {isSeasonal10YActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          // Clear old data and set states
+                          setSeasonalProjectionData(null);
+                          setIsSeasonalActive(true);
+                          setIsSeasonal20YActive(false);
+                          setIsSeasonal15YActive(false);
+                          setIsSeasonal10YActive(false);
+                          setIsSeasonalElectionActive(true);
+                          setIsLoadingSeasonalProjection(true);
+                          setIsSeasonalDropdownOpen(false);
+                          
+                          // Use current election cycle period (2025 = Post-Election, 2026 = Mid-Term)
+                          const currentCycle = getCurrentElectionCycle();
+                          console.log(`📊 Using current election cycle: ${currentCycle}`);
+                          const projection = await calculateSeasonalityProjection(symbol, 20, data, currentCycle);
+                          setSeasonalProjectionData(projection);
+                          setIsLoadingSeasonalProjection(false);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          background: isSeasonalElectionActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span>Election</span>
+                        {isSeasonalElectionActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+                      </button>
+                    </div>
+                  </div>,
+                  document.body
+                )}
+
+                {/* Click outside to close dropdown */}
+                {isSeasonalDropdownOpen && createPortal(
+                  <div 
+                    className="fixed inset-0" 
+                    style={{ zIndex: 99998 }}
+                    onClick={() => setIsSeasonalDropdownOpen(false)}
+                  />, 
+                  document.body
+                )}
+              </div>
+
               {/* GEX Button with Dropdown - Next to Expected Range */}
               <div className="ml-4 relative">
                 <button
@@ -11186,6 +12010,55 @@ export default function TradingViewChart({
  onClick={(e) => console.log('?? SINGLE CLICK DETECTED on canvas!')}
  onDoubleClick={handleDoubleClick}
  />
+
+ {/* Flow Chart View Mode Toggle - Anchored to 5AM timestamp, only visible when 5AM is on screen */}
+ {isFlowChartActive && is5AMVisible && (
+ <div 
+ className="absolute flex flex-col z-30"
+ style={{
+ left: `${flowChartButtonX}px`,
+ bottom: `${flowChartHeight / 2 + 85}px`,
+ gap: '8px'
+ }}
+ >
+ <button
+ onClick={() => setFlowChartViewMode('net')}
+ className="text-xl font-semibold px-6 py-3 rounded transition-all"
+ style={{
+ backgroundColor: '#000000',
+ color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
+ border: '1px solid rgba(255, 255, 255, 0.3)'
+ }}
+ title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
+ >
+ Net Flow
+ </button>
+ <button
+ onClick={() => setFlowChartViewMode('simplified')}
+ className="text-xl font-semibold px-6 py-3 rounded transition-all"
+ style={{
+ backgroundColor: '#000000',
+ color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
+ border: '1px solid rgba(255, 255, 255, 0.3)'
+ }}
+ title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
+ >
+ Simplified
+ </button>
+ <button
+ onClick={() => setFlowChartViewMode('detailed')}
+ className="text-xl font-semibold px-6 py-3 rounded transition-all"
+ style={{
+ backgroundColor: '#000000',
+ color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
+ border: '1px solid rgba(255, 255, 255, 0.3)'
+ }}
+ title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
+ >
+ Detailed
+ </button>
+ </div>
+ )}
  </div>
 
  {/* Text Input Modal for Drawing Tools */}

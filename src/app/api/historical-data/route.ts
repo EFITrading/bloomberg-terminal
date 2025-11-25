@@ -57,7 +57,7 @@ function getMaxDataPointsForTimeframe(timeframe: string): number {
  case '4h':
  return 400; // ~66 days of 4-hour data (reduced from 600)
  case '1d':
- return 2500; // ~7 years of daily data (reduced from 7124 for MUCH faster loading)
+ return 50000; // Up to 20+ years of daily data for seasonality analysis
  case '1w':
  return 500; // ~9.5 years of weekly data (reduced from 1000)
  case '1M':

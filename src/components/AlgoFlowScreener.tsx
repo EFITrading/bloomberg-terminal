@@ -444,6 +444,8 @@ interface AlgoFlowAnalysis {
     putsPlus: number;    // Bullish put buying
     putsMinus: number;   // Bearish put selling
     netFlow: number;
+    bullishTotal: number; // Combined bullish calls + bullish puts
+    bearishTotal: number; // Combined bearish calls + bearish puts
   }>;
   priceData: Array<{
     time: number;        // Timestamp for proper x-axis formatting
@@ -769,6 +771,7 @@ export default function AlgoFlowScreener() {
   const [streamStatus, setStreamStatus] = useState('');
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
   const [timeInterval, setTimeInterval] = useState<'5min' | '15min' | '30min' | '1hour'>('1hour');
+  const [chartViewMode, setChartViewMode] = useState<'detailed' | 'simplified' | 'net'>('detailed');
   
   // Pagination and sorting state
   const [currentPage, setCurrentPage] = useState(1);
@@ -1040,6 +1043,8 @@ export default function AlgoFlowScreener() {
         putsPlus: number;
         putsMinus: number;
         netFlow: number;
+        bullishTotal: number;
+        bearishTotal: number;
       }>>((acc, [time, data], idx) => {
         // Convert time string "HH:MM" to proper Date object for chart
         const [hours, minutes] = time.split(':').map(Number);
@@ -1057,7 +1062,9 @@ export default function AlgoFlowScreener() {
           callsMinus: 0,
           putsPlus: 0,
           putsMinus: 0,
-          netFlow: 0
+          netFlow: 0,
+          bullishTotal: 0,
+          bearishTotal: 0
         };
 
         // Add current to previous for cumulative sum
@@ -1068,9 +1075,13 @@ export default function AlgoFlowScreener() {
           callsMinus: prev.callsMinus + data.callsMinus,
           putsPlus: prev.putsPlus + data.putsPlus,
           putsMinus: prev.putsMinus + data.putsMinus,
-          netFlow: 0 // Initialize netFlow
+          netFlow: 0, // Initialize netFlow
+          bullishTotal: 0, // Initialize bullishTotal
+          bearishTotal: 0 // Initialize bearishTotal
         };
-        cumulative.netFlow = (cumulative.callsPlus - cumulative.callsMinus) - (cumulative.putsPlus - cumulative.putsMinus);
+        cumulative.netFlow = (cumulative.callsPlus - cumulative.callsMinus) + (cumulative.putsPlus - cumulative.putsMinus);
+        cumulative.bullishTotal = cumulative.callsPlus + cumulative.putsPlus;
+        cumulative.bearishTotal = -(cumulative.callsMinus + cumulative.putsMinus); // Negative for bearish
         acc.push(cumulative);
         return acc;
       }, []);
@@ -1571,9 +1582,43 @@ export default function AlgoFlowScreener() {
             {/* AlgoFlow Premium Flow Chart - Mobile Optimized */}
             <Card className="bg-black border-zinc-700 w-full">
               <CardHeader className="pb-2 px-3 md:px-6 pt-3 md:pt-6">
-                <CardTitle className="text-white text-base md:text-2xl font-bold text-center leading-tight">
-                  AlgoFlow Premium Analysis - {analysis.ticker} (${analysis.currentPrice.toFixed(2)})
-                </CardTitle>
+                <div className="flex flex-col md:flex-row justify-between items-center gap-2 mb-2">
+                  <CardTitle className="text-white text-base md:text-2xl font-bold text-center leading-tight">
+                    AlgoFlow Premium Analysis - {analysis.ticker} (${analysis.currentPrice.toFixed(2)})
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setChartViewMode('detailed')}
+                      className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${
+                        chartViewMode === 'detailed'
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                      }`}
+                    >
+                      Detailed (4 Lines)
+                    </button>
+                    <button
+                      onClick={() => setChartViewMode('simplified')}
+                      className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${
+                        chartViewMode === 'simplified'
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                      }`}
+                    >
+                      Simplified (2 Lines)
+                    </button>
+                    <button
+                      onClick={() => setChartViewMode('net')}
+                      className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${
+                        chartViewMode === 'net'
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                      }`}
+                    >
+                      Net Flow (1 Line)
+                    </button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="bg-black p-2 md:p-4">
                 <div className="h-[300px] md:h-[400px] w-full">
@@ -1593,12 +1638,14 @@ export default function AlgoFlowScreener() {
                         stroke="#fff"
                         tick={{ fill: '#fff', fontSize: 16 }}
                         tickFormatter={(value) => {
-                          if (value >= 1000000) {
-                            return `$${(value / 1000000).toFixed(1)}M`;
-                          } else if (value >= 1000) {
-                            return `$${(value / 1000).toFixed(0)}K`;
+                          const absValue = Math.abs(value);
+                          const sign = value < 0 ? '-' : '';
+                          if (absValue >= 1000000) {
+                            return `${sign}$${(absValue / 1000000).toFixed(1)}M`;
+                          } else if (absValue >= 1000) {
+                            return `${sign}$${(absValue / 1000).toFixed(0)}K`;
                           }
-                          return `$${value}`;
+                          return `${sign}$${absValue}`;
                         }}
                       />
                       <Tooltip 
@@ -1606,50 +1653,85 @@ export default function AlgoFlowScreener() {
                         labelStyle={{ color: '#fff' }}
                         formatter={(value: any) => {
                           const num = Number(value);
-                          if (num >= 1000000) {
-                            return `$${(num / 1000000).toFixed(2)}M`;
-                          } else if (num >= 1000) {
-                            return `$${(num / 1000).toFixed(1)}K`;
+                          const absNum = Math.abs(num);
+                          const sign = num < 0 ? '-' : '';
+                          if (absNum >= 1000000) {
+                            return `${sign}$${(absNum / 1000000).toFixed(2)}M`;
+                          } else if (absNum >= 1000) {
+                            return `${sign}$${(absNum / 1000).toFixed(1)}K`;
                           }
-                          return `$${num.toLocaleString()}`;
+                          return `${sign}$${absNum.toLocaleString()}`;
                         }}
                       />
                       <Legend 
                         wrapperStyle={{ color: '#fff' }}
                         iconType="line"
                       />
-                      <Line 
-                        type="monotone" 
-                        dataKey="callsPlus" 
-                        stroke="#22c55e" 
-                        strokeWidth={2}
-                        name="Bullish Calls"
-                        dot={false}
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="callsMinus" 
-                        stroke="#ef4444" 
-                        strokeWidth={2}
-                        name="Bearish Calls"
-                        dot={false}
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="putsPlus" 
-                        stroke="#3b82f6" 
-                        strokeWidth={2}
-                        name="Bullish Puts"
-                        dot={false}
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="putsMinus" 
-                        stroke="#f59e0b" 
-                        strokeWidth={2}
-                        name="Bearish Puts"
-                        dot={false}
-                      />
+                      
+                      {chartViewMode === 'detailed' ? (
+                        <>
+                          <Line 
+                            type="monotone" 
+                            dataKey="callsPlus" 
+                            stroke="#00FF00" 
+                            strokeWidth={2}
+                            name="Bullish Calls"
+                            dot={false}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="callsMinus" 
+                            stroke="#0066FF" 
+                            strokeWidth={2}
+                            name="Bearish Calls"
+                            dot={false}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="putsPlus" 
+                            stroke="#FF8800" 
+                            strokeWidth={2}
+                            name="Bullish Puts"
+                            dot={false}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="putsMinus" 
+                            stroke="#FF0000" 
+                            strokeWidth={2}
+                            name="Bearish Puts"
+                            dot={false}
+                          />
+                        </>
+                      ) : chartViewMode === 'simplified' ? (
+                        <>
+                          <Line 
+                            type="monotone" 
+                            dataKey="bullishTotal" 
+                            stroke="#00FF00" 
+                            strokeWidth={3}
+                            name="Bullish Flow"
+                            dot={false}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="bearishTotal" 
+                            stroke="#FF0000" 
+                            strokeWidth={3}
+                            name="Bearish Flow"
+                            dot={false}
+                          />
+                        </>
+                      ) : (
+                        <Line 
+                          type="monotone" 
+                          dataKey="netFlow" 
+                          stroke="#FFFFFF" 
+                          strokeWidth={3}
+                          name="Net Flow"
+                          dot={false}
+                        />
+                      )}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
