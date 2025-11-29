@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { flushSync } from 'react-dom';
 import { 
  TbChartLine, 
  TbNews, 
@@ -43,9 +44,6 @@ import { useGEXData } from '../../hooks/useGEXData';
 import { GEXChartOverlay } from '../GEXChartOverlay';
 import { getExpirationDates, getExpirationDatesFromAPI, getDaysUntilExpiration } from '../../lib/optionsExpirationUtils';
 import { createApiUrl } from '../../lib/apiConfig';
-import SectorPerformanceChart from '../charts/SectorPerformanceChart';
-import IndustriesPerformanceChart from '../charts/IndustriesPerformanceChart';
-import SpecialPerformanceChart from '../charts/SpecialPerformanceChart';
 
 // Add custom styles for 3D carved effect and holographic animations
 const carvedTextStyles = `
@@ -2764,9 +2762,6 @@ export default function TradingViewChart({
             console.log('📊 Last flow point:', new Date(chartData[chartData.length - 1].time).toISOString());
             setFlowChartData(chartData);
             setIsFlowChartActive(true);
-            
-            // Trigger re-render
-            setTimeout(() => renderChart(), 100);
           }
         } catch (error) {
           console.error('❌ Error processing FlowMoves data:', error);
@@ -2863,10 +2858,697 @@ export default function TradingViewChart({
 
  // Sidebar panel state
  const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null);
- const [watchlistTab, setWatchlistTab] = useState('Markets');
+ const [watchlistTab, setWatchlistTab] = useState('Watchlist');
  const [regimesTab, setRegimesTab] = useState('Life');
  const [chatTab, setChatTab] = useState('announcements');
  const [chatView, setChatView] = useState('channels'); // 'channels' or 'hub'
+ 
+ // Performance Dashboard state
+ const [performanceDashboardDropdowns, setPerformanceDashboardDropdowns] = useState({
+ sectors: false,
+ industries: false,
+ special: false
+ });
+ const [performanceDashboardCategories, setPerformanceDashboardCategories] = useState({
+ sectors: { growth: true, value: true, defensives: true },
+ industries: { growth: true, value: true, defensives: true },
+ special: { growth: true, value: true, defensives: true }
+ });
+
+ // Performance Dashboard Chart State
+ const pdCanvasRef = useRef<HTMLCanvasElement>(null);
+ const pdContainerRef = useRef<HTMLDivElement>(null);
+ const pdAnimationFrameRef = useRef<number | null>(null);
+ const pdTimeframeRef = useRef<'1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | '2Y' | '5Y' | '10Y' | '20Y' | 'YTD'>('1W');
+ const pdLastDrawParamsRef = useRef<any>(null);
+ const pdCrosshairRef = useRef<{ x: number; y: number } | null>(null);
+ 
+ // Performance Dashboard Symbol Definitions - 11 Sectors Only
+ const PD_SECTORS_ETFS = [
+   { symbol: 'XLK', name: 'Technology', color: '#00d4ff' },
+   { symbol: 'XLF', name: 'Financials', color: '#ff6b35' },
+   { symbol: 'XLV', name: 'Healthcare', color: '#4ecdc4' },
+   { symbol: 'XLI', name: 'Industrials', color: '#ffd93d' },
+   { symbol: 'XLY', name: 'Consumer Discretionary', color: '#ff006e' },
+   { symbol: 'XLP', name: 'Consumer Staples', color: '#8338ec' },
+   { symbol: 'XLE', name: 'Energy', color: '#06ffa5' },
+   { symbol: 'XLU', name: 'Utilities', color: '#fb5607' },
+   { symbol: 'XLB', name: 'Materials', color: '#ffbe0b' },
+   { symbol: 'XLRE', name: 'Real Estate', color: '#3a86ff' },
+   { symbol: 'XLC', name: 'Communication', color: '#ff00cc' }
+ ];
+ 
+ const [pdSelectedSymbols, setPdSelectedSymbols] = useState<string[]>(() => 
+   PD_SECTORS_ETFS.map(etf => etf.symbol) // Default to all 11 sectors
+ );
+ const [pdActiveCategories, setPdActiveCategories] = useState<{ sectors: boolean; industries: boolean; special: boolean }>({ sectors: false, industries: false, special: false });
+ const [pdTimeframe, setPdTimeframe] = useState<'1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | '2Y' | '5Y' | '10Y' | '20Y' | 'YTD'>('1D');
+ const [pdPerformanceData, setPdPerformanceData] = useState<Array<{
+   symbol: string;
+   name: string;
+   color: string;
+   data: Array<{ timestamp: number; value: number; isMarketHours?: boolean }>;
+   currentPerformance: number;
+ }>>([]);
+ const [pdLoading, setPdLoading] = useState(false);
+ const [pdDimensions, setPdDimensions] = useState({ width: 0, height: 0 });
+ const [pdHoveredSymbol, setPdHoveredSymbol] = useState<string | null>(null);
+ const [pdVisibleRange, setPdVisibleRange] = useState({ start: 0, end: 1 });
+ const [pdIsDragging, setPdIsDragging] = useState(false);
+ const [pdDragStart, setPdDragStart] = useState({ x: 0, rangeStart: 0 });
+ const [pdIsBenchmarked, setPdIsBenchmarked] = useState(false);
+
+ const PD_INDUSTRIES_ETFS = [
+   { symbol: 'IGV', name: 'Software', color: '#00d4ff' },
+   { symbol: 'SMH', name: 'Semiconductors', color: '#ff6b35' },
+   { symbol: 'XRT', name: 'Retail', color: '#4ecdc4' },
+   { symbol: 'KIE', name: 'Insurance', color: '#ffd93d' },
+   { symbol: 'KRE', name: 'Regional Banks', color: '#ff006e' },
+   { symbol: 'GDX', name: 'Gold Miners', color: '#8338ec' },
+   { symbol: 'ITA', name: 'Aerospace', color: '#06ffa5' },
+   { symbol: 'TAN', name: 'Solar Energy', color: '#fb5607' },
+   { symbol: 'XBI', name: 'Biotech', color: '#ffbe0b' },
+   { symbol: 'ITB', name: 'Homebuilders', color: '#3a86ff' },
+   { symbol: 'XHB', name: 'Homebuilders ETF', color: '#ff00ff' },
+   { symbol: 'XOP', name: 'Oil & Gas', color: '#00ffff' },
+   { symbol: 'OIH', name: 'Oil Services', color: '#ffff00' },
+   { symbol: 'XME', name: 'Metals & Mining', color: '#ff8800' },
+   { symbol: 'ARKK', name: 'Innovation', color: '#88ff00' },
+   { symbol: 'IPO', name: 'IPOs', color: '#ff0088' },
+   { symbol: 'VNQ', name: 'REITs', color: '#0088ff' },
+   { symbol: 'JETS', name: 'Airlines', color: '#ff8844' },
+   { symbol: 'KWEB', name: 'China Internet', color: '#44ff88' }
+ ];
+
+ const PD_SPECIAL_ETFS = [
+   { symbol: 'IWF', name: 'Growth', color: '#00d4ff' },
+   { symbol: 'IWD', name: 'Value', color: '#ff6b35' },
+   { symbol: 'IJR', name: 'Small Cap', color: '#4ecdc4' },
+   { symbol: 'USMV', name: 'Min Volatility', color: '#ffd93d' },
+   { symbol: 'VYM', name: 'High Dividend', color: '#ff006e' },
+   { symbol: 'PKW', name: 'Buyback', color: '#8338ec' },
+   { symbol: 'CSD', name: 'Social', color: '#06ffa5' },
+   { symbol: 'GURU', name: 'Popular Stocks', color: '#fb5607' },
+   { symbol: 'QUAL', name: 'Quality', color: '#ffbe0b' },
+   { symbol: 'PSP', name: 'Performance', color: '#3a86ff' },
+   { symbol: 'IVE', name: 'Value S&P500', color: '#ff00ff' },
+   { symbol: 'IVW', name: 'Growth S&P500', color: '#00ffff' },
+   { symbol: 'IJJ', name: 'Mid Cap Value', color: '#ffff00' },
+   { symbol: 'IJH', name: 'Mid Cap', color: '#ff8800' },
+   { symbol: 'IWN', name: 'Small Cap Value', color: '#88ff00' },
+   { symbol: 'IWO', name: 'Small Cap Growth', color: '#ff0088' }
+ ];
+
+ const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+ // Performance Dashboard Data Fetching Functions
+ const getPdDateRange = (tf: typeof pdTimeframe): { from: string; to: string } => {
+   const now = new Date();
+   const to = now.toISOString().split('T')[0];
+   let from = new Date();
+
+   switch (tf) {
+     case '1D':
+       from.setDate(now.getDate());
+       from.setHours(0, 0, 0, 0);
+       break;
+     case '1W':
+       from.setDate(now.getDate() - 7);
+       break;
+     case '1M':
+       from.setMonth(now.getMonth() - 1);
+       break;
+     case '3M':
+       from.setMonth(now.getMonth() - 3);
+       break;
+     case '6M':
+       from.setMonth(now.getMonth() - 6);
+       break;
+     case '1Y':
+       from.setFullYear(now.getFullYear() - 1);
+       break;
+     case '2Y':
+       from.setFullYear(now.getFullYear() - 2);
+       break;
+     case '5Y':
+       from.setFullYear(now.getFullYear() - 5);
+       break;
+     case '10Y':
+       from.setFullYear(now.getFullYear() - 10);
+       break;
+     case '20Y':
+       from.setFullYear(now.getFullYear() - 20);
+       break;
+     case 'YTD':
+       from = new Date(now.getFullYear(), 0, 1);
+       break;
+   }
+
+   return { from: from.toISOString().split('T')[0], to };
+ };
+
+ const isPdMarketHours = (timestamp: number): boolean => {
+   const date = new Date(timestamp);
+   const datePST = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+   const hoursPST = datePST.getHours();
+   const minutesPST = datePST.getMinutes();
+   const totalMinutesPST = hoursPST * 60 + minutesPST;
+   return totalMinutesPST >= 390 && totalMinutesPST <= 780; // 6:30 AM - 1:00 PM PST
+ };
+
+ // Add ref to track current fetch operation
+ const pdFetchControllerRef = useRef<AbortController | null>(null);
+ const pdLastFetchedSymbolsRef = useRef<string>('');
+
+ const fetchPdPerformanceData = useCallback(async () => {
+   if (pdSelectedSymbols.length === 0) return;
+   
+   // Cancel any existing fetch
+   if (pdFetchControllerRef.current) {
+     pdFetchControllerRef.current.abort();
+   }
+   
+   // Create new controller for this fetch
+   pdFetchControllerRef.current = new AbortController();
+   const mainSignal = pdFetchControllerRef.current.signal;
+   
+   setPdLoading(true);
+   const { from, to } = getPdDateRange(pdTimeframe);
+
+   const allEtfs = [...PD_SECTORS_ETFS, ...PD_INDUSTRIES_ETFS, ...PD_SPECIAL_ETFS];
+   const symbolsToFetch = allEtfs.filter(etf => pdSelectedSymbols.includes(etf.symbol));
+
+
+
+   try {
+     // Map timeframe to bulk API format
+     const timeframeMap: Record<string, string> = {
+       '1D': '5m',  // Use 5-minute data for 1-day performance
+       '1W': '1h',  // Use 1-hour data for 1-week performance
+       '1M': '1d',  // Use daily data for 1-month performance
+       '3M': '1d',  // Use daily data for 3-month performance
+       '6M': '1d',  // Use daily data for 6-month performance
+       '1Y': '1d'   // Use daily data for 1-year performance
+     };
+     
+     const bulkTimeframe = timeframeMap[pdTimeframe] || '1d';
+     
+
+
+     // Split symbols into chunks of 10 (bulk API limit)
+     const symbolChunks = [];
+     const symbols = symbolsToFetch.map(etf => etf.symbol);
+     
+     for (let i = 0; i < symbols.length; i += 10) {
+       symbolChunks.push(symbols.slice(i, i + 10));
+     }
+
+     // Process chunks in parallel
+     const chunkPromises = symbolChunks.map(async (chunk) => {
+       const response = await fetch('/api/bulk-chart-data', {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+         },
+         body: JSON.stringify({
+           symbols: chunk,
+           timeframe: bulkTimeframe,
+           optimized: true
+         }),
+         signal: mainSignal
+       });
+
+       if (!response.ok) {
+         throw new Error(`Bulk API failed: HTTP ${response.status}`);
+       }
+
+       return response.json();
+     });
+
+     const chunkResults = await Promise.all(chunkPromises);
+     
+     // Merge all chunk results into one data object
+     const bulkResult = {
+       success: true,
+       data: {},
+       errors: {}
+     };
+     
+     chunkResults.forEach(result => {
+       if (result.success && result.data) {
+         Object.assign(bulkResult.data, result.data);
+       }
+       if (result.errors) {
+         Object.assign(bulkResult.errors, result.errors);
+       }
+     });
+     
+     if (!bulkResult.success) {
+       throw new Error('Bulk API request failed');
+     }
+
+
+
+     // Process bulk results and normalize data
+     const results = symbolsToFetch.map(etf => {
+       const symbolData = (bulkResult.data as any)[etf.symbol]; // Data is keyed by symbol
+       
+       if (!symbolData || symbolData.length === 0) {
+         return null;
+       }
+
+       let chartData = symbolData;
+       
+       // Filter for market hours if 1D timeframe
+       if (pdTimeframe === '1D') {
+         chartData = chartData.filter((point: any) => isPdMarketHours(point.timestamp));
+       }
+       
+       if (chartData.length === 0) return null;
+       
+       // Calculate normalized performance data
+       const firstPrice = chartData[0].close;
+       const normalizedData = chartData.map((point: any) => ({
+         timestamp: point.timestamp,
+         value: ((point.close - firstPrice) / firstPrice) * 100,
+         isMarketHours: pdTimeframe === '1W' ? isPdMarketHours(point.timestamp) : true
+       }));
+
+       const currentPerformance = normalizedData[normalizedData.length - 1]?.value || 0;
+
+       return {
+         symbol: etf.symbol,
+         name: etf.name,
+         color: etf.color,
+         data: normalizedData,
+         currentPerformance
+       };
+     }).filter((r): r is any => r !== null);
+
+
+
+     setPdPerformanceData(results);
+     setPdVisibleRange({ start: 0, end: 1 });
+   } catch (error) {
+     if (!mainSignal.aborted) {
+       // Don't clear existing data on error
+     }
+   } finally {
+     if (!mainSignal.aborted) {
+       setPdLoading(false);
+     }
+     pdFetchControllerRef.current = null;
+   }
+ }, [pdTimeframe, pdSelectedSymbols]);
+
+ // Update canvas dimensions when container mounts and on resize
+ useEffect(() => {
+   const updateDimensions = () => {
+     if (pdContainerRef.current) {
+       const rect = pdContainerRef.current.getBoundingClientRect();
+       if (rect.width > 0 && rect.height > 0) {
+         setPdDimensions(prev => 
+           prev.width !== rect.width || prev.height !== rect.height 
+             ? { width: rect.width, height: rect.height } 
+             : prev
+         );
+       }
+     }
+   };
+
+   updateDimensions();
+   const timer = setTimeout(updateDimensions, 150);
+   window.addEventListener('resize', updateDimensions);
+   
+   return () => {
+     clearTimeout(timer);
+     window.removeEventListener('resize', updateDimensions);
+   };
+ }, []);
+ 
+ // Measure dimensions once when data first loads
+ useEffect(() => {
+   if (pdPerformanceData.length > 0 && pdDimensions.width === 0 && pdContainerRef.current) {
+     const rect = pdContainerRef.current.getBoundingClientRect();
+     if (rect.width > 0 && rect.height > 0) {
+       setPdDimensions({ width: rect.width, height: rect.height });
+     }
+   }
+ }, [pdPerformanceData.length, pdDimensions.width]);
+
+ const drawPdChart = useCallback(() => {
+   const canvas = pdCanvasRef.current;
+   const ctx = canvas?.getContext('2d');
+   
+   if (!canvas || !ctx || pdDimensions.width === 0 || pdPerformanceData.length === 0) {
+     return;
+   }
+
+   const dpr = window.devicePixelRatio;
+   canvas.width = pdDimensions.width * dpr;
+   canvas.height = pdDimensions.height * dpr;
+   canvas.style.width = pdDimensions.width + 'px';
+   canvas.style.height = pdDimensions.height + 'px';
+   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+   ctx.fillStyle = '#000000';
+   ctx.fillRect(0, 0, pdDimensions.width, pdDimensions.height);
+
+   const m = { top: 40, right: 100, bottom: 80, left: 60 };
+   const w = pdDimensions.width - m.left - m.right;
+   const h = pdDimensions.height - m.top - m.bottom;
+
+   const total = pdPerformanceData[0].data.length;
+   const start = Math.floor(pdVisibleRange.start * total);
+   const end = Math.ceil(pdVisibleRange.end * total);
+   const visible = end - start;
+
+   let min = Infinity, max = -Infinity;
+   for (const etf of pdPerformanceData) {
+     for (let i = start; i < end; i++) {
+       const val = etf.data[i]?.value;
+       if (val !== undefined) {
+         if (val < min) min = val;
+         if (val > max) max = val;
+       }
+     }
+   }
+   if (min === Infinity) min = 0;
+   if (max === -Infinity) max = 0;
+   
+   const range = max - min || 1;
+   const pad = range * 0.1;
+   const yMin = min - pad;
+   const yMax = max + pad;
+   const yRange = yMax - yMin;
+
+   const x = (i: number) => m.left + ((i - start) / visible) * w;
+   const y = (v: number) => m.top + h - ((v - yMin) / yRange) * h;
+
+   ctx.strokeStyle = '#333333';
+   ctx.lineWidth = 1;
+   for (let i = 0; i <= 10; i++) {
+     const yPos = m.top + (h * i / 10);
+     ctx.beginPath();
+     ctx.moveTo(m.left, yPos);
+     ctx.lineTo(m.left + w, yPos);
+     ctx.stroke();
+   }
+
+   ctx.fillStyle = '#ffffff';
+   ctx.font = 'bold 15px monospace';
+   ctx.textAlign = 'right';
+   for (let i = 0; i <= 10; i++) {
+     const yPos = m.top + (h * i / 10);
+     const val = yMax - (yRange * i / 10);
+     ctx.fillText(`${val.toFixed(2)}%`, m.left - 10, yPos + 4);
+   }
+
+   if (min < 0 && max > 0) {
+     const zeroY = y(0);
+     ctx.strokeStyle = '#444444';
+     ctx.lineWidth = 2;
+     ctx.beginPath();
+     ctx.moveTo(m.left, zeroY);
+     ctx.lineTo(m.left + w, zeroY);
+     ctx.stroke();
+   }
+
+   ctx.save();
+   ctx.beginPath();
+   ctx.rect(m.left, m.top, w, h);
+   ctx.clip();
+
+   ctx.imageSmoothingEnabled = true;
+   ctx.imageSmoothingQuality = 'high';
+
+   for (const etf of pdPerformanceData) {
+     const hovered = pdHoveredSymbol === etf.symbol;
+     ctx.strokeStyle = etf.color;
+     ctx.lineWidth = hovered ? 2 : 1.5;
+     ctx.globalAlpha = hovered || !pdHoveredSymbol ? 1 : 0.3;
+     ctx.lineJoin = 'round';
+     ctx.lineCap = 'round';
+
+     ctx.beginPath();
+     let first = true;
+     for (let i = start; i < end; i++) {
+       const point = etf.data[i];
+       if (point) {
+         const xPos = x(i);
+         const yPos = y(point.value);
+         if (first) {
+           ctx.moveTo(xPos, yPos);
+           first = false;
+         } else {
+           ctx.lineTo(xPos, yPos);
+         }
+       }
+     }
+     ctx.stroke();
+   }
+
+   ctx.globalAlpha = 1;
+   ctx.restore();
+
+   const sorted = [...pdPerformanceData].sort((a, b) => b.currentPerformance - a.currentPerformance);
+   const legX = m.left + w + 30;
+   let legY = m.top + 20;
+
+   for (let i = 0; i < sorted.length; i++) {
+     const etf = sorted[i];
+     const yPos = legY + (i * 55);
+     const hovered = pdHoveredSymbol === etf.symbol;
+
+     if (hovered) {
+       ctx.fillStyle = '#1a1a1a';
+       ctx.fillRect(legX - 5, yPos - 14, 190, 26);
+     }
+
+     ctx.fillStyle = etf.color;
+     ctx.font = hovered ? 'bold 21px monospace' : '19px monospace';
+     ctx.textAlign = 'left';
+     ctx.fillText(etf.symbol, legX, yPos);
+
+     const perfColor = etf.currentPerformance >= 0 ? '#00ff00' : '#ff0000';
+     ctx.fillStyle = perfColor;
+     ctx.font = hovered ? 'bold 19px monospace' : '17px monospace';
+     const perfText = `${etf.currentPerformance >= 0 ? '+' : ''}${etf.currentPerformance.toFixed(2)}%`;
+     ctx.fillText(perfText, legX, yPos + 16);
+   }
+
+   ctx.fillStyle = '#ffffff';
+   ctx.font = 'bold 18px monospace';
+   ctx.textAlign = 'center';
+
+   const labelCount = Math.min(12, Math.max(6, visible < 50 ? 6 : 10));
+   for (let i = 0; i <= labelCount; i++) {
+     const idx = start + Math.floor(visible * i / labelCount);
+     const point = pdPerformanceData[0]?.data[idx];
+     if (point) {
+       const xPos = x(idx);
+       if (xPos >= m.left && xPos <= m.left + w) {
+         const date = new Date(point.timestamp);
+         let label: string;
+         if (pdTimeframe === '1D') {
+           label = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' });
+         } else if (pdTimeframe === '1W') {
+           label = date.toLocaleDateString([], { month: 'numeric', day: 'numeric', timeZone: 'America/Los_Angeles' });
+         } else {
+           label = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+         }
+         ctx.fillText(label, xPos, pdDimensions.height - m.bottom + 30);
+       }
+     }
+   }
+
+   const cross = pdCrosshairRef.current;
+   if (cross && cross.x >= m.left && cross.x <= m.left + w && cross.y >= m.top && cross.y <= m.top + h) {
+     ctx.strokeStyle = '#888888';
+     ctx.lineWidth = 1;
+     ctx.setLineDash([5, 5]);
+
+     ctx.beginPath();
+     ctx.moveTo(cross.x, m.top);
+     ctx.lineTo(cross.x, m.top + h);
+     ctx.stroke();
+
+     ctx.beginPath();
+     ctx.moveTo(m.left, cross.y);
+     ctx.lineTo(m.left + w, cross.y);
+     ctx.stroke();
+
+     ctx.setLineDash([]);
+
+     const yVal = yMax - ((cross.y - m.top) / h) * yRange;
+     ctx.fillStyle = '#ff6600';
+     const yText = `${yVal.toFixed(2)}%`;
+     ctx.font = 'bold 12px monospace';
+     const yWidth = ctx.measureText(yText).width;
+     ctx.fillRect(m.left - yWidth - 20, cross.y - 10, yWidth + 10, 20);
+     ctx.fillStyle = '#000000';
+     ctx.textAlign = 'right';
+     ctx.fillText(yText, m.left - 15, cross.y + 5);
+
+     const xPercent = (cross.x - m.left) / w;
+     const idx = Math.floor(start + xPercent * visible);
+     const point = pdPerformanceData[0]?.data[idx];
+     if (point) {
+       const date = new Date(point.timestamp);
+       const xText = pdTimeframe === '1D'
+         ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+         : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+       ctx.fillStyle = '#ff6600';
+       ctx.textAlign = 'center';
+       const xWidth = ctx.measureText(xText).width;
+       ctx.fillRect(cross.x - xWidth / 2 - 5, pdDimensions.height - m.bottom + 15, xWidth + 10, 20);
+       ctx.fillStyle = '#000000';
+       ctx.fillText(xText, cross.x, pdDimensions.height - m.bottom + 30);
+     }
+   }
+ }, [pdPerformanceData, pdDimensions, pdHoveredSymbol, pdVisibleRange]);
+ 
+ // Draw chart when data or state changes
+ useEffect(() => {
+   if (pdPerformanceData.length > 0 && pdDimensions.width > 0) {
+     drawPdChart();
+   }
+ }, [pdPerformanceData, pdDimensions, pdVisibleRange, pdHoveredSymbol]);
+ 
+ // Auto-refresh disabled to prevent flickering
+ // useEffect(() => {
+ //   if (pdSelectedSymbols.length === 0 || pdPerformanceData.length === 0) return;
+ //   
+ //   const interval = setInterval(() => {
+ //     fetchPdPerformanceData();
+ //   }, 300000); // 5 minutes
+ //   
+ //   return () => clearInterval(interval);
+ // }, [pdSelectedSymbols.length, pdPerformanceData.length]);
+
+ // Wheel zoom for Performance Dashboard
+ useEffect(() => {
+   const canvas = pdCanvasRef.current;
+   if (!canvas) return;
+
+   const handleWheelNative = (event: WheelEvent) => {
+     event.preventDefault();
+     
+     const rect = canvas.getBoundingClientRect();
+     const margin = { top: 40, right: 100, bottom: 80, left: 60 };
+     const chartWidth = pdDimensions.width - margin.left - margin.right;
+     const mouseX = event.clientX - rect.left;
+     
+     if (mouseX < margin.left || mouseX > margin.left + chartWidth) return;
+     
+     const mouseDataPos = pdVisibleRange.start + ((mouseX - margin.left) / chartWidth) * (pdVisibleRange.end - pdVisibleRange.start);
+     
+     const zoomFactor = event.deltaY > 0 ? 1.1 : 0.9;
+     const currentRange = pdVisibleRange.end - pdVisibleRange.start;
+     let newRange = currentRange * zoomFactor;
+     
+     newRange = Math.max(0.02, Math.min(1, newRange));
+     
+     const mousePercent = (mouseX - margin.left) / chartWidth;
+     let newStart = mouseDataPos - newRange * mousePercent;
+     let newEnd = newStart + newRange;
+     
+     if (newStart < 0) {
+       newStart = 0;
+       newEnd = newRange;
+     }
+     if (newEnd > 1) {
+       newEnd = 1;
+       newStart = 1 - newRange;
+     }
+     
+     setPdVisibleRange({ start: newStart, end: newEnd });
+   };
+
+   canvas.addEventListener('wheel', handleWheelNative, { passive: false });
+   return () => canvas.removeEventListener('wheel', handleWheelNative);
+ }, [pdDimensions]);
+
+ // Mouse event handlers for Performance Dashboard
+ const handlePdMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+   if (!pdCanvasRef.current) return;
+
+   const rect = pdCanvasRef.current.getBoundingClientRect();
+   const mouseX = event.clientX - rect.left;
+   const mouseY = event.clientY - rect.top;
+   
+   const margin = { top: 40, right: 100, bottom: 80, left: 60 };
+   const chartWidth = pdDimensions.width - margin.left - margin.right;
+   const chartHeight = pdDimensions.height - margin.top - margin.bottom;
+
+   if (mouseX >= margin.left && mouseX <= margin.left + chartWidth &&
+       mouseY >= margin.top && mouseY <= margin.top + chartHeight) {
+     pdCrosshairRef.current = { x: mouseX, y: mouseY };
+   } else {
+     pdCrosshairRef.current = null;
+   }
+
+   if (pdIsDragging) {
+     const deltaX = mouseX - pdDragStart.x;
+     const rangeSize = pdVisibleRange.end - pdVisibleRange.start;
+     const rangeDelta = -(deltaX / chartWidth) * rangeSize;
+     
+     let newStart = pdDragStart.rangeStart + rangeDelta;
+     let newEnd = newStart + rangeSize;
+     
+     if (newStart < 0) {
+       newStart = 0;
+       newEnd = rangeSize;
+     }
+     if (newEnd > 1) {
+       newEnd = 1;
+       newStart = 1 - rangeSize;
+     }
+     
+     setPdVisibleRange({ start: newStart, end: newEnd });
+     return;
+   }
+
+   const legendX = pdDimensions.width - margin.right + 30;
+   const legendY = margin.top + 20;
+   const itemSpacing = 55;
+
+   let found = false;
+   
+   sortedPdData.forEach((etf, index) => {
+     const y = legendY + (index * itemSpacing);
+     if (mouseX >= legendX - 5 && mouseX <= legendX + 185 && 
+         mouseY >= y - 18 && mouseY <= y + 35) {
+       if (pdHoveredSymbol !== etf.symbol) {
+         setPdHoveredSymbol(etf.symbol);
+       }
+       found = true;
+     }
+   });
+
+   if (!found && pdHoveredSymbol !== null) {
+     setPdHoveredSymbol(null);
+   }
+ };
+
+ const handlePdMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
+   const rect = pdCanvasRef.current?.getBoundingClientRect();
+   if (!rect) return;
+   setPdIsDragging(true);
+   setPdDragStart({
+     x: event.clientX - rect.left,
+     rangeStart: pdVisibleRange.start
+   });
+ };
+
+ const handlePdMouseUp = () => {
+   setPdIsDragging(false);
+ };
+
+ // Memoize sorted performance data for legend to prevent recreation on every mouse move
+ const sortedPdData = useMemo(() => {
+   return [...pdPerformanceData].sort((a, b) => b.currentPerformance - a.currentPerformance);
+ }, [pdPerformanceData]);
  
  // Chat messages state for each channel
  const [chatMessages, setChatMessages] = useState<{[channel: string]: Array<{id: string, user: string, message: string, timestamp: Date, userType: string}>}>({
@@ -2987,12 +3669,9 @@ export default function TradingViewChart({
 
   // Flow Chart state - 4-line chart showing bullish/bearish calls/puts
   const [isFlowChartActive, setIsFlowChartActive] = useState(false);
-  const [flowChartHeight, setFlowChartHeight] = useState(100);
-  const [isDraggingFlowChart, setIsDraggingFlowChart] = useState(false);
   const [flowChartViewMode, setFlowChartViewMode] = useState<'detailed' | 'simplified' | 'net'>('detailed');
-  const [flowChartButtonX, setFlowChartButtonX] = useState(800); // X position for buttons based on 5:00 AM
-  const [last5AMTimestamp, setLast5AMTimestamp] = useState<number | null>(null); // Track which 5AM we're anchored to
-  const [is5AMVisible, setIs5AMVisible] = useState(false); // Track if 5AM is currently visible
+  const [flowChartHeight, setFlowChartHeight] = useState(150); // Resizable height
+  const [isDraggingFlowChart, setIsDraggingFlowChart] = useState(false);
   const [flowChartData, setFlowChartData] = useState<Array<{
     time: number;
     timeLabel: string;
@@ -3005,11 +3684,45 @@ export default function TradingViewChart({
     netFlow: number;
   }>>([]);
 
-  // Flow chart resize handler
-  const handleFlowChartMouseDown = useCallback((e: React.MouseEvent) => {
+  // Flow chart resize handlers
+  const handleFlowChartDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setIsDraggingFlowChart(true);
   }, []);
+
+  const handleFlowChartDragMove = useCallback((e: MouseEvent) => {
+    if (!isDraggingFlowChart) return;
+    
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const rect = container.getBoundingClientRect();
+    const mouseY = e.clientY;
+    const bottomOfContainer = rect.bottom;
+    
+    // Calculate new height from bottom of container
+    const newHeight = bottomOfContainer - mouseY;
+    
+    // Constrain between 100px and 800px (allow dragging much higher)
+    const constrainedHeight = Math.max(100, Math.min(800, newHeight));
+    setFlowChartHeight(constrainedHeight);
+  }, [isDraggingFlowChart]);
+
+  const handleFlowChartDragEnd = useCallback(() => {
+    setIsDraggingFlowChart(false);
+  }, []);
+
+  // Add/remove mouse event listeners for dragging
+  useEffect(() => {
+    if (isDraggingFlowChart) {
+      window.addEventListener('mousemove', handleFlowChartDragMove);
+      window.addEventListener('mouseup', handleFlowChartDragEnd);
+      return () => {
+        window.removeEventListener('mousemove', handleFlowChartDragMove);
+        window.removeEventListener('mouseup', handleFlowChartDragEnd);
+      };
+    }
+  }, [isDraggingFlowChart, handleFlowChartDragMove, handleFlowChartDragEnd]);
 
  // Expansion/Liquidation indicator state
  const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false);
@@ -3563,43 +4276,6 @@ export default function TradingViewChart({
  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
  const chartHeight = dimensions.height;
 
- // Flow chart resize effect
- useEffect(() => {
-   if (!isDraggingFlowChart) return;
-
-   const handleMouseMove = (e: MouseEvent) => {
-     const canvas = chartCanvasRef.current;
-     if (!canvas) return;
-
-     const rect = canvas.getBoundingClientRect();
-     const mouseY = e.clientY - rect.top;
-     const volumeAreaHeight = 80;
-     const timeAxisHeight = 25;
-     
-     // Calculate new flow chart height based on mouse position
-     // Flow chart is between price chart and volume
-     const maxFlowHeight = chartHeight - volumeAreaHeight - timeAxisHeight - 200; // Leave min 200px for price chart
-     const minFlowHeight = 50;
-     
-     const newHeight = chartHeight - mouseY - volumeAreaHeight - timeAxisHeight;
-     const clampedHeight = Math.max(minFlowHeight, Math.min(maxFlowHeight, newHeight));
-     
-     setFlowChartHeight(clampedHeight);
-   };
-
-   const handleMouseUp = () => {
-     setIsDraggingFlowChart(false);
-   };
-
-   document.addEventListener('mousemove', handleMouseMove);
-   document.addEventListener('mouseup', handleMouseUp);
-
-   return () => {
-     document.removeEventListener('mousemove', handleMouseMove);
-     document.removeEventListener('mouseup', handleMouseUp);
-   };
- }, [isDraggingFlowChart, chartHeight, setFlowChartHeight, setIsDraggingFlowChart]);
-
  // Overlay effect for other drawings only (not rays - they're now on main canvas)
  useEffect(() => {
  const overlayCanvas = overlayCanvasRef.current;
@@ -4110,19 +4786,18 @@ export default function TradingViewChart({
  const changePercent = (change / previousCandle.close) * 100;
  setPriceChange(change);
  setPriceChangePercent(changePercent);
- console.log(`💰 PRICE CHANGE CALCULATED: ${symbol} ${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent.toFixed(2)}%)`);
  }
  }, [data, currentPrice, symbol]);
 
  // Set up live price updates every 5 seconds for live data
  useEffect(() => {
  const interval = setInterval(() => {
- console.log(`?? Live refresh for ${symbol}...`);
  fetchRealTimePrice(symbol);
  }, 5000); // Update every 5 seconds
 
  return () => clearInterval(interval);
- }, [symbol, fetchRealTimePrice]);
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [symbol]);
 
  // Initialize scroll position with FULL DATA - DISABLED to prevent override
  // This was overriding the timeframe-specific scroll positioning
@@ -4728,35 +5403,11 @@ export default function TradingViewChart({
  
  const visibleData = data.slice(startIndex, endIndex);
  
- // ?? CRITICAL DEBUG: Check what we actually got
- console.log('?? POST-SLICE DEBUG:', {
- visibleDataLength: visibleData.length,
- firstCandle: visibleData[0] ? {
- timestamp: new Date(visibleData[0].timestamp).toISOString(),
- ohlc: `${visibleData[0].open}/${visibleData[0].high}/${visibleData[0].low}/${visibleData[0].close}`
- } : 'undefined',
- lastCandle: visibleData[visibleData.length - 1] ? {
- timestamp: new Date(visibleData[visibleData.length - 1].timestamp).toISOString(),
- ohlc: `${visibleData[visibleData.length - 1].open}/${visibleData[visibleData.length - 1].high}/${visibleData[visibleData.length - 1].low}/${visibleData[visibleData.length - 1].close}`
- } : 'undefined'
- });
- 
  // ENHANCED: Handle future scrolling beyond actual data
  const beyondDataOffset = Math.max(0, scrollOffset + visibleCandleCount - data.length);
  const showingFutureSpace = beyondDataOffset > 0;
  
  if (visibleData.length === 0 && !showingFutureSpace) return;
-
- // Debug logging
- console.log('Scroll Debug:', {
- scrollOffset,
- startIndex,
- endIndex,
- dataLength: data.length,
- visibleCandleCount,
- visibleDataLength: visibleData.length,
- beyondData: (startIndex + visibleCandleCount) > data.length
- });
 
  // Calculate chart dimensions - only extend when scrolled near the end
  const chartWidth = width - 120; // Leave more space for price scale to prevent overlap
@@ -4772,11 +5423,6 @@ export default function TradingViewChart({
  if (showingFutureArea) {
  // We're in the future area, calculate how much
  limitedFuturePeriods = requestedEnd - data.length;
- console.log('Future area detected:', {
- requestedEnd,
- dataLength: data.length,
- futurePeriodsShown: limitedFuturePeriods
- });
  }
  
  // Draw market hours background shading
@@ -5035,44 +5681,6 @@ export default function TradingViewChart({
      }
      console.log(`✅ Rendering flow chart with ${visibleFlowData.length} visible points`);
      if (visibleFlowData.length > 0) {
-       // Calculate button X position based on 5:00 AM of the current trading day
-       // Find 5:00 AM in the FULL dataset, then check if it's visible
-       const candleSpacing = chartWidth / visibleCandleCount;
-       let fiveAMIndex = -1;
-       let threePMIndex = -1;
-       
-       // Search the full data for today's 5:00 AM and 3:00 PM
-       const today = new Date();
-       for (let i = data.length - 1; i >= 0; i--) {
-         const candleDate = new Date(data[i].timestamp);
-         const hours = candleDate.getHours();
-         const minutes = candleDate.getMinutes();
-         
-         // Check if this candle is 5:00 AM
-         if (hours === 5 && minutes === 0 && fiveAMIndex === -1) {
-           fiveAMIndex = i;
-         }
-         
-         // Check if this candle is 3:00 PM (15:00)
-         if (hours === 15 && minutes === 0 && threePMIndex === -1) {
-           threePMIndex = i;
-         }
-         
-         if (fiveAMIndex !== -1 && threePMIndex !== -1) break;
-       }
-       
-       // Check if 5AM is currently visible to calculate button position
-       // Buttons move WITH the 5AM candle as you scroll
-       if (fiveAMIndex !== -1 && fiveAMIndex >= startIndex && fiveAMIndex < startIndex + visibleCandleCount) {
-         const relativeIndex = fiveAMIndex - startIndex;
-         const buttonXPos = 40 + (relativeIndex * candleSpacing) + (candleSpacing / 2);
-         setFlowChartButtonX(buttonXPos);
-         setLast5AMTimestamp(data[fiveAMIndex].timestamp);
-         setIs5AMVisible(true);
-       } else {
-         setIs5AMVisible(false);
-       }
-       
        // Y-axis at fixed position on the right
        const yAxisXPos = chartWidth - 85;
        
@@ -5103,9 +5711,8 @@ export default function TradingViewChart({
 
  console.log(`? Integrated chart rendered successfully with ${config.theme} theme`);
 
- }, [data, dimensions, chartHeight, config.chartType, config.theme, config.showGrid, config.axisStyle, colors, scrollOffset, visibleCandleCount, drawings, isFlowChartActive, flowChartData, flowChartHeight]);
-
- // Draw volume bars above the x-axis (TradingView style)
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.length, dimensions.width, dimensions.height, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData, flowChartViewMode, flowChartHeight]); // Draw volume bars above the x-axis (TradingView style)
  const drawVolumeProfile = (
  ctx: CanvasRenderingContext2D,
  visibleData: ChartDataPoint[],
@@ -5371,9 +5978,9 @@ export default function TradingViewChart({
          if (x !== undefined) {
            let value = (point as any)[line.key];
            
-           // For simplified/net modes, normalize around center line
+           // For simplified mode, normalize around center line
            let y: number;
-           if (flowChartViewMode === 'simplified' || flowChartViewMode === 'net') {
+           if (flowChartViewMode === 'simplified') {
              const centerY = effectiveFlowStartY + (effectiveFlowHeight / 2);
              const normalizedValue = (Math.abs(value) / maxValue) * (effectiveFlowHeight / 2);
              y = value >= 0 ? centerY - normalizedValue : centerY + normalizedValue;
@@ -6702,14 +7309,13 @@ export default function TradingViewChart({
  };
 
  // Re-render when data or settings change
+ // Call renderChart only when critical dependencies change
  useEffect(() => {
- if (dimensions.width > 0 && dimensions.height > 0) {
- console.log(`?? Rendering chart with ${data.length} data points`);
+ if (dimensions.width > 0 && dimensions.height > 0 && data.length > 0) {
  renderChart();
  }
- }, [renderChart, config.theme, config.colors, dimensions, data, priceRange, scrollOffset, visibleCandleCount, gexData, isGexActive, expectedRangeLevels, isExpectedRangeActive, horizontalRays, parallelChannels, currentChannelPoints, channelPreviewPoint, isParallelChannelMode, drawingBrushes, currentBrushStroke, isBrushing, seasonalProjectionData, isSeasonalActive]);
-
- // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight]); // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
  useEffect(() => {
  if (!isParallelChannelMode) return;
  
@@ -8925,11 +9531,26 @@ export default function TradingViewChart({
 
  // Watchlist Panel Component - Bloomberg Terminal Style with 4-Column Performance
  const WatchlistPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
- const currentSymbols = marketSymbols[activeTab as keyof typeof marketSymbols] || [];
+ 
+ // Fetch data when tab, timeframe, or symbols change - stable reference
+ const stableSymbols = useMemo(() => [...pdSelectedSymbols].sort().join(','), [pdSelectedSymbols]);
+ 
+ useEffect(() => {
+   if (activeTab === 'Performance Dashboard' && pdSelectedSymbols.length > 0) {
+     const currentSymbolsKey = `${stableSymbols}_${pdTimeframe}`;
+     if (currentSymbolsKey !== pdLastFetchedSymbolsRef.current) {
+       pdLastFetchedSymbolsRef.current = currentSymbolsKey;
+       fetchPdPerformanceData();
+     }
+   }
+ }, [activeTab, pdTimeframe, stableSymbols]);
+ 
+ // For Watchlist tab, show Markets symbols; otherwise use activeTab
+ const symbolKey = activeTab === 'Watchlist' ? 'Markets' : activeTab;
+ const currentSymbols = marketSymbols[symbolKey as keyof typeof marketSymbols] || [];
  
  // Check if watchlist data is still loading
  const hasWatchlistData = Object.keys(watchlistData).length > 0;
- console.log('?? Watchlist Panel - Loading:', watchlistLoading, 'HasData:', hasWatchlistData);
  
  if (watchlistLoading || !hasWatchlistData) {
  // Show loading state instead of error
@@ -9084,23 +9705,36 @@ export default function TradingViewChart({
  <div className="h-full flex flex-col bg-black text-white">
  {/* Bloomberg-style Header */}
  <div className="p-3 border-b border-yellow-500 bg-black">
- <div className="flex items-center justify-center mb-2">
- <h2 className="text-lg font-bold text-yellow-400 uppercase tracking-widest" style={{ letterSpacing: '0.2em', textShadow: '0 0 10px rgba(255, 200, 0, 0.5)' }}>
- Watchlist
- </h2>
- </div>
- 
- {/* Bloomberg-style Tabs - Enhanced Navy Blue with Black Text */}
- <div className="flex border-2 border-blue-900/30 rounded-md overflow-hidden shadow-lg">
- {['Markets', 'Industries', 'Special'].map(tab => (
+ {/* Tab Navigation */}
+ <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
+ {['Watchlist', 'Performance Dashboard'].map(tab => (
  <button
  key={tab}
  onClick={() => setActiveTab(tab)}
- className={`flex-1 px-4 py-2 text-sm font-black uppercase tracking-widest border-r-2 border-blue-900/30 last:border-r-0 transition-all duration-300 ${
- activeTab === tab 
- ? 'bg-gradient-to-br from-blue-950/80 via-blue-900/70 to-blue-950/80 text-gray-200 border-b-4 border-b-lime-500/50' 
- : 'bg-gradient-to-br from-blue-950/40 via-blue-900/30 to-blue-950/40 text-gray-400 hover:text-gray-300 hover:bg-blue-900/50'
- }`}
+ style={{
+ flex: 1,
+ padding: '12px 24px',
+ fontSize: '20px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '1px',
+ textTransform: 'uppercase',
+ border: 'none',
+ borderRight: activeTab === tab ? 'none' : '1px solid #333',
+ cursor: 'pointer',
+ transition: 'all 0.3s',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: activeTab === tab ? '#ff8844' : '#ffffff',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
+ opacity: 1,
+ filter: 'contrast(1.1) brightness(1.1)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.background = 'linear-gradient(135deg, #252525 0%, #0a0a0a 50%, #252525 100%)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)';
+ }}
  >
  {tab}
  </button>
@@ -9108,6 +9742,9 @@ export default function TradingViewChart({
  </div>
  </div>
  
+ {/* Watchlist Tab Content */}
+ {activeTab === 'Watchlist' && (
+ <>
  {/* Bloomberg-style Column Headers - 7 Columns */}
  <div className="grid grid-cols-7 gap-0 border-b border-gray-700 bg-black text-sm font-bold uppercase shadow-inner">
  <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
@@ -9146,7 +9783,7 @@ export default function TradingViewChart({
  {currentSymbols.length === 0 ? (
  <div className="flex flex-col items-center justify-center h-full text-gray-500">
  <div className="text-lg font-bold mb-2">NO DATA</div>
- <div className="text-sm">No symbols in {activeTab.toUpperCase()}</div>
+ <div className="text-sm">No symbols available</div>
  </div>
  ) : (
  <div className="divide-y divide-gray-800">
@@ -9285,22 +9922,774 @@ export default function TradingViewChart({
  })}
  </div>
  )}
+ 
+ {/* Industries Section Separator */}
+ <div className="mt-6 mb-4">
+ <div className="h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent mb-2"></div>
+ <div className="text-center">
+ <h3 className="text-xl font-bold text-blue-400 uppercase tracking-widest" style={{ letterSpacing: '0.3em', textShadow: '0 0 15px rgba(59, 130, 246, 0.6)' }}>
+ Industries
+ </h3>
+ </div>
+ <div className="h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent mt-2"></div>
+ </div>
+ 
+ {/* Industries Table */}
+ <div className="divide-y divide-gray-800">
+ {marketSymbols.Industries.map((symbol, index) => {
+ const data = watchlistData[symbol];
+ const spyData = watchlistData['SPY'];
+ const isLoading = !data;
+ 
+ if (isLoading) {
+ return (
+ <div key={symbol}>
+ <div className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-800 hover:to-gray-900 transition-all duration-300 mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800">
+ <div className="p-3 border-r border-gray-800 font-mono font-bold text-white text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">{symbol}</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">Loading...</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ <div className="p-3 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ </div>
+ </div>
+ );
+ }
+ 
+ const changeColor = data.change1d >= 0 ? 'text-green-400' : 'text-red-400';
+ const changeSign = data.change1d >= 0 ? '+' : '';
+ 
+ // Get performance status for each time period vs SPY
+ const perf1d = spyData ? getPerformanceStatus(data.change1d, spyData.change1d, symbol, '1d') : { status: '--', color: 'text-gray-400' };
+ const perf5d = spyData ? getPerformanceStatus(data.change5d, spyData.change5d, symbol, '5d') : { status: '--', color: 'text-gray-400' };
+ const perf13d = spyData ? getPerformanceStatus(data.change13d, spyData.change13d, symbol, '13d') : { status: '--', color: 'text-gray-400' };
+ const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
+ 
+ return (
+ <div key={symbol}>
+ <div 
+ className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 hover:shadow-xl transition-all duration-300 cursor-pointer mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800 hover:border-gray-600"
+ onClick={() => {
+ console.log(`?? Switching chart to ${symbol}`);
+ if (onSymbolChange) {
+ onSymbolChange(symbol);
+ }
+ // Update the config state as well
+ setConfig(prev => ({ ...prev, symbol }));
+ }}
+ >
+ {/* Symbol */}
+ <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className="font-mono font-bold text-white text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">{symbol}</span>
+ </div>
+ 
+ {/* Price */}
+ <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <div className="font-mono text-white font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">
+ {data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+ </div>
+ </div>
+ 
+ {/* Change */}
+ <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <div className={`font-mono font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${changeColor}`}>
+ {changeSign}{data.change1d.toFixed(2)}%
+ </div>
+ </div>
+ 
+ {/* 1D Performance */}
+ <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color} ${perf1d.status === 'RISING' || perf1d.status === 'STRONG' || perf1d.status === 'LEADER' || perf1d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {perf1d.status}
+ </span>
+ </div>
+ 
+ {/* 5D Performance */}
+ <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color} ${perf5d.status === 'RISING' || perf5d.status === 'STRONG' || perf5d.status === 'LEADER' || perf5d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {perf5d.status}
+ </span>
+ </div>
+ 
+ {/* 13D Performance */}
+ <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color} ${perf13d.status === 'RISING' || perf13d.status === 'STRONG' || perf13d.status === 'LEADER' || perf13d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {perf13d.status}
+ </span>
+ </div>
+ 
+ {/* 21D Performance */}
+ <div className="p-3 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color} ${perf21d.status === 'RISING' || perf21d.status === 'STRONG' || perf21d.status === 'LEADER' || perf21d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {perf21d.status}
+ </span>
+ </div>
+ </div>
+ </div>
+ );
+ })}
+ </div>
+ 
+ {/* Special Section Separator */}
+ <div className="mt-6 mb-4">
+ <div className="h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent mb-2"></div>
+ <div className="text-center">
+ <h3 className="text-xl font-bold text-purple-400 uppercase tracking-widest" style={{ letterSpacing: '0.3em', textShadow: '0 0 15px rgba(168, 85, 247, 0.6)' }}>
+ Special
+ </h3>
+ </div>
+ <div className="h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent mt-2"></div>
+ </div>
+ 
+ {/* Special Table */}
+ <div className="divide-y divide-gray-800">
+ {marketSymbols.Special.map((symbol, index) => {
+ const data = watchlistData[symbol];
+ const spyData = watchlistData['SPY'];
+ const isLoading = !data;
+ 
+ if (isLoading) {
+ return (
+ <div key={symbol}>
+ <div className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-800 hover:to-gray-900 transition-all duration-300 mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800">
+ <div className="p-3 border-r border-gray-800 font-mono font-bold text-white text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">{symbol}</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">Loading...</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ <div className="p-3 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
+ <span className="drop-shadow-md">--</span>
+ </div>
+ </div>
+ </div>
+ );
+ }
+ 
+ const changeColor = data.change1d >= 0 ? 'text-green-400' : 'text-red-400';
+ const changeSign = data.change1d >= 0 ? '+' : '';
+ 
+ // Get performance status for each time period vs SPY
+ const perf1d = spyData ? getPerformanceStatus(data.change1d, spyData.change1d, symbol, '1d') : { status: '--', color: 'text-gray-400' };
+ const perf5d = spyData ? getPerformanceStatus(data.change5d, spyData.change5d, symbol, '5d') : { status: '--', color: 'text-gray-400' };
+ const perf13d = spyData ? getPerformanceStatus(data.change13d, spyData.change13d, symbol, '13d') : { status: '--', color: 'text-gray-400' };
+ const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
+ 
+ return (
+ <div key={symbol}>
+ <div 
+ className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 hover:shadow-xl transition-all duration-300 cursor-pointer mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800 hover:border-gray-600"
+ onClick={() => {
+ console.log(`?? Switching chart to ${symbol}`);
+ if (onSymbolChange) {
+ onSymbolChange(symbol);
+ }
+ // Update the config state as well
+ setConfig(prev => ({ ...prev, symbol }));
+ }}
+ >
+ {/* Symbol */}
+ <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className="font-mono font-bold text-white text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">{symbol}</span>
+ </div>
+ 
+ {/* Price */}
+ <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <div className="font-mono text-white font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">
+ {data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+ </div>
+ </div>
+ 
+ {/* Change */}
+ <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <div className={`font-mono font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${changeColor}`}>
+ {changeSign}{data.change1d.toFixed(2)}%
+ </div>
+ </div>
+ 
+ {/* 1D Performance */}
+ <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color} ${perf1d.status === 'RISING' || perf1d.status === 'STRONG' || perf1d.status === 'LEADER' || perf1d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {perf1d.status}
+ </span>
+ </div>
+ 
+ {/* 5D Performance */}
+ <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color} ${perf5d.status === 'RISING' || perf5d.status === 'STRONG' || perf5d.status === 'LEADER' || perf5d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {perf5d.status}
+ </span>
+ </div>
+ 
+ {/* 13D Performance */}
+ <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color} ${perf13d.status === 'RISING' || perf13d.status === 'STRONG' || perf13d.status === 'LEADER' || perf13d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {perf13d.status}
+ </span>
+ </div>
+ 
+ {/* 21D Performance */}
+ <div className="p-3 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
+ <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color} ${perf21d.status === 'RISING' || perf21d.status === 'STRONG' || perf21d.status === 'LEADER' || perf21d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ {perf21d.status}
+ </span>
+ </div>
+ </div>
+ </div>
+ );
+ })}
+ </div>
+ </div>
+ </>
+ )}
+ 
+ {/* Performance Dashboard Tab Content */}
+ {activeTab === 'Performance Dashboard' && (
+ <div className="p-6 bg-black">
+ {/* Controls Section */}
+ <div style={{ 
+ display: 'flex', 
+ justifyContent: 'flex-start', 
+ alignItems: 'center',
+ marginTop: '30px',
+ marginBottom: '15px',
+ gap: '20px',
+ flexWrap: 'wrap'
+ }}>
+ {/* Timeframe Dropdown */}
+ <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+ <label style={{ 
+ color: '#999999', 
+ fontSize: '11px', 
+ fontFamily: 'monospace',
+ fontWeight: 'bold'
+ }}>
+ Timeframe:
+ </label>
+ <select
+ value={pdTimeframe}
+ onChange={(e) => setPdTimeframe(e.target.value as any)}
+ style={{
+ padding: '10px 16px',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: '#ff8844',
+ border: '2px solid #ff6600',
+ borderRadius: '6px',
+ cursor: 'pointer',
+ fontSize: '14px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '0.5px',
+ textTransform: 'uppercase',
+ outline: 'none',
+ opacity: 1,
+ filter: 'contrast(1.1) brightness(1.1)',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
+ }}
+ >
+ <option value="1D">1D</option>
+ <option value="1W">1W</option>
+ <option value="1M">1M</option>
+ <option value="3M">3M</option>
+ <option value="6M">6M</option>
+ <option value="1Y">1Y</option>
+ <option value="2Y">2Y</option>
+ <option value="5Y">5Y</option>
+ <option value="10Y">10Y</option>
+ <option value="20Y">20Y</option>
+ <option value="YTD">YTD</option>
+ </select>
  </div>
 
- {/* Sector Performance Chart - Always mounted, show/hide with display */}
- <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Markets' ? 'block' : 'none' }}>
- <SectorPerformanceChart />
+ {/* Sectors Button with Dropdown */}
+ <div style={{ position: 'relative', borderLeft: '1px solid #333333', paddingLeft: '20px' }}>
+ <button
+ onClick={() => {
+ setPerformanceDashboardDropdowns(prev => ({ ...prev, sectors: !prev.sectors, industries: false, special: false }));
+ }}
+ style={{
+ padding: '10px 20px',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: '#00ff88',
+ border: '2px solid #00cc88',
+ borderRadius: '6px',
+ cursor: 'pointer',
+ fontSize: '14px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '0.5px',
+ textTransform: 'uppercase',
+ transition: 'all 0.2s',
+ opacity: pdActiveCategories.sectors ? 1 : 0.6,
+ filter: 'contrast(1.1) brightness(1.1)',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.transform = 'translateY(0)';
+ }}
+ >
+ {pdActiveCategories.sectors ? '☑' : '☐'} Sectors ▼
+ </button>
+ {performanceDashboardDropdowns.sectors && (
+ <div style={{
+ position: 'absolute',
+ top: '100%',
+ left: '20px',
+ marginTop: '4px',
+ backgroundColor: '#1a1a1a',
+ border: '1px solid #00cc88',
+ borderRadius: '3px',
+ padding: '8px',
+ zIndex: 1000,
+ minWidth: '180px',
+ maxHeight: '400px',
+ overflowY: 'auto'
+ }}>
+ {PD_SECTORS_ETFS.map((etf) => (
+ <div
+ key={etf.symbol}
+ onClick={() => {
+ setPdSelectedSymbols(prev => {
+ const isSelected = prev.includes(etf.symbol);
+ const newSymbols = isSelected ? prev.filter(s => s !== etf.symbol) : [...prev, etf.symbol];
+ const hasAnySector = PD_SECTORS_ETFS.some(e => newSymbols.includes(e.symbol));
+ setPdActiveCategories(p => ({ ...p, sectors: hasAnySector }));
+ return newSymbols;
+ });
+ }}
+ style={{
+ padding: '6px 8px',
+ cursor: 'pointer',
+ color: pdSelectedSymbols.includes(etf.symbol) ? '#00cc88' : '#999999',
+ fontSize: '11px',
+ fontFamily: 'monospace',
+ fontWeight: pdSelectedSymbols.includes(etf.symbol) ? 'bold' : 'normal',
+ borderBottom: '1px solid #333333',
+ display: 'flex',
+ alignItems: 'center',
+ gap: '8px'
+ }}
+ >
+ <span style={{ color: etf.color }}>●</span>
+ <span>{pdSelectedSymbols.includes(etf.symbol) ? '☑' : '☐'}</span>
+ <span>{etf.symbol}</span>
+ <span style={{ fontSize: '9px', color: '#666666' }}>({etf.name})</span>
+ </div>
+ ))}
+ </div>
+ )}
+ </div>
+
+ {/* Industries Button with Dropdown */}
+ <div style={{ position: 'relative' }}>
+ <button
+ onClick={() => {
+ setPerformanceDashboardDropdowns(prev => ({ ...prev, industries: !prev.industries, sectors: false, special: false }));
+ }}
+ style={{
+ padding: '10px 20px',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: '#5588ff',
+ border: '2px solid #3366ff',
+ borderRadius: '6px',
+ cursor: 'pointer',
+ fontSize: '14px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '0.5px',
+ textTransform: 'uppercase',
+ transition: 'all 0.2s',
+ opacity: pdActiveCategories.industries ? 1 : 0.6,
+ filter: 'contrast(1.1) brightness(1.1)',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.transform = 'translateY(0)';
+ }}
+ >
+ {pdActiveCategories.industries ? '☑' : '☐'} Industries ▼
+ </button>
+ {performanceDashboardDropdowns.industries && (
+ <div style={{
+ position: 'absolute',
+ top: '100%',
+ left: '0',
+ marginTop: '4px',
+ backgroundColor: '#1a1a1a',
+ border: '1px solid #3366ff',
+ borderRadius: '3px',
+ padding: '8px',
+ zIndex: 1000,
+ minWidth: '220px',
+ maxHeight: '400px',
+ overflowY: 'auto'
+ }}>
+ {PD_INDUSTRIES_ETFS.map((etf) => (
+ <div
+ key={etf.symbol}
+ onClick={() => {
+ setPdSelectedSymbols(prev => {
+ const isSelected = prev.includes(etf.symbol);
+ const newSymbols = isSelected ? prev.filter(s => s !== etf.symbol) : [...prev, etf.symbol];
+ const hasAnyIndustry = PD_INDUSTRIES_ETFS.some(e => newSymbols.includes(e.symbol));
+ setPdActiveCategories(p => ({ ...p, industries: hasAnyIndustry }));
+ return newSymbols;
+ });
+ }}
+ style={{
+ padding: '6px 8px',
+ cursor: 'pointer',
+ color: pdSelectedSymbols.includes(etf.symbol) ? '#3366ff' : '#999999',
+ fontSize: '11px',
+ fontFamily: 'monospace',
+ fontWeight: pdSelectedSymbols.includes(etf.symbol) ? 'bold' : 'normal',
+ borderBottom: '1px solid #333333',
+ display: 'flex',
+ alignItems: 'center',
+ gap: '8px'
+ }}
+ >
+ <span style={{ color: etf.color }}>●</span>
+ <span>{pdSelectedSymbols.includes(etf.symbol) ? '☑' : '☐'}</span>
+ <span>{etf.symbol}</span>
+ <span style={{ fontSize: '9px', color: '#666666' }}>({etf.name})</span>
+ </div>
+ ))}
+ </div>
+ )}
+ </div>
+
+ {/* Special Button with Dropdown */}
+ <div style={{ position: 'relative' }}>
+ <button
+ onClick={() => {
+ setPerformanceDashboardDropdowns(prev => ({ ...prev, special: !prev.special, sectors: false, industries: false }));
+ }}
+ style={{
+ padding: '10px 20px',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: '#ffcc44',
+ border: '2px solid #ffaa00',
+ borderRadius: '6px',
+ cursor: 'pointer',
+ fontSize: '14px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '0.5px',
+ textTransform: 'uppercase',
+ transition: 'all 0.2s',
+ opacity: pdActiveCategories.special ? 1 : 0.6,
+ filter: 'contrast(1.1) brightness(1.1)',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.transform = 'translateY(0)';
+ }}
+ >
+ {pdActiveCategories.special ? '☑' : '☐'} Special ▼
+ </button>
+ {performanceDashboardDropdowns.special && (
+ <div style={{
+ position: 'absolute',
+ top: '100%',
+ left: '0',
+ marginTop: '4px',
+ backgroundColor: '#1a1a1a',
+ border: '1px solid #ffaa00',
+ borderRadius: '3px',
+ padding: '8px',
+ zIndex: 1000,
+ minWidth: '220px',
+ maxHeight: '400px',
+ overflowY: 'auto'
+ }}>
+ {PD_SPECIAL_ETFS.map((etf) => (
+ <div
+ key={etf.symbol}
+ onClick={() => {
+ setPdSelectedSymbols(prev => {
+ const isSelected = prev.includes(etf.symbol);
+ const newSymbols = isSelected ? prev.filter(s => s !== etf.symbol) : [...prev, etf.symbol];
+ const hasAnySpecial = PD_SPECIAL_ETFS.some(e => newSymbols.includes(e.symbol));
+ setPdActiveCategories(p => ({ ...p, special: hasAnySpecial }));
+ return newSymbols;
+ });
+ }}
+ style={{
+ padding: '6px 8px',
+ cursor: 'pointer',
+ color: pdSelectedSymbols.includes(etf.symbol) ? '#ffaa00' : '#999999',
+ fontSize: '11px',
+ fontFamily: 'monospace',
+ fontWeight: pdSelectedSymbols.includes(etf.symbol) ? 'bold' : 'normal',
+ borderBottom: '1px solid #333333',
+ display: 'flex',
+ alignItems: 'center',
+ gap: '8px'
+ }}
+ >
+ <span style={{ color: etf.color }}>●</span>
+ <span>{pdSelectedSymbols.includes(etf.symbol) ? '☑' : '☐'}</span>
+ <span>{etf.symbol}</span>
+ <span style={{ fontSize: '9px', color: '#666666' }}>({etf.name})</span>
+ </div>
+ ))}
+ </div>
+ )}
+ </div>
+
+ {/* Benchmarked Button */}
+ <div style={{ borderLeft: '1px solid #333333', paddingLeft: '20px' }}>
+ <button
+ onClick={() => setPdIsBenchmarked(!pdIsBenchmarked)}
+ style={{
+ padding: '10px 20px',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: '#cc88ff',
+ border: '2px solid #9d4edd',
+ borderRadius: '6px',
+ cursor: 'pointer',
+ fontSize: '14px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '0.5px',
+ textTransform: 'uppercase',
+ transition: 'all 0.2s',
+ opacity: 1,
+ filter: 'contrast(1.1) brightness(1.1)',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.transform = 'translateY(0)';
+ }}
+ >
+ Benchmarked
+ </button>
+ </div>
+
+ {/* Custom Date Range */}
+ <div style={{ 
+ display: 'flex', 
+ gap: '8px', 
+ alignItems: 'center',
+ borderLeft: '1px solid #333333', 
+ paddingLeft: '20px' 
+ }}>
+ <label style={{ 
+ color: '#999999', 
+ fontSize: '11px', 
+ fontFamily: 'monospace' 
+ }}>
+ Start:
+ </label>
+ <input
+ type="date"
+ style={{
+ padding: '8px 12px',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: '#ffffff',
+ border: '2px solid #666666',
+ borderRadius: '6px',
+ fontSize: '14px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '0.5px',
+ cursor: 'pointer',
+ opacity: 1,
+ filter: 'contrast(1.1) brightness(1.1)',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
+ }}
+ />
+ 
+ <label style={{ 
+ color: '#999999', 
+ fontSize: '11px', 
+ fontFamily: 'monospace' 
+ }}>
+ End:
+ </label>
+ <input
+ type="date"
+ style={{
+ padding: '8px 12px',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: '#ffffff',
+ border: '2px solid #666666',
+ borderRadius: '6px',
+ fontSize: '14px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '0.5px',
+ cursor: 'pointer',
+ opacity: 1,
+ filter: 'contrast(1.1) brightness(1.1)',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
+ }}
+ />
+ 
+ {/* Top/Bottom Button */}
+ <button
+ style={{
+ padding: '10px 20px',
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+ color: '#ff8844',
+ border: '2px solid #ff6600',
+ borderRadius: '6px',
+ cursor: 'pointer',
+ fontSize: '14px',
+ fontWeight: '900',
+ fontFamily: 'monospace',
+ letterSpacing: '0.5px',
+ textTransform: 'uppercase',
+ marginLeft: '12px',
+ transition: 'all 0.2s',
+ opacity: 1,
+ filter: 'contrast(1.1) brightness(1.1)',
+ boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.transform = 'translateY(0)';
+ }}
+ >
+ Top/Bottom
+ </button>
+ </div>
  </div>
  
- {/* Industries Performance Chart - Always mounted, show/hide with display */}
- <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Industries' ? 'block' : 'none' }}>
- <IndustriesPerformanceChart />
+ {/* Canvas Chart Container */}
+ <div 
+ ref={pdContainerRef}
+ style={{ 
+ width: '100%',
+ height: '1200px',
+ backgroundColor: '#000000',
+ border: '1px solid #333',
+ borderRadius: '4px',
+ padding: '20px',
+ position: 'relative',
+ overflow: 'hidden',
+ marginTop: '20px'
+ }}
+ >
+
+ {/* LOADING OVERLAY */}
+ {pdLoading && pdPerformanceData.length === 0 && (
+ <div style={{ 
+ position: 'absolute',
+ inset: 0,
+ display: 'flex',
+ alignItems: 'center',
+ justifyContent: 'center',
+ backgroundColor: 'rgba(0,0,0,0.75)',
+ color: '#ff8844',
+ fontSize: '24px',
+ fontFamily: 'monospace',
+ fontWeight: 'bold',
+ zIndex: 20
+ }}>
+ Loading {pdSelectedSymbols.length} symbol{pdSelectedSymbols.length !== 1 ? 's' : ''}...
  </div>
- 
- {/* Special Performance Chart - Always mounted, show/hide with display */}
- <div className="mt-6" style={{ width: '100%', overflow: 'hidden', display: activeTab === 'Special' ? 'block' : 'none' }}>
- <SpecialPerformanceChart />
+ )}
+
+ {/* EMPTY DATA OVERLAY */}
+ {!pdLoading && pdPerformanceData.length === 0 && (
+ <div style={{ 
+ position: 'absolute',
+ inset: 0,
+ display: 'flex',
+ alignItems: 'center',
+ justifyContent: 'center',
+ backgroundColor: 'rgba(0,0,0,0.75)',
+ color: '#999999',
+ fontSize: '18px',
+ fontFamily: 'monospace',
+ zIndex: 20
+ }}>
+ No data available
  </div>
+ )}
+
+ {/* TOP RIGHT UPDATING BADGE */}
+ {pdLoading && pdPerformanceData.length !== 0 && (
+ <div style={{
+ position: 'absolute',
+ top: '10px',
+ right: '10px',
+ backgroundColor: 'rgba(255, 136, 68, 0.9)',
+ color: '#000',
+ padding: '8px 16px',
+ borderRadius: '4px',
+ fontSize: '12px',
+ fontWeight: 'bold',
+ fontFamily: 'monospace',
+ zIndex: 30
+ }}>
+ Updating...
+ </div>
+ )}
+
+ {/* ALWAYS-RENDERED CANVAS (prevents flicker) */}
+ <canvas
+ ref={pdCanvasRef}
+ onMouseMove={handlePdMouseMove}
+ onMouseDown={handlePdMouseDown}
+ onMouseUp={handlePdMouseUp}
+ onMouseLeave={() => {
+ handlePdMouseUp();
+ pdCrosshairRef.current = null;
+ }}
+ style={{ 
+ cursor: pdIsDragging ? 'grabbing' : 'crosshair',
+ display: 'block',
+ width: '100%',
+ height: '100%'
+ }}
+ />
+ </div>
+ </div>
+ )}
  </div>
  );
  };
@@ -11877,44 +13266,6 @@ export default function TradingViewChart({
  style={{ height: chartHeight }}
  />
 
- {/* Flow Chart Resize Divider */}
- {isFlowChartActive && (
- <div
- onMouseDown={handleFlowChartMouseDown}
- style={{
- position: 'absolute',
- left: 40,
- right: 40,
- top: chartHeight - flowChartHeight - 80 - 25, // Position above volume area
- height: '4px',
- cursor: 'ns-resize',
- zIndex: 25,
- background: isDraggingFlowChart ? '#2962ff' : 'transparent',
- transition: isDraggingFlowChart ? 'none' : 'background 0.2s ease',
- }}
- onMouseEnter={(e) => {
- e.currentTarget.style.background = '#2962ff40';
- }}
- onMouseLeave={(e) => {
- if (!isDraggingFlowChart) {
- e.currentTarget.style.background = 'transparent';
- }
- }}
- >
- <div style={{
- position: 'absolute',
- top: '50%',
- left: '50%',
- transform: 'translate(-50%, -50%)',
- width: '40px',
- height: '3px',
- background: isDraggingFlowChart ? '#2962ff' : '#666',
- borderRadius: '2px',
- transition: 'background 0.2s ease'
- }} />
- </div>
- )}
-
  {/* Crosshair and Interaction Overlay */}
  <canvas
  ref={overlayCanvasRef}
@@ -12011,55 +13362,93 @@ export default function TradingViewChart({
  onDoubleClick={handleDoubleClick}
  />
 
- {/* Flow Chart View Mode Toggle - Anchored to 5AM timestamp, only visible when 5AM is on screen */}
- {isFlowChartActive && is5AMVisible && (
- <div 
- className="absolute flex flex-col z-30"
- style={{
- left: `${flowChartButtonX}px`,
- bottom: `${flowChartHeight / 2 + 85}px`,
- gap: '8px'
- }}
- >
- <button
- onClick={() => setFlowChartViewMode('net')}
- className="text-xl font-semibold px-6 py-3 rounded transition-all"
- style={{
- backgroundColor: '#000000',
- color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
- border: '1px solid rgba(255, 255, 255, 0.3)'
- }}
- title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
- >
- Net Flow
- </button>
- <button
- onClick={() => setFlowChartViewMode('simplified')}
- className="text-xl font-semibold px-6 py-3 rounded transition-all"
- style={{
- backgroundColor: '#000000',
- color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
- border: '1px solid rgba(255, 255, 255, 0.3)'
- }}
- title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
- >
- Simplified
- </button>
- <button
- onClick={() => setFlowChartViewMode('detailed')}
- className="text-xl font-semibold px-6 py-3 rounded transition-all"
- style={{
- backgroundColor: '#000000',
- color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
- border: '1px solid rgba(255, 255, 255, 0.3)'
- }}
- title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
- >
- Detailed
- </button>
- </div>
- )}
- </div>
+      {/* Flow Chart Resize Handle */}
+      {isFlowChartActive && (
+        <div
+          onMouseDown={handleFlowChartDragStart}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: `${flowChartHeight + 80 + 25}px`,
+            height: '3px',
+            cursor: 'ns-resize',
+            backgroundColor: isDraggingFlowChart ? '#666666' : 'rgba(128, 128, 128, 0.3)',
+            transition: isDraggingFlowChart ? 'none' : 'background-color 0.2s',
+            zIndex: 1000,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#888888';
+          }}
+          onMouseLeave={(e) => {
+            if (!isDraggingFlowChart) {
+              e.currentTarget.style.backgroundColor = 'rgba(128, 128, 128, 0.3)';
+            }
+          }}
+        >
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: '40px',
+            height: '2px',
+            backgroundColor: '#999999',
+            borderRadius: '1px',
+          }} />
+        </div>
+      )}
+
+      {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
+      {isFlowChartActive && (
+        <div 
+          className="absolute flex flex-col z-[1001]"
+          style={{
+            left: '60px',
+            bottom: `${flowChartHeight - 120}px`,
+                       transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
+            gap: '8px'
+          }}
+        >
+          <button
+            onClick={() => setFlowChartViewMode('net')}
+            className="text-2xl font-semibold px-4 py-2 rounded transition-all"
+            style={{
+              backgroundColor: '#000000',
+              color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.3)'
+            }}
+            title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
+          >
+            Net Flow
+          </button>
+          <button
+            onClick={() => setFlowChartViewMode('simplified')}
+            className="text-2xl font-semibold px-4 py-2 rounded transition-all"
+            style={{
+              backgroundColor: '#000000',
+              color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.3)'
+            }}
+            title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
+          >
+            Simplified
+          </button>
+          <button
+            onClick={() => setFlowChartViewMode('detailed')}
+            className="text-2xl font-semibold px-4 py-2 rounded transition-all"
+            style={{
+              backgroundColor: '#000000',
+              color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.3)'
+            }}
+            title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
+          >
+            Detailed
+          </button>
+        </div>
+      )}
+    </div>
 
  {/* Text Input Modal for Drawing Tools */}
  {showTextInput && textInputPosition && (

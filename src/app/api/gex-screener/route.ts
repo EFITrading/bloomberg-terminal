@@ -178,6 +178,9 @@ interface GEXData {
  netGex: number;
  marketCap?: number;
  gexImpactScore?: number;
+ vex?: number;
+ dex?: number;
+ si?: number;
  // Wall data for Support/Resistance
  largestWall?: {
  strike: number;
@@ -350,10 +353,10 @@ function filterExpirationsByType(expirationDates: string[], filter: string): str
  return fallbackQuarterly.map(d => d.dateStr);
  
  default: // 'Default'
- // Default: 45 days out
+ // Default: ALL expirations within 45 days (same as SI screener)
  const fortyFiveDaysOut = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000);
  const defaultExpirations = validDates.filter(item => item.date <= fortyFiveDaysOut);
- console.log(` Default: Found ${defaultExpirations.length} expirations within 45 days`);
+ console.log(` Default: Found ${defaultExpirations.length} expirations within 45 days: ${defaultExpirations.map(d => d.dateStr).join(', ')}`);
  return defaultExpirations.map(d => d.dateStr);
  }
 }
@@ -373,77 +376,91 @@ async function calculateSymbolGEX(symbol: string, baseUrl: string, expirationFil
  const currentPrice = optionsData.currentPrice;
  const expirationDates = Object.keys(optionsData.data).sort();
  
- // Filter expirations based on the actual available data
- console.log(` ${symbol}: Available expirations: ${expirationDates.slice(0, 5).join(', ')}${expirationDates.length > 5 ? '...' : ''}`);
+ // IGNORE expirationFilter param - ALWAYS use SI screener logic (3 months → 45 days)
+ // STEP 1: Filter to 3 months first (EXACT copy from SI screener line 1426-1431)
+ const threeMonthsFromNow = new Date();
+ threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
+ const expsWithin3Months = expirationDates.filter(exp => {
+ const expDate = new Date(exp + 'T00:00:00Z');
+ return expDate <= threeMonthsFromNow;
+ });
  
- const validExpirations = filterExpirationsByType(expirationDates, expirationFilter);
-
- console.log(` ${symbol}: Selected ${validExpirations.length} expirations for ${expirationFilter} filter: ${validExpirations.join(', ')}`);
+ // STEP 2: Then filter to 45 days (EXACT copy from SI screener line 1434-1438)
+ const today = new Date();
+ const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
+ const validExpirations = expsWithin3Months.filter(exp => {
+ const expDate = new Date(exp + 'T00:00:00Z');
+ return expDate >= today && expDate <= maxDate;
+ }).sort();
 
  if (validExpirations.length === 0) {
  return null;
  }
 
- // Calculate GEX by strike using the same method as working GEX endpoint
- const gexByStrike: { [strike: number]: { callGEX: number; putGEX: number; netGEX: number } } = {};
+ // Calculate GEX by strike
+ const gexByStrikeByExp: { [strike: number]: { call: number; put: number; callOI: number; putOI: number } } = {};
  let totalNetGex = 0;
 
  for (const expDate of validExpirations) {
  const { calls, puts } = optionsData.data[expDate];
  
- // Process calls
+ // Process calls - ACCUMULATE values for same strikes across expirations (EXACT COPY from SI screener lines 1453-1478)
  if (calls) {
  Object.entries(calls).forEach(([strike, data]: [string, any]) => {
  const strikeNum = parseFloat(strike);
  const oi = data.open_interest || 0;
- const gamma = data.greeks?.gamma || 0;
  
- if (oi > 0 && gamma) {
- const gex = gamma * oi * (currentPrice * currentPrice) * 100;
- 
- if (!gexByStrike[strikeNum]) {
- gexByStrike[strikeNum] = { callGEX: 0, putGEX: 0, netGEX: 0 };
+ if (oi > 0) {
+ if (!gexByStrikeByExp[strikeNum]) {
+ gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
  }
- gexByStrike[strikeNum].callGEX += gex;
+ 
+ gexByStrikeByExp[strikeNum].callOI += oi;
+ 
+ const gamma = data.greeks?.gamma || 0;
+ if (gamma) {
+ const gex = gamma * oi * (currentPrice * currentPrice) * 100;
+ gexByStrikeByExp[strikeNum].call += gex;
  totalNetGex += gex;
+ }
  }
  });
  }
  
- // Process puts
+ // Process puts - ACCUMULATE values for same strikes across expirations (EXACT COPY from SI screener lines 1480-1508)
  if (puts) {
  Object.entries(puts).forEach(([strike, data]: [string, any]) => {
  const strikeNum = parseFloat(strike);
  const oi = data.open_interest || 0;
- const gamma = data.greeks?.gamma || 0;
  
- if (oi > 0 && gamma) {
- const gex = -gamma * oi * (currentPrice * currentPrice) * 100; // Negative for puts
- 
- if (!gexByStrike[strikeNum]) {
- gexByStrike[strikeNum] = { callGEX: 0, putGEX: 0, netGEX: 0 };
+ if (oi > 0) {
+ if (!gexByStrikeByExp[strikeNum]) {
+ gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
  }
- gexByStrike[strikeNum].putGEX += gex;
+ 
+ gexByStrikeByExp[strikeNum].putOI += oi;
+ 
+ const gamma = data.greeks?.gamma || 0;
+ if (gamma) {
+ const gex = -gamma * oi * (currentPrice * currentPrice) * 100;
+ gexByStrikeByExp[strikeNum].put += gex;
  totalNetGex += gex;
+ }
  }
  });
  }
  }
 
- // Calculate net GEX for each strike
- Object.keys(gexByStrike).forEach(strike => {
- const strikeNum = parseFloat(strike);
- gexByStrike[strikeNum].netGEX = gexByStrike[strikeNum].callGEX + gexByStrike[strikeNum].putGEX;
- });
+ const netGexBillions = totalNetGex / 1e9;
 
  // Find attraction level (strike with highest absolute net GEX)
  let maxAbsGex = 0;
  let attractionLevel = currentPrice;
  let dealerSweat = 0;
 
- Object.keys(gexByStrike).forEach(strike => {
+ Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
  const strikeNum = parseFloat(strike);
- const netGex = gexByStrike[strikeNum].netGEX;
+ const netGex = data.call + data.put;
  const absGex = Math.abs(netGex);
  
  if (absGex > maxAbsGex) {
@@ -453,15 +470,17 @@ async function calculateSymbolGEX(symbol: string, baseUrl: string, expirationFil
  }
  });
 
+ const gexImpactScore = calculateGEXImpactScore(dealerSweat, marketCap);
+
  // Find clustered GEX zones (2-4 strikes with highest combined GEX, no single strike >60%)
- const levels = Object.entries(gexByStrike)
- .map(([strike, data]) => ({ strike: parseFloat(strike), ...data }))
+ const levels = Object.entries(gexByStrikeByExp)
+ .map(([strike, data]) => ({ strike: parseFloat(strike), call: data.call, put: data.put }))
  .sort((a, b) => a.strike - b.strike); // Sort by strike price for adjacency
 
  // Function to find the best GEX cluster for a given type (call or put)
- function findBestGEXCluster(strikeData: any[], gexType: 'callGEX' | 'putGEX') {
+ function findBestGEXCluster(strikeData: any[], gexType: 'call' | 'put') {
  const validStrikes = strikeData.filter(s => 
- gexType === 'callGEX' ? s.callGEX > 0 : s.putGEX < 0
+ gexType === 'call' ? s.call > 0 : s.put < 0
  );
  
  if (validStrikes.length < 2) return null;
@@ -479,7 +498,7 @@ async function calculateSymbolGEX(symbol: string, baseUrl: string, expirationFil
  
  // Calculate total GEX for this cluster
  const clusterGEXValues = cluster.map(s => 
- gexType === 'callGEX' ? s.callGEX : Math.abs(s.putGEX)
+ gexType === 'call' ? s.call : Math.abs(s.put)
  );
  const totalClusterGEX = clusterGEXValues.reduce((sum, gex) => sum + gex, 0);
  
@@ -504,7 +523,7 @@ async function calculateSymbolGEX(symbol: string, baseUrl: string, expirationFil
  centralStrike: Math.round(centralStrike * 100) / 100, // Round to nearest cent
  totalGEX: totalClusterGEX,
  contributions: contributions.map(c => Math.round(c * 100)), // Convert to percentages
- type: gexType === 'callGEX' ? 'call' as const : 'put' as const
+ type: gexType === 'call' ? 'call' as const : 'put' as const
  };
  }
  }
@@ -515,8 +534,8 @@ async function calculateSymbolGEX(symbol: string, baseUrl: string, expirationFil
  }
 
  // Find best call and put clusters
- const bestCallCluster = findBestGEXCluster(levels, 'callGEX');
- const bestPutCluster = findBestGEXCluster(levels, 'putGEX');
+ const bestCallCluster = findBestGEXCluster(levels, 'call');
+ const bestPutCluster = findBestGEXCluster(levels, 'put');
  
  // Choose the largest cluster overall
  let largestWall = null;
@@ -565,9 +584,6 @@ async function calculateSymbolGEX(symbol: string, baseUrl: string, expirationFil
  pressure: Math.round(pressureScore)
  };
  }
-
- const netGexBillions = totalNetGex / 1e9;
- const gexImpactScore = calculateGEXImpactScore(dealerSweat, marketCap);
 
  return {
  ticker: symbol,

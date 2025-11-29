@@ -185,7 +185,7 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
  dealerSweat: messageData.data.dealerSweat,
  netGex: messageData.data.netGex,
  bias: messageData.data.dealerSweat > 0 ? 'Bullish' as const : 'Bearish' as const,
- strength: messageData.data.gexImpactScore || 0, // Use GEX Impact Score instead of simple calculation
+ strength: messageData.data.gexImpactScore || 0,
  volatility: Math.abs(messageData.data.netGex) > 2 ? 'High' as const : 
  Math.abs(messageData.data.netGex) > 0.5 ? 'Medium' as const : 'Low' as const,
  range: Math.abs(((messageData.data.attractionLevel - messageData.data.currentPrice) / messageData.data.currentPrice) * 100),
@@ -195,6 +195,10 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
  };
  
  currentResults.push(transformedItem);
+ 
+ // Update display in real-time as results stream in
+ const sortedResults = [...currentResults].sort((a, b) => (b.gexImpactScore || 0) - (a.gexImpactScore || 0));
+ setGexData(sortedResults);
  
  // DON'T update display during scan - only log progress
  // This prevents flickering and constant re-renders
