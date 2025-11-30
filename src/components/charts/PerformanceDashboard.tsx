@@ -209,16 +209,13 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       // Get metadata for symbols
       const allSymbols = [...SECTORS, ...INDUSTRIES, ...SPECIAL];
       
-      // Process data into series
-      const series: SeriesData[] = selectedSymbols
-        .map(symbol => {
-          const metadata = allSymbols.find(s => s.symbol === symbol);
-          const rawData = allData[symbol];
-
-          if (!metadata || !rawData || rawData.length === 0) {
-            return null;
-          }
-
+      // First pass: filter and collect all data
+      const symbolDataMap: Record<string, any[]> = {};
+      const allTimestamps = new Set<number>();
+      
+      selectedSymbols.forEach(symbol => {
+        const rawData = allData[symbol];
+        if (rawData && rawData.length > 0) {
           // Filter market hours for 1D
           let filteredData = rawData;
           if (timeframe === '1D') {
@@ -227,15 +224,67 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               const hours = date.getUTCHours();
               const minutes = date.getUTCMinutes();
               const totalMinutes = hours * 60 + minutes;
-              return totalMinutes >= 810 && totalMinutes <= 1200; // 13:30-20:00 UTC = 6:30-13:00 PST
+              return totalMinutes >= 810 && totalMinutes <= 1200; // 13:30-20:00 UTC
             });
           }
+          
+          if (filteredData.length > 0) {
+            symbolDataMap[symbol] = filteredData;
+            // Collect all unique timestamps
+            filteredData.forEach(point => allTimestamps.add(point.timestamp));
+          } else {
+            console.warn(`No data after filtering for ${symbol}`);
+          }
+        } else {
+          console.warn(`No data received for ${symbol}`);
+        }
+      });
+      
+      // Sort timestamps to create common timeline
+      const commonTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
+      
+      if (commonTimestamps.length === 0) {
+        console.error('No common timestamps found across symbols');
+        setSeriesData([]);
+        return;
+      }
+      
+      // Process data into series with interpolation
+      const series: SeriesData[] = selectedSymbols
+        .map(symbol => {
+          const metadata = allSymbols.find(s => s.symbol === symbol);
+          const symbolData = symbolDataMap[symbol];
 
-          if (filteredData.length === 0) return null;
+          if (!metadata || !symbolData || symbolData.length === 0) {
+            return null;
+          }
 
-          // Calculate performance
-          const firstPrice = filteredData[0].close;
-          const dataPoints: DataPoint[] = filteredData.map(point => ({
+          // Create a map for quick lookup
+          const dataMap = new Map(symbolData.map(point => [point.timestamp, point.close]));
+          
+          // Build aligned data using common timestamps with forward-fill for missing values
+          let lastKnownPrice = symbolData[0].close;
+          const alignedData: Array<{timestamp: number, close: number}> = [];
+          
+          for (const timestamp of commonTimestamps) {
+            const price = dataMap.get(timestamp);
+            if (price !== undefined) {
+              lastKnownPrice = price;
+              alignedData.push({ timestamp, close: price });
+            } else {
+              // Forward-fill missing data
+              alignedData.push({ timestamp, close: lastKnownPrice });
+            }
+          }
+          
+          if (alignedData.length === 0) {
+            console.warn(`No aligned data for ${symbol}`);
+            return null;
+          }
+
+          // Calculate performance from first to last
+          const firstPrice = alignedData[0].close;
+          const dataPoints: DataPoint[] = alignedData.map(point => ({
             timestamp: point.timestamp,
             value: ((point.close - firstPrice) / firstPrice) * 100
           }));
@@ -377,40 +426,38 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       return margin.top + chartHeight - (normalized * chartHeight);
     };
 
-    // Grid
-    ctx.strokeStyle = '#1a1a1a';
-    ctx.lineWidth = 1;
-
-    // Horizontal grid lines
-    for (let i = 0; i <= 10; i++) {
-      const y = margin.top + (chartHeight * i / 10);
-      ctx.beginPath();
-      ctx.moveTo(margin.left, y);
-      ctx.lineTo(margin.left + chartWidth, y);
-      ctx.stroke();
-    }
-
     // Y-axis labels
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px monospace';
+    ctx.font = 'bold 15px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
 
     for (let i = 0; i <= 10; i++) {
       const value = minVal + (valueRange * (10 - i) / 10);
       const y = margin.top + (chartHeight * i / 10);
-      ctx.fillText(`${value >= 0 ? '+' : ''}${value.toFixed(1)}%`, margin.left - 10, y);
+      
+      // Color based on positive/negative
+      if (value > 0) {
+        ctx.fillStyle = '#00ff00'; // Crispy green for positive
+      } else if (value < 0) {
+        ctx.fillStyle = '#ff0000'; // Crispy red for negative
+      } else {
+        ctx.fillStyle = '#888888'; // Gray for zero
+      }
+      
+      ctx.fillText(`${Math.abs(value).toFixed(1)}%`, margin.left - 10, y);
     }
 
-    // Zero line
+    // Zero line with dashes
     if (minVal < 0 && maxVal > 0) {
       const zeroY = yScale(0);
-      ctx.strokeStyle = '#333333';
+      ctx.strokeStyle = '#666666';
       ctx.lineWidth = 2;
+      ctx.setLineDash([10, 5]); // Dashed line
       ctx.beginPath();
       ctx.moveTo(margin.left, zeroY);
       ctx.lineTo(margin.left + chartWidth, zeroY);
       ctx.stroke();
+      ctx.setLineDash([]); // Reset to solid line
     }
 
     // Draw lines
@@ -496,7 +543,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
     // X-axis labels
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 11px monospace';
+    ctx.font = 'bold 22px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
@@ -536,11 +583,11 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     ctx.textAlign = 'right';
     ctx.fillText(timeframe, dimensions.width - margin.right - 10, 15);
 
-    // Draw crosshair
+    // Draw crosshair with labels
     if (crosshair) {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.strokeStyle = '#ff8800'; // Crispy orange 100% opacity
       ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
+      ctx.setLineDash([]);
 
       // Vertical line
       if (crosshair.x >= margin.left && crosshair.x <= margin.left + chartWidth) {
@@ -548,6 +595,38 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         ctx.moveTo(crosshair.x, margin.top);
         ctx.lineTo(crosshair.x, margin.top + chartHeight);
         ctx.stroke();
+        
+        // Find the data point at crosshair position
+        const normalizedX = (crosshair.x - margin.left) / chartWidth;
+        const dataIdx = Math.floor(startIdx + normalizedX * (endIdx - startIdx));
+        
+        if (seriesData[0]?.data[dataIdx]) {
+          const timestamp = seriesData[0].data[dataIdx].timestamp;
+          const date = new Date(timestamp);
+          let label = '';
+          
+          if (timeframe === '1D') {
+            label = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          } else if (timeframe === '1W') {
+            const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
+            const timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            label = `${dayLabel} ${timeLabel}`;
+          } else if (timeframe === '1M') {
+            label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          } else {
+            label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          }
+          
+          // Draw label box at bottom
+          ctx.fillStyle = '#ff8800';
+          ctx.font = 'bold 12px monospace';
+          const textWidth = ctx.measureText(label).width;
+          ctx.fillRect(crosshair.x - textWidth / 2 - 5, margin.top + chartHeight + 5, textWidth + 10, 20);
+          ctx.fillStyle = '#000000';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, crosshair.x, margin.top + chartHeight + 15);
+        }
       }
 
       // Horizontal line
@@ -556,6 +635,21 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         ctx.moveTo(margin.left, crosshair.y);
         ctx.lineTo(margin.left + chartWidth, crosshair.y);
         ctx.stroke();
+        
+        // Calculate Y value
+        const normalizedY = 1 - ((crosshair.y - margin.top) / chartHeight);
+        const yValue = minVal + (normalizedY * valueRange);
+        
+        // Draw label box on left
+        ctx.fillStyle = '#ff8800';
+        const yLabel = `${Math.abs(yValue).toFixed(2)}%`;
+        ctx.font = 'bold 12px monospace';
+        const yTextWidth = ctx.measureText(yLabel).width;
+        ctx.fillRect(margin.left - yTextWidth - 15, crosshair.y - 10, yTextWidth + 10, 20);
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(yLabel, margin.left - 10, crosshair.y);
       }
 
       ctx.setLineDash([]);
