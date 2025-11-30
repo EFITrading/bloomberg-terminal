@@ -6,6 +6,8 @@ interface BulkRequest {
  symbols: string[];
  timeframe: string;
  optimized?: boolean;
+ startDate?: string;
+ endDate?: string;
 }
 
 interface ChartDataPoint {
@@ -21,7 +23,7 @@ interface ChartDataPoint {
 export async function POST(request: NextRequest) {
  try {
  const body: BulkRequest = await request.json();
- const { symbols, timeframe, optimized = true } = body;
+ const { symbols, timeframe, optimized = true, startDate: customStartDate, endDate: customEndDate } = body;
 
  if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
  return NextResponse.json({
@@ -39,15 +41,24 @@ export async function POST(request: NextRequest) {
 
  console.log(` BULK FETCH: ${symbols.join(', ')} (${timeframe})`);
 
- // Calculate optimized date range
+ // Use custom dates if provided, otherwise calculate optimized range
+ let startDate: string;
+ let endDate: string;
+ 
+ if (customStartDate && customEndDate) {
+ startDate = customStartDate;
+ endDate = customEndDate;
+ console.log(` Using custom date range: ${startDate} to ${endDate}`);
+ } else {
  const now = new Date();
- const endDate = now.toISOString().split('T')[0];
+ endDate = now.toISOString().split('T')[0];
  
  const daysBack = getOptimizedDaysBack(timeframe, optimized);
- const startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000))
+ startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000))
  .toISOString().split('T')[0];
 
  console.log(` Date range: ${startDate} to ${endDate} (${daysBack} days)`);
+ }
 
  // Process symbols in parallel with smart batching
  const batchSize = 3; // Process 3 symbols at a time to avoid rate limits
@@ -194,8 +205,8 @@ function getOptimizedDaysBack(timeframe: string, optimized: boolean): number {
  '5m': 5, // 5 days for 5min
  '15m': 14, // 2 weeks for 15min
  '30m': 30, // 1 month for 30min
- '1h': 60, // 2 months for 1hour
- '4h': 180, // 6 months for 4hour
+ '1h': 7, // 7 days for 1hour (used by 1W timeframe)
+ '4h': 30, // 1 month for 4hour
  '1d': 730, // 2 years for daily (reduced from 7 years for speed)
  '1w': 365, // 1 year for weekly
  '1mo': 730 // 2 years for monthly

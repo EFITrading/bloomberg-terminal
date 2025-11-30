@@ -88,6 +88,12 @@ interface MaxPainDashboardProps {
 // MM Dashboard Component - Enhanced with Full Greeks
 const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
   
+  // State for max pain expiration selector
+  const [maxPainExpiration, setMaxPainExpiration] = useState<string>('');
+  
+  // State for Strike Risk table expiration selector
+  const [strikeRiskExpiration, setStrikeRiskExpiration] = useState<string>('');
+  
   // Filter to 45-day expirations only
   const mmExpirations = useMemo(() => {
     const today = new Date();
@@ -98,6 +104,255 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       return expDate >= today && expDate <= maxDate; // FIX: Added >= today check
     }).sort();
   }, [expirations]);
+  
+  // Initialize max pain expiration to first available
+  useEffect(() => {
+    if (mmExpirations.length > 0 && !maxPainExpiration) {
+      setMaxPainExpiration(mmExpirations[0]);
+    }
+    if (mmExpirations.length > 0 && !strikeRiskExpiration) {
+      setStrikeRiskExpiration(mmExpirations[0]);
+    }
+  }, [mmExpirations, maxPainExpiration, strikeRiskExpiration]);
+  
+  // Quick Max Pain calculation for the compact display
+  const quickMaxPain = useMemo(() => {
+    if (!currentPrice || !maxPainExpiration || !gexByStrikeByExpiration[maxPainExpiration]) {
+      return { maxPainStrike: 0, liquidityPivotStrike: 0, priceDistance: 0, dealerPressure: 'NEUTRAL' };
+    }
+    
+    const strikeData = gexByStrikeByExpiration[maxPainExpiration];
+    const strikes = Object.keys(strikeData).map(Number).sort((a, b) => a - b);
+    
+    // Simple max pain: find strike with minimum total dollar value at expiration
+    let minPain = Infinity;
+    let maxPainStrike = currentPrice;
+    
+    strikes.forEach(testStrike => {
+      let totalPain = 0;
+      strikes.forEach(strike => {
+        const data = strikeData[strike];
+        const callOI = data?.callOI || 0;
+        const putOI = data?.putOI || 0;
+        
+        // Calculate value of options at test strike
+        if (testStrike > strike) {
+          totalPain += callOI * (testStrike - strike) * 100; // Calls ITM
+        }
+        if (testStrike < strike) {
+          totalPain += putOI * (strike - testStrike) * 100; // Puts ITM
+        }
+      });
+      
+      if (totalPain < minPain) {
+        minPain = totalPain;
+        maxPainStrike = testStrike;
+      }
+    });
+    
+    // Find liquidity pivot (highest gamma strike)
+    let maxGamma = 0;
+    let liquidityPivotStrike = currentPrice;
+    strikes.forEach(strike => {
+      const data = strikeData[strike];
+      const totalGamma = Math.abs(data?.callGamma || 0) + Math.abs(data?.putGamma || 0);
+      const totalOI = (data?.callOI || 0) + (data?.putOI || 0);
+      const gammaExposure = totalGamma * totalOI;
+      
+      if (gammaExposure > maxGamma) {
+        maxGamma = gammaExposure;
+        liquidityPivotStrike = strike;
+      }
+    });
+    
+    const priceDistance = currentPrice - maxPainStrike;
+    const dealerPressure = Math.abs(priceDistance) < currentPrice * 0.01 
+      ? 'PINNED'
+      : priceDistance > 0 
+        ? 'DOWNWARD'
+        : 'UPWARD';
+    
+    return { maxPainStrike, liquidityPivotStrike, priceDistance, dealerPressure };
+  }, [currentPrice, maxPainExpiration, gexByStrikeByExpiration]);
+  
+  // Full Max Pain Analysis for Strike Risk table
+  const maxPainAnalysis = useMemo(() => {
+    if (!currentPrice || !strikeRiskExpiration || Object.keys(gexByStrikeByExpiration).length === 0) {
+      return {
+        optimalStrike: currentPrice,
+        minRisk: 0,
+        riskByStrike: [],
+        totalOI: 0,
+        avgDTE: 0
+      };
+    }
+
+    const strikeData = gexByStrikeByExpiration[strikeRiskExpiration];
+    const vexData = vexByStrikeByExpiration[strikeRiskExpiration];
+    if (!strikeData) {
+      return {
+        optimalStrike: currentPrice,
+        minRisk: 0,
+        riskByStrike: [],
+        totalOI: 0,
+        avgDTE: 0
+      };
+    }
+
+    const expDate = new Date(strikeRiskExpiration + 'T00:00:00Z');
+    const today = new Date();
+    const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    const allStrikes = Object.keys(strikeData).map(Number).sort((a, b) => a - b);
+    const significantStrikes = allStrikes.filter(strike => {
+      const data = strikeData[strike];
+      const totalOI = (data?.callOI || 0) + (data?.putOI || 0);
+      return totalOI >= 100;
+    });
+
+    if (significantStrikes.length === 0) {
+      return {
+        optimalStrike: currentPrice,
+        minRisk: 0,
+        riskByStrike: [],
+        totalOI: 0,
+        avgDTE: daysToExp
+      };
+    }
+
+    const lowestStrike = significantStrikes[0];
+    const highestStrike = significantStrikes[significantStrikes.length - 1];
+    const bufferPct = 0.05;
+    const strikeSpan = highestStrike - lowestStrike;
+    const minStrike = lowestStrike - (strikeSpan * bufferPct);
+    const maxStrike = highestStrike + (strikeSpan * bufferPct);
+    const relevantStrikes = allStrikes.filter(s => s >= minStrike && s <= maxStrike);
+
+    const testPrices: number[] = [];
+    const testMin = Math.max(minStrike, currentPrice * 0.70);
+    const testMax = Math.min(maxStrike, currentPrice * 1.30);
+    const testStep = (testMax - testMin) / 100;
+    
+    for (let price = testMin; price <= testMax; price += testStep) {
+      testPrices.push(price);
+    }
+
+    let totalOI = 0;
+    const strikeRiskData: Array<{strike: number; risk: number; oi: number; callOI: number; putOI: number; distance: number}> = [];
+
+    const riskResults = testPrices.map(testPrice => {
+      let totalRisk = 0;
+
+      relevantStrikes.forEach(strike => {
+        const data = strikeData[strike];
+        if (!data) return;
+
+        const callOI = data.callOI || 0;
+        const putOI = data.putOI || 0;
+        const callGamma = data.callGamma || 0;
+        const putGamma = data.putGamma || 0;
+        const callTheta = data.callTheta || 0;
+        const putTheta = data.putTheta || 0;
+        const callVega = vexData?.[strike]?.callVega || 0;
+        const putVega = vexData?.[strike]?.putVega || 0;
+
+        const moneyness = strike / testPrice;
+        let callDelta = 0;
+        let putDelta = 0;
+
+        if (moneyness > 1.1) { callDelta = 0.1; putDelta = -0.9; }
+        else if (moneyness > 1.05) { callDelta = 0.3; putDelta = -0.7; }
+        else if (moneyness > 1.0) { callDelta = 0.4; putDelta = -0.6; }
+        else if (moneyness > 0.95) { callDelta = 0.6; putDelta = -0.4; }
+        else if (moneyness > 0.9) { callDelta = 0.7; putDelta = -0.3; }
+        else { callDelta = 0.9; putDelta = -0.1; }
+
+        const priceDiff = testPrice - strike;
+        const priceDiffSq = priceDiff * priceDiff;
+        const M = 100;
+        const deltaV = 0.02;
+
+        if (callOI > 0) {
+          const deltaRisk = Math.abs(callDelta) * Math.abs(priceDiff);
+          const gammaRisk = 0.5 * Math.abs(callGamma) * priceDiffSq;
+          const thetaRisk = Math.abs(callTheta);
+          const vegaRisk = Math.abs(callVega * deltaV);
+          totalRisk += callOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
+        }
+
+        if (putOI > 0) {
+          const deltaRisk = Math.abs(putDelta) * Math.abs(priceDiff);
+          const gammaRisk = 0.5 * Math.abs(putGamma) * priceDiffSq;
+          const thetaRisk = Math.abs(putTheta);
+          const vegaRisk = Math.abs(putVega * deltaV);
+          totalRisk += putOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
+        }
+      });
+
+      return { testPrice, risk: totalRisk };
+    });
+
+    if (riskResults.length === 0) {
+      return {
+        optimalStrike: currentPrice,
+        minRisk: 0,
+        riskByStrike: [],
+        totalOI: 0,
+        avgDTE: daysToExp
+      };
+    }
+
+    const optimalResult = riskResults.reduce((min, current) => 
+      current.risk < min.risk ? current : min
+    );
+
+    let closestStrike = relevantStrikes[0] || currentPrice;
+    let minDistance = Math.abs(closestStrike - optimalResult.testPrice);
+    
+    relevantStrikes.forEach(strike => {
+      const distance = Math.abs(strike - optimalResult.testPrice);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestStrike = strike;
+      }
+    });
+
+    relevantStrikes.forEach(strike => {
+      const data = strikeData[strike];
+      if (!data) return;
+
+      const callOI = data.callOI || 0;
+      const putOI = data.putOI || 0;
+      totalOI += callOI + putOI;
+
+      let strikeRisk = 0;
+      const callGamma = data.callGamma || 0;
+      const putGamma = data.putGamma || 0;
+      const priceDiff = strike - currentPrice;
+      const priceDiffSq = priceDiff * priceDiff;
+
+      strikeRisk = (callOI + putOI) * (Math.abs(callGamma) + Math.abs(putGamma)) * (1 + priceDiffSq * 0.001);
+
+      strikeRiskData.push({
+        strike,
+        risk: strikeRisk,
+        oi: callOI + putOI,
+        callOI,
+        putOI,
+        distance: strike - currentPrice
+      });
+    });
+
+    strikeRiskData.sort((a, b) => b.risk - a.risk);
+
+    return {
+      optimalStrike: closestStrike,
+      minRisk: optimalResult.risk,
+      riskByStrike: strikeRiskData,
+      totalOI,
+      avgDTE: daysToExp
+    };
+  }, [currentPrice, strikeRiskExpiration, gexByStrikeByExpiration, vexByStrikeByExpiration]);
 
   // Calculate MM data with standard ±20% strike range
   const mmData = useMemo(() => {
@@ -400,6 +655,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       return `${(value / 1000).toFixed(1)}K`;
     }
     return value.toLocaleString();
+  };
+
+  const formatRisk = (value: number) => {
+    if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+    if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+    return value.toFixed(0);
   };
 
   // Calculate SI metrics for the gauge
@@ -918,23 +1180,97 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       </div>
 
       {/* Main Dashboard Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-0">
+        
+        {/* Max Pain Compact Display */}
+        <div className="bg-black border border-gray-600 p-3">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertCircle className="text-red-400" size={16} />
+            <h3 className="text-white font-bold uppercase text-[10px] tracking-wider">Max Pain</h3>
+          </div>
+          
+          <div className="space-y-2">
+            {/* Max Pain Strike */}
+            <div className="bg-red-950/20 border-l-2 border-red-500 px-2 py-1.5">
+              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Max Pain</div>
+              <div className="text-lg font-bold text-red-400 leading-none">
+                ${quickMaxPain.maxPainStrike.toFixed(2)}
+              </div>
+            </div>
+            
+            {/* Current Price */}
+            <div className="bg-gray-950/30 border-l-2 border-gray-600 px-2 py-1.5">
+              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Current</div>
+              <div className="text-lg font-bold text-white leading-none">
+                ${currentPrice.toFixed(2)}
+              </div>
+            </div>
+            
+            {/* Liquidity Pivot */}
+            <div className="bg-purple-950/20 border-l-2 border-purple-500 px-2 py-1.5">
+              <div className="text-[9px] text-purple-400 uppercase tracking-wider font-bold mb-0.5">Pivot</div>
+              <div className="text-lg font-bold text-purple-400 leading-none">
+                ${quickMaxPain.liquidityPivotStrike.toFixed(2)}
+              </div>
+            </div>
+            
+            {/* Dealer Pressure */}
+            <div className={`border-l-2 px-2 py-1.5 ${
+              quickMaxPain.dealerPressure === 'DOWNWARD' ? 'bg-red-950/20 border-red-500' :
+              quickMaxPain.dealerPressure === 'UPWARD' ? 'bg-green-950/20 border-green-500' :
+              'bg-yellow-950/20 border-yellow-500'
+            }`}>
+              <div className="text-[9px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">Pressure</div>
+              <div className={`text-xs font-bold leading-tight ${
+                quickMaxPain.dealerPressure === 'DOWNWARD' ? 'text-red-400' :
+                quickMaxPain.dealerPressure === 'UPWARD' ? 'text-green-400' :
+                'text-yellow-400'
+              }`}>
+                {quickMaxPain.dealerPressure === 'DOWNWARD' ? '↓ DOWNWARD' :
+                 quickMaxPain.dealerPressure === 'UPWARD' ? '↑ UPWARD' :
+                 '● PINNED'}
+              </div>
+            </div>
+            
+            {/* Expiration Selector */}
+            <div className="bg-black/50 border border-gray-700 rounded px-2 py-1.5">
+              <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Expiration</div>
+              <select
+                value={maxPainExpiration}
+                onChange={(e) => setMaxPainExpiration(e.target.value)}
+                className="w-full bg-gray-900 border-none text-white text-[10px] font-bold focus:outline-none cursor-pointer p-0.5"
+                style={{ backgroundColor: '#111827' }}
+              >
+                {mmExpirations.map(exp => {
+                  const expDate = new Date(exp + 'T00:00:00Z');
+                  const today = new Date();
+                  const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                  return (
+                    <option key={exp} value={exp} style={{ backgroundColor: '#111827', color: '#ffffff' }}>
+                      {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} ({daysToExp}d)
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+        </div>
         
         {/* Reflexivity Gauge */}
-        <div className="bg-black border border-gray-600 p-6">
+        <div className="bg-black border border-gray-600 p-4">
           <div className="flex items-center gap-2 mb-4">
             <Gauge className="text-orange-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Reflexivity Gauge</h3>
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Reflexivity Gauge</h3>
           </div>
           
           <div className="relative">
-            <div className="w-full h-32 bg-gray-900 rounded-lg overflow-hidden relative">
+            <div className="w-full h-24 bg-gray-900 rounded-lg overflow-hidden relative">
               <div className="absolute inset-0 bg-gradient-to-r from-red-600/20 via-gray-800/20 to-green-600/20"></div>
               
               {/* Gauge needle */}
               <div className="absolute inset-0 flex items-end justify-center">
                 <div 
-                  className="w-1 h-16 bg-yellow-400 transform-gpu transition-transform duration-500"
+                  className="w-1 h-12 bg-yellow-400 transform-gpu transition-transform duration-500"
                   style={{
                     transformOrigin: 'bottom center',
                     transform: `rotate(${Math.max(-45, Math.min(45, (metrics.totalNetMM / 1000000) * 10))}deg)`
@@ -943,16 +1279,16 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               </div>
               
               {/* Labels */}
-              <div className="absolute top-2 left-2 text-xs text-red-400 font-bold">AMPLIFY</div>
-              <div className="absolute top-2 right-2 text-xs text-green-400 font-bold">DAMPEN</div>
-              <div className="absolute top-2 left-1/2 transform -translate-x-1/2 text-xs text-gray-400 font-bold">NEUTRAL</div>
+              <div className="absolute top-2 left-2 text-[10px] text-red-400 font-bold">AMPLIFY</div>
+              <div className="absolute top-2 right-2 text-[10px] text-green-400 font-bold">DAMPEN</div>
+              <div className="absolute top-2 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-400 font-bold">NEUTRAL</div>
             </div>
             
-            <div className="text-center mt-4">
-              <div className="text-lg font-bold text-white">
+            <div className="text-center mt-3">
+              <div className="text-base font-bold text-white">
                 {formatMM(metrics.totalNetMM)} / 1%
               </div>
-              <div className="text-xs text-orange-400 uppercase">
+              <div className="text-[10px] text-orange-400 uppercase">
                 {metrics.isLongGamma ? 'LONG GAMMA' : 'SHORT GAMMA'}
               </div>
             </div>
@@ -960,50 +1296,50 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         </div>
 
         {/* Key Levels */}
-        <div className="bg-black border border-gray-600 p-6">
+        <div className="bg-black border border-gray-600 p-4">
           <div className="flex items-center gap-2 mb-4">
             <Target className="text-orange-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Key Levels</h3>
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Key Levels</h3>
           </div>
           
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Call Wall */}
-            <div className="bg-green-900/20 border border-green-600/30 p-3 rounded">
+            <div className="bg-green-900/20 border border-green-600/30 p-2 rounded">
               <div className="flex items-center gap-2 mb-1">
                 <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                <span className="text-green-400 font-bold text-xs uppercase">Call Wall</span>
+                <span className="text-green-400 font-bold text-[10px] uppercase">Call Wall</span>
               </div>
-              <div className="text-white font-bold text-lg">${metrics.maxCallWall?.strike?.toFixed(0)}</div>
-              <div className="text-green-400 text-sm">{formatMM(metrics.maxCallWall?.callMM || 0)}</div>
+              <div className="text-white font-bold text-base">${metrics.maxCallWall?.strike?.toFixed(0)}</div>
+              <div className="text-green-400 text-xs">{formatMM(metrics.maxCallWall?.callMM || 0)}</div>
             </div>
 
             {/* Current Price */}
-            <div className="bg-black border border-gray-600/30 p-3 rounded">
+            <div className="bg-black border border-gray-600/30 p-2 rounded">
               <div className="flex items-center gap-2 mb-1">
                 <div className="w-2 h-2 bg-white rounded-full"></div>
-                <span className="text-white font-bold text-xs uppercase">Current</span>
+                <span className="text-white font-bold text-[10px] uppercase">Current</span>
               </div>
-              <div className="text-white font-bold text-lg">${currentPrice?.toFixed(2)}</div>
-              <div className="text-white text-sm">Net: {formatMM(metrics.totalNetMM)}</div>
+              <div className="text-white font-bold text-base">${currentPrice?.toFixed(2)}</div>
+              <div className="text-white text-xs">Net: {formatMM(metrics.totalNetMM)}</div>
             </div>
 
             {/* Put Floor */}
-            <div className="bg-red-900/20 border border-red-600/30 p-3 rounded">
+            <div className="bg-red-900/20 border border-red-600/30 p-2 rounded">
               <div className="flex items-center gap-2 mb-1">
                 <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                <span className="text-red-400 font-bold text-xs uppercase">Put Floor</span>
+                <span className="text-red-400 font-bold text-[10px] uppercase">Put Floor</span>
               </div>
-              <div className="text-white font-bold text-lg">${metrics.maxPutFloor?.strike?.toFixed(0)}</div>
-              <div className="text-red-400 text-sm">{formatMM(metrics.maxPutFloor?.putMM || 0)}</div>
+              <div className="text-white font-bold text-base">${metrics.maxPutFloor?.strike?.toFixed(0)}</div>
+              <div className="text-red-400 text-xs">{formatMM(metrics.maxPutFloor?.putMM || 0)}</div>
             </div>
           </div>
         </div>
 
         {/* Strike Pressure Map */}
-        <div className="bg-black border border-gray-600 p-6">
+        <div className="bg-black border border-gray-600 p-4">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 className="text-orange-400" size={20} />
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Strike Pressure</h3>
+            <h3 className="text-white font-bold uppercase text-xs tracking-wider">Strike Pressure</h3>
           </div>
           
           <div className="space-y-1 max-h-64 overflow-y-auto">
@@ -1013,11 +1349,11 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
               
               return (
-                <div key={item.strike} className="flex items-center gap-2 text-xs">
-                  <div className="w-12 text-right font-mono text-gray-300">
+                <div key={item.strike} className="flex items-center gap-1 text-[10px]">
+                  <div className="w-10 text-right font-mono text-gray-300">
                     {item.strike.toFixed(0)}
                   </div>
-                  <div className="flex-1 bg-gray-800 rounded-sm h-4 relative overflow-hidden">
+                  <div className="flex-1 bg-gray-800 rounded-sm h-3 relative overflow-hidden">
                     <div 
                       className={`h-full transition-all ${
                         item.netMM > 0 ? 'bg-green-500' : 'bg-red-500'
@@ -1025,7 +1361,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                       style={{ width: `${barWidth}%` }}
                     />
                   </div>
-                  <div className={`w-16 text-right font-mono ${
+                  <div className={`w-12 text-right font-mono ${
                     item.netMM > 0 ? 'text-green-400' : 'text-red-400'
                   }`}>
                     {formatMM(item.netMM)}
@@ -1038,7 +1374,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       </div>
 
       {/* Enhanced Greek Exposure Dashboard */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 mt-6">
         
         {/* Delta Exposure */}
         <div className="bg-black border-2 border-blue-500/50 p-6">
@@ -1186,14 +1522,17 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         </div>
       </div>
 
-      {/* Detailed Strike Table */}
-      <div className="bg-black border border-gray-600">
-        <div className="bg-black px-6 py-4 border-b border-gray-600">
-          <h3 className="text-white font-black uppercase text-lg tracking-widest">MM BY STRIKE</h3>
-        </div>
+      {/* Side-by-Side Tables Grid */}
+      <div className="grid grid-cols-2 gap-4 mt-6">
         
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        {/* Detailed Strike Table */}
+        <div className="bg-black border border-gray-600">
+          <div className="bg-black px-6 py-4 border-b border-gray-600">
+            <h3 className="text-white font-black uppercase text-lg tracking-widest">MM BY STRIKE</h3>
+          </div>
+          
+          <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '500px' }}>
+            <table className="w-full">
             <thead className="bg-gray-900">
               <tr>
                 <th className="px-4 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest">Strike</th>
@@ -1252,7 +1591,135 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </table>
         </div>
       </div>
+      
+      {/* Max Pain Strike Risk Analysis - Second Column */}
+      <div className="bg-black border border-gray-600">
+        <div className="bg-black px-6 py-4 border-b border-gray-600">
+          <h3 className="text-white font-black uppercase text-lg tracking-widest">STRIKE-LEVEL RISK</h3>
+        </div>
+        
+        {/* Expiration Selector */}
+        <div className="bg-black/50 border-b border-gray-700 px-4 py-3">
+          <div className="flex items-center gap-4">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Expiration:</div>
+            <select
+              value={strikeRiskExpiration}
+              onChange={(e) => setStrikeRiskExpiration(e.target.value)}
+              className="bg-gray-900 border border-gray-700 text-white text-xs font-bold focus:outline-none cursor-pointer px-2 py-1 rounded"
+              style={{ backgroundColor: '#111827' }}
+            >
+              {mmExpirations.map(exp => {
+                const expDate = new Date(exp + 'T00:00:00Z');
+                const today = new Date();
+                const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                return (
+                  <option key={exp} value={exp} style={{ backgroundColor: '#111827', color: '#ffffff' }}>
+                    {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} ({daysToExp}d)
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        </div>
+        
+        <div className="overflow-y-auto" style={{ maxHeight: '500px' }}>
+          <table className="w-full">
+            <thead className="bg-gray-900 sticky top-0 z-10">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Strike</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">MM Risk</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Total OI</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Call OI</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Put OI</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Distance</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Bias</th>
+              </tr>
+            </thead>
+            <tbody>
+              {maxPainAnalysis.riskByStrike.slice(0, 30).map((item, idx) => {
+                const isMaxPain = item.strike === maxPainAnalysis.optimalStrike;
+                const isATM = Math.abs(item.strike - currentPrice) < 1;
+                const maxRisk = Math.max(...maxPainAnalysis.riskByStrike.map(s => s.risk));
+                const isHighestRisk = item.risk === maxRisk;
+                const riskPercent = (item.risk / maxRisk) * 100;
 
+                return (
+                  <tr 
+                    key={item.strike}
+                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${
+                      isMaxPain ? 'bg-red-950/20' :
+                      isHighestRisk ? 'bg-purple-950/20' :
+                      isATM ? 'bg-orange-950/10' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-mono text-sm font-semibold ${
+                          isMaxPain ? 'text-red-400' :
+                          isHighestRisk ? 'text-purple-400' :
+                          isATM ? 'text-orange-400' : 'text-white'
+                        }`}>
+                          ${item.strike.toFixed(1)}
+                        </span>
+                        {isMaxPain && <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>}
+                        {isHighestRisk && !isMaxPain && <span className="text-xs text-purple-400 font-bold">● LIQUIDITY PIVOT</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-20 bg-gray-900 rounded-sm h-2">
+                          <div 
+                            className={isHighestRisk ? 'bg-purple-500 h-full rounded-sm' : 'bg-red-500 h-full rounded-sm'}
+                            style={{ width: `${riskPercent}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-xs text-gray-300 w-16 text-right">
+                          {formatRisk(item.risk)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="font-mono text-xs text-white">
+                        {formatOI(item.oi)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="font-mono text-xs text-green-500">
+                        {formatOI(item.callOI)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="font-mono text-xs text-red-500">
+                        {formatOI(item.putOI)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className={`font-mono text-xs ${
+                        Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
+                        item.distance > 0 ? 'text-red-400' : 'text-green-400'
+                      }`}>
+                        {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className={`text-xs font-bold ${
+                        item.callOI > item.putOI * 1.5 ? 'text-green-400' :
+                        item.putOI > item.callOI * 1.5 ? 'text-red-400' :
+                        'text-gray-500'
+                      }`}>
+                        {item.callOI > item.putOI * 1.5 ? 'CALL' :
+                         item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      </div> {/* End Side-by-Side Tables Grid */}
 
     </div>
   );
@@ -2698,10 +3165,10 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
             <div className="bg-black/50 border-l-4 border-purple-500 px-4 py-3">
               <div className="text-[10px] text-purple-400 uppercase tracking-wider font-bold mb-1">Liquidity Pivot</div>
               <div className="text-3xl font-bold text-purple-400 leading-none mb-1">
-                {formatRisk(maxPainAnalysis.minRisk)}
+                ${maxPainAnalysis.riskByStrike[0]?.strike.toFixed(2) || '0.00'}
               </div>
               <div className="text-[10px] text-gray-500">
-                at optimal
+                {formatRisk(maxPainAnalysis.riskByStrike[0]?.risk || 0)} risk
               </div>
             </div>
           </div>
@@ -5077,7 +5544,8 @@ const DealerAttraction = () => {
                           let hasMagnetCell = false;
                           let hasPivotCell = false;
                           expirations.forEach(exp => {
-                            const gexValue = gexByStrikeByExpiration[exp]?.[row.strike];
+                            const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
+                            const gexValue = calculatedRow?.[exp] as any;
                             const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
                             if (displayValue > 0 && Math.abs(displayValue - gexTopValues.highestPositive) < 0.01) {
                               hasMagnetCell = true;
@@ -5187,7 +5655,8 @@ const DealerAttraction = () => {
                           let hasMagnetCell = false;
                           let hasPivotCell = false;
                           expirations.forEach(exp => {
-                            const dealerValue = dealerByStrikeByExpiration[exp]?.[row.strike];
+                            const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
+                            const dealerValue = calculatedRow?.[exp] as any;
                             const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
                             if (displayValue > 0 && Math.abs(displayValue - dealerTopValues.highestPositive) < 0.01) {
                               hasMagnetCell = true;

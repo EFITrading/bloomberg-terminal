@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import PerformanceDashboard from '../charts/PerformanceDashboard';
 import { flushSync } from 'react-dom';
 import { 
  TbChartLine, 
@@ -3023,6 +3024,11 @@ export default function TradingViewChart({
  const fetchPdPerformanceData = useCallback(async () => {
    if (pdSelectedSymbols.length === 0) return;
    
+   console.log('📊 Starting Performance Dashboard data fetch...', {
+     symbolCount: pdSelectedSymbols.length,
+     timeframe: pdTimeframe
+   });
+   
    // Cancel any existing fetch
    if (pdFetchControllerRef.current) {
      pdFetchControllerRef.current.abort();
@@ -3038,7 +3044,7 @@ export default function TradingViewChart({
    const allEtfs = [...PD_SECTORS_ETFS, ...PD_INDUSTRIES_ETFS, ...PD_SPECIAL_ETFS];
    const symbolsToFetch = allEtfs.filter(etf => pdSelectedSymbols.includes(etf.symbol));
 
-
+   console.log('📈 Symbols to fetch:', symbolsToFetch.map(e => e.symbol));
 
    try {
      // Map timeframe to bulk API format
@@ -3053,6 +3059,7 @@ export default function TradingViewChart({
      
      const bulkTimeframe = timeframeMap[pdTimeframe] || '1d';
      
+     console.log('🔄 Using bulk API timeframe:', bulkTimeframe);
 
 
      // Split symbols into chunks of 10 (bulk API limit)
@@ -3063,8 +3070,11 @@ export default function TradingViewChart({
        symbolChunks.push(symbols.slice(i, i + 10));
      }
 
+     console.log('📦 Processing in', symbolChunks.length, 'chunk(s)');
+
      // Process chunks in parallel
-     const chunkPromises = symbolChunks.map(async (chunk) => {
+     const chunkPromises = symbolChunks.map(async (chunk, idx) => {
+       console.log(`📡 Fetching chunk ${idx + 1}:`, chunk);
        const response = await fetch('/api/bulk-chart-data', {
          method: 'POST',
          headers: {
@@ -3079,13 +3089,19 @@ export default function TradingViewChart({
        });
 
        if (!response.ok) {
-         throw new Error(`Bulk API failed: HTTP ${response.status}`);
+         const errorText = await response.text();
+         console.error(`❌ Chunk ${idx + 1} failed:`, response.status, errorText);
+         throw new Error(`Bulk API failed: HTTP ${response.status} - ${errorText}`);
        }
 
-       return response.json();
+       const result = await response.json();
+       console.log(`✅ Chunk ${idx + 1} success:`, Object.keys(result.data || {}).length, 'symbols');
+       return result;
      });
 
      const chunkResults = await Promise.all(chunkPromises);
+     
+     console.log('✅ All chunks completed');
      
      // Merge all chunk results into one data object
      const bulkResult = {
@@ -3103,6 +3119,11 @@ export default function TradingViewChart({
        }
      });
      
+     console.log('📊 Merged data:', {
+       totalSymbols: Object.keys(bulkResult.data).length,
+       errors: Object.keys(bulkResult.errors).length
+     });
+     
      if (!bulkResult.success) {
        throw new Error('Bulk API request failed');
      }
@@ -3114,6 +3135,7 @@ export default function TradingViewChart({
        const symbolData = (bulkResult.data as any)[etf.symbol]; // Data is keyed by symbol
        
        if (!symbolData || symbolData.length === 0) {
+         console.warn('⚠️ No data for', etf.symbol);
          return null;
        }
 
@@ -3124,7 +3146,10 @@ export default function TradingViewChart({
          chartData = chartData.filter((point: any) => isPdMarketHours(point.timestamp));
        }
        
-       if (chartData.length === 0) return null;
+       if (chartData.length === 0) {
+         console.warn('⚠️ No market hours data for', etf.symbol);
+         return null;
+       }
        
        // Calculate normalized performance data
        const firstPrice = chartData[0].close;
@@ -3145,13 +3170,19 @@ export default function TradingViewChart({
        };
      }).filter((r): r is any => r !== null);
 
-
+     console.log('✅ Performance Dashboard data ready:', results.length, 'symbols processed');
 
      setPdPerformanceData(results);
      setPdVisibleRange({ start: 0, end: 1 });
    } catch (error) {
      if (!mainSignal.aborted) {
-       // Don't clear existing data on error
+       console.error('❌ Performance Dashboard fetch failed:', error);
+       console.error('Error details:', {
+         timeframe: pdTimeframe,
+         symbolCount: pdSelectedSymbols.length,
+         symbols: pdSelectedSymbols,
+         error: error instanceof Error ? error.message : String(error)
+       });
      }
    } finally {
      if (!mainSignal.aborted) {
@@ -9540,9 +9571,15 @@ export default function TradingViewChart({
      const currentSymbolsKey = `${stableSymbols}_${pdTimeframe}`;
      if (currentSymbolsKey !== pdLastFetchedSymbolsRef.current) {
        pdLastFetchedSymbolsRef.current = currentSymbolsKey;
+       console.log('🚀 Triggering Performance Dashboard fetch:', {
+         symbols: pdSelectedSymbols,
+         timeframe: pdTimeframe,
+         count: pdSelectedSymbols.length
+       });
        fetchPdPerformanceData();
      }
    }
+   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [activeTab, pdTimeframe, stableSymbols]);
  
  // For Watchlist tab, show Markets symbols; otherwise use activeTab
@@ -10171,525 +10208,14 @@ export default function TradingViewChart({
  )}
  
  {/* Performance Dashboard Tab Content */}
- {activeTab === 'Performance Dashboard' && (
- <div className="p-6 bg-black">
- {/* Controls Section */}
  <div style={{ 
- display: 'flex', 
- justifyContent: 'flex-start', 
- alignItems: 'center',
- marginTop: '30px',
- marginBottom: '15px',
- gap: '20px',
- flexWrap: 'wrap'
+   width: '100%', 
+   height: '1300px', 
+   background: '#0a0a0a',
+   display: activeTab === 'Performance Dashboard' ? 'block' : 'none'
  }}>
- {/* Timeframe Dropdown */}
- <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
- <label style={{ 
- color: '#999999', 
- fontSize: '11px', 
- fontFamily: 'monospace',
- fontWeight: 'bold'
- }}>
- Timeframe:
- </label>
- <select
- value={pdTimeframe}
- onChange={(e) => setPdTimeframe(e.target.value as any)}
- style={{
- padding: '10px 16px',
- background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
- color: '#ff8844',
- border: '2px solid #ff6600',
- borderRadius: '6px',
- cursor: 'pointer',
- fontSize: '14px',
- fontWeight: '900',
- fontFamily: 'monospace',
- letterSpacing: '0.5px',
- textTransform: 'uppercase',
- outline: 'none',
- opacity: 1,
- filter: 'contrast(1.1) brightness(1.1)',
- boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
- }}
- >
- <option value="1D">1D</option>
- <option value="1W">1W</option>
- <option value="1M">1M</option>
- <option value="3M">3M</option>
- <option value="6M">6M</option>
- <option value="1Y">1Y</option>
- <option value="2Y">2Y</option>
- <option value="5Y">5Y</option>
- <option value="10Y">10Y</option>
- <option value="20Y">20Y</option>
- <option value="YTD">YTD</option>
- </select>
+ <PerformanceDashboard isVisible={activeTab === 'Performance Dashboard'} />
  </div>
-
- {/* Sectors Button with Dropdown */}
- <div style={{ position: 'relative', borderLeft: '1px solid #333333', paddingLeft: '20px' }}>
- <button
- onClick={() => {
- setPerformanceDashboardDropdowns(prev => ({ ...prev, sectors: !prev.sectors, industries: false, special: false }));
- }}
- style={{
- padding: '10px 20px',
- background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
- color: '#00ff88',
- border: '2px solid #00cc88',
- borderRadius: '6px',
- cursor: 'pointer',
- fontSize: '14px',
- fontWeight: '900',
- fontFamily: 'monospace',
- letterSpacing: '0.5px',
- textTransform: 'uppercase',
- transition: 'all 0.2s',
- opacity: pdActiveCategories.sectors ? 1 : 0.6,
- filter: 'contrast(1.1) brightness(1.1)',
- boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
- }}
- onMouseEnter={(e) => {
- e.currentTarget.style.transform = 'translateY(-2px)';
- }}
- onMouseLeave={(e) => {
- e.currentTarget.style.transform = 'translateY(0)';
- }}
- >
- {pdActiveCategories.sectors ? '☑' : '☐'} Sectors ▼
- </button>
- {performanceDashboardDropdowns.sectors && (
- <div style={{
- position: 'absolute',
- top: '100%',
- left: '20px',
- marginTop: '4px',
- backgroundColor: '#1a1a1a',
- border: '1px solid #00cc88',
- borderRadius: '3px',
- padding: '8px',
- zIndex: 1000,
- minWidth: '180px',
- maxHeight: '400px',
- overflowY: 'auto'
- }}>
- {PD_SECTORS_ETFS.map((etf) => (
- <div
- key={etf.symbol}
- onClick={() => {
- setPdSelectedSymbols(prev => {
- const isSelected = prev.includes(etf.symbol);
- const newSymbols = isSelected ? prev.filter(s => s !== etf.symbol) : [...prev, etf.symbol];
- const hasAnySector = PD_SECTORS_ETFS.some(e => newSymbols.includes(e.symbol));
- setPdActiveCategories(p => ({ ...p, sectors: hasAnySector }));
- return newSymbols;
- });
- }}
- style={{
- padding: '6px 8px',
- cursor: 'pointer',
- color: pdSelectedSymbols.includes(etf.symbol) ? '#00cc88' : '#999999',
- fontSize: '11px',
- fontFamily: 'monospace',
- fontWeight: pdSelectedSymbols.includes(etf.symbol) ? 'bold' : 'normal',
- borderBottom: '1px solid #333333',
- display: 'flex',
- alignItems: 'center',
- gap: '8px'
- }}
- >
- <span style={{ color: etf.color }}>●</span>
- <span>{pdSelectedSymbols.includes(etf.symbol) ? '☑' : '☐'}</span>
- <span>{etf.symbol}</span>
- <span style={{ fontSize: '9px', color: '#666666' }}>({etf.name})</span>
- </div>
- ))}
- </div>
- )}
- </div>
-
- {/* Industries Button with Dropdown */}
- <div style={{ position: 'relative' }}>
- <button
- onClick={() => {
- setPerformanceDashboardDropdowns(prev => ({ ...prev, industries: !prev.industries, sectors: false, special: false }));
- }}
- style={{
- padding: '10px 20px',
- background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
- color: '#5588ff',
- border: '2px solid #3366ff',
- borderRadius: '6px',
- cursor: 'pointer',
- fontSize: '14px',
- fontWeight: '900',
- fontFamily: 'monospace',
- letterSpacing: '0.5px',
- textTransform: 'uppercase',
- transition: 'all 0.2s',
- opacity: pdActiveCategories.industries ? 1 : 0.6,
- filter: 'contrast(1.1) brightness(1.1)',
- boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
- }}
- onMouseEnter={(e) => {
- e.currentTarget.style.transform = 'translateY(-2px)';
- }}
- onMouseLeave={(e) => {
- e.currentTarget.style.transform = 'translateY(0)';
- }}
- >
- {pdActiveCategories.industries ? '☑' : '☐'} Industries ▼
- </button>
- {performanceDashboardDropdowns.industries && (
- <div style={{
- position: 'absolute',
- top: '100%',
- left: '0',
- marginTop: '4px',
- backgroundColor: '#1a1a1a',
- border: '1px solid #3366ff',
- borderRadius: '3px',
- padding: '8px',
- zIndex: 1000,
- minWidth: '220px',
- maxHeight: '400px',
- overflowY: 'auto'
- }}>
- {PD_INDUSTRIES_ETFS.map((etf) => (
- <div
- key={etf.symbol}
- onClick={() => {
- setPdSelectedSymbols(prev => {
- const isSelected = prev.includes(etf.symbol);
- const newSymbols = isSelected ? prev.filter(s => s !== etf.symbol) : [...prev, etf.symbol];
- const hasAnyIndustry = PD_INDUSTRIES_ETFS.some(e => newSymbols.includes(e.symbol));
- setPdActiveCategories(p => ({ ...p, industries: hasAnyIndustry }));
- return newSymbols;
- });
- }}
- style={{
- padding: '6px 8px',
- cursor: 'pointer',
- color: pdSelectedSymbols.includes(etf.symbol) ? '#3366ff' : '#999999',
- fontSize: '11px',
- fontFamily: 'monospace',
- fontWeight: pdSelectedSymbols.includes(etf.symbol) ? 'bold' : 'normal',
- borderBottom: '1px solid #333333',
- display: 'flex',
- alignItems: 'center',
- gap: '8px'
- }}
- >
- <span style={{ color: etf.color }}>●</span>
- <span>{pdSelectedSymbols.includes(etf.symbol) ? '☑' : '☐'}</span>
- <span>{etf.symbol}</span>
- <span style={{ fontSize: '9px', color: '#666666' }}>({etf.name})</span>
- </div>
- ))}
- </div>
- )}
- </div>
-
- {/* Special Button with Dropdown */}
- <div style={{ position: 'relative' }}>
- <button
- onClick={() => {
- setPerformanceDashboardDropdowns(prev => ({ ...prev, special: !prev.special, sectors: false, industries: false }));
- }}
- style={{
- padding: '10px 20px',
- background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
- color: '#ffcc44',
- border: '2px solid #ffaa00',
- borderRadius: '6px',
- cursor: 'pointer',
- fontSize: '14px',
- fontWeight: '900',
- fontFamily: 'monospace',
- letterSpacing: '0.5px',
- textTransform: 'uppercase',
- transition: 'all 0.2s',
- opacity: pdActiveCategories.special ? 1 : 0.6,
- filter: 'contrast(1.1) brightness(1.1)',
- boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
- }}
- onMouseEnter={(e) => {
- e.currentTarget.style.transform = 'translateY(-2px)';
- }}
- onMouseLeave={(e) => {
- e.currentTarget.style.transform = 'translateY(0)';
- }}
- >
- {pdActiveCategories.special ? '☑' : '☐'} Special ▼
- </button>
- {performanceDashboardDropdowns.special && (
- <div style={{
- position: 'absolute',
- top: '100%',
- left: '0',
- marginTop: '4px',
- backgroundColor: '#1a1a1a',
- border: '1px solid #ffaa00',
- borderRadius: '3px',
- padding: '8px',
- zIndex: 1000,
- minWidth: '220px',
- maxHeight: '400px',
- overflowY: 'auto'
- }}>
- {PD_SPECIAL_ETFS.map((etf) => (
- <div
- key={etf.symbol}
- onClick={() => {
- setPdSelectedSymbols(prev => {
- const isSelected = prev.includes(etf.symbol);
- const newSymbols = isSelected ? prev.filter(s => s !== etf.symbol) : [...prev, etf.symbol];
- const hasAnySpecial = PD_SPECIAL_ETFS.some(e => newSymbols.includes(e.symbol));
- setPdActiveCategories(p => ({ ...p, special: hasAnySpecial }));
- return newSymbols;
- });
- }}
- style={{
- padding: '6px 8px',
- cursor: 'pointer',
- color: pdSelectedSymbols.includes(etf.symbol) ? '#ffaa00' : '#999999',
- fontSize: '11px',
- fontFamily: 'monospace',
- fontWeight: pdSelectedSymbols.includes(etf.symbol) ? 'bold' : 'normal',
- borderBottom: '1px solid #333333',
- display: 'flex',
- alignItems: 'center',
- gap: '8px'
- }}
- >
- <span style={{ color: etf.color }}>●</span>
- <span>{pdSelectedSymbols.includes(etf.symbol) ? '☑' : '☐'}</span>
- <span>{etf.symbol}</span>
- <span style={{ fontSize: '9px', color: '#666666' }}>({etf.name})</span>
- </div>
- ))}
- </div>
- )}
- </div>
-
- {/* Benchmarked Button */}
- <div style={{ borderLeft: '1px solid #333333', paddingLeft: '20px' }}>
- <button
- onClick={() => setPdIsBenchmarked(!pdIsBenchmarked)}
- style={{
- padding: '10px 20px',
- background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
- color: '#cc88ff',
- border: '2px solid #9d4edd',
- borderRadius: '6px',
- cursor: 'pointer',
- fontSize: '14px',
- fontWeight: '900',
- fontFamily: 'monospace',
- letterSpacing: '0.5px',
- textTransform: 'uppercase',
- transition: 'all 0.2s',
- opacity: 1,
- filter: 'contrast(1.1) brightness(1.1)',
- boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
- }}
- onMouseEnter={(e) => {
- e.currentTarget.style.transform = 'translateY(-2px)';
- }}
- onMouseLeave={(e) => {
- e.currentTarget.style.transform = 'translateY(0)';
- }}
- >
- Benchmarked
- </button>
- </div>
-
- {/* Custom Date Range */}
- <div style={{ 
- display: 'flex', 
- gap: '8px', 
- alignItems: 'center',
- borderLeft: '1px solid #333333', 
- paddingLeft: '20px' 
- }}>
- <label style={{ 
- color: '#999999', 
- fontSize: '11px', 
- fontFamily: 'monospace' 
- }}>
- Start:
- </label>
- <input
- type="date"
- style={{
- padding: '8px 12px',
- background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
- color: '#ffffff',
- border: '2px solid #666666',
- borderRadius: '6px',
- fontSize: '14px',
- fontWeight: '900',
- fontFamily: 'monospace',
- letterSpacing: '0.5px',
- cursor: 'pointer',
- opacity: 1,
- filter: 'contrast(1.1) brightness(1.1)',
- boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
- }}
- />
- 
- <label style={{ 
- color: '#999999', 
- fontSize: '11px', 
- fontFamily: 'monospace' 
- }}>
- End:
- </label>
- <input
- type="date"
- style={{
- padding: '8px 12px',
- background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
- color: '#ffffff',
- border: '2px solid #666666',
- borderRadius: '6px',
- fontSize: '14px',
- fontWeight: '900',
- fontFamily: 'monospace',
- letterSpacing: '0.5px',
- cursor: 'pointer',
- opacity: 1,
- filter: 'contrast(1.1) brightness(1.1)',
- boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
- }}
- />
- 
- {/* Top/Bottom Button */}
- <button
- style={{
- padding: '10px 20px',
- background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
- color: '#ff8844',
- border: '2px solid #ff6600',
- borderRadius: '6px',
- cursor: 'pointer',
- fontSize: '14px',
- fontWeight: '900',
- fontFamily: 'monospace',
- letterSpacing: '0.5px',
- textTransform: 'uppercase',
- marginLeft: '12px',
- transition: 'all 0.2s',
- opacity: 1,
- filter: 'contrast(1.1) brightness(1.1)',
- boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
- }}
- onMouseEnter={(e) => {
- e.currentTarget.style.transform = 'translateY(-2px)';
- }}
- onMouseLeave={(e) => {
- e.currentTarget.style.transform = 'translateY(0)';
- }}
- >
- Top/Bottom
- </button>
- </div>
- </div>
- 
- {/* Canvas Chart Container */}
- <div 
- ref={pdContainerRef}
- style={{ 
- width: '100%',
- height: '1200px',
- backgroundColor: '#000000',
- border: '1px solid #333',
- borderRadius: '4px',
- padding: '20px',
- position: 'relative',
- overflow: 'hidden',
- marginTop: '20px'
- }}
- >
-
- {/* LOADING OVERLAY */}
- {pdLoading && pdPerformanceData.length === 0 && (
- <div style={{ 
- position: 'absolute',
- inset: 0,
- display: 'flex',
- alignItems: 'center',
- justifyContent: 'center',
- backgroundColor: 'rgba(0,0,0,0.75)',
- color: '#ff8844',
- fontSize: '24px',
- fontFamily: 'monospace',
- fontWeight: 'bold',
- zIndex: 20
- }}>
- Loading {pdSelectedSymbols.length} symbol{pdSelectedSymbols.length !== 1 ? 's' : ''}...
- </div>
- )}
-
- {/* EMPTY DATA OVERLAY */}
- {!pdLoading && pdPerformanceData.length === 0 && (
- <div style={{ 
- position: 'absolute',
- inset: 0,
- display: 'flex',
- alignItems: 'center',
- justifyContent: 'center',
- backgroundColor: 'rgba(0,0,0,0.75)',
- color: '#999999',
- fontSize: '18px',
- fontFamily: 'monospace',
- zIndex: 20
- }}>
- No data available
- </div>
- )}
-
- {/* TOP RIGHT UPDATING BADGE */}
- {pdLoading && pdPerformanceData.length !== 0 && (
- <div style={{
- position: 'absolute',
- top: '10px',
- right: '10px',
- backgroundColor: 'rgba(255, 136, 68, 0.9)',
- color: '#000',
- padding: '8px 16px',
- borderRadius: '4px',
- fontSize: '12px',
- fontWeight: 'bold',
- fontFamily: 'monospace',
- zIndex: 30
- }}>
- Updating...
- </div>
- )}
-
- {/* ALWAYS-RENDERED CANVAS (prevents flicker) */}
- <canvas
- ref={pdCanvasRef}
- onMouseMove={handlePdMouseMove}
- onMouseDown={handlePdMouseDown}
- onMouseUp={handlePdMouseUp}
- onMouseLeave={() => {
- handlePdMouseUp();
- pdCrosshairRef.current = null;
- }}
- style={{ 
- cursor: pdIsDragging ? 'grabbing' : 'crosshair',
- display: 'block',
- width: '100%',
- height: '100%'
- }}
- />
- </div>
- </div>
- )}
  </div>
  );
  };
