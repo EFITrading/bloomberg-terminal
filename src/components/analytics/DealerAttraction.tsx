@@ -3393,8 +3393,8 @@ const DealerAttraction = () => {
   const activeTableCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length;
   
   React.useEffect(() => {
-    // Find the parent sidebar panel and update its width
-    const sidebarPanel = document.querySelector('.fixed.top-32.bottom-4.left-16') as HTMLElement;
+    // Find the parent sidebar panel and update its width ONLY if it's the dealer attraction panel
+    const sidebarPanel = document.querySelector('.fixed.top-32.bottom-4.left-16[data-sidebar-panel="liquid"]') as HTMLElement;
     if (sidebarPanel) {
       if (activeTableCount === 3) {
         // All 3 tables - full width

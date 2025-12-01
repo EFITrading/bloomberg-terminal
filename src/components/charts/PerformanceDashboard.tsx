@@ -101,6 +101,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   const abortControllerRef = useRef<AbortController | null>(null);
   const buttonRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const lastFetchKeyRef = useRef<string>(''); // Track last fetch to prevent duplicates
+  const labelPositionsRef = useRef<Array<{ symbol: string; x: number; y: number; width: number; height: number }>>([]);
 
   // Utility: Check if all symbols in category are selected
   const isAllSelected = (category: typeof SECTORS) => {
@@ -380,7 +381,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, dimensions.width, dimensions.height);
 
-    const margin = { top: 50, right: 200, bottom: 60, left: 70 };
+    const margin = { top: 50, right: 100, bottom: 60, left: 70 };
     const chartWidth = dimensions.width - margin.left - margin.right;
     const chartHeight = dimensions.height - margin.top - margin.bottom;
 
@@ -460,7 +461,9 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       ctx.setLineDash([]); // Reset to solid line
     }
 
-    // Draw lines
+    // Draw lines and collect end positions
+    const labelPositions: Array<{ symbol: string; color: string; performance: number; x: number; y: number; isHovered: boolean }> = [];
+    
     seriesData.forEach(series => {
       const isHovered = hoveredSeries === series.symbol;
       
@@ -472,6 +475,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
       ctx.beginPath();
       let started = false;
+      let lastX = 0;
+      let lastY = 0;
 
       const visibleData = series.data.slice(
         Math.max(0, startIdx),
@@ -489,50 +494,87 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         } else {
           ctx.lineTo(x, y);
         }
+        
+        // Track last point
+        lastX = x;
+        lastY = y;
       });
 
       ctx.stroke();
+      
+      // Store end position for label
+      if (visibleData.length > 0) {
+        labelPositions.push({
+          symbol: series.symbol,
+          color: series.color,
+          performance: series.performance,
+          x: lastX,
+          y: lastY,
+          isHovered
+        });
+      }
     });
 
     ctx.globalAlpha = 1;
-
-    // Legend
-    const legendX = margin.left + chartWidth + 20;
-    let legendY = margin.top;
-
-    const sortedSeries = [...seriesData].sort((a, b) => b.performance - a.performance);
-
-    sortedSeries.forEach(series => {
-      const isHovered = hoveredSeries === series.symbol;
+    
+    // Adjust label positions to prevent overlap
+    const labelHeight = 16; // Approximate height of label
+    const minSpacing = 20; // Minimum vertical spacing between labels
+    
+    // Sort by y position
+    labelPositions.sort((a, b) => a.y - b.y);
+    
+    // Adjust overlapping labels
+    for (let i = 1; i < labelPositions.length; i++) {
+      const current = labelPositions[i];
+      const previous = labelPositions[i - 1];
       
-      // Background for hovered
-      if (isHovered) {
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(legendX - 5, legendY - 12, 180, 22);
+      if (current.y - previous.y < minSpacing) {
+        current.y = previous.y + minSpacing;
       }
-
-      // Color dot
-      ctx.fillStyle = series.color;
+    }
+    
+    // Draw all labels at adjusted positions and store their bounding boxes
+    const storedLabelPositions: Array<{ symbol: string; x: number; y: number; width: number; height: number }> = [];
+    
+    labelPositions.forEach(label => {
+      // Draw small circle at original end point
+      ctx.fillStyle = label.color;
       ctx.beginPath();
-      ctx.arc(legendX + 5, legendY, 4, 0, Math.PI * 2);
+      ctx.arc(label.x, label.y, 3, 0, Math.PI * 2);
       ctx.fill();
-
-      // Symbol
-      ctx.fillStyle = '#ffffff';
-      ctx.font = isHovered ? 'bold 12px monospace' : '11px monospace';
+      
+      // Draw ticker symbol in line color with crisp rendering
+      ctx.fillStyle = label.color;
+      ctx.font = label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(series.symbol, legendX + 15, legendY);
-
-      // Performance
-      const perfColor = series.performance >= 0 ? '#00ff88' : '#ff4444';
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillText(label.symbol, label.x + 8, label.y);
+      
+      // Draw percentage
+      const perfColor = label.performance >= 0 ? '#00ff88' : '#ff4444';
       ctx.fillStyle = perfColor;
-      ctx.font = isHovered ? 'bold 12px monospace' : '11px monospace';
-      const perfText = `${series.performance >= 0 ? '+' : ''}${series.performance.toFixed(2)}%`;
-      ctx.fillText(perfText, legendX + 90, legendY);
-
-      legendY += 24;
+      ctx.font = label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace';
+      const perfText = `${label.performance.toFixed(2)}%`;
+      const symbolWidth = ctx.measureText(label.symbol).width;
+      const perfWidth = ctx.measureText(perfText).width;
+      ctx.fillText(perfText, label.x + 12 + symbolWidth, label.y);
+      ctx.imageSmoothingEnabled = true;
+      
+      // Store label bounding box for hover detection
+      const totalWidth = symbolWidth + perfWidth + 20;
+      storedLabelPositions.push({
+        symbol: label.symbol,
+        x: label.x + 8,
+        y: label.y - 10,
+        width: totalWidth,
+        height: 20
+      });
     });
+    
+    // Store in ref for mouse handler
+    labelPositionsRef.current = storedLabelPositions;
 
     // Title
     ctx.fillStyle = '#ffffff';
@@ -703,7 +745,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     if (!canvas || dimensions.width === 0) return;
 
     const rect = canvas.getBoundingClientRect();
-    const margin = { top: 50, right: 200, bottom: 60, left: 70 };
+    const margin = { top: 50, right: 100, bottom: 60, left: 70 };
     const legendX = dimensions.width - margin.right;
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
@@ -716,21 +758,19 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       setCrosshair(null);
     }
 
-    // Check legend hover
-    if (mouseX > legendX && mouseY > margin.top && seriesData.length > 0) {
-      const legendItemHeight = 24;
-      const hoveredIdx = Math.floor((mouseY - margin.top) / legendItemHeight);
-      const sortedSeries = [...seriesData].sort((a, b) => b.performance - a.performance);
-      
-      if (hoveredIdx >= 0 && hoveredIdx < sortedSeries.length) {
-        setHoveredSeries(sortedSeries[hoveredIdx].symbol);
-      } else {
-        setHoveredSeries(null);
+    // Check hover over ticker labels at end of lines
+    let foundHover = false;
+    for (const labelPos of labelPositionsRef.current) {
+      if (mouseX >= labelPos.x && mouseX <= labelPos.x + labelPos.width &&
+          mouseY >= labelPos.y && mouseY <= labelPos.y + labelPos.height) {
+        setHoveredSeries(labelPos.symbol);
+        foundHover = true;
+        break;
       }
-    } else {
-      if (hoveredSeries !== null) {
-        setHoveredSeries(null);
-      }
+    }
+    
+    if (!foundHover && hoveredSeries !== null) {
+      setHoveredSeries(null);
     }
 
     // Panning
@@ -774,7 +814,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     if (!canvas || dimensions.width === 0) return;
 
     const rect = canvas.getBoundingClientRect();
-    const margin = { top: 50, right: 200, bottom: 60, left: 70 };
+    const margin = { top: 50, right: 100, bottom: 60, left: 70 };
     const chartWidth = dimensions.width - margin.left - margin.right;
     const mouseX = e.clientX - rect.left;
 

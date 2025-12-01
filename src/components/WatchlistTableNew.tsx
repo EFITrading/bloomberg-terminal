@@ -1,11 +1,13 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { WatchlistItem, PerformanceCategory, AISignal } from '../types/watchlist';
+import ETFHoldingsModal from './ETFHoldingsModal';
 
 const WatchlistTable: React.FC = () => {
  const { watchlistData, loading, error, refreshData, getPerformanceColor, getSignalColor } = useWatchlist();
+ const [selectedETF, setSelectedETF] = useState<{ symbol: string; name: string } | null>(null);
 
  const formatPrice = (price: number, symbol: string): string => {
  if (price >= 1000) {
@@ -51,6 +53,18 @@ const WatchlistTable: React.FC = () => {
  return labels[signal];
  };
 
+ const isClickableETF = (symbol: string): boolean => {
+ // Exclude SPY, IWM, QQQ, DIA - all other ETFs and stocks are clickable
+ const excludedSymbols = ['SPY', 'IWM', 'QQQ', 'DIA'];
+ return !excludedSymbols.includes(symbol);
+ };
+
+ const handleRowClick = (item: WatchlistItem) => {
+ if (isClickableETF(item.symbol)) {
+ setSelectedETF({ symbol: item.symbol, name: item.name });
+ }
+ };
+
  if (loading) {
  return (
  <div className="watchlist-loading">
@@ -90,7 +104,12 @@ const WatchlistTable: React.FC = () => {
  {watchlistData.length > 0 ? (
  <div className="watchlist-rows">
  {watchlistData.map((item) => (
- <div key={item.symbol} className="watchlist-row">
+ <div 
+ key={item.symbol} 
+ className={`watchlist-row ${isClickableETF(item.symbol) ? 'clickable' : ''}`}
+ onClick={() => handleRowClick(item)}
+ style={{ cursor: isClickableETF(item.symbol) ? 'pointer' : 'default' }}
+ >
  <div className="cell symbol">
  <div className="symbol-name">
  <span className="symbol-ticker">{item.symbol}</span>
@@ -156,6 +175,16 @@ const WatchlistTable: React.FC = () => {
  Refresh Data
  </button>
  </div>
+ )}
+
+ {/* ETF Holdings Modal */}
+ {selectedETF && (
+ <ETFHoldingsModal
+ isOpen={true}
+ onClose={() => setSelectedETF(null)}
+ etfSymbol={selectedETF.symbol}
+ etfName={selectedETF.name}
+ />
  )}
  </div>
  );

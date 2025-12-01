@@ -1,11 +1,13 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { WatchlistItem, PerformanceCategory, AISignal } from '../types/watchlist';
+import ETFHoldingsModal from './ETFHoldingsModal';
 
 const WatchlistTable: React.FC = () => {
  const { watchlistData, loading, error, refreshData, getPerformanceColor, getSignalColor } = useWatchlist();
+ const [selectedETF, setSelectedETF] = useState<{ symbol: string; name: string } | null>(null);
 
  const formatPrice = (price: number, symbol: string): string => {
  if (price >= 1000) {
@@ -51,6 +53,18 @@ const WatchlistTable: React.FC = () => {
  return labels[signal];
  };
 
+ const isClickableETF = (symbol: string): boolean => {
+ // Exclude SPY, IWM, QQQ, DIA - all other ETFs and stocks are clickable
+ const excludedSymbols = ['SPY', 'IWM', 'QQQ', 'DIA'];
+ return !excludedSymbols.includes(symbol);
+ };
+
+ const handleRowClick = (item: WatchlistItem) => {
+ if (isClickableETF(item.symbol)) {
+ setSelectedETF({ symbol: item.symbol, name: item.name });
+ }
+ };
+
  if (loading) {
  return (
  <div className="watchlist-loading">
@@ -78,18 +92,22 @@ const WatchlistTable: React.FC = () => {
  return (
  <div className="watchlist-content">
  <div className="watchlist-table">
- <div className="watchlist-header">
- <div className="header-cell symbol">Symbol</div>
- <div className="header-cell price">Price</div>
- <div className="header-cell change">Change</div>
- <div className="header-cell performance">Performance</div>
- <div className="header-cell signal">AI Signal</div>
- </div>
- 
- {watchlistData.length > 0 ? (
+       <div className="watchlist-header">
+         <div className="header-cell symbol">Symbol</div>
+         <div className="header-cell price">Price</div>
+         <div className="header-cell change">Change</div>
+         <div className="header-cell performance">Performance</div>
+       </div>
+       
+       {watchlistData.length > 0 ? (
  <div className="watchlist-rows">
  {watchlistData.map((item: WatchlistItem) => (
- <div key={item.symbol} className="watchlist-row">
+ <div 
+ key={item.symbol} 
+ className={`watchlist-row ${isClickableETF(item.symbol) ? 'clickable' : ''}`}
+ onClick={() => handleRowClick(item)}
+ style={{ cursor: isClickableETF(item.symbol) ? 'pointer' : 'default' }}
+ >
  <div className="cell symbol">
  <div className="symbol-name">
  <span className="symbol-ticker">{item.symbol}</span>
@@ -110,13 +128,6 @@ const WatchlistTable: React.FC = () => {
  style={{ color: getPerformanceColor(item.performance) }}
  >
  {getPerformanceLabel(item.performance)}
- </div>
- 
- <div 
- className="cell signal"
- style={{ color: getSignalColor(item.signal) }}
- >
- {getAISignalLabel(item.signal)}
  </div>
  </div>
  ))}
@@ -151,6 +162,16 @@ const WatchlistTable: React.FC = () => {
  Refresh Data
  </button>
  </div>
+ )}
+
+ {/* ETF Holdings Modal */}
+ {selectedETF && (
+ <ETFHoldingsModal
+ isOpen={true}
+ onClose={() => setSelectedETF(null)}
+ etfSymbol={selectedETF.symbol}
+ etfName={selectedETF.name}
+ />
  )}
  </div>
  );

@@ -27,6 +27,7 @@ import {
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 import PolygonService from '../../lib/polygonService';
 import ElectionCycleService from '../../lib/electionCycleService';
+import ETFHoldingsModal from '../ETFHoldingsModal';
 
 // Global type declarations
 declare global {
@@ -3762,22 +3763,81 @@ export default function TradingViewChart({
  // Watchlist data state
  const [watchlistData, setWatchlistData] = useState<{[key: string]: {
  price: number;
- change1d: number;
- change5d: number;
- change13d: number;
- change21d: number;
- performance: string;
- performanceColor: string;
- }}>({});
- 
- // Loading state for watchlist data
+  change1d: number;
+  change5d: number;
+  change13d: number;
+  change21d: number;
+  changeYTD: number;
+  performance: string;
+  performanceColor: string;
+  }}>({}); // Loading state for watchlist data
  const [watchlistLoading, setWatchlistLoading] = useState(true);
+ 
+ // ETF Holdings Modal state
+ const [selectedETF, setSelectedETF] = useState<{ symbol: string; name: string } | null>(null);
 
  // Market data for major indices and sectors
  const marketSymbols = {
  Markets: ['SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLY', 'XLC', 'XLRE', 'XLV', 'XLU', 'XLP', 'XLB', 'XLF', 'XLI', 'XLE'],
- Industries: ['IGV', 'SMH', 'XRT', 'KIE', 'KRE', 'GDX', 'ITA', 'TAN', 'XBI', 'ITB', 'XHB', 'XOP', 'OIH', 'XME', 'ARKK', 'IPO', 'VNQ', 'JETS', 'KWEB'],
- Special: ['IWF', 'IWD', 'IJR', 'USMV', 'VYM', 'PKW', 'CSD', 'GURU', 'IPO', 'QUAL', 'PSP', 'IVE', 'IVW', 'IJJ', 'IJH', 'IWN', 'IWM', 'IWO']
+ Industries: ['IGV', 'SMH', 'XRT', 'KIE', 'KRE', 'GDX', 'ITA', 'TAN', 'XBI', 'ITB', 'XHB', 'XOP', 'OIH', 'XME', 'ARKK', 'VNQ', 'JETS', 'KWEB'],
+ Special: ['IWF', 'IWD', 'IJR', 'USMV', 'VYM', 'PKW', 'CSD', 'GURU', 'IPO', 'QUAL', 'PSP', 'IVE', 'IVW', 'IJJ', 'IJH', 'IWN', 'IWO']
+ };
+
+ // Ticker name mapping
+ const tickerNames: Record<string, string> = {
+ // Markets
+ 'SPY': 'S&P 500',
+ 'QQQ': 'Nasdaq 100',
+ 'IWM': 'Russell 2000',
+ 'DIA': 'Dow Jones',
+ 'XLK': 'Technology',
+ 'XLY': 'Consumer Discretionary',
+ 'XLC': 'Communication Services',
+ 'XLRE': 'Real Estate',
+ 'XLV': 'Healthcare',
+ 'XLU': 'Utilities',
+ 'XLP': 'Consumer Staples',
+ 'XLB': 'Materials',
+ 'XLF': 'Financials',
+ 'XLI': 'Industrials',
+ 'XLE': 'Energy',
+ // Industries
+ 'IGV': 'Software',
+ 'SMH': 'Semiconductors',
+ 'XRT': 'Retail',
+ 'KIE': 'Insurance',
+ 'KRE': 'Regional Banks',
+ 'GDX': 'Gold Miners',
+ 'ITA': 'Aerospace & Defense',
+ 'TAN': 'Solar',
+ 'XBI': 'Biotech',
+ 'ITB': 'Homebuilders',
+ 'XHB': 'Home Construction',
+ 'XOP': 'Oil & Gas Exploration',
+ 'OIH': 'Oil Services',
+ 'XME': 'Metals & Mining',
+ 'ARKK': 'Innovation',
+ 'VNQ': 'REITs',
+ 'JETS': 'Airlines',
+ 'KWEB': 'China Internet',
+ // Special
+ 'IWF': 'Russell 1000 Growth',
+ 'IWD': 'Russell 1000 Value',
+ 'IJR': 'S&P 600 Small Cap',
+ 'USMV': 'Min Volatility',
+ 'VYM': 'High Dividend',
+ 'PKW': 'Buyback Achievers',
+ 'CSD': 'Small Cap Dividend',
+ 'GURU': 'Hedge Fund',
+ 'IPO': 'IPOs',
+ 'QUAL': 'Quality',
+ 'PSP': 'Small Cap Growth',
+ 'IVE': 'S&P 500 Value',
+ 'IVW': 'S&P 500 Growth',
+ 'IJJ': 'S&P 400 Value',
+ 'IJH': 'S&P 400 Mid Cap',
+ 'IWN': 'Russell 2000 Value',
+ 'IWO': 'Russell 2000 Growth'
  };
 
  // Fetch market data
@@ -3801,6 +3861,7 @@ export default function TradingViewChart({
  change5d: number;
  change13d: number;
  change21d: number;
+ changeYTD: number;
  performance: string;
  performanceColor: string;
  }} = {};
@@ -3812,11 +3873,12 @@ export default function TradingViewChart({
  // Fetch ALL symbols in parallel - no artificial delays or batching
  const allPromises = symbols.map(async (symbol) => {
  try {
- // Get recent historical data (90 days to ensure we get enough trading days)
- const endDate = new Date().toISOString().split('T')[0];
- const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
- 
- const url = createApiUrl('/api/historical-data', {
+             // Get historical data - need full year for YTD calculation
+             const endDate = new Date().toISOString().split('T')[0];
+             // Start from January 1st of current year for YTD, or 365 days back to be safe
+             const year = new Date().getFullYear();
+             const yearStart = new Date(year, 0, 1);
+             const startDate = yearStart.toISOString().split('T')[0]; const url = createApiUrl('/api/historical-data', {
  symbol,
  startDate,
  endDate
@@ -3846,11 +3908,17 @@ export default function TradingViewChart({
  const price5DaysAgo = dataLength >= 6 ? data[dataLength - 6]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
  const price13DaysAgo = dataLength >= 14 ? data[dataLength - 14]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
  const price21DaysAgo = dataLength >= 22 ? data[dataLength - 22]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
+ 
+ // Calculate YTD (Year to Date) - find first trading day of current year
+ // Find the first data point of this year (earliest trading day in the dataset from this year)
+ const yearStartData = data.filter((d: any) => new Date(d.t).getFullYear() === year).sort((a: any, b: any) => new Date(a.t).getTime() - new Date(b.t).getTime())[0];
+ const yearStartPrice = yearStartData?.c || data[0]?.c || currentPrice;
 
  const change1d = (dataLength >= 2 && price1DayAgo) ? ((currentPrice - price1DayAgo) / price1DayAgo) * 100 : 0;
  const change5d = (dataLength >= 6 && price5DaysAgo) ? ((currentPrice - price5DaysAgo) / price5DaysAgo) * 100 : 0;
  const change13d = (dataLength >= 14 && price13DaysAgo) ? ((currentPrice - price13DaysAgo) / price13DaysAgo) * 100 : 0;
  const change21d = (dataLength >= 22 && price21DaysAgo) ? ((currentPrice - price21DaysAgo) / price21DaysAgo) * 100 : 0;
+ const changeYTD = yearStartPrice && yearStartPrice !== currentPrice ? ((currentPrice - yearStartPrice) / yearStartPrice) * 100 : 0;
 
  return {
  symbol,
@@ -3860,6 +3928,7 @@ export default function TradingViewChart({
  change5d,
  change13d,
  change21d,
+ changeYTD,
  performance: 'Neutral',
  performanceColor: 'text-white'
  }
@@ -4022,58 +4091,34 @@ export default function TradingViewChart({
  setRegimeLoadingStage('Starting immediate analysis...');
  
  try {
- console.log('?? CHART COMPONENT: Auto-starting Market Regime Analysis on component mount...');
- 
- // Add explicit debugging in browser console
- window.MARKET_REGIMES_DEBUG = {
- status: 'starting',
- timestamp: new Date().toISOString()
- };
- 
  // Create a progress tracker
  const progressCallback = (stage: string, progress: number) => {
- console.log(`?? MARKET REGIMES PROGRESS: ${stage} (${progress}%)`);
  setRegimeLoadingStage(stage);
  setRegimeUpdateProgress(progress);
  };
 
  // Create a streaming callback to update results as they come in
  const streamCallback = (timeframe: string, data: TimeframeAnalysis) => {
- console.log(`?? CHART: Streaming ${timeframe} timeframe results - ${data.industries.length} industries found`);
  setMarketRegimeData(prev => {
  const newData = {
  ...prev,
  [timeframe.toLowerCase()]: data
  } as MarketRegimeData;
- console.log(`?? CHART: Updated Market Regime data state:`, newData);
  return newData;
  });
  };
-
- console.log('?? CHART: Calling IndustryAnalysisService.getMarketRegimeDataStreaming...');
  
- // Add timeout to prevent infinite loading - increased for full dataset
+ // Add timeout to prevent infinite loading
  const timeoutPromise = new Promise<never>((_, reject) => {
  setTimeout(() => {
  reject(new Error('Market regime analysis timeout after 3 minutes'));
- }, 180000); // 3 minute timeout for full dataset
+ }, 180000);
  });
  
  const regimeData = await Promise.race([
  IndustryAnalysisService.getMarketRegimeDataStreaming(progressCallback, streamCallback),
  timeoutPromise
  ]);
- console.log('?? CHART: Received final regime data:', regimeData);
- 
- // Add explicit debugging in browser console
- window.MARKET_REGIMES_DEBUG = {
- status: 'completed',
- timestamp: new Date().toISOString(),
- data: regimeData,
- lifeIndustries: regimeData?.life?.industries?.length || 0,
- developingIndustries: regimeData?.developing?.industries?.length || 0,
- momentumIndustries: regimeData?.momentum?.industries?.length || 0
- };
  
  // Cache the complete data
  setRegimeDataCache(prev => ({
@@ -4083,9 +4128,8 @@ export default function TradingViewChart({
  
  setMarketRegimeData(regimeData);
  setLastRegimeUpdate(now);
- console.log('? Market Regime Analysis Auto-loaded and Cached');
  } catch (error) {
- console.error('? Error loading market regime data:', error);
+ console.error('Error loading market regime data:', error);
  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
  
  if (errorMessage.includes('Failed to fetch') || errorMessage.includes('CONNECTION_REFUSED')) {
@@ -4106,8 +4150,6 @@ export default function TradingViewChart({
  }
  };
 
- // Start market regime loading immediately
- console.log('?? Starting immediate market regime analysis...');
  loadMarketRegimeData();
  }, []); // Empty dependency array to run only once on mount
 
@@ -4269,14 +4311,23 @@ export default function TradingViewChart({
  const [error, setError] = useState<string | null>(null);
 
  // Chart interaction state
- const [isDragging, setIsDragging] = useState(false);
+ const [isDragging, _setIsDragging] = useState(false);
+ const setIsDragging = useCallback((value: boolean) => {
+   console.log('🔴 setIsDragging:', value, 'Stack:', new Error().stack?.split('\n')[2]);
+   _setIsDragging(value);
+ }, []);
+ 
  const [crosshairPosition, setCrosshairPosition] = useState({ x: 0, y: 0 });
  const [priceRange, setPriceRange] = useState({ min: 0, max: 0 });
  
  // Y-Axis Dynamic Scaling State
  const [isAutoScale, setIsAutoScale] = useState(true);
  const [manualPriceRange, setManualPriceRange] = useState<{ min: number; max: number } | null>(null);
- const [isDraggingYAxis, setIsDraggingYAxis] = useState(false);
+ const [isDraggingYAxis, _setIsDraggingYAxis] = useState(false);
+ const setIsDraggingYAxis = useCallback((value: boolean) => {
+   console.log('🟡 setIsDraggingYAxis:', value, 'Stack:', new Error().stack?.split('\n')[2]);
+   _setIsDraggingYAxis(value);
+ }, []);
  const [yAxisDragStart, setYAxisDragStart] = useState<{ y: number; priceRange: { min: number; max: number } } | null>(null);
 
  const [boxZoomStart, setBoxZoomStart] = useState<{ x: number; y: number } | null>(null);
@@ -4288,6 +4339,14 @@ export default function TradingViewChart({
  const [lastMousePosition, setLastMousePosition] = useState({ x: 0, y: 0 });
  const [velocity, setVelocity] = useState({ x: 0, y: 0 });
  const [momentumAnimationId, setMomentumAnimationId] = useState<number | null>(null);
+ 
+ // TradingView Y-axis resize state
+ const [isResizingYAxis, setIsResizingYAxis] = useState(false);
+ const [yAxisResizeStart, setYAxisResizeStart] = useState<{ y: number; priceRange: { min: number; max: number } } | null>(null);
+ const [showYAxisResizeCursor, setShowYAxisResizeCursor] = useState(false);
+ 
+ // Track if this is the first frame of a new drag (to avoid jumps)
+ const [isFirstDragFrame, setIsFirstDragFrame] = useState(false);
  
  // TradingView-style navigation state
  const [scrollOffset, setScrollOffset] = useState(0); // Index of first visible candle
@@ -4361,9 +4420,14 @@ export default function TradingViewChart({
  }, [isAutoScale, manualPriceRange, calculateAutoPriceRange]);
 
  const setManualPriceRangeAndDisableAuto = useCallback((newRange: { min: number; max: number }) => {
+ console.log('📌 setManualPriceRangeAndDisableAuto CALLED:', {
+ newRange,
+ previousRange: manualPriceRange,
+ callStack: new Error().stack?.split('\n').slice(1, 4).join('\n')
+ });
  setManualPriceRange(newRange);
  setIsAutoScale(false);
- }, []);
+ }, [manualPriceRange]);
 
  const resetToAutoScale = useCallback(() => {
  setIsAutoScale(true);
@@ -4397,7 +4461,20 @@ export default function TradingViewChart({
  return x > canvasWidth - 80; // Y-axis area is rightmost 80px
  }, []);
 
- // Momentum Scrolling Utility Functions
+ // TradingView: Check if mouse is on Y-axis left border (for resize)
+ const isOnYAxisBorder = useCallback((x: number, canvasWidth: number) => {
+ const yAxisLeft = canvasWidth - 80;
+ return x >= yAxisLeft - 10 && x <= yAxisLeft + 10; // 10px tolerance on border (wider for easier targeting)
+ }, []);
+
+ // Helper to get future periods based on timeframe - TradingView style
+ // TradingView allows ~20% margin to the right of last candle for drawing space
+ const getFuturePeriods = useCallback((visibleCount: number): number => {
+   // Return 20% of visible candles as right margin, minimum 5 candles
+   return Math.max(5, Math.ceil(visibleCount * 0.2));
+ }, []); // ============================================================================
+ // TRADINGVIEW-STYLE MOMENTUM SCROLLING - EXACT IMPLEMENTATION
+ // ============================================================================
  const startMomentumAnimation = useCallback(() => {
  if (momentumAnimationId) {
  cancelAnimationFrame(momentumAnimationId);
@@ -4405,25 +4482,51 @@ export default function TradingViewChart({
  
  const animate = () => {
  setVelocity(prevVelocity => {
- const friction = 0.95; // Damping factor
- const threshold = 0.1; // Stop when velocity is very low
+ // TradingView uses exponential decay: v = v * friction
+ const friction = 0.90; // TradingView-like friction factor
+ const threshold = 0.05; // Stop threshold
  
  const newVelocityX = Math.abs(prevVelocity.x) > threshold ? prevVelocity.x * friction : 0;
  const newVelocityY = Math.abs(prevVelocity.y) > threshold ? prevVelocity.y * friction : 0;
  
- // Apply velocity to scroll offset (horizontal momentum)
+ // Apply X-axis velocity (horizontal momentum)
  if (Math.abs(newVelocityX) > threshold) {
  setScrollOffset(prevOffset => {
- const futurePeriods = getFuturePeriods(config.timeframe);
- // REMOVED RESTRICTION: Allow full future periods instead of limiting to 20% of visible candles
- const maxFuturePeriods = futurePeriods; // Use full future periods for TradingView-like scrolling
- const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
- const deltaOffset = -newVelocityX / 20; // Convert pixel velocity to candle offset
- return Math.max(0, Math.min(maxScrollOffset, prevOffset + deltaOffset));
+ const Y_AXIS_WIDTH = 80;
+ const chartWidth = dimensions.width - Y_AXIS_WIDTH;
+ const pixelsPerCandle = chartWidth / visibleCandleCount;
+ 
+ // Convert velocity (pixels per frame) to candle offset
+ const candlesPerFrame = newVelocityX / pixelsPerCandle;
+ const newOffset = prevOffset - candlesPerFrame;
+ 
+ const futurePeriods = getFuturePeriods(visibleCandleCount);
+ const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
+ return Math.max(0, Math.min(maxScrollOffset, newOffset));
  });
  }
  
- // Continue animation if there's still velocity
+ // Apply Y-axis velocity (vertical momentum) - TradingView style
+ if (Math.abs(newVelocityY) > threshold && manualPriceRange) {
+ setManualPriceRange(prevRange => {
+ if (!prevRange) return prevRange;
+ 
+ const timeAxisHeight = 25;
+ const priceChartHeight = dimensions.height - timeAxisHeight;
+ const priceHeight = prevRange.max - prevRange.min;
+ const pricePerPixel = priceHeight / priceChartHeight;
+ 
+ // Apply velocity to price range
+ const priceShift = newVelocityY * pricePerPixel;
+ 
+ return {
+ min: prevRange.min + priceShift,
+ max: prevRange.max + priceShift
+ };
+ });
+ }
+ 
+ // Continue animation if still moving
  if (Math.abs(newVelocityX) > threshold || Math.abs(newVelocityY) > threshold) {
  const id = requestAnimationFrame(animate);
  setMomentumAnimationId(id);
@@ -4437,7 +4540,7 @@ export default function TradingViewChart({
  
  const id = requestAnimationFrame(animate);
  setMomentumAnimationId(id);
- }, [momentumAnimationId, visibleCandleCount, data.length, config.timeframe]);
+ }, [momentumAnimationId, visibleCandleCount, data.length, dimensions.width, dimensions.height, getFuturePeriods, manualPriceRange]);
 
  const stopMomentumAnimation = useCallback(() => {
  if (momentumAnimationId) {
@@ -4999,8 +5102,10 @@ export default function TradingViewChart({
  ctx.shadowOffsetX = 0;
  ctx.shadowOffsetY = 0;
  
- // Enhanced OHLC Info Panel (top-left corner)
- if (crosshairInfo.ohlc) {
+ // Enhanced OHLC Info Panel (top-left corner) - Desktop only
+ // Hide on mobile devices (screen width < 768px)
+ const isMobile = window.innerWidth < 768;
+ if (crosshairInfo.ohlc && !isMobile) {
  const ohlc = crosshairInfo.ohlc;
  const panelX = 20;
  const panelY = 20;
@@ -5174,14 +5279,60 @@ export default function TradingViewChart({
  e.preventDefault();
  // Pan right (go forward in time) - allow extending beyond data for future view
  const panRight = Math.max(1, Math.round(visibleCandleCount * 0.1));
- const futurePeriods = getFuturePeriods(config.timeframe);
+ const futurePeriods = getFuturePeriods(visibleCandleCount);
  const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
  const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
  setScrollOffset(Math.min(maxScrollOffset, scrollOffset + panRight));
  break;
+ case 'ArrowUp':
+ e.preventDefault();
+ // TradingView: Arrow Up = Pan Y-axis up (show lower prices)
+ if (manualPriceRange) {
+ const priceSpan = manualPriceRange.max - manualPriceRange.min;
+ const panAmount = priceSpan * 0.05; // Pan 5% of range
+ setManualPriceRangeAndDisableAuto({
+ min: manualPriceRange.min - panAmount,
+ max: manualPriceRange.max - panAmount
+ });
+ }
+ break;
+ case 'ArrowDown':
+ e.preventDefault();
+ // TradingView: Arrow Down = Pan Y-axis down (show higher prices)
+ if (manualPriceRange) {
+ const priceSpan = manualPriceRange.max - manualPriceRange.min;
+ const panAmount = priceSpan * 0.05; // Pan 5% of range
+ setManualPriceRangeAndDisableAuto({
+ min: manualPriceRange.min + panAmount,
+ max: manualPriceRange.max + panAmount
+ });
+ }
+ break;
+ case 'a':
+ case 'A':
+ e.preventDefault();
+ // TradingView: 'A' key = Toggle auto-scale
+ if (isAutoScale) {
+ // Switch to manual with current range
+ const startIdx = Math.max(0, Math.floor(scrollOffset));
+ const endIdx = Math.min(data.length, startIdx + visibleCandleCount);
+ const visData = data.slice(startIdx, endIdx);
+ if (visData.length > 0) {
+ const currRange = getCurrentPriceRange(visData);
+ setManualPriceRangeAndDisableAuto(currRange);
+ }
+ } else {
+ // Switch back to auto-scale
+ resetToAutoScale();
+ }
+ break;
  case 'r':
  case 'R':
  e.preventDefault();
+ // Reset both X and Y axes to default view
+ resetToAutoScale();
+ setScrollOffset(Math.max(0, data.length - 100));
+ setVisibleCandleCount(Math.min(100, data.length));
  break;
  case 'Delete':
  case 'Backspace':
@@ -5204,18 +5355,19 @@ export default function TradingViewChart({
 
  window.addEventListener('keydown', handleKeyDown);
  return () => window.removeEventListener('keydown', handleKeyDown);
- }, [data.length, scrollOffset, visibleCandleCount, selectedRay, selectedChannel]);
+ }, [data.length, scrollOffset, visibleCandleCount, selectedRay, selectedChannel, getFuturePeriods, manualPriceRange, isAutoScale, setManualPriceRangeAndDisableAuto, resetToAutoScale, getCurrentPriceRange]);
 
- // Wheel event handler for zoom and scroll - with Y-axis scaling support
+ // ============================================================================
+ // TRADINGVIEW-STYLE ZOOM & SCROLL - EXACT IMPLEMENTATION
+ // ============================================================================
+ // Wheel event handler - exactly like TradingView
  useEffect(() => {
  const handleWheelEvent = (e: WheelEvent) => {
- // Check if the event is on our canvas elements
  const overlayCanvas = overlayCanvasRef.current;
  const chartCanvas = chartCanvasRef.current;
  
  if (!overlayCanvas || !chartCanvas || data.length === 0) return;
  
- // Check if the wheel event is over one of our canvas elements
  const target = e.target as Element;
  if (!overlayCanvas.contains(target) && !chartCanvas.contains(target) && target !== overlayCanvas && target !== chartCanvas) {
  return;
@@ -5223,91 +5375,121 @@ export default function TradingViewChart({
  
  e.preventDefault();
  
- // Get mouse position relative to canvas
  const rect = overlayCanvas.getBoundingClientRect();
  const mouseX = e.clientX - rect.left;
+ const mouseY = e.clientY - rect.top;
  const canvasWidth = overlayCanvas.width / window.devicePixelRatio;
+ const canvasHeight = overlayCanvas.height / window.devicePixelRatio;
  
- // Check if mouse is over Y-axis area (right side)
  const isOverYAxis = isInYAxisArea(mouseX, canvasWidth);
  
  if (isOverYAxis) {
- // Y-axis scaling when wheel over Y-axis area
- const delta = e.deltaY;
- const scaleFactor = delta > 0 ? 1.1 : 0.9; // Scale up or down
- 
- // Get current visible data for price range calculation
+ // TradingView Y-AXIS: Alt+Scroll = pan, plain scroll = zoom
+ if (e.altKey) {
+ // ALT + SCROLL on Y-axis = Vertical pan
  const startIndex = Math.max(0, Math.floor(scrollOffset));
  const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
  const visibleData = data.slice(startIndex, endIndex);
  
  if (visibleData.length > 0) {
- const currentRange = getCurrentPriceRange(visibleData);
- const center = (currentRange.min + currentRange.max) / 2;
- const currentHeight = currentRange.max - currentRange.min;
- const newHeight = currentHeight * scaleFactor;
+ const currentRange = manualPriceRange || getCurrentPriceRange(visibleData);
+ const panAmount = e.deltaY > 0 ? 1 : -1;
+ const priceSpan = currentRange.max - currentRange.min;
+ const panPercent = 0.05; // Pan 5% of range per tick
+ const priceShift = panAmount * priceSpan * panPercent;
  
  const newRange = {
- min: center - newHeight / 2,
- max: center + newHeight / 2
+ min: currentRange.min + priceShift,
+ max: currentRange.max + priceShift
  };
  
  setManualPriceRangeAndDisableAuto(newRange);
  }
  } else {
- // Regular zoom/pan when not over Y-axis
- const delta = e.deltaY;
- const scrollSensitivity = 1.5; // Reduced from 3 to 1.5 for slower horizontal scrolling
+ // Y-AXIS ZOOM - TradingView exact behavior
+ const zoomIn = e.deltaY < 0;
+ const zoomFactor = zoomIn ? 0.95 : 1.05; // 5% per scroll tick
  
- if (Math.abs(delta) > Math.abs(e.deltaX)) {
- // Vertical scroll - zoom in/out
- const zoomDirection = delta > 0 ? 1 : -1; // 1 = zoom out, -1 = zoom in
- const zoomFactor = 0.1;
+ const startIndex = Math.max(0, Math.floor(scrollOffset));
+ const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+ const visibleData = data.slice(startIndex, endIndex);
  
- // Calculate new candle count
- const currentCount = visibleCandleCount;
- const maxCandles = Math.min(data.length, 300);
- const minCandles = 20;
+ if (visibleData.length > 0) {
+ // Get current range (manual or auto)
+ const currentRange = manualPriceRange || getCurrentPriceRange(visibleData);
+ const timeAxisHeight = 25;
+ const priceChartHeight = canvasHeight - timeAxisHeight;
  
- let newCount;
- if (zoomDirection === 1) {
- // Zoom out - show more candles
- newCount = Math.min(maxCandles, Math.round(currentCount * (1 + zoomFactor)));
- } else {
- // Zoom in - show fewer candles
- newCount = Math.max(minCandles, Math.round(currentCount * (1 - zoomFactor)));
+ // Price at mouse position
+ const priceAtMouse = currentRange.max - ((mouseY / priceChartHeight) * (currentRange.max - currentRange.min));
+ 
+ // Calculate new range maintaining mouse price position
+ const currentSpan = currentRange.max - currentRange.min;
+ const newSpan = currentSpan * zoomFactor;
+ 
+ const mouseRatio = (priceAtMouse - currentRange.min) / currentSpan;
+ 
+ const newRange = {
+ min: priceAtMouse - (newSpan * mouseRatio),
+ max: priceAtMouse + (newSpan * (1 - mouseRatio))
+ };
+ 
+ setManualPriceRangeAndDisableAuto(newRange);
  }
+ }
+ } else {
+ // X-AXIS ZOOM/SCROLL - TradingView exact behavior
+ const zoomIn = e.deltaY < 0;
  
- // Adjust scroll offset to keep the center of the view relatively stable
- const centerRatio = 0.5;
- const oldCenterIndex = scrollOffset + (currentCount * centerRatio);
- const futurePeriods = getFuturePeriods(config.timeframe);
- // REMOVED RESTRICTION: Allow full future periods for TradingView-like zoom scrolling
- const maxFuturePeriods = futurePeriods; // Use full future periods
- const newOffset = Math.max(0, Math.min(
- data.length - newCount + maxFuturePeriods,
- Math.round(oldCenterIndex - (newCount * centerRatio))
- ));
+ // TradingView: plain scroll = zoom, Ctrl = faster zoom, Alt = pan
+ if (e.altKey) {
+ // ALT + SCROLL = Horizontal pan (like TradingView)
+ const panAmount = e.deltaY > 0 ? 3 : -3;
+ const futurePeriods = getFuturePeriods(visibleCandleCount);
+ const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
+ const newOffset = Math.max(0, Math.min(maxScrollOffset, scrollOffset + panAmount));
+ setScrollOffset(newOffset);
+ } else {
+ // PLAIN SCROLL or CTRL+SCROLL = Zoom
+ const Y_AXIS_WIDTH = 80;
+ const chartWidth = canvasWidth - Y_AXIS_WIDTH;
+ 
+ // Calculate zoom factor - TradingView uses ~5% per tick
+ const baseZoomFactor = e.ctrlKey || e.metaKey ? 0.15 : 0.05; // Ctrl = faster zoom
+ const zoomMultiplier = zoomIn ? (1 - baseZoomFactor) : (1 + baseZoomFactor);
+ 
+ const currentCount = visibleCandleCount;
+ let newCount = Math.round(currentCount * zoomMultiplier);
+ 
+ // Clamp candle count
+ const minCandles = 5;
+ const maxCandles = Math.min(data.length, 1000);
+ newCount = Math.max(minCandles, Math.min(maxCandles, newCount));
+ 
+ if (newCount !== currentCount) {
+ // TradingView: zoom centers on mouse position
+ const candleWidth = chartWidth / currentCount;
+ const mouseChartX = Math.max(0, Math.min(chartWidth, mouseX));
+ 
+ // Which candle is under the mouse
+ const candleIndexUnderMouse = scrollOffset + (mouseChartX / candleWidth);
+ 
+ // After zoom, keep that candle under mouse
+ const newCandleWidth = chartWidth / newCount;
+ const newScrollOffset = candleIndexUnderMouse - (mouseChartX / newCandleWidth);
+ 
+ // Clamp scroll offset
+ const futurePeriods = getFuturePeriods(newCount);
+ const maxScrollOffset = data.length - newCount + futurePeriods;
+ const clampedOffset = Math.max(0, Math.min(maxScrollOffset, newScrollOffset));
  
  setVisibleCandleCount(newCount);
- setScrollOffset(newOffset);
- } else {
- // Horizontal scroll - pan left/right - allow extending beyond data for future view
- const scrollDirection = delta > 0 ? 1 : -1;
- const futurePeriods = getFuturePeriods(config.timeframe);
- // REMOVED RESTRICTION: Allow full future periods for extensive right scrolling
- const maxFuturePeriods = futurePeriods; // Use full future periods
- const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
- const newOffset = Math.max(0, Math.min(
- maxScrollOffset,
- scrollOffset + (scrollDirection * scrollSensitivity)
- ));
- setScrollOffset(newOffset);
+ setScrollOffset(clampedOffset);
+ }
  }
  }
  };
 
- // Add wheel event listener with passive: false to allow preventDefault
  const overlayCanvas = overlayCanvasRef.current;
  const chartCanvas = chartCanvasRef.current;
  
@@ -5326,7 +5508,7 @@ export default function TradingViewChart({
  chartCanvas.removeEventListener('wheel', handleWheelEvent);
  }
  };
- }, [data.length, scrollOffset, visibleCandleCount, isInYAxisArea, getCurrentPriceRange, setManualPriceRangeAndDisableAuto]);
+ }, [data.length, scrollOffset, visibleCandleCount, isInYAxisArea, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe]);
 
  // Helper function to determine if a timestamp is during market hours
  const isMarketHours = (timestamp: number): boolean => {
@@ -6174,23 +6356,6 @@ export default function TradingViewChart({
  ctx.moveTo(x, 0);
  ctx.lineTo(x, priceHeight);
  ctx.stroke();
- }
- };
-
- // Helper function to calculate future periods for 4 weeks
- const getFuturePeriods = (timeframe: string): number => {
- // Allow reasonable future scrolling - just a few days ahead
- switch (timeframe) {
- case '1m': return 3 * 24 * 60; // 3 days of minute data
- case '5m': return 3 * 24 * 12; // 3 days of 5-minute data (864 periods)
- case '15m': return 3 * 24 * 4; // 3 days of 15-minute data
- case '30m': return 3 * 24 * 2; // 3 days of 30-minute data
- case '1h': return 3 * 24; // 3 days of hourly data
- case '4h': return 3 * 6; // 3 days of 4-hour data
- case '1d': return 30; // 30 days ahead
- case '1w': return 12; // 12 weeks ahead
- case '1mo': return 6; // 6 months ahead
- default: return 30; // Default to 30 days
  }
  };
 
@@ -8122,46 +8287,70 @@ export default function TradingViewChart({
  const canvas = e.currentTarget as HTMLCanvasElement;
  const canvasWidth = canvas.width / window.devicePixelRatio;
  const isOverYAxis = isInYAxisArea(x, canvasWidth);
+ const onBorder = isOnYAxisBorder(x, canvasWidth);
  
- // Stop any ongoing momentum animation when starting new interaction
- stopMomentumAnimation();
+ // TradingView: Click on Y-axis border = start resize
+ if (onBorder) {
+ e.preventDefault();
+ setIsResizingYAxis(true);
  
- // Initialize velocity tracking
- const now = Date.now();
- setLastMouseTimestamp(now);
- setLastMousePosition({ x, y });
- 
- // Start full chart panning (both X and Y axes) - Tradytics style
- setIsDragging(true);
- setIsDraggingYAxis(true); // Enable Y-axis dragging for all chart areas
- setLastMouseX(x);
- setDragStartX(x);
- setDragStartOffset(scrollOffset);
- 
-
- 
- // Get current visible data for price range calculation
+ // Get current price range
  const startIndex = Math.max(0, Math.floor(scrollOffset));
  const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
  const visibleData = data.slice(startIndex, endIndex);
  
  if (visibleData.length > 0) {
- // CRITICAL: Always use manual price range if it exists to preserve previous drag positions
- // This prevents the chart from "snapping back" to original position
- let currentRange;
- if (manualPriceRange) {
- // Use the current manual price range (which includes any previous drag adjustments)
- currentRange = manualPriceRange;
- console.log('🎯 Using manual price range for drag start:', currentRange);
- } else {
- // Only calculate from visible data if no manual range exists
- currentRange = getCurrentPriceRange(visibleData);
- console.log('🎯 Using calculated price range for drag start:', currentRange);
+ const currentRange = manualPriceRange || getCurrentPriceRange(visibleData);
+ setYAxisResizeStart({ y, priceRange: currentRange });
+ 
+ // Ensure we have manual range for resizing
+ if (!manualPriceRange) {
+ setManualPriceRangeAndDisableAuto(currentRange);
  }
- setYAxisDragStart({ y, priceRange: currentRange });
+ }
+ return;
  }
  
- }, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange]);
+ // Stop any ongoing momentum animation when starting new interaction
+ stopMomentumAnimation();
+ 
+ // Initialize velocity tracking for TradingView-style drag
+ const now = Date.now();
+ setLastMouseTimestamp(now);
+ 
+ console.log('🟡 MOUSE DOWN - Starting new drag:', {
+ position: { x, y },
+ currentManualPriceRange: manualPriceRange,
+ scrollOffset,
+ visibleCandleCount
+ });
+ 
+ // Start full chart panning (both X and Y axes) - TradingView style
+ setIsDragging(true);
+ setIsDraggingYAxis(true);
+ setLastMouseX(x);
+ setDragStartX(x);
+ setDragStartOffset(scrollOffset);
+ 
+ // Mark this as first frame - we'll skip applying deltas on first frame to avoid jump
+ setIsFirstDragFrame(true);
+ 
+ // Store initial mouse position for THIS drag session
+ setLastMousePosition({ x, y });
+ 
+ // If no manual price range exists yet, create one from current visible data
+ if (!manualPriceRange) {
+ const startIndex = Math.max(0, Math.floor(scrollOffset));
+ const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+ const visibleData = data.slice(startIndex, endIndex);
+ 
+ if (visibleData.length > 0) {
+ const currentRange = getCurrentPriceRange(visibleData);
+ setManualPriceRangeAndDisableAuto(currentRange);
+ }
+ }
+ 
+ }, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange, stopMomentumAnimation, setManualPriceRangeAndDisableAuto, isOnYAxisBorder]);
 
  const handleMouseMove = useCallback((e: React.MouseEvent) => {
  const rect = e.currentTarget.getBoundingClientRect();
@@ -8170,6 +8359,44 @@ export default function TradingViewChart({
  
  // ALWAYS update crosshair position first
  setCrosshairPosition({ x, y });
+ 
+ // TradingView: Check if hovering over Y-axis border for resize cursor
+ const canvas = e.currentTarget as HTMLCanvasElement;
+ const canvasWidth = canvas.width / window.devicePixelRatio;
+ const onBorder = isOnYAxisBorder(x, canvasWidth);
+ 
+ // Update cursor when near Y-axis border
+ if (onBorder && !isDragging && !isResizingYAxis) {
+ setShowYAxisResizeCursor(true);
+ canvas.style.cursor = 'ew-resize';
+ } else if (!isDragging && !isResizingYAxis) {
+ setShowYAxisResizeCursor(false);
+ canvas.style.cursor = config.crosshair ? 'crosshair' : 'default';
+ }
+ 
+ // TradingView: Handle Y-axis resize drag
+ if (isResizingYAxis && yAxisResizeStart) {
+ const deltaY = y - yAxisResizeStart.y;
+ const timeAxisHeight = 25;
+ const priceChartHeight = dimensions.height - timeAxisHeight;
+ 
+ // Calculate zoom based on vertical drag
+ // Drag down = zoom out (expand range), drag up = zoom in (contract range)
+ const zoomFactor = 1 + (deltaY / priceChartHeight) * 2; // 2x sensitivity
+ 
+ const originalRange = yAxisResizeStart.priceRange;
+ const center = (originalRange.max + originalRange.min) / 2;
+ const originalSpan = originalRange.max - originalRange.min;
+ const newSpan = originalSpan * zoomFactor;
+ 
+ const newRange = {
+ min: center - newSpan / 2,
+ max: center + newSpan / 2
+ };
+ 
+ setManualPriceRangeAndDisableAuto(newRange);
+ return;
+ }
 
  // Update crosshair info with price and date/time
  if (data.length > 0) {
@@ -8372,118 +8599,128 @@ export default function TradingViewChart({
  return;
  }
 
- // Handle full chart panning (both X and Y axes simultaneously)
- if ((isDragging || isDraggingYAxis) && yAxisDragStart) {
- // Handle Y-axis dragging (vertical movement)
- const deltaY = y - yAxisDragStart.y;
+ // ============================================================================
+ // TRADINGVIEW-STYLE DRAG - EXACT IMPLEMENTATION (Both X and Y axes)
+ // ============================================================================
+ if (isDragging || isDraggingYAxis) {
+ // Skip first frame to avoid jump (position delta would be from previous drag)
+ if (isFirstDragFrame) {
+ console.log('🔴 FIRST DRAG FRAME - Skipping deltas. Position:', { x, y });
+ console.log('🔴 Current manualPriceRange:', manualPriceRange);
+ console.log('🔴 lastMousePosition BEFORE update:', lastMousePosition);
+ setIsFirstDragFrame(false);
+ setLastMouseX(x);
+ setLastMousePosition({ x, y });
+ setLastMouseTimestamp(Date.now());
+ console.log('🔴 Updated lastMousePosition to:', { x, y });
+ return;
+ }
+ 
+ // Track velocity for momentum scrolling (TradingView-style)
+ const now = Date.now();
+ const deltaTime = now - lastMouseTimestamp;
+ 
+ // Calculate deltas from last position
+ const deltaX = x - lastMouseX;
+ const deltaY = y - lastMousePosition.y;
+ 
+ console.log('🟢 DRAG FRAME:', {
+ currentPos: { x, y },
+ lastPos: { x: lastMouseX, y: lastMousePosition.y },
+ deltas: { deltaX, deltaY },
+ currentPriceRange: manualPriceRange,
+ isDragging,
+ isDraggingYAxis
+ });
+ 
+ if (deltaTime > 0 && deltaTime < 100) {
+ // TradingView: velocity in pixels per frame (60fps = 16.67ms per frame)
+ const frameTime = 16.67;
+ const velocityX = (deltaX / deltaTime) * frameTime;
+ const velocityY = (deltaY / deltaTime) * frameTime;
+ 
+ setVelocity({ x: velocityX, y: velocityY });
+ setLastMouseTimestamp(now);
+ }
+ 
+ // Y-axis dragging (price scale) - TradingView 1:1 pixel mapping
+ if (deltaY !== 0) {
+ setManualPriceRange(currentRange => {
+ if (!currentRange) return currentRange;
+ 
  const timeAxisHeight = 25;
  const priceChartHeight = dimensions.height - timeAxisHeight;
  
-         // Calculate price change based on drag distance
-         const originalRange = yAxisDragStart.priceRange;
-         const priceHeight = originalRange.max - originalRange.min;
-         const pricePerPixel = priceHeight / priceChartHeight;
-         // Fix inversion: drag DOWN should show LOWER prices, drag UP should show HIGHER prices
-         const priceShift = deltaY * pricePerPixel; // Apply the shift to create new price range
+ const priceHeight = currentRange.max - currentRange.min;
+ const pricePerPixel = priceHeight / priceChartHeight;
+ const priceShift = deltaY * pricePerPixel;
+ 
  const newRange = {
- min: originalRange.min + priceShift,
- max: originalRange.max + priceShift
+ min: currentRange.min + priceShift,
+ max: currentRange.max + priceShift
  };
  
- setManualPriceRangeAndDisableAuto(newRange);
+ console.log('🔵 Y-AXIS DRAG - Applying price shift:', {
+ deltaY,
+ priceChartHeight,
+ priceHeight,
+ pricePerPixel,
+ priceShift,
+ oldRange: { ...currentRange },
+ newRange: { ...newRange }
+ });
  
- // Handle X-axis dragging (horizontal movement)
- const deltaX = x - lastMouseX;
- const currentOffset = scrollOffset;
- 
- // Calculate drag movement - preserve sign for correct direction
- const chartWidth = dimensions.width - 100; // Account for margins
- const candleWidth = chartWidth / visibleCandleCount;
- const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
- 
- // Allow extending beyond data for future view
- const futurePeriods = getFuturePeriods(config.timeframe);
- const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
- const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
- // Drag RIGHT (positive deltaX) should DECREASE offset (move forward in time)
- // Drag LEFT (negative deltaX) should INCREASE offset (move backward in time)
- const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
- 
- if (newOffset !== currentOffset) {
- setScrollOffset(newOffset);
+ console.log('✅ Y-AXIS DRAG - Price range updated');
+ return newRange;
+ });
+ setIsAutoScale(false);
  }
  
- setLastMouseX(x);
- return;
- }
-
- // Alternative Y-axis dragging when yAxisDragStart is not set but we're in manual mode
- if ((isDragging || isDraggingYAxis) && !isAutoScale && manualPriceRange) {
- // Handle Y-axis dragging using current manual price range
- const deltaY = y - (lastMousePosition.y || y);
- const timeAxisHeight = 25;
- const priceChartHeight = dimensions.height - timeAxisHeight;
+ // X-axis dragging (time scroll) - TradingView 1:1 pixel mapping
+ if (deltaX !== 0) {
+ setScrollOffset(currentScrollOffset => {
+ const Y_AXIS_WIDTH = 80;
+ const chartWidth = dimensions.width - Y_AXIS_WIDTH;
+ const pixelsPerCandle = chartWidth / visibleCandleCount;
  
-         // Get current manual price range
-         const priceHeight = manualPriceRange.max - manualPriceRange.min;
-         const pricePerPixel = priceHeight / priceChartHeight;
-         // Fix inversion: drag DOWN should show LOWER prices, drag UP should show HIGHER prices
-         const priceShift = deltaY * pricePerPixel; // Apply the shift to create new price range
- const newRange = {
- min: manualPriceRange.min + priceShift,
- max: manualPriceRange.max + priceShift
- };
+ // TradingView: 1:1 pixel drag = candle scroll
+ const candlesDragged = deltaX / pixelsPerCandle;
+ const newOffset = currentScrollOffset - candlesDragged;
  
- setManualPriceRangeAndDisableAuto(newRange);
+ console.log('🟣 X-AXIS DRAG - Applying scroll:', {
+ deltaX,
+ pixelsPerCandle,
+ candlesDragged,
+ oldOffset: currentScrollOffset,
+ newOffset
+ });
  
- // Handle X-axis dragging (horizontal movement)
- const deltaX = x - lastMouseX;
- const currentOffset = scrollOffset;
- 
- // Calculate drag movement - preserve sign for correct direction
- const chartWidth = dimensions.width - 100; // Account for margins
- const candleWidth = chartWidth / visibleCandleCount;
- const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
- 
- // Allow extending beyond data for future view
- const futurePeriods = getFuturePeriods(config.timeframe);
- const maxFuturePeriods = Math.min(futurePeriods, Math.ceil(visibleCandleCount * 0.2));
- const maxScrollOffset = data.length - visibleCandleCount + maxFuturePeriods;
- const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
- 
- if (newOffset !== currentOffset) {
- setScrollOffset(newOffset);
- }
- 
- setLastMouseX(x);
- return;
- }
-
- // Fallback: Handle horizontal dragging only (if Y-axis drag start wasn't set)
- if (isDragging) {
- const deltaX = x - lastMouseX;
- const currentOffset = scrollOffset;
- 
- // Calculate drag movement - preserve sign for correct direction
- const chartWidth = dimensions.width - 100; // Account for margins
- const candleWidth = chartWidth / visibleCandleCount;
- const dragMovement = deltaX / (candleWidth * 0.5); // Keep the sign for direction
- 
- // Allow extending beyond data for future view
- const futurePeriods = getFuturePeriods(config.timeframe);
+ // Clamp with future periods
+ const futurePeriods = getFuturePeriods(visibleCandleCount);
  const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
- const newOffset = Math.max(0, Math.min(maxScrollOffset, currentOffset - dragMovement));
+ const clampedOffset = Math.max(0, Math.min(maxScrollOffset, newOffset));
  
- if (newOffset !== currentOffset) {
- setScrollOffset(newOffset);
+ console.log('✅ X-AXIS DRAG - Scroll updated to:', clampedOffset);
+ return clampedOffset;
+ });
  }
  
+ // Update last positions for next frame - CRITICAL for continuous dragging
+ console.log('🔄 Updating lastMousePosition:', { from: lastMousePosition, to: { x, y } });
  setLastMouseX(x);
+ setLastMousePosition({ x, y });
  return;
  }
- }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, scrollOffset, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, manualPriceRange, setManualPriceRangeAndDisableAuto, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition]);
+ }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame]);
 
  const handleMouseUp = useCallback(() => {
+ console.log('🟠 MOUSE UP - Ending drag:', {
+ finalManualPriceRange: manualPriceRange,
+ finalScrollOffset: scrollOffset,
+ wasDragging: isDragging,
+ wasDraggingYAxis: isDraggingYAxis
+ });
+ 
  // Handle box zoom completion
  if (isBoxZooming && boxZoomStart && boxZoomEnd) {
  const startX = Math.min(boxZoomStart.x, boxZoomEnd.x);
@@ -8533,11 +8770,18 @@ export default function TradingViewChart({
  return;
  }
  
- // If we were dragging and have significant velocity, start momentum animation
- if ((isDragging || isDraggingYAxis) && (Math.abs(velocity.x) > 1 || Math.abs(velocity.y) > 1)) {
+ // ============================================================================
+ // TRADINGVIEW-STYLE MOMENTUM - Start if velocity is significant
+ // ============================================================================
+ if ((isDragging || isDraggingYAxis)) {
+ const minMomentumVelocity = 0.5; // Minimum velocity to trigger momentum
+ if (Math.abs(velocity.x) > minMomentumVelocity || Math.abs(velocity.y) > minMomentumVelocity) {
+ console.log('🚀 Starting momentum animation:', velocity);
  startMomentumAnimation();
  }
+ }
  
+ console.log('🔴 MOUSE UP - Resetting drag states');
  setIsDragging(false);
  setIsDraggingDrawing(false);
  setIsDraggingYAxis(false);
@@ -8545,6 +8789,12 @@ export default function TradingViewChart({
  setIsBoxZooming(false);
  setBoxZoomStart(null);
  setBoxZoomEnd(null);
+ 
+ // TradingView: Stop Y-axis resize
+ setIsResizingYAxis(false);
+ setYAxisResizeStart(null);
+ 
+ console.log('✅ MOUSE UP - All drag states cleared');
  
  // Handle drawing brush stroke completion - CLICK AND HOLD behavior
  if (isBrushing && currentBrushStroke.length > 0) {
@@ -9586,6 +9836,15 @@ export default function TradingViewChart({
  const symbolKey = activeTab === 'Watchlist' ? 'Markets' : activeTab;
  const currentSymbols = marketSymbols[symbolKey as keyof typeof marketSymbols] || [];
  
+ // Create a unified symbol list with ALL symbols in ONE place for easy styling
+ const allSymbols = [
+   ...currentSymbols.map((symbol, idx) => ({ symbol, section: 'markets', uniqueId: `markets-${idx}` })),
+   { type: 'separator', label: 'INDUSTRIES', color: 'blue' },
+   ...marketSymbols.Industries.map((symbol, idx) => ({ symbol, section: 'industries', uniqueId: `industries-${idx}` })),
+   { type: 'separator', label: 'SPECIAL', color: 'purple' },
+   ...marketSymbols.Special.map((symbol, idx) => ({ symbol, section: 'special', uniqueId: `special-${idx}` }))
+ ];
+ 
  // Check if watchlist data is still loading
  const hasWatchlistData = Object.keys(watchlistData).length > 0;
  
@@ -9636,6 +9895,12 @@ export default function TradingViewChart({
  } else {
  return { status: 'FALLING', color: 'text-red-300 font-bold' }; // Underperformed SPY today
  }
+ } else if (period === 'ytd') {
+ if (relativePerformance > 0) {
+ return { status: 'WINNER', color: 'text-emerald-500 font-bold' }; // Outperformed SPY YTD
+ } else {
+ return { status: 'LOSER', color: 'text-rose-500 font-bold' }; // Underperformed SPY YTD
+ }
  }
  
  return { status: 'NEUTRAL', color: 'text-gray-400' };
@@ -9669,6 +9934,9 @@ export default function TradingViewChart({
  } else if (period === '21d') {
  change = data.change21d;
  spyChange = spyData.change21d;
+ } else if (period === 'ytd') {
+ change = data.changeYTD;
+ spyChange = spyData.changeYTD;
  }
  
  return (change - spyChange) > 0; // true if outperforming SPY (rising relative to SPY)
@@ -9694,6 +9962,9 @@ export default function TradingViewChart({
  } else if (period === '21d') {
  change = data.change21d;
  spyChange = spyData.change21d;
+ } else if (period === 'ytd') {
+ change = data.changeYTD;
+ spyChange = spyData.changeYTD;
  }
  
  return (change - spyChange) > 0; // true if outperforming SPY (rising relative to SPY)
@@ -9782,8 +10053,8 @@ export default function TradingViewChart({
  {/* Watchlist Tab Content */}
  {activeTab === 'Watchlist' && (
  <>
- {/* Bloomberg-style Column Headers - 7 Columns */}
- <div className="grid grid-cols-7 gap-0 border-b border-gray-700 bg-black text-sm font-bold uppercase shadow-inner">
+ {/* Bloomberg-style Column Headers - 8 Columns */}
+ <div className="grid grid-cols-8 gap-0 border-b border-gray-700 bg-black text-sm font-bold uppercase shadow-inner">
  <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
  <span className="drop-shadow-lg text-shadow-carved text-orange-500">Symbol</span>
  </div>
@@ -9795,96 +10066,123 @@ export default function TradingViewChart({
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
  <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
- {getMarketRegimeForHeader('1d')}
+ <span className="text-white font-bold">1D</span> {getMarketRegimeForHeader('1d')}
  </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
  <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
- {getMarketRegimeForHeader('5d')}
+ <span className="text-white font-bold">5D</span> {getMarketRegimeForHeader('5d')}
  </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
  <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
- {getMarketRegimeForHeader('13d')}
+ <span className="text-white font-bold">13D</span> {getMarketRegimeForHeader('13d')}
+ </span>
+ </div>
+ <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
+ <span className="text-white font-bold">21D</span> {getMarketRegimeForHeader('21d')}
  </span>
  </div>
  <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
- {getMarketRegimeForHeader('21d')}
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
+ <span className="text-white font-bold">YTD</span> {getMarketRegimeForHeader('ytd')}
  </span>
  </div>
  </div>
  
  {/* Bloomberg-style Content */}
  <div className="flex-1 overflow-y-auto bg-black">
- {currentSymbols.length === 0 ? (
+ {allSymbols.length === 0 ? (
  <div className="flex flex-col items-center justify-center h-full text-gray-500">
  <div className="text-lg font-bold mb-2">NO DATA</div>
  <div className="text-sm">No symbols available</div>
  </div>
  ) : (
  <div className="divide-y divide-gray-800">
- {currentSymbols.map((symbol, index) => {
+ {allSymbols.map((item, index) => {
+ // Handle separator rows
+ if (typeof item === 'object' && 'type' in item && item.type === 'separator') {
+ const colorMap = {
+ blue: { via: 'via-blue-500', text: 'text-blue-400', shadow: 'rgba(59, 130, 246, 0.6)' },
+ purple: { via: 'via-purple-500', text: 'text-purple-400', shadow: 'rgba(168, 85, 247, 0.6)' }
+ };
+ const colors = colorMap[item.color as keyof typeof colorMap];
+ 
+ return (
+ <div key={`separator-${item.label}`} className="my-4 px-2">
+ <div className="relative h-12 bg-gradient-to-r from-transparent via-[#FF6600]/20 to-transparent border-y border-[#FF6600]/40">
+ <div className="absolute inset-0 flex items-center justify-center">
+ <span className={`px-8 py-2 bg-black/95 ${colors.text} text-base font-black tracking-[0.3em] uppercase border border-[#FF6600]/50 rounded shadow-[0_0_20px_rgba(255,102,0,0.4)]`}>
+ ★ {item.label}
+ </span>
+ </div>
+ </div>
+ </div>
+ );
+ }
+ 
+ // Handle symbol rows
+ const symbol = 'symbol' in item ? item.symbol : '';
+ const section = 'section' in item ? item.section : '';
+ const uniqueId = 'uniqueId' in item ? item.uniqueId : `${section}-${symbol}`;
  const data = watchlistData[symbol];
  const spyData = watchlistData['SPY'];
  const isLoading = !data;
  
- // Add separator rows between categories
+ // Add separator rows between categories (for currentSymbols only)
  const separatorRows = [];
  
- // Add green separator after DIA (before XLK)
- if (symbol === 'XLK') {
- separatorRows.push(
- <div key="growth-separator" className="h-3 bg-green-500 my-2 rounded opacity-60"></div>
+                // Add category separators with professional styling
+                if (symbol === 'XLK') {
+                  separatorRows.push(
+                    <div key="growth-separator" className="h-2 bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent my-3 rounded-full"></div>
+                  );
+                }
+                
+                if (symbol === 'XLRE') {
+                  separatorRows.push(
+                    <div key="defensive-separator" className="h-2 bg-gradient-to-r from-transparent via-rose-500/30 to-transparent my-3 rounded-full"></div>
+                  );
+                }
+                
+                if (symbol === 'XLB') {
+                  separatorRows.push(
+                    <div key="other-separator" className="h-2 bg-gradient-to-r from-transparent via-blue-500/30 to-transparent my-3 rounded-full"></div>
+                  );
+                }                if (isLoading) {
+                  return (
+                    <div key={uniqueId}>
+                      {separatorRows}
+                      <div className="grid grid-cols-8 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900">
+                        <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50">
+                          <span className="font-mono font-bold text-white text-sm">{symbol}</span>
+                        </div>
+                        <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50">
+                          <div className="h-4 w-16 bg-gray-800/50 rounded animate-pulse"></div>
+                        </div>
+                        <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50">
+                          <div className="h-4 w-12 bg-gray-800/50 rounded animate-pulse"></div>
+                        </div>
+                        <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
+                          <div className="h-4 w-20 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
+                        </div>
+                        <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
+                          <div className="h-4 w-20 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
+                        </div>
+                        <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
+                          <div className="h-4 w-20 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
+                        </div>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
+ <div className="h-4 w-20 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
+ </div>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
+ <div className="h-4 w-20 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
+ </div>
+ </div>
+ </div>
  );
- }
- 
- // Add red separator after XLC (before XLRE) 
- if (symbol === 'XLRE') {
- separatorRows.push(
- <div key="defensive-separator" className="h-3 bg-red-500 my-2 rounded opacity-60"></div>
- );
- }
- 
- // Add blue separator after XLP (before XLB)
- if (symbol === 'XLB') {
- separatorRows.push(
- <div key="other-separator" className="h-3 bg-blue-500 my-2 rounded opacity-60"></div>
- );
- }
- 
- if (isLoading) {
- return (
- <div key={symbol}>
- {separatorRows}
- <div className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-800 hover:to-gray-900 transition-all duration-300 mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800">
- <div className="p-3 border-r border-gray-800 font-mono font-bold text-white text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">{symbol}</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">Loading...</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- </div>
- </div>
- );
- }
- 
- const changeColor = data.change1d >= 0 ? 'text-green-400' : 'text-red-400';
+ }                const changeColor = data.change1d >= 0 ? 'text-emerald-400' : 'text-rose-400';
  const changeSign = data.change1d >= 0 ? '+' : '';
  
  // Get performance status for each time period vs SPY
@@ -9892,65 +10190,93 @@ export default function TradingViewChart({
  const perf5d = spyData ? getPerformanceStatus(data.change5d, spyData.change5d, symbol, '5d') : { status: '--', color: 'text-gray-400' };
  const perf13d = spyData ? getPerformanceStatus(data.change13d, spyData.change13d, symbol, '13d') : { status: '--', color: 'text-gray-400' };
  const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
+ const perfYTD = spyData ? getPerformanceStatus(data.changeYTD, spyData.changeYTD, symbol, 'ytd') : { status: '--', color: 'text-gray-400' };
  
  return (
- <div key={symbol}>
+ <div key={uniqueId}>
  {separatorRows}
  <div 
- className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 hover:shadow-xl transition-all duration-300 cursor-pointer mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800 hover:border-gray-600"
- onClick={() => {
- console.log(`?? Switching chart to ${symbol}`);
+ className="grid grid-cols-8 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900 hover:bg-[#FF6600]/5 transition-all duration-200 cursor-pointer group"
+ title={(() => {
+ const excludedSymbols = ['SPY', 'IWM', 'QQQ', 'DIA'];
+ const isClickableETF = !excludedSymbols.includes(symbol);
+ if (isClickableETF) {
+ return `Click to view ${symbol} holdings • Ctrl+Click to switch chart`;
+ }
+ return `Click to switch chart to ${symbol}`;
+ })()}
+ onClick={(e) => {
+ // Exclude SPY, IWM, QQQ, DIA from ETF holdings modal
+ const excludedSymbols = ['SPY', 'IWM', 'QQQ', 'DIA'];
+ const isClickableETF = !excludedSymbols.includes(symbol);
+ 
+ // If Ctrl/Cmd key is pressed or it's an excluded symbol, switch chart
+ if (e.ctrlKey || e.metaKey || !isClickableETF) {
  if (onSymbolChange) {
  onSymbolChange(symbol);
  }
- // Update the config state as well
  setConfig(prev => ({ ...prev, symbol }));
+ } else {
+ // Show ETF holdings modal
+ const name = tickerNames[symbol] || symbol;
+ setSelectedETF({ symbol, name });
+ }
  }}
  >
  {/* Symbol */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className="font-mono font-bold text-white text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">{symbol}</span>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <div className="flex flex-col">
+ <span className="font-mono font-bold text-[#FF6600] text-base tracking-wide">{symbol}</span>
+ <span className="font-sans text-white text-xs mt-0.5">{tickerNames[symbol] || symbol}</span>
+ </div>
  </div>
  
  {/* Price */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <div className="font-mono text-white font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">
- {data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <div className="font-mono text-white font-bold text-sm">
+ ${data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
  </div>
  </div>
  
  {/* Change */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <div className={`font-mono font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${changeColor}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <div className={`font-mono font-bold text-sm ${changeColor}`}>
  {changeSign}{data.change1d.toFixed(2)}%
  </div>
  </div>
  
  {/* 1D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color} ${perf1d.status === 'RISING' || perf1d.status === 'STRONG' || perf1d.status === 'LEADER' || perf1d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold text-xs uppercase tracking-widest ${perf1d.color}`}>
  {perf1d.status}
  </span>
  </div>
  
  {/* 5D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color} ${perf5d.status === 'RISING' || perf5d.status === 'STRONG' || perf5d.status === 'LEADER' || perf5d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold text-xs uppercase tracking-widest ${perf5d.color}`}>
  {perf5d.status}
  </span>
  </div>
  
  {/* 13D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color} ${perf13d.status === 'RISING' || perf13d.status === 'STRONG' || perf13d.status === 'LEADER' || perf13d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold text-xs uppercase tracking-widest ${perf13d.color}`}>
  {perf13d.status}
  </span>
  </div>
  
  {/* 21D Performance */}
- <div className="p-3 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color} ${perf21d.status === 'RISING' || perf21d.status === 'STRONG' || perf21d.status === 'LEADER' || perf21d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold text-xs uppercase tracking-widest ${perf21d.color}`}>
  {perf21d.status}
+ </span>
+ </div>
+ 
+ {/* YTD Performance */}
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold text-xs uppercase tracking-widest ${perfYTD.color}`}>
+ {perfYTD.status}
  </span>
  </div>
  </div>
@@ -9959,254 +10285,10 @@ export default function TradingViewChart({
  })}
  </div>
  )}
- 
- {/* Industries Section Separator */}
- <div className="mt-6 mb-4">
- <div className="h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent mb-2"></div>
- <div className="text-center">
- <h3 className="text-xl font-bold text-blue-400 uppercase tracking-widest" style={{ letterSpacing: '0.3em', textShadow: '0 0 15px rgba(59, 130, 246, 0.6)' }}>
- Industries
- </h3>
- </div>
- <div className="h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent mt-2"></div>
- </div>
- 
- {/* Industries Table */}
- <div className="divide-y divide-gray-800">
- {marketSymbols.Industries.map((symbol, index) => {
- const data = watchlistData[symbol];
- const spyData = watchlistData['SPY'];
- const isLoading = !data;
- 
- if (isLoading) {
- return (
- <div key={symbol}>
- <div className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-800 hover:to-gray-900 transition-all duration-300 mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800">
- <div className="p-3 border-r border-gray-800 font-mono font-bold text-white text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">{symbol}</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">Loading...</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- </div>
- </div>
- );
- }
- 
- const changeColor = data.change1d >= 0 ? 'text-green-400' : 'text-red-400';
- const changeSign = data.change1d >= 0 ? '+' : '';
- 
- // Get performance status for each time period vs SPY
- const perf1d = spyData ? getPerformanceStatus(data.change1d, spyData.change1d, symbol, '1d') : { status: '--', color: 'text-gray-400' };
- const perf5d = spyData ? getPerformanceStatus(data.change5d, spyData.change5d, symbol, '5d') : { status: '--', color: 'text-gray-400' };
- const perf13d = spyData ? getPerformanceStatus(data.change13d, spyData.change13d, symbol, '13d') : { status: '--', color: 'text-gray-400' };
- const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
- 
- return (
- <div key={symbol}>
- <div 
- className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 hover:shadow-xl transition-all duration-300 cursor-pointer mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800 hover:border-gray-600"
- onClick={() => {
- console.log(`?? Switching chart to ${symbol}`);
- if (onSymbolChange) {
- onSymbolChange(symbol);
- }
- // Update the config state as well
- setConfig(prev => ({ ...prev, symbol }));
- }}
- >
- {/* Symbol */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className="font-mono font-bold text-white text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">{symbol}</span>
- </div>
- 
- {/* Price */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <div className="font-mono text-white font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">
- {data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
- </div>
- </div>
- 
- {/* Change */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <div className={`font-mono font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${changeColor}`}>
- {changeSign}{data.change1d.toFixed(2)}%
- </div>
- </div>
- 
- {/* 1D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color} ${perf1d.status === 'RISING' || perf1d.status === 'STRONG' || perf1d.status === 'LEADER' || perf1d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
- {perf1d.status}
- </span>
- </div>
- 
- {/* 5D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color} ${perf5d.status === 'RISING' || perf5d.status === 'STRONG' || perf5d.status === 'LEADER' || perf5d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
- {perf5d.status}
- </span>
- </div>
- 
- {/* 13D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color} ${perf13d.status === 'RISING' || perf13d.status === 'STRONG' || perf13d.status === 'LEADER' || perf13d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
- {perf13d.status}
- </span>
- </div>
- 
- {/* 21D Performance */}
- <div className="p-3 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color} ${perf21d.status === 'RISING' || perf21d.status === 'STRONG' || perf21d.status === 'LEADER' || perf21d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
- {perf21d.status}
- </span>
- </div>
- </div>
- </div>
- );
- })}
- </div>
- 
- {/* Special Section Separator */}
- <div className="mt-6 mb-4">
- <div className="h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent mb-2"></div>
- <div className="text-center">
- <h3 className="text-xl font-bold text-purple-400 uppercase tracking-widest" style={{ letterSpacing: '0.3em', textShadow: '0 0 15px rgba(168, 85, 247, 0.6)' }}>
- Special
- </h3>
- </div>
- <div className="h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent mt-2"></div>
- </div>
- 
- {/* Special Table */}
- <div className="divide-y divide-gray-800">
- {marketSymbols.Special.map((symbol, index) => {
- const data = watchlistData[symbol];
- const spyData = watchlistData['SPY'];
- const isLoading = !data;
- 
- if (isLoading) {
- return (
- <div key={symbol}>
- <div className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-800 hover:to-gray-900 transition-all duration-300 mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800">
- <div className="p-3 border-r border-gray-800 font-mono font-bold text-white text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">{symbol}</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">Loading...</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 border-r border-gray-800 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- <div className="p-3 text-gray-500 text-center text-sm bg-gradient-to-b from-gray-900 to-black shadow-inner">
- <span className="drop-shadow-md">--</span>
- </div>
- </div>
- </div>
- );
- }
- 
- const changeColor = data.change1d >= 0 ? 'text-green-400' : 'text-red-400';
- const changeSign = data.change1d >= 0 ? '+' : '';
- 
- // Get performance status for each time period vs SPY
- const perf1d = spyData ? getPerformanceStatus(data.change1d, spyData.change1d, symbol, '1d') : { status: '--', color: 'text-gray-400' };
- const perf5d = spyData ? getPerformanceStatus(data.change5d, spyData.change5d, symbol, '5d') : { status: '--', color: 'text-gray-400' };
- const perf13d = spyData ? getPerformanceStatus(data.change13d, spyData.change13d, symbol, '13d') : { status: '--', color: 'text-gray-400' };
- const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
- 
- return (
- <div key={symbol}>
- <div 
- className="grid grid-cols-7 gap-0 hover:bg-gradient-to-r hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 hover:shadow-xl transition-all duration-300 cursor-pointer mb-1 bg-gradient-to-r from-black via-gray-900 to-black shadow-lg border border-gray-800 hover:border-gray-600"
- onClick={() => {
- console.log(`?? Switching chart to ${symbol}`);
- if (onSymbolChange) {
- onSymbolChange(symbol);
- }
- // Update the config state as well
- setConfig(prev => ({ ...prev, symbol }));
- }}
- >
- {/* Symbol */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className="font-mono font-bold text-white text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">{symbol}</span>
- </div>
- 
- {/* Price */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <div className="font-mono text-white font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300">
- {data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
- </div>
- </div>
- 
- {/* Change */}
- <div className="p-3 border-r border-gray-800 bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <div className={`font-mono font-bold text-sm drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${changeColor}`}>
- {changeSign}{data.change1d.toFixed(2)}%
- </div>
- </div>
- 
- {/* 1D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf1d.color} ${perf1d.status === 'RISING' || perf1d.status === 'STRONG' || perf1d.status === 'LEADER' || perf1d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
- {perf1d.status}
- </span>
- </div>
- 
- {/* 5D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf5d.color} ${perf5d.status === 'RISING' || perf5d.status === 'STRONG' || perf5d.status === 'LEADER' || perf5d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
- {perf5d.status}
- </span>
- </div>
- 
- {/* 13D Performance */}
- <div className="p-3 border-r border-gray-800 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf13d.color} ${perf13d.status === 'RISING' || perf13d.status === 'STRONG' || perf13d.status === 'LEADER' || perf13d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
- {perf13d.status}
- </span>
- </div>
- 
- {/* 21D Performance */}
- <div className="p-3 text-center bg-gradient-to-b from-gray-900 to-black shadow-inner hover:shadow-none transition-shadow duration-300">
- <span className={`font-bold text-sm uppercase tracking-wider drop-shadow-md hover:drop-shadow-lg transition-all duration-300 ${perf21d.color} ${perf21d.status === 'RISING' || perf21d.status === 'STRONG' || perf21d.status === 'LEADER' || perf21d.status === 'KING' ? 'animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : ''}`}>
- {perf21d.status}
- </span>
- </div>
- </div>
- </div>
- );
- })}
- </div>
  </div>
  </>
  )}
- 
+
  {/* Performance Dashboard Tab Content */}
  <div style={{ 
    width: '100%', 
@@ -10220,33 +10302,11 @@ export default function TradingViewChart({
  );
  };
 
- // RegimesPanel component removed for reconstruction
- // RegimesPanel component removed for reconstruction
-
- // RegimesPanel component removed for reconstruction
-
- // RegimesPanel component removed for reconstruction
- // RegimesPanel component removed for reconstruction
- // RegimesPanel component removed for reconstruction
  // Enhanced Market Regimes Panel Component with advanced analytics
  const RegimesPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
- console.log('?? REGIMES PANEL: Rendering with activeTab:', activeTab);
- console.log('?? REGIMES PANEL: Market regime data available:', !!marketRegimeData);
- console.log('?? REGIMES PANEL: Full market regime data:', marketRegimeData);
- 
- // Add to global debug object
- window.MARKET_REGIMES_DEBUG = {
- ...window.MARKET_REGIMES_DEBUG,
- panelRender: {
- activeTab,
- hasData: !!marketRegimeData,
- data: marketRegimeData
- }
- };
  
  const getCurrentTimeframeData = () => {
  if (!marketRegimeData) {
- console.log('?? REGIMES PANEL: No market regime data available');
  return null;
  }
  
@@ -10265,15 +10325,12 @@ export default function TradingViewChart({
  data = marketRegimeData.life;
  }
  
- console.log(`?? REGIMES PANEL: ${activeTab} data:`, data);
  return data;
  };
 
  const timeframeData = getCurrentTimeframeData();
  const bullishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bullish').slice(0, 20) || [];
  const bearishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bearish').slice(0, 20) || [];
- 
- console.log(`?? REGIMES PANEL: ${activeTab} - Bullish: ${bullishIndustries.length}, Bearish: ${bearishIndustries.length}`);
 
  return (
  <div className="h-full flex flex-col" style={{
@@ -13031,7 +13088,10 @@ export default function TradingViewChart({
 
  {/* Sidebar Panels */}
  {activeSidebarPanel && (
- <div className="fixed top-32 bottom-4 left-16 w-[calc(100vw-5rem)] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden">
+ <div 
+   className="fixed top-32 bottom-4 left-16 w-[calc(100vw-5rem)] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden"
+   data-sidebar-panel={activeSidebarPanel}
+ >
 {/* Sidebar panel debugging */}
  {/* Panel Header */}
  <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
@@ -13640,6 +13700,16 @@ export default function TradingViewChart({
  );
  })()}
  </div>
+ )}
+ 
+ {/* ETF Holdings Modal */}
+ {selectedETF && (
+ <ETFHoldingsModal
+ isOpen={true}
+ onClose={() => setSelectedETF(null)}
+ etfSymbol={selectedETF.symbol}
+ etfName={selectedETF.name}
+ />
  )}
  </>
  );

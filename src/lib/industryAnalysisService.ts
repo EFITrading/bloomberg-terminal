@@ -1,4 +1,38 @@
 // Industry Analysis Service for Market Regimes
+
+// Helper function to calculate trading days (excluding weekends)
+function calculateTradingDays(targetTradingDays: number): number {
+  // Approximate: 5 trading days per 7 calendar days
+  // Add 40% buffer to account for weekends and ensure we get enough data
+  const calendarDays = Math.ceil(targetTradingDays * 1.4);
+  return Math.max(calendarDays, targetTradingDays + 4); // Ensure minimum buffer
+}
+
+// US Market holidays for 2025 (add more years as needed)
+const US_MARKET_HOLIDAYS_2025 = [
+  '2025-01-01', // New Year's Day
+  '2025-01-20', // MLK Day
+  '2025-02-17', // Presidents Day
+  '2025-04-18', // Good Friday
+  '2025-05-26', // Memorial Day
+  '2025-06-19', // Juneteenth
+  '2025-07-04', // Independence Day
+  '2025-09-01', // Labor Day
+  '2025-11-27', // Thanksgiving
+  '2025-12-25', // Christmas
+];
+
+function isMarketOpen(date: Date): boolean {
+  const day = date.getDay();
+  // 0 = Sunday, 6 = Saturday
+  if (day === 0 || day === 6) return false;
+  
+  const dateStr = date.toISOString().split('T')[0];
+  if (US_MARKET_HOLIDAYS_2025.includes(dateStr)) return false;
+  
+  return true;
+}
+
 export interface IndustryETF {
  symbol: string;
  name: string;
@@ -736,13 +770,16 @@ export class IndustryAnalysisService {
  days: number
  ): Promise<Map<string, any>> {
  
+ // Calculate actual calendar days needed to get the requested number of trading days
+ const calendarDays = calculateTradingDays(days);
+ 
  try {
  const response = await fetch(`${this.baseUrl}/bulk-historical-data`, {
  method: 'POST',
  headers: {
  'Content-Type': 'application/json',
  },
- body: JSON.stringify({ symbols, days }),
+ body: JSON.stringify({ symbols, days: calendarDays }), // Use calendar days for API
  signal: AbortSignal.timeout(120000) // 2 minute timeout for bulk fetch
  });
 
@@ -772,9 +809,12 @@ export class IndustryAnalysisService {
  symbols: string[],
  days: number
  ): Promise<Map<string, any>> {
+ // Calculate actual calendar days needed to get the requested number of trading days
+ const calendarDays = calculateTradingDays(days);
+ 
  const endDate = new Date();
  const startDate = new Date();
- startDate.setDate(endDate.getDate() - days);
+ startDate.setDate(endDate.getDate() - calendarDays);
  const dateKey = `${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}`;
  
  const dataMap = new Map<string, any>();
@@ -904,7 +944,11 @@ export class IndustryAnalysisService {
  ): number {
  try {
  if (!etfData?.results || !spyData?.results || etfData.results.length === 0 || spyData.results.length === 0) {
- console.warn(' Missing data for relative performance calculation');
+ return 0;
+ }
+
+ // Need at least 2 data points to calculate change
+ if (etfData.results.length < 2 || spyData.results.length < 2) {
  return 0;
  }
 
@@ -919,8 +963,6 @@ export class IndustryAnalysisService {
  const spyChange = ((spyNewestPrice - spyOldestPrice) / spyOldestPrice) * 100;
 
  const relativePerf = etfChange - spyChange;
- 
- console.log(` ${etfData.ticker}: ETF change ${etfChange.toFixed(2)}%, SPY change ${spyChange.toFixed(2)}%, Relative: ${relativePerf.toFixed(2)}%`);
  
  // Return relative performance (ETF vs SPY)
  return relativePerf;
@@ -1020,7 +1062,7 @@ export class IndustryAnalysisService {
 
  // Separate the actual analysis logic to enable timeout handling
  private static async performTimeframeAnalysis(days: number, timeframeName: string): Promise<TimeframeAnalysis> {
- // Collect all unique symbols (ETFs + holdings + SPY) - FULL DATASET
+ // Collect all unique symbols (ETFs + holdings + SPY)
  const allSymbols = new Set<string>();
  allSymbols.add('SPY'); // Always include SPY for relative performance
  
@@ -1030,29 +1072,19 @@ export class IndustryAnalysisService {
  allSymbols.add(holding);
  }
  }
-
- console.log(` MARKET REGIMES: Fetching data for ${allSymbols.size} symbols for ${timeframeName}...`);
- console.log(` First 10 symbols: ${Array.from(allSymbols).slice(0, 10).join(', ')}...`);
  
  // Bulk fetch all historical data
- console.log(`⏱ ${timeframeName}: Starting batch fetch...`);
  const historicalDataMap = await this.batchFetchHistoricalData(Array.from(allSymbols), days);
- console.log(` MARKET REGIMES: Retrieved data for ${historicalDataMap.size} symbols out of ${allSymbols.size} requested`);
  
  const spyData = historicalDataMap.get('SPY');
  
  if (!spyData) {
- console.error(' Failed to fetch SPY data');
+ console.error('Failed to fetch SPY data');
  return {
  timeframe: timeframeName,
  days,
  industries: []
  };
- }
-
- console.log(` SPY data received: ${spyData.results?.length || 0} data points`);
- if (spyData.results && spyData.results.length > 0) {
- console.log(` SPY price range: $${spyData.results[spyData.results.length - 1].c} → $${spyData.results[0].c}`);
  }
 
  const industries: IndustryPerformance[] = [];
@@ -1062,7 +1094,6 @@ export class IndustryAnalysisService {
  try {
  const etfData = historicalDataMap.get(etf.symbol);
  if (!etfData) {
- console.warn(` No data available for ${etf.symbol}`);
  continue;
  }
 
@@ -1079,21 +1110,12 @@ export class IndustryAnalysisService {
  worstPerformers
  });
  } catch (error) {
- console.error(` Error analyzing ${etf.symbol}:`, error);
+ console.error(`Error analyzing ${etf.symbol}:`, error);
  }
  }
 
  // Sort by relative performance
  industries.sort((a, b) => b.relativePerformance - a.relativePerformance);
-
- console.log(` MARKET REGIMES SUCCESS: ${timeframeName} analysis complete: ${industries.length} industries analyzed`);
- 
- // Log top 3 bullish and bearish industries for verification
- const bullish = industries.filter(i => i.trend === 'bullish').slice(0, 3);
- const bearish = industries.filter(i => i.trend === 'bearish').slice(0, 3);
- 
- console.log(` Top 3 Bullish (${timeframeName}):`, bullish.map(i => `${i.symbol} (+${i.relativePerformance.toFixed(2)}%)`));
- console.log(` Top 3 Bearish (${timeframeName}):`, bearish.map(i => `${i.symbol} (${i.relativePerformance.toFixed(2)}%)`));
  
  return {
  timeframe: timeframeName,
@@ -1105,11 +1127,8 @@ export class IndustryAnalysisService {
  static async getMarketRegimeDataWithProgress(
  progressCallback?: (stage: string, progress: number) => void
  ): Promise<MarketRegimeData> {
- console.log('� Starting MAXIMUM SPEED Market Regime Analysis...');
  
  if (progressCallback) progressCallback('Initializing parallel analysis...', 10);
-
- console.log(' Running all timeframes in parallel for maximum speed...');
  
  // Track actual progress with Promise.allSettled to monitor completion
  const completedTasks = { count: 0, total: 3 };
@@ -1146,8 +1165,6 @@ export class IndustryAnalysisService {
  
  if (progressCallback) progressCallback('Finalizing results...', 100);
  
- console.log(' MAXIMUM SPEED Market Regime Analysis Complete - All timeframes processed in parallel!');
- 
  return { life, developing, momentum };
  } catch (error) {
  throw error;
@@ -1159,16 +1176,14 @@ export class IndustryAnalysisService {
  progressCallback?: (stage: string, progress: number) => void,
  streamCallback?: (timeframe: string, data: TimeframeAnalysis) => void
  ): Promise<MarketRegimeData> {
- console.log('� STARTING MARKET REGIME ANALYSIS - INDUSTRY SERVICE INVOKED');
  
  if (progressCallback) progressCallback('Initializing streaming analysis...', 5);
  
  // Initialize service and check API connection
  try {
  await this.initializeService();
- console.log(' Market Regime Service initialized successfully');
  } catch (error) {
- console.error(' Failed to initialize Market Regime Service:', error);
+ console.error('Failed to initialize Market Regime Service:', error);
  }
  
  if (progressCallback) progressCallback('API connection verified, starting analysis...', 10);
@@ -1176,7 +1191,7 @@ export class IndustryAnalysisService {
  // Initialize empty result object
  const result: Partial<MarketRegimeData> = {};
  
- // Analysis configurations
+ // Analysis configurations - use more calendar days to ensure sufficient trading days
  const timeframes = [
  { days: 4, name: 'life' as keyof MarketRegimeData, label: 'Life' },
  { days: 16, name: 'developing' as keyof MarketRegimeData, label: 'Developing' },
@@ -1184,31 +1199,25 @@ export class IndustryAnalysisService {
  ];
 
  // Execute analyses sequentially to prevent resource exhaustion
- // instead of parallel execution which overwhelms the browser
  const completedAnalyses: any[] = [];
  
  for (const { days, name, label } of timeframes) {
  try {
- console.log(` STARTING ${label.toUpperCase()} TIMEFRAME ANALYSIS (${days} days)`);
  if (progressCallback) progressCallback(`Analyzing ${label} timeframe (${days}d)...`, 20 + (timeframes.findIndex(t => t.name === name) * 20));
  
  const data = await this.analyzeTimeframe(days, label);
  result[name] = data;
  
- console.log(` ${label} analysis complete - found ${data.industries.length} industries`);
- 
  // Stream the result immediately when ready
  if (streamCallback) {
- console.log(` Streaming ${label} results to UI...`);
  streamCallback(label, data);
  }
  
  if (progressCallback) progressCallback(`${label} timeframe complete`, 30 + (timeframes.findIndex(t => t.name === name) * 20));
  
- console.log(` ${label} timeframe analysis complete - streaming result`);
  completedAnalyses.push(data);
  } catch (error) {
- console.error(` CRITICAL ERROR analyzing ${label} timeframe:`, error);
+ console.error(`Error analyzing ${label} timeframe:`, error);
  
  // Don't throw - instead create empty timeframe data and continue
  const emptyData: TimeframeAnalysis = {
@@ -1219,27 +1228,22 @@ export class IndustryAnalysisService {
  result[name] = emptyData;
  
  if (streamCallback) {
- console.log(` Streaming empty ${label} results due to error...`);
  streamCallback(label, emptyData);
  }
  
- console.log(` ${label} timeframe failed - using empty data and continuing`);
  completedAnalyses.push(emptyData);
  }
  }
 
  try {
- // All analyses are now complete (sequential execution)
+ // All analyses are now complete
  if (progressCallback) progressCallback('All timeframes complete', 100);
- 
- console.log(' STREAMING Market Regime Analysis Complete - All results streamed!');
  
  return result as MarketRegimeData;
  } catch (error) {
- console.error(' Error in streaming market regime analysis:', error);
+ console.error('Error in streaming market regime analysis:', error);
  
  // Return partial results even if there were errors
- console.log(' Returning partial market regime data due to errors');
  return result as MarketRegimeData;
  }
  }
