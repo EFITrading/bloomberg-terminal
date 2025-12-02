@@ -2,7 +2,6 @@
 
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import PerformanceDashboard from '../charts/PerformanceDashboard';
 import { flushSync } from 'react-dom';
 import { 
  TbChartLine, 
@@ -10015,7 +10014,7 @@ export default function TradingViewChart({
  <div className="p-3 border-b border-yellow-500 bg-black">
  {/* Tab Navigation */}
  <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
- {['Watchlist', 'Performance Dashboard'].map(tab => (
+ {['Watchlist'].map(tab => (
  <button
  key={tab}
  onClick={() => setActiveTab(tab)}
@@ -10288,21 +10287,9 @@ export default function TradingViewChart({
  </div>
  </>
  )}
-
- {/* Performance Dashboard Tab Content */}
- <div style={{ 
-   width: '100%', 
-   height: '1300px', 
-   background: '#0a0a0a',
-   display: activeTab === 'Performance Dashboard' ? 'block' : 'none'
- }}>
- <PerformanceDashboard isVisible={activeTab === 'Performance Dashboard'} />
- </div>
  </div>
  );
- };
-
- // Enhanced Market Regimes Panel Component with advanced analytics
+ }; // Enhanced Market Regimes Panel Component with advanced analytics
  const RegimesPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
  
  const getCurrentTimeframeData = () => {

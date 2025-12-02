@@ -29,14 +29,17 @@ interface RRGChartProps {
  onLookbackChange?: (index: number) => void;
  onRefresh?: () => void;
  // Control props
- selectedMode?: 'sectors' | 'custom';
+ selectedMode?: 'sectors' | 'industries' | 'custom';
  selectedSectorETF?: string | null;
+ selectedIndustryETF?: string | null;
  customSymbols?: string;
  timeframeOptions?: Array<{label: string; value: string; weeks: number; rsPeriod: number; momentumPeriod: number}>;
  benchmarkOptions?: Array<{label: string; value: string}>;
  sectorETFs?: any;
- onModeChange?: (mode: 'sectors' | 'custom') => void;
+ industryETFs?: any;
+ onModeChange?: (mode: 'sectors' | 'industries' | 'custom') => void;
  onSectorETFChange?: (etf: string | null) => void;
+ onIndustryETFChange?: (etf: string | null) => void;
  onCustomSymbolsChange?: (symbols: string) => void;
  onBenchmarkChange?: (benchmark: string) => void;
  onTimeframeChange?: (timeframe: string) => void;
@@ -58,12 +61,15 @@ const RRGChart: React.FC<RRGChartProps> = ({
  // Control props
  selectedMode = 'sectors',
  selectedSectorETF = null,
+ selectedIndustryETF = null,
  customSymbols = '',
  timeframeOptions = [],
  benchmarkOptions = [],
  sectorETFs = {},
+ industryETFs = {},
  onModeChange,
  onSectorETFChange,
+ onIndustryETFChange,
  onCustomSymbolsChange,
  onBenchmarkChange,
  onTimeframeChange,
@@ -1000,14 +1006,23 @@ const RRGChart: React.FC<RRGChartProps> = ({
  <div className="control-group">
  <label>Analysis Mode:</label>
  <select 
- value={selectedSectorETF || selectedMode} 
+ value={selectedIndustryETF || selectedSectorETF || selectedMode} 
  onChange={(e) => {
- if (e.target.value === 'sectors' || e.target.value === 'custom') {
- onModeChange?.(e.target.value);
+ const value = e.target.value;
+ if (value === 'sectors' || value === 'industries' || value === 'custom') {
+ onModeChange?.(value as 'sectors' | 'industries' | 'custom');
  onSectorETFChange?.(null);
- } else {
+ onIndustryETFChange?.(null);
+ } else if (industryETFs && industryETFs[value]) {
+ // Industry ETF selected
+ onModeChange?.('industries');
+ onIndustryETFChange?.(value);
+ onSectorETFChange?.(null);
+ } else if (sectorETFs && sectorETFs[value]) {
+ // Sector ETF selected
  onModeChange?.('sectors');
- onSectorETFChange?.(e.target.value);
+ onSectorETFChange?.(value);
+ onIndustryETFChange?.(null);
  }
  }}
  disabled={loading}
@@ -1017,6 +1032,12 @@ const RRGChart: React.FC<RRGChartProps> = ({
  {Object.entries(sectorETFs).map(([symbol, info]: [string, any]) => (
  <option key={symbol} value={symbol}>
  {symbol} Holdings ({info.holdings.length} stocks)
+ </option>
+ ))}
+ <option value="industries">INDUSTRIES</option>
+ {Object.entries(industryETFs).map(([symbol, info]: [string, any]) => (
+ <option key={symbol} value={symbol}>
+ {symbol} - {info.name} ({info.holdings.length} stocks)
  </option>
  ))}
  <option value="custom">CUSTOM</option>

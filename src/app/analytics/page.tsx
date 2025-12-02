@@ -6,7 +6,9 @@ import './analytics-tabs.css';
 import Footer from '@/components/terminal/Footer';
 import RRGAnalytics from '@/components/analytics/RRGAnalytics';
 import RSScreener from '@/components/RSScreener';
+import HVScreener from '@/components/HVScreener';
 import LeadershipScan from '@/components/LeadershipScan';
+import PerformanceDashboard from '@/components/charts/PerformanceDashboard';
 
 export default function Analytics() {
  const [activeTab, setActiveTab] = useState('rrg');
@@ -119,6 +121,48 @@ export default function Analytics() {
  
  <button
  className="analytics-tab-button"
+ onClick={() => setActiveTab('hv-screener')}
+ style={{
+ background: activeTab === 'hv-screener' ? '#ff8500' : '#000000',
+ color: activeTab === 'hv-screener' ? '#000000' : '#ffffff',
+ border: 'none',
+ padding: '20px 40px',
+ fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
+ fontSize: '16px',
+ fontWeight: '800',
+ textTransform: 'uppercase',
+ letterSpacing: '2px',
+ cursor: 'pointer',
+ transition: 'all 0.3s ease',
+ borderRight: '1px solid #333333',
+ borderBottom: activeTab === 'hv-screener' ? '4px solid #ff8500' : '4px solid transparent',
+ position: 'relative',
+ flex: '1',
+ textAlign: 'center',
+ boxShadow: activeTab === 'hv-screener' ? '0 0 20px rgba(255, 133, 0, 0.4)' : 'none'
+ }}
+ onMouseEnter={(e) => {
+ if (activeTab !== 'hv-screener') {
+ e.currentTarget.style.color = '#ff8500';
+ e.currentTarget.style.background = '#111111';
+ e.currentTarget.style.borderBottom = '4px solid #ff8500';
+ e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 133, 0, 0.2)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (activeTab !== 'hv-screener') {
+ e.currentTarget.style.color = '#ffffff';
+ e.currentTarget.style.background = '#000000';
+ e.currentTarget.style.borderBottom = '4px solid transparent';
+ e.currentTarget.style.boxShadow = 'none';
+ }
+ }}
+ >
+ HV SCREENER
+ </button>
+ 
+ <button
+ className="analytics-tab-button"
  onClick={() => setActiveTab('leadership-scan')}
  style={{
  background: activeTab === 'leadership-scan' ? '#ff8500' : '#000000',
@@ -157,6 +201,47 @@ export default function Analytics() {
  >
  LEADERSHIP SCAN
  </button>
+ 
+ <button
+ className="analytics-tab-button"
+ onClick={() => setActiveTab('performance')}
+ style={{
+ background: activeTab === 'performance' ? '#ff8500' : '#000000',
+ color: activeTab === 'performance' ? '#000000' : '#ffffff',
+ border: 'none',
+ padding: '20px 40px',
+ fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
+ fontSize: '16px',
+ fontWeight: '800',
+ textTransform: 'uppercase',
+ letterSpacing: '2px',
+ cursor: 'pointer',
+ transition: 'all 0.3s ease',
+ borderBottom: activeTab === 'performance' ? '4px solid #ff8500' : '4px solid transparent',
+ position: 'relative',
+ flex: '1',
+ textAlign: 'center',
+ boxShadow: activeTab === 'performance' ? '0 0 20px rgba(255, 133, 0, 0.4)' : 'none'
+ }}
+ onMouseEnter={(e) => {
+ if (activeTab !== 'performance') {
+ e.currentTarget.style.color = '#ff8500';
+ e.currentTarget.style.background = '#111111';
+ e.currentTarget.style.borderBottom = '4px solid #ff8500';
+ e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 133, 0, 0.2)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (activeTab !== 'performance') {
+ e.currentTarget.style.color = '#ffffff';
+ e.currentTarget.style.background = '#000000';
+ e.currentTarget.style.borderBottom = '4px solid transparent';
+ e.currentTarget.style.boxShadow = 'none';
+ }
+ }}
+ >
+ PERFORMANCE COMPARISON
+ </button>
  </div>
 
  <div className="terminal-content" style={{ padding: 0 }}>
@@ -172,10 +257,26 @@ export default function Analytics() {
  <RSScreener />
  </div>
  
+ {/* HV Screener - Always mounted for immediate scanning, but only visible when active */}
+ <div style={{ display: activeTab === 'hv-screener' ? 'block' : 'none' }}>
+ <HVScreener />
+ </div>
+ 
  {/* Leadership Scan - Always mounted for immediate scanning, but only visible when active */}
  <div style={{ display: activeTab === 'leadership-scan' ? 'block' : 'none' }}>
  <LeadershipScan />
  </div>
+ 
+ {/* Performance Comparison - Only render when active */}
+ {activeTab === 'performance' && (
+ <div style={{ 
+ width: '100%',
+ height: 'calc(100vh - 200px)',
+ minHeight: '600px'
+ }}>
+ <PerformanceDashboard isVisible={true} />
+ </div>
+ )}
  </div>
  </div>
  <Footer />

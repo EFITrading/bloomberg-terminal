@@ -75,9 +75,10 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('performanceDashboard_selectedSymbols');
-      return saved ? JSON.parse(saved) : [];
+      // Default to all sectors if nothing saved
+      return saved ? JSON.parse(saved) : SECTORS.map(s => s.symbol);
     }
-    return [];
+    return SECTORS.map(s => s.symbol);
   });
   const [seriesData, setSeriesData] = useState<SeriesData[]>([]);
   const [loading, setLoading] = useState(false);

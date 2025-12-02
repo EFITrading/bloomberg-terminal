@@ -28,8 +28,9 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  });
  const [timeframe, setTimeframe] = useState(defaultTimeframe);
  const [benchmark, setBenchmark] = useState(defaultBenchmark);
- const [selectedMode, setSelectedMode] = useState<'sectors' | 'custom'>('sectors');
+ const [selectedMode, setSelectedMode] = useState<'sectors' | 'industries' | 'custom'>('sectors');
  const [selectedSectorETF, setSelectedSectorETF] = useState<string | null>(null);
+ const [selectedIndustryETF, setSelectedIndustryETF] = useState<string | null>(null);
  const [customSymbols, setCustomSymbols] = useState<string>('');
  const [refreshing, setRefreshing] = useState(false);
 
@@ -58,6 +59,85 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  { label: 'Total Stock Market (VTI)', value: 'VTI' },
  { label: 'World Stock Index (VT)', value: 'VT' }
  ];
+
+ const industryETFs = {
+ 'IGV': {
+ name: 'Software',
+ holdings: ['MSFT', 'AAPL', 'NVDA', 'CRM', 'ORCL', 'ADBE', 'NOW', 'INTU', 'PANW', 'WDAY']
+ },
+ 'SMH': {
+ name: 'Semiconductors',
+ holdings: ['TSM', 'NVDA', 'AVGO', 'AMD', 'QCOM', 'MU', 'INTC', 'AMAT', 'ADI', 'MRVL']
+ },
+ 'XRT': {
+ name: 'Retail',
+ holdings: ['AMZN', 'HD', 'LOW', 'TJX', 'TGT', 'COST', 'WMT', 'DG', 'DLTR', 'BBY']
+ },
+ 'KIE': {
+ name: 'Insurance',
+ holdings: ['BRK-B', 'PGR', 'TRV', 'AIG', 'MET', 'PRU', 'ALL', 'CB', 'AFL', 'L']
+ },
+ 'KRE': {
+ name: 'Regional Banks',
+ holdings: ['WFC', 'USB', 'PNC', 'TFC', 'COF', 'MTB', 'FITB', 'HBAN', 'RF', 'KEY']
+ },
+ 'GDX': {
+ name: 'Gold Miners',
+ holdings: ['NEM', 'GOLD', 'AEM', 'FNV', 'WPM', 'AU', 'KGC', 'PAAS', 'EGO', 'AUY']
+ },
+ 'ITA': {
+ name: 'Aerospace & Defense',
+ holdings: ['BA', 'RTX', 'LMT', 'NOC', 'GD', 'LHX', 'TXT', 'HWM', 'CW', 'TDG']
+ },
+ 'TAN': {
+ name: 'Solar Energy',
+ holdings: ['ENPH', 'FSLR', 'SEDG', 'NOVA', 'ARRY', 'RUN', 'SOL', 'CSIQ', 'JKS', 'DQ']
+ },
+ 'XBI': {
+ name: 'Biotechnology',
+ holdings: ['GILD', 'AMGN', 'BIIB', 'MRNA', 'VRTX', 'REGN', 'ILMN', 'BMRN', 'ALNY', 'TECH']
+ },
+ 'ITB': {
+ name: 'Homebuilders',
+ holdings: ['LEN', 'NVR', 'DHI', 'PHM', 'KBH', 'TOL', 'TPG', 'BZH', 'MTH', 'GRBK']
+ },
+ 'XHB': {
+ name: 'Homebuilders ETF',
+ holdings: ['HD', 'LOW', 'LEN', 'DHI', 'PHM', 'AMZN', 'SHW', 'BLD', 'FND', 'BLDR']
+ },
+ 'XOP': {
+ name: 'Oil & Gas Exploration',
+ holdings: ['FANG', 'OVV', 'EQT', 'MTDR', 'MGY', 'MRO', 'AR', 'SM', 'PR', 'CIVI']
+ },
+ 'OIH': {
+ name: 'Oil Services',
+ holdings: ['SLB', 'HAL', 'BKR', 'FTI', 'NOV', 'WFRD', 'HP', 'CHX', 'LBRT', 'PTEN']
+ },
+ 'XME': {
+ name: 'Metals & Mining',
+ holdings: ['FCX', 'NEM', 'STLD', 'NUE', 'CLF', 'X', 'MP', 'AA', 'CRS', 'RS']
+ },
+ 'ARKK': {
+ name: 'Innovation',
+ holdings: ['TSLA', 'ROKU', 'COIN', 'SHOP', 'ZM', 'SQ', 'HOOD', 'PATH', 'GBTC', 'RBLX']
+ },
+ 'IPO': {
+ name: 'IPOs',
+ holdings: ['RBLX', 'COIN', 'DDOG', 'ZM', 'SNOW', 'U', 'ABNB', 'PLTR', 'DASH', 'CPNG']
+ },
+ 'VNQ': {
+ name: 'Real Estate (REITs)',
+ holdings: ['PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'WY', 'DLR', 'O', 'SBAC', 'EXR']
+ },
+ 'JETS': {
+ name: 'Airlines',
+ holdings: ['DAL', 'UAL', 'AAL', 'LUV', 'SAVE', 'ALK', 'JBLU', 'HA', 'SKYW', 'MESA']
+ },
+ 'KWEB': {
+ name: 'China Internet',
+ holdings: ['BABA', 'TCEHY', 'PDD', 'JD', 'NTES', 'BIDU', 'TME', 'BILI', 'IQ', 'VIPS']
+ }
+ };
 
  const sectorETFs = {
  'XLK': {
@@ -141,6 +221,32 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  10 // tail length
  );
  }
+ } else if (selectedMode === 'industries') {
+ if (selectedIndustryETF && industryETFs[selectedIndustryETF as keyof typeof industryETFs]) {
+ // Load holdings of selected industry ETF
+ const etfInfo = industryETFs[selectedIndustryETF as keyof typeof industryETFs];
+ console.log(` Loading ${selectedIndustryETF} holdings RRG data...`);
+ data = await rrgService.calculateCustomRRG(
+ etfInfo.holdings,
+ selectedIndustryETF,
+ selectedTimeframe.weeks,
+ selectedTimeframe.rsPeriod,
+ selectedTimeframe.momentumPeriod,
+ 10
+ );
+ } else {
+ // Load all industry ETFs for comparison
+ console.log(' Loading Industry ETFs RRG data...');
+ const industrySymbols = Object.keys(industryETFs);
+ data = await rrgService.calculateCustomRRG(
+ industrySymbols,
+ benchmark,
+ selectedTimeframe.weeks,
+ selectedTimeframe.rsPeriod,
+ selectedTimeframe.momentumPeriod,
+ 10
+ );
+ }
  } else {
  const symbols = customSymbols
  .split(',')
@@ -183,7 +289,7 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  // Load data on component mount and when settings change
  useEffect(() => {
  loadRRGData();
- }, [timeframe, benchmark, selectedMode, selectedSectorETF]);
+ }, [timeframe, benchmark, selectedMode, selectedSectorETF, selectedIndustryETF]);
 
  const getQuadrantSummary = () => {
  const summary = {
@@ -200,21 +306,6 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
 
  return (
  <div className="rrg-analytics-container">
- <div className="rrg-analytics-header">
- <div className="header-title">
- <h2> Relative Rotation Graph (RRG) Analytics</h2>
- <p>
- Professional-grade sector rotation analysis powered by real-time data
- {selectedSectorETF && (
- <span className="analysis-mode-indicator">
- • Analyzing {selectedSectorETF} Holdings
- </span>
- )}
- </p>
- </div>
- 
- </div>
-
  {loading && (
  <div className="rrg-loading">
  <div className="loading-content">
@@ -262,118 +353,14 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  sectorETFs={sectorETFs}
  onModeChange={setSelectedMode}
  onSectorETFChange={setSelectedSectorETF}
+ onIndustryETFChange={setSelectedIndustryETF}
  onCustomSymbolsChange={setCustomSymbols}
  onBenchmarkChange={setBenchmark}
  onTimeframeChange={setTimeframe}
+ industryETFs={industryETFs}
+ selectedIndustryETF={selectedIndustryETF}
  loading={loading}
  />
-
- <div className="rrg-summary">
- <div className="summary-header">
- <h3> Quadrant Analysis Summary</h3>
- <p>
- Current positioning of {
- selectedSectorETF 
- ? `${selectedSectorETF} holdings` 
- : selectedMode === 'sectors' 
- ? 'sectors' 
- : 'securities'
- } relative to {selectedSectorETF || benchmark}
- </p>
- {selectedSectorETF && (
- <div className="etf-analysis-note">
- <span className="etf-name">
- Analyzing {sectorETFs[selectedSectorETF as keyof typeof sectorETFs].name}
- </span>
- <span className="holdings-count">
- {sectorETFs[selectedSectorETF as keyof typeof sectorETFs].holdings.length} holdings
- </span>
- </div>
- )}
- </div>
-
- <div className="quadrant-cards">
- <div className="quadrant-card leading">
- <div className="card-header">
- <h4> Leading ({quadrantSummary.leading.length})</h4>
- <span>Strong RS, Improving Momentum</span>
- </div>
- <div className="card-content">
- {quadrantSummary.leading.map(item => (
- <div key={item.symbol} className="security-item">
- <span className="symbol">{item.symbol}</span>
- <span className="metrics">
- RS: {item.rsRatio.toFixed(1)} | Mom: {item.rsMomentum.toFixed(1)}
- </span>
- </div>
- ))}
- {quadrantSummary.leading.length === 0 && (
- <span className="no-items">No items in this quadrant</span>
- )}
- </div>
- </div>
-
- <div className="quadrant-card weakening">
- <div className="card-header">
- <h4> Weakening ({quadrantSummary.weakening.length})</h4>
- <span>Strong RS, Declining Momentum</span>
- </div>
- <div className="card-content">
- {quadrantSummary.weakening.map(item => (
- <div key={item.symbol} className="security-item">
- <span className="symbol">{item.symbol}</span>
- <span className="metrics">
- RS: {item.rsRatio.toFixed(1)} | Mom: {item.rsMomentum.toFixed(1)}
- </span>
- </div>
- ))}
- {quadrantSummary.weakening.length === 0 && (
- <span className="no-items">No items in this quadrant</span>
- )}
- </div>
- </div>
-
- <div className="quadrant-card lagging">
- <div className="card-header">
- <h4> Lagging ({quadrantSummary.lagging.length})</h4>
- <span>Weak RS, Declining Momentum</span>
- </div>
- <div className="card-content">
- {quadrantSummary.lagging.map(item => (
- <div key={item.symbol} className="security-item">
- <span className="symbol">{item.symbol}</span>
- <span className="metrics">
- RS: {item.rsRatio.toFixed(1)} | Mom: {item.rsMomentum.toFixed(1)}
- </span>
- </div>
- ))}
- {quadrantSummary.lagging.length === 0 && (
- <span className="no-items">No items in this quadrant</span>
- )}
- </div>
- </div>
-
- <div className="quadrant-card improving">
- <div className="card-header">
- <h4> Improving ({quadrantSummary.improving.length})</h4>
- <span>Weak RS, Improving Momentum</span>
- </div>
- <div className="card-content">
- {quadrantSummary.improving.map(item => (
- <div key={item.symbol} className="security-item">
- <span className="symbol">{item.symbol}</span>
- <span className="metrics">
- RS: {item.rsRatio.toFixed(1)} | Mom: {item.rsMomentum.toFixed(1)}
- </span>
- </div>
- ))}
- {quadrantSummary.improving.length === 0 && (
- <span className="no-items">No items in this quadrant</span>
- )}
- </div>
- </div>
- </div>
- </div>
  </>
  )}
  </div>
