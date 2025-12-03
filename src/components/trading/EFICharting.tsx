@@ -3698,6 +3698,53 @@ export default function TradingViewChart({
     isGexActive && gexMode === 'oi' // Only auto-refresh when OI GEX is active
   );
 
+  // IV & HV Indicator state - TradingView style bottom panel indicators
+  const [isIVHVDropdownOpen, setIsIVHVDropdownOpen] = useState(false);
+  const [isIVLoading, setIsIVLoading] = useState(false);
+  const [ivProgress, setIVProgress] = useState(0);
+  const ivhvButtonRef = useRef<HTMLButtonElement>(null);
+  
+  // Main IV Panel toggle - shows the IV panel with line toggles inside
+  const [showIVPanel, setShowIVPanel] = useState(false);
+  // Individual IV line toggles (controlled within the panel, not dropdown)
+  const [showCallIVLine, setShowCallIVLine] = useState(true); // Default to showing Call IV
+  const [showPutIVLine, setShowPutIVLine] = useState(true); // Default to showing Put IV
+  const [showNetIVLine, setShowNetIVLine] = useState(false); // Net IV off by default
+  const [showIVRankIndicator, setShowIVRankIndicator] = useState(false);
+  const [showIVPercentileIndicator, setShowIVPercentileIndicator] = useState(false);
+  const [showHVIndicator, setShowHVIndicator] = useState(false);
+  
+  // IV Panel settings
+  const [ivPanelHeight, setIVPanelHeight] = useState(120); // Height per indicator panel
+  const [isDraggingIVPanel, setIsDraggingIVPanel] = useState(false); // For resize dragging
+  const [ivLookbackPeriod, setIVLookbackPeriod] = useState(365); // Default 1 year
+  const [hvWindow, setHVWindow] = useState(20); // Historical Volatility window (10, 20, 30, 60 days)
+  
+  // IV Data state
+  const [ivData, setIVData] = useState<Array<{
+    date: string;
+    callIV: number | null;
+    putIV: number | null;
+    netIV: number | null;
+    ivRank: number | null;
+    ivPercentile: number | null;
+    hv: number | null;
+    price: number;
+    expiration: string;
+  }>>([]);
+  const [currentIVMetrics, setCurrentIVMetrics] = useState<{
+    currentPrice: number | null;
+    callIV: number | null;
+    putIV: number | null;
+  }>({ currentPrice: null, callIV: null, putIV: null });
+
+  // Check if any IV/HV indicator is active - showIVPanel controls the IV panel visibility
+  const showIVIndicator = showIVPanel; // IV panel is shown when toggled, line visibility controlled inside panel
+  const isAnyIVHVActive = showIVPanel || showIVRankIndicator || showIVPercentileIndicator || showHVIndicator;
+  
+  // Count active IV panels for height calculation (IV panel counts as 1 even with multiple lines)
+  const activeIVPanelCount = [showIVPanel, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator].filter(Boolean).length;
+
   // Flow Chart state - 4-line chart showing bullish/bearish calls/puts
   const [isFlowChartActive, setIsFlowChartActive] = useState(false);
   const [flowChartViewMode, setFlowChartViewMode] = useState<'detailed' | 'simplified' | 'net'>('detailed');
@@ -3754,6 +3801,183 @@ export default function TradingViewChart({
       };
     }
   }, [isDraggingFlowChart, handleFlowChartDragMove, handleFlowChartDragEnd]);
+
+  // IV Panel resize handlers - TradingView style drag to resize
+  const handleIVPanelDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingIVPanel(true);
+  }, []);
+
+  const handleIVPanelDragMove = useCallback((e: MouseEvent) => {
+    if (!isDraggingIVPanel) return;
+    
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const rect = container.getBoundingClientRect();
+    const mouseY = e.clientY;
+    const bottomOfContainer = rect.bottom;
+    
+    // Calculate distance from bottom (accounting for volume and time axis)
+    const volumeAndTimeHeight = 80 + 25; // volume area + time axis
+    const flowChartSpace = isFlowChartActive ? flowChartHeight : 0;
+    const distanceFromBottom = bottomOfContainer - mouseY - volumeAndTimeHeight - flowChartSpace;
+    
+    // Calculate new height per panel
+    const newHeightPerPanel = Math.floor(distanceFromBottom / Math.max(1, activeIVPanelCount));
+    
+    // Constrain between 80px and 300px per panel
+    const constrainedHeight = Math.max(80, Math.min(300, newHeightPerPanel));
+    setIVPanelHeight(constrainedHeight);
+  }, [isDraggingIVPanel, isFlowChartActive, flowChartHeight, activeIVPanelCount]);
+
+  const handleIVPanelDragEnd = useCallback(() => {
+    setIsDraggingIVPanel(false);
+  }, []);
+
+  // Add/remove mouse event listeners for IV panel dragging
+  useEffect(() => {
+    if (isDraggingIVPanel) {
+      window.addEventListener('mousemove', handleIVPanelDragMove);
+      window.addEventListener('mouseup', handleIVPanelDragEnd);
+      return () => {
+        window.removeEventListener('mousemove', handleIVPanelDragMove);
+        window.removeEventListener('mouseup', handleIVPanelDragEnd);
+      };
+    }
+  }, [isDraggingIVPanel, handleIVPanelDragMove, handleIVPanelDragEnd]);
+
+  // IV & HV Data Fetch Handler - Fetches historical IV data and calculates metrics
+  const fetchIVData = useCallback(async () => {
+    if (isIVLoading) return;
+    
+    console.log(`🔍 Fetching IV data for ${symbol} with ${ivLookbackPeriod} day lookback`);
+    setIsIVLoading(true);
+    setIVProgress(0);
+    
+    try {
+      // Fetch calculated historical IV data from API
+      const response = await fetch(
+        `/api/calculate-historical-iv?ticker=${symbol}&days=${ivLookbackPeriod}`
+      );
+      const result = await response.json();
+      
+      setIVProgress(50);
+      
+      if (result.success && result.data.history && result.data.history.length > 0) {
+        const { currentPrice, callIV, putIV, history } = result.data;
+        
+        console.log(`✅ IV History received - ${history.length} data points`);
+        
+        // Store current metrics
+        setCurrentIVMetrics({
+          currentPrice,
+          callIV,
+          putIV
+        });
+        
+        // Calculate IV Rank and IV Percentile for the full history
+        const ivValues = history
+          .map((h: any) => (h.callIV && h.putIV) ? (h.callIV + h.putIV) / 2 : null)
+          .filter((v: any) => v !== null);
+        const minIV = Math.min(...ivValues);
+        const maxIV = Math.max(...ivValues);
+        
+        // Calculate Historical Volatility (HV) using price data
+        const calculateHV = (prices: number[], window: number) => {
+          if (prices.length < window + 1) return null;
+          
+          const returns: number[] = [];
+          for (let i = 1; i <= window; i++) {
+            returns.push(Math.log(prices[prices.length - i] / prices[prices.length - i - 1]));
+          }
+          
+          const mean = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+          const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+          const stdDev = Math.sqrt(variance);
+          
+          // Annualize (252 trading days) and convert to percentage
+          return stdDev * Math.sqrt(252) * 100;
+        };
+        
+        // Format history for chart with IV Rank, IV Percentile, and HV
+        const chartData = history.map((h: any, index: number) => {
+          const netIV = (h.callIV && h.putIV) ? (h.callIV + h.putIV) / 2 : null;
+          
+          // IV Rank: (Current - Min) / (Max - Min) * 100
+          const ivRank = netIV && maxIV !== minIV ? ((netIV - minIV) / (maxIV - minIV)) * 100 : null;
+          
+          // IV Percentile: Percentage of values below current value
+          const ivPercentile = netIV ? (ivValues.filter((v: number) => v <= netIV).length / ivValues.length) * 100 : null;
+          
+          // Historical Volatility: Calculate using rolling window
+          const prices = history.slice(Math.max(0, index - hvWindow), index + 1).map((item: any) => item.price);
+          const hv = calculateHV(prices, hvWindow);
+          
+          return {
+            date: h.date,
+            callIV: h.callIV,
+            putIV: h.putIV,
+            netIV,
+            ivRank,
+            ivPercentile,
+            hv,
+            price: h.price,
+            expiration: h.expiration
+          };
+        });
+        
+        setIVData(chartData);
+        setIVProgress(100);
+        console.log(`📊 IV data processed: ${chartData.length} data points`);
+      } else {
+        console.error('❌ Failed to fetch IV data:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ IV Fetch Error:', error);
+    } finally {
+      setIsIVLoading(false);
+    }
+  }, [symbol, ivLookbackPeriod, hvWindow, isIVLoading]);
+  
+  // Recalculate HV when window changes
+  const recalculateHV = useCallback((newWindow: number) => {
+    if (ivData.length === 0) return;
+    
+    const calculateHV = (prices: number[], window: number) => {
+      if (prices.length < window + 1) return null;
+      
+      const returns: number[] = [];
+      for (let i = 1; i <= window; i++) {
+        returns.push(Math.log(prices[prices.length - i] / prices[prices.length - i - 1]));
+      }
+      
+      const mean = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+      const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+      const stdDev = Math.sqrt(variance);
+      
+      return stdDev * Math.sqrt(252) * 100;
+    };
+    
+    const updatedData = ivData.map((item, index) => {
+      const prices = ivData.slice(Math.max(0, index - newWindow), index + 1).map((d) => d.price);
+      const hv = calculateHV(prices, newWindow);
+      
+      return {
+        ...item,
+        hv
+      };
+    });
+    
+    setIVData(updatedData);
+  }, [ivData]);
+
+  // Auto-fetch IV data when any indicator is activated
+  useEffect(() => {
+    if (isAnyIVHVActive && ivData.length === 0) {
+      fetchIVData();
+    }
+  }, [isAnyIVHVActive, ivData.length, fetchIVData]);
 
  // Expansion/Liquidation indicator state
  const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false);
@@ -5597,9 +5821,10 @@ export default function TradingViewChart({
  // Calculate chart areas - reserve space for volume and time axis
  const timeAxisHeight = 25;
  const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0; // Reserve space for flow chart when active
+ const actualIVPanelHeight = isAnyIVHVActive ? (activeIVPanelCount * ivPanelHeight) : 0; // Reserve space for IV indicator panels
  const volumeAreaHeight = 80; // Reserve space for volume bars
  // Adjust price chart height based on active indicators
- const totalBottomSpace = actualFlowChartHeight + volumeAreaHeight + timeAxisHeight;
+ const totalBottomSpace = actualFlowChartHeight + actualIVPanelHeight + volumeAreaHeight + timeAxisHeight;
  const priceChartHeight = height - totalBottomSpace;
 
  // Draw grid first for price chart area (only if enabled)
@@ -5903,8 +6128,68 @@ export default function TradingViewChart({
    }
  }
 
+ // Draw IV/HV indicator panels below the flow chart (or below price chart if no flow chart)
+ if (isAnyIVHVActive) {
+   let currentPanelY = priceChartHeight + actualFlowChartHeight;
+   
+   // If no data yet, show loading panels
+   if (ivData.length === 0) {
+     // Draw loading panel placeholder
+     const drawLoadingPanel = (panelY: number, panelTitle: string) => {
+       ctx.fillStyle = '#000000';
+       ctx.fillRect(0, panelY, chartWidth, ivPanelHeight);
+       ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+       ctx.lineWidth = 1;
+       ctx.beginPath();
+       ctx.moveTo(0, panelY);
+       ctx.lineTo(chartWidth, panelY);
+       ctx.stroke();
+       
+       ctx.font = 'bold 12px JetBrains Mono, monospace';
+       ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+       ctx.textAlign = 'center';
+       ctx.fillText(`Loading ${panelTitle}...`, chartWidth / 2, panelY + ivPanelHeight / 2 + 4);
+     };
+     
+     if (showIVIndicator) {
+       drawLoadingPanel(currentPanelY, 'IV Data');
+       currentPanelY += ivPanelHeight;
+     }
+     if (showIVRankIndicator) {
+       drawLoadingPanel(currentPanelY, 'IV Rank');
+       currentPanelY += ivPanelHeight;
+     }
+     if (showIVPercentileIndicator) {
+       drawLoadingPanel(currentPanelY, 'IV Percentile');
+       currentPanelY += ivPanelHeight;
+     }
+     if (showHVIndicator) {
+       drawLoadingPanel(currentPanelY, 'Historical Volatility');
+       currentPanelY += ivPanelHeight;
+     }
+   } else {
+     // Draw each active indicator panel with data
+     if (showIVIndicator) {
+       drawIVPanel(ctx, 'iv', ivData, visibleData, chartWidth, currentPanelY, visibleCandleCount, ivPanelHeight);
+       currentPanelY += ivPanelHeight;
+     }
+     if (showIVRankIndicator) {
+       drawIVPanel(ctx, 'ivRank', ivData, visibleData, chartWidth, currentPanelY, visibleCandleCount, ivPanelHeight);
+       currentPanelY += ivPanelHeight;
+     }
+     if (showIVPercentileIndicator) {
+       drawIVPanel(ctx, 'ivPercentile', ivData, visibleData, chartWidth, currentPanelY, visibleCandleCount, ivPanelHeight);
+       currentPanelY += ivPanelHeight;
+     }
+     if (showHVIndicator) {
+       drawIVPanel(ctx, 'hv', ivData, visibleData, chartWidth, currentPanelY, visibleCandleCount, ivPanelHeight);
+       currentPanelY += ivPanelHeight;
+     }
+   }
+ }
+
  // Draw volume bars above the time axis (TradingView style)
- drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + actualFlowChartHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+ drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + actualFlowChartHeight + actualIVPanelHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
 
  // Draw time axis at the bottom
  drawTimeAxis(ctx, width, height, visibleData, chartWidth, visibleCandleCount, scrollOffset, data);
@@ -5924,7 +6209,7 @@ export default function TradingViewChart({
  console.log(`? Integrated chart rendered successfully with ${config.theme} theme`);
 
  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.length, dimensions.width, dimensions.height, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData, flowChartViewMode, flowChartHeight]); // Draw volume bars above the x-axis (TradingView style)
+  }, [data.length, dimensions.width, dimensions.height, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData, flowChartViewMode, flowChartHeight, isAnyIVHVActive, ivData, ivData.length, isIVLoading, showIVPanel, showIVIndicator, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivPanelHeight, hvWindow, activeIVPanelCount]); // Draw volume bars above the x-axis (TradingView style)
  const drawVolumeProfile = (
  ctx: CanvasRenderingContext2D,
  visibleData: ChartDataPoint[],
@@ -6331,6 +6616,285 @@ export default function TradingViewChart({
        
        ctx.fillText(valueText, yAxisXPosition, y + 6);
      }
+   }
+ };
+
+ // Draw IV/HV indicator panels at the bottom of the chart (TradingView style)
+ const drawIVPanel = (
+   ctx: CanvasRenderingContext2D,
+   panelType: 'iv' | 'ivRank' | 'ivPercentile' | 'hv',
+   ivDataArray: typeof ivData,
+   visibleData: ChartDataPoint[],
+   chartWidth: number,
+   panelStartY: number,
+   visibleCandleCount: number,
+   panelHeight: number
+ ) => {
+   if (!ivDataArray.length || !visibleData.length) return;
+
+   const panelEndY = panelStartY + panelHeight;
+
+   // Panel colors based on type - black background, crisp bright lines
+   const panelConfig = {
+     iv: { title: 'IMPLIED VOLATILITY', lineColor: '#FF9500', bgColor: '#000000' },
+     ivRank: { title: 'IV RANK', lineColor: '#FF6B9D', bgColor: '#000000' },
+     ivPercentile: { title: 'IV PERCENTILE', lineColor: '#00FF88', bgColor: '#000000' },
+     hv: { title: `HISTORICAL VOLATILITY (${hvWindow}D)`, lineColor: '#00D4FF', bgColor: '#000000' }
+   };
+
+   const config = panelConfig[panelType];
+
+   // Draw panel background - solid black
+   ctx.fillStyle = config.bgColor;
+   ctx.fillRect(40, panelStartY, chartWidth - 120, panelHeight);
+
+   // Draw panel border at top
+   ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+   ctx.lineWidth = 1;
+   ctx.beginPath();
+   ctx.moveTo(40, panelStartY);
+   ctx.lineTo(chartWidth - 80, panelStartY);
+   ctx.stroke();
+
+   // Draw panel title
+   ctx.font = 'bold 11px JetBrains Mono, monospace';
+   ctx.fillStyle = '#FFFFFF';
+   ctx.textAlign = 'left';
+   ctx.fillText(config.title, 50, panelStartY + 15);
+
+   // Add padding for chart area
+   const yAxisPadding = 20;
+   const effectivePanelStartY = panelStartY + yAxisPadding;
+   const effectivePanelEndY = panelEndY - 10;
+   const effectivePanelHeight = effectivePanelEndY - effectivePanelStartY;
+
+   // Calculate candle spacing to align with price chart
+   const candleSpacing = chartWidth / visibleCandleCount;
+
+   // Create a date to x position mapping
+   const datePositions = new Map<string, number>();
+   visibleData.forEach((candle, index) => {
+     const dateStr = candle.date;
+     const x = 40 + (index * candleSpacing) + (candleSpacing / 2);
+     datePositions.set(dateStr, x);
+   });
+
+   // For IV panel, we may draw multiple lines (Call, Put, Net)
+   if (panelType === 'iv') {
+     // Calculate min/max across all IV types for consistent scaling
+     let minValue = Infinity;
+     let maxValue = -Infinity;
+
+     ivDataArray.forEach(item => {
+       if (showCallIVLine && item.callIV !== null) {
+         minValue = Math.min(minValue, item.callIV);
+         maxValue = Math.max(maxValue, item.callIV);
+       }
+       if (showPutIVLine && item.putIV !== null) {
+         minValue = Math.min(minValue, item.putIV);
+         maxValue = Math.max(maxValue, item.putIV);
+       }
+       if (showNetIVLine && item.netIV !== null) {
+         minValue = Math.min(minValue, item.netIV);
+         maxValue = Math.max(maxValue, item.netIV);
+       }
+     });
+
+     const range = maxValue - minValue;
+     const paddedMin = minValue - range * 0.1;
+     const paddedMax = maxValue + range * 0.1;
+     const paddedRange = paddedMax - paddedMin;
+
+     // Define line configs for IV
+     const ivLines = [
+       { key: 'callIV', color: '#00FF00', name: 'Call IV', show: showCallIVLine },
+       { key: 'putIV', color: '#FF0000', name: 'Put IV', show: showPutIVLine },
+       { key: 'netIV', color: '#FF9500', name: 'Net IV', show: showNetIVLine }
+     ];
+
+     // Draw each active IV line
+     ivLines.forEach(lineConfig => {
+       if (!lineConfig.show) return;
+
+       ctx.strokeStyle = lineConfig.color;
+       ctx.lineWidth = 2.5;
+       ctx.lineCap = 'round';
+       ctx.lineJoin = 'round';
+       ctx.beginPath();
+
+       let firstPoint = true;
+       let lastX = 0;
+       let lastY = 0;
+       let lastValue: number | null = null;
+
+       ivDataArray.forEach(item => {
+         const x = datePositions.get(item.date);
+         const value = (item as any)[lineConfig.key] as number | null;
+         
+         if (x !== undefined && value !== null) {
+           const y = effectivePanelEndY - ((value - paddedMin) / paddedRange) * effectivePanelHeight;
+           
+           if (firstPoint) {
+             ctx.moveTo(x, y);
+             firstPoint = false;
+           } else {
+             ctx.lineTo(x, y);
+           }
+           
+           lastX = x;
+           lastY = y;
+           lastValue = value;
+         }
+       });
+
+       ctx.stroke();
+
+       // Draw label at end of line
+       if (lastValue !== null && typeof lastValue === 'number') {
+         ctx.font = 'bold 11px JetBrains Mono, monospace';
+         ctx.textAlign = 'left';
+         const labelText = `${lineConfig.name}: ${(lastValue as number).toFixed(2)}%`;
+         const textWidth = ctx.measureText(labelText).width;
+         
+         ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+         ctx.fillRect(lastX + 5, lastY - 8, textWidth + 8, 16);
+         
+         ctx.fillStyle = lineConfig.color;
+         ctx.fillText(labelText, lastX + 9, lastY + 4);
+       }
+     });
+
+     // Draw Y-axis scale labels
+     ctx.font = 'bold 12px JetBrains Mono, monospace';
+     ctx.textAlign = 'right';
+     ctx.fillStyle = '#FFFFFF';
+
+     const steps = 3;
+     for (let i = 0; i <= steps; i++) {
+       const value = paddedMin + (paddedRange / steps) * i;
+       const y = effectivePanelEndY - (i * effectivePanelHeight / steps);
+       ctx.fillText(`${value.toFixed(1)}%`, chartWidth - 45, y + 4);
+     }
+
+     return; // Exit early for IV panel
+   }
+
+   // Get the appropriate data key for non-IV panels
+   const getDataValue = (item: typeof ivData[0]): number | null => {
+     switch (panelType) {
+       case 'ivRank': return item.ivRank;
+       case 'ivPercentile': return item.ivPercentile;
+       case 'hv': return item.hv;
+       default: return null;
+     }
+   };
+
+   // Calculate min/max for scaling
+   let minValue = Infinity;
+   let maxValue = -Infinity;
+
+   ivDataArray.forEach(item => {
+     const value = getDataValue(item);
+     if (value !== null) {
+       minValue = Math.min(minValue, value);
+       maxValue = Math.max(maxValue, value);
+     }
+   });
+
+   // For rank and percentile, use 0-100 scale
+   if (panelType === 'ivRank' || panelType === 'ivPercentile') {
+     minValue = 0;
+     maxValue = 100;
+   }
+
+   // Add padding to the range
+   const range = maxValue - minValue;
+   const paddedMin = panelType === 'ivRank' || panelType === 'ivPercentile' ? 0 : minValue - range * 0.1;
+   const paddedMax = panelType === 'ivRank' || panelType === 'ivPercentile' ? 100 : maxValue + range * 0.1;
+   const paddedRange = paddedMax - paddedMin;
+
+   // Draw 50% reference line for rank and percentile
+   if (panelType === 'ivRank' || panelType === 'ivPercentile') {
+     const y50 = effectivePanelEndY - ((50 - paddedMin) / paddedRange) * effectivePanelHeight;
+     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+     ctx.lineWidth = 1;
+     ctx.setLineDash([3, 3]);
+     ctx.beginPath();
+     ctx.moveTo(40, y50);
+     ctx.lineTo(chartWidth - 80, y50);
+     ctx.stroke();
+     ctx.setLineDash([]);
+   }
+
+   // Draw the line chart - crisp solid line
+   ctx.strokeStyle = config.lineColor;
+   ctx.lineWidth = 2.5;
+   ctx.lineCap = 'round';
+   ctx.lineJoin = 'round';
+   ctx.imageSmoothingEnabled = false;
+   ctx.beginPath();
+
+   let firstPoint = true;
+   let lastX = 0;
+   let lastY = 0;
+   let lastValue: number | null = null;
+
+   ivDataArray.forEach(item => {
+     const x = datePositions.get(item.date);
+     const value = getDataValue(item);
+     
+     if (x !== undefined && value !== null) {
+       const y = effectivePanelEndY - ((value - paddedMin) / paddedRange) * effectivePanelHeight;
+       
+       if (firstPoint) {
+         ctx.moveTo(x, y);
+         firstPoint = false;
+       } else {
+         ctx.lineTo(x, y);
+       }
+       
+       lastX = x;
+       lastY = y;
+       lastValue = value;
+     }
+   });
+
+   ctx.stroke();
+
+   // Draw current value label at the end of the line
+   if (lastValue !== null && typeof lastValue === 'number') {
+     ctx.font = 'bold 12px JetBrains Mono, monospace';
+     ctx.textAlign = 'left';
+     
+     // Draw background box
+     const displayValue = lastValue as number;
+     const labelText = panelType === 'ivRank' || panelType === 'ivPercentile' 
+       ? `${displayValue.toFixed(1)}%`
+       : `${displayValue.toFixed(2)}%`;
+     const textWidth = ctx.measureText(labelText).width;
+     
+     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+     ctx.fillRect(lastX + 5, lastY - 10, textWidth + 10, 20);
+     
+     ctx.fillStyle = config.lineColor;
+     ctx.fillText(labelText, lastX + 10, lastY + 4);
+   }
+
+   // Draw Y-axis scale labels - crispy white text
+   ctx.font = 'bold 12px JetBrains Mono, monospace';
+   ctx.textAlign = 'right';
+   ctx.fillStyle = '#FFFFFF';
+
+   const steps = 3;
+   for (let i = 0; i <= steps; i++) {
+     const value = paddedMin + (paddedRange / steps) * i;
+     const y = effectivePanelEndY - (i * effectivePanelHeight / steps);
+     
+     const labelText = panelType === 'ivRank' || panelType === 'ivPercentile'
+       ? `${value.toFixed(0)}%`
+       : `${value.toFixed(1)}%`;
+     
+     ctx.fillText(labelText, chartWidth - 45, y + 4);
    }
  };
 
@@ -7510,7 +8074,7 @@ export default function TradingViewChart({
  renderChart();
  }
  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight]); // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
+  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow]); // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
  useEffect(() => {
  if (!isParallelChannelMode) return;
  
@@ -12119,7 +12683,299 @@ export default function TradingViewChart({
                   />, 
                   document.body
                 )}
-              </div> {/* Expansion/Liquidation Button */}
+              </div>
+
+              {/* IV & HV Button with Dropdown */}
+              <div className="ml-4 relative">
+                <button
+                  ref={ivhvButtonRef}
+                  onClick={() => setIsIVHVDropdownOpen(!isIVHVDropdownOpen)}
+                  disabled={isIVLoading}
+                  className={`btn-3d-carved btn-ivhv relative group flex items-center space-x-2 ${isAnyIVHVActive ? 'active' : 'text-white'}`}
+                  style={{
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                    opacity: isIVLoading ? 0.6 : 1,
+                    background: isAnyIVHVActive ? 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)' : undefined,
+                    border: isAnyIVHVActive ? '2px solid #ff8c00' : undefined
+                  }}
+                >
+                  <span>{isIVLoading ? `LOADING ${ivProgress}%` : 'IV & HV'}</span>
+                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                  {isAnyIVHVActive && (
+                    <div 
+                      className="absolute -top-1 -right-1 w-3 h-3 bg-orange-400 rounded-full"
+                      style={{
+                        boxShadow: '0 0 6px rgba(255, 140, 0, 0.8)',
+                        animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                      }}
+                    />
+                  )}
+                </button>
+                
+                {/* IV & HV Dropdown Menu - Using Portal */}
+                {isIVHVDropdownOpen && createPortal(
+                  <div 
+                    style={{
+                      position: 'fixed',
+                      top: ivhvButtonRef.current ? ivhvButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+                      left: ivhvButtonRef.current ? ivhvButtonRef.current.getBoundingClientRect().left : 0,
+                      zIndex: 100000,
+                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
+                      border: '2px solid rgba(255, 140, 0, 0.5)',
+                      borderRadius: '8px',
+                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                      padding: '12px',
+                      minWidth: '220px'
+                    }}
+                  >
+                    {/* Header */}
+                    <div style={{ 
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)', 
+                      paddingBottom: '8px', 
+                      marginBottom: '8px' 
+                    }}>
+                      <span style={{ color: '#ff8c00', fontWeight: '700', fontSize: '12px', letterSpacing: '0.5px' }}>
+                        VOLATILITY INDICATORS
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {/* Implied Volatility - Single toggle, line options inside panel */}
+                      <button
+                        onClick={() => {
+                          setShowIVPanel(!showIVPanel);
+                          if (!showIVPanel && ivData.length === 0) {
+                            fetchIVData();
+                          }
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          background: showIVPanel ? 'rgba(255, 149, 0, 0.15)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '12px', height: '3px', backgroundColor: '#FF9500', borderRadius: '2px' }}></div>
+                          <span>Implied Volatility</span>
+                        </div>
+                        {showIVPanel && <span style={{ color: '#FF9500', fontSize: '16px' }}>✓</span>}
+                      </button>
+
+                      {/* IV Rank */}
+                      <button
+                        onClick={() => {
+                          setShowIVRankIndicator(!showIVRankIndicator);
+                          if (!showIVRankIndicator && ivData.length === 0) {
+                            fetchIVData();
+                          }
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          background: showIVRankIndicator ? 'rgba(255, 107, 157, 0.15)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '12px', height: '3px', backgroundColor: '#ff6b9d', borderRadius: '2px' }}></div>
+                          <span>IV Rank</span>
+                        </div>
+                        {showIVRankIndicator && <span style={{ color: '#ff6b9d', fontSize: '16px' }}>✓</span>}
+                      </button>
+
+                      {/* IV Percentile */}
+                      <button
+                        onClick={() => {
+                          setShowIVPercentileIndicator(!showIVPercentileIndicator);
+                          if (!showIVPercentileIndicator && ivData.length === 0) {
+                            fetchIVData();
+                          }
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          background: showIVPercentileIndicator ? 'rgba(0, 255, 136, 0.15)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '12px', height: '3px', backgroundColor: '#00ff88', borderRadius: '2px' }}></div>
+                          <span>IV Percentile</span>
+                        </div>
+                        {showIVPercentileIndicator && <span style={{ color: '#00ff88', fontSize: '16px' }}>✓</span>}
+                      </button>
+
+                      {/* Historical Volatility */}
+                      <button
+                        onClick={() => {
+                          setShowHVIndicator(!showHVIndicator);
+                          if (!showHVIndicator && ivData.length === 0) {
+                            fetchIVData();
+                          }
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          background: showHVIndicator ? 'rgba(0, 212, 255, 0.15)' : 'transparent',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '12px', height: '3px', backgroundColor: '#00d4ff', borderRadius: '2px' }}></div>
+                          <span>Historical Volatility</span>
+                        </div>
+                        {showHVIndicator && <span style={{ color: '#00d4ff', fontSize: '16px' }}>✓</span>}
+                      </button>
+
+                      {/* HV Window Selection (only visible when HV is active) */}
+                      {showHVIndicator && (
+                        <div style={{ 
+                          marginTop: '8px', 
+                          paddingTop: '8px', 
+                          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <span style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '11px' }}>HV Window:</span>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            {[10, 20, 30, 60].map((window) => (
+                              <button
+                                key={window}
+                                onClick={() => {
+                                  setHVWindow(window);
+                                  recalculateHV(window);
+                                }}
+                                style={{
+                                  padding: '4px 8px',
+                                  background: hvWindow === window ? '#00d4ff' : 'rgba(255, 255, 255, 0.1)',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  color: hvWindow === window ? '#000' : '#fff',
+                                  fontSize: '11px',
+                                  fontWeight: '600',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {window}D
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Divider */}
+                      <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', margin: '8px 0' }}></div>
+
+                      {/* Lookback Period */}
+                      <div style={{ 
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '4px 0'
+                      }}>
+                        <span style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '11px' }}>Lookback:</span>
+                        <select
+                          value={ivLookbackPeriod}
+                          onChange={(e) => {
+                            setIVLookbackPeriod(Number(e.target.value));
+                            // Refetch data with new lookback period
+                            if (isAnyIVHVActive) {
+                              setIVData([]); // Clear existing data to trigger refetch
+                            }
+                          }}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.1)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: '#fff',
+                            padding: '4px 8px',
+                            fontSize: '11px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value={365}>1 Year</option>
+                          <option value={730}>2 Years</option>
+                          <option value={1095}>3 Years</option>
+                          <option value={1460}>4 Years</option>
+                        </select>
+                      </div>
+
+                      {/* Refresh Button */}
+                      {isAnyIVHVActive && (
+                        <button
+                          onClick={() => {
+                            setIVData([]);
+                            fetchIVData();
+                          }}
+                          disabled={isIVLoading}
+                          style={{
+                            marginTop: '8px',
+                            padding: '8px 12px',
+                            background: 'linear-gradient(145deg, #ff8c00 0%, #ff6b00 100%)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: '#000',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: isIVLoading ? 'not-allowed' : 'pointer',
+                            opacity: isIVLoading ? 0.6 : 1
+                          }}
+                        >
+                          {isIVLoading ? `LOADING ${ivProgress}%...` : '↻ REFRESH DATA'}
+                        </button>
+                      )}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+
+                {/* Click outside to close dropdown */}
+                {isIVHVDropdownOpen && createPortal(
+                  <div 
+                    className="fixed inset-0" 
+                    style={{ zIndex: 99998 }}
+                    onClick={() => setIsIVHVDropdownOpen(false)}
+                  />, 
+                  document.body
+                )}
+              </div>
+              
+              {/* Expansion/Liquidation Button */}
  <div className="ml-4">
  <button
  onClick={() => {
@@ -12969,6 +13825,43 @@ export default function TradingViewChart({
         </div>
       )}
 
+      {/* IV Panel Resize Handle - TradingView style drag to resize */}
+      {activeIVPanelCount > 0 && (
+        <div
+          onMouseDown={handleIVPanelDragStart}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 80 + 25}px`,
+            height: '4px',
+            cursor: 'ns-resize',
+            backgroundColor: isDraggingIVPanel ? '#FF9500' : 'rgba(255, 149, 0, 0.3)',
+            transition: isDraggingIVPanel ? 'none' : 'background-color 0.2s',
+            zIndex: 1000,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#FF9500';
+          }}
+          onMouseLeave={(e) => {
+            if (!isDraggingIVPanel) {
+              e.currentTarget.style.backgroundColor = 'rgba(255, 149, 0, 0.3)';
+            }
+          }}
+        >
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: '40px',
+            height: '2px',
+            backgroundColor: '#FF9500',
+            borderRadius: '1px',
+          }} />
+        </div>
+      )}
+
       {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
       {isFlowChartActive && (
         <div 
@@ -13017,6 +13910,154 @@ export default function TradingViewChart({
             Detailed
           </button>
         </div>
+      )}
+
+      {/* IV Panel Line Toggle Controls - Below the IMPLIED VOLATILITY title */}
+      {showIVPanel && (
+        <div 
+          className="absolute flex gap-2 z-[1001]"
+          style={{
+            left: '50px',
+            bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 80 + 25 - 35}px`,
+            transition: 'bottom 0.1s ease-out',
+          }}
+        >
+          <button
+            onClick={() => {
+              setShowCallIVLine(prev => !prev);
+            }}
+            className="text-xs font-semibold px-3 py-1 rounded transition-all cursor-pointer"
+            style={{
+              backgroundColor: showCallIVLine ? 'rgba(0, 255, 0, 0.2)' : 'rgba(0, 0, 0, 0.8)',
+              color: showCallIVLine ? '#00FF00' : 'rgba(255, 255, 255, 0.5)',
+              border: showCallIVLine ? '1px solid #00FF00' : '1px solid rgba(255, 255, 255, 0.2)'
+            }}
+            title="Toggle Call IV line"
+          >
+            Call IV
+          </button>
+          <button
+            onClick={() => {
+              setShowPutIVLine(prev => !prev);
+            }}
+            className="text-xs font-semibold px-3 py-1 rounded transition-all cursor-pointer"
+            style={{
+              backgroundColor: showPutIVLine ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.8)',
+              color: showPutIVLine ? '#FF0000' : 'rgba(255, 255, 255, 0.5)',
+              border: showPutIVLine ? '1px solid #FF0000' : '1px solid rgba(255, 255, 255, 0.2)'
+            }}
+            title="Toggle Put IV line"
+          >
+            Put IV
+          </button>
+          <button
+            onClick={() => {
+              setShowNetIVLine(prev => !prev);
+            }}
+            className="text-xs font-semibold px-3 py-1 rounded transition-all cursor-pointer"
+            style={{
+              backgroundColor: showNetIVLine ? 'rgba(255, 149, 0, 0.2)' : 'rgba(0, 0, 0, 0.8)',
+              color: showNetIVLine ? '#FF9500' : 'rgba(255, 255, 255, 0.5)',
+              border: showNetIVLine ? '1px solid #FF9500' : '1px solid rgba(255, 255, 255, 0.2)'
+            }}
+            title="Toggle Net IV (average of Call and Put)"
+          >
+            Net IV
+          </button>
+        </div>
+      )}
+
+      {/* Close buttons for each active IV/HV panel - TradingView style X button */}
+      {showIVPanel && (
+        <button
+          onClick={() => setShowIVPanel(false)}
+          className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
+          style={{
+            right: '85px',
+            bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 80 + 25 - 18}px`,
+            width: '18px',
+            height: '18px',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '3px',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            color: 'rgba(255, 255, 255, 0.6)',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            lineHeight: '1',
+          }}
+          title="Close Implied Volatility panel"
+        >
+          ×
+        </button>
+      )}
+
+      {showIVRankIndicator && (
+        <button
+          onClick={() => setShowIVRankIndicator(false)}
+          className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
+          style={{
+            right: '85px',
+            bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * (activeIVPanelCount - (showIVPanel ? 1 : 0)) + 80 + 25 - 18}px`,
+            width: '18px',
+            height: '18px',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '3px',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            color: 'rgba(255, 255, 255, 0.6)',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            lineHeight: '1',
+          }}
+          title="Close IV Rank panel"
+        >
+          ×
+        </button>
+      )}
+
+      {showIVPercentileIndicator && (
+        <button
+          onClick={() => setShowIVPercentileIndicator(false)}
+          className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
+          style={{
+            right: '85px',
+            bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * (activeIVPanelCount - (showIVPanel ? 1 : 0) - (showIVRankIndicator ? 1 : 0)) + 80 + 25 - 18}px`,
+            width: '18px',
+            height: '18px',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '3px',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            color: 'rgba(255, 255, 255, 0.6)',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            lineHeight: '1',
+          }}
+          title="Close IV Percentile panel"
+        >
+          ×
+        </button>
+      )}
+
+      {showHVIndicator && (
+        <button
+          onClick={() => setShowHVIndicator(false)}
+          className="absolute z-[1001] flex items-center justify-center cursor-pointer hover:bg-red-500/30 transition-all"
+          style={{
+            right: '85px',
+            bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight + 80 + 25 - 18}px`,
+            width: '18px',
+            height: '18px',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '3px',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            color: 'rgba(255, 255, 255, 0.6)',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            lineHeight: '1',
+          }}
+          title="Close Historical Volatility panel"
+        >
+          ×
+        </button>
       )}
     </div>
 

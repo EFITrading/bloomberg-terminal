@@ -249,16 +249,17 @@ if (parentPort) {
  success: true
  });
  
- // Get CURRENT stock price for accurate 5% ITM filtering
- let spotPrice = 0; // Don't use fallback - must be real
+ // ===============================
+ // STEP 1 — GET SPX PRICE
+ // ===============================
+ let spotPrice = 0;
  
  try {
- // Get current price
  const currentPriceUrl = `https://api.polygon.io/v2/last/trade/${ticker}?apikey=${apiKey}`;
  let priceResponse = await makePolygonRequest(currentPriceUrl);
  
- if (priceResponse.results?.P) {
- spotPrice = priceResponse.results.P;
+ if (priceResponse.results?.p || priceResponse.results?.P) {
+ spotPrice = priceResponse.results.p || priceResponse.results.P;
  console.log(` Worker ${workerIndex}: ${ticker} LIVE price $${spotPrice} (real-time)`);
  } else {
  // Fallback to previous close if real-time unavailable
@@ -269,7 +270,7 @@ if (parentPort) {
  }
  } catch (e) {
  console.error(` Worker ${workerIndex}: Failed to get ${ticker} price:`, e.message);
- spotPrice = 0; // No fallback to fake prices
+ spotPrice = 0;
  }
  
  // Skip ticker if we couldn't get a valid price
@@ -278,30 +279,36 @@ if (parentPort) {
  continue;
  }
  
- // Get options contracts first, then check for trades (like original service)
- const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&apikey=${apiKey}`;
+ // ===============================
+ // STEP 2 — GET SPX OPTION CONTRACTS
+ // ===============================
+ // SPX has thousands of contracts - need to add expiration filter to get relevant ones
+ const today = new Date().toISOString().split('T')[0];
+ const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${today}&limit=1000&apikey=${apiKey}`;
  
  const contractsResponse = await makePolygonRequest(contractsUrl);
  
+ if (!contractsResponse.results || contractsResponse.results.length === 0) {
+ console.warn(` Worker ${workerIndex}: No contracts found for ${ticker}`);
+ continue;
+ }
+ 
  if (contractsResponse.results && contractsResponse.results.length > 0) {
- // Apply PRECISE 5% ITM FILTER using current spot price
+ // ===============================
+ // STEP 3 — FILTER CONTRACTS (5% ITM RANGE)
+ // ===============================
  const validContracts = contractsResponse.results.filter(contract => {
  const strike = contract.strike_price;
  const contractType = contract.contract_type?.toLowerCase();
  
  if (!strike || !contractType || spotPrice <= 0) return false;
  
- // PRECISE 5% ITM CALCULATION based on current spot price
  const pctFromMoney = (strike - spotPrice) / spotPrice;
  
  if (contractType === 'call') {
- // For CALLS: Strike > Spot = OTM (positive %), Strike < Spot = ITM (negative %)
- // Allow: ALL OTM (pctFromMoney > 0) + up to 5% ITM (pctFromMoney >= -0.05)
- return pctFromMoney >= -0.05;
+ return pctFromMoney >= -0.05; // up to 5% ITM + all OTM
  } else if (contractType === 'put') {
- // For PUTS: Strike < Spot = OTM (negative %), Strike > Spot = ITM (positive %)
- // Allow: ALL OTM (pctFromMoney < 0) + up to 5% ITM (pctFromMoney <= 0.05)
- return pctFromMoney <= 0.05;
+ return pctFromMoney <= 0.05; // up to 5% ITM + all OTM
  }
  
  return false;
@@ -326,19 +333,31 @@ if (parentPort) {
  
  console.log(` Worker ${workerIndex}: Processing batch ${batchIndex + 1}/${contractBatches.length} (${contractBatch.length} contracts)`);
  
- // Process entire batch in parallel
+ // ===============================
+ // STEP 4 — FETCH TRADES FOR EACH CONTRACT
+ // ===============================
  const batchPromises = contractBatch.map(async (contract) => {
  try {
- const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${timeRange.startTime}&timestamp.lte=${timeRange.endTime}&limit=1000&apikey=${apiKey}`;
+ const tradesUrl =
+ `https://api.polygon.io/v3/trades/${contract.ticker}` +
+ `?timestamp.gte=${timeRange.startTime}` +
+ `&timestamp.lte=${timeRange.endTime}` +
+ `&order=desc` +
+ `&limit=50000&apikey=${apiKey}`;
+ 
  const tradesResponse = await makePolygonRequest(tradesUrl);
  
  if (tradesResponse.results && tradesResponse.results.length > 0) {
- // Return trades WITHOUT Vol/OI - will be enriched on frontend like AlgoFlow
- return { contract, trades: tradesResponse.results, snapshot: null };
+ return {
+ contract,
+ trades: tradesResponse.results,
+ snapshot: null
+ };
  }
+ 
  return null;
  } catch (error) {
- return null; // Skip failed contracts
+ return null;
  }
  });
  

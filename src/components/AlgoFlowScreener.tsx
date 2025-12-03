@@ -62,8 +62,8 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
         const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
         console.log(`📊 Fetching ${underlying} contracts for expiry: ${expiryParam} WITH FULL PAGINATION`);
         
-        // Special handling for SPX - use I:SPX format for API calls
-        const apiUnderlying = underlying === 'SPX' ? 'I:SPX' : underlying;
+        // Use underlying ticker directly (SPX works as-is)
+        const apiUnderlying = underlying;
         
         // FULL PAGINATION LOGIC - Get ALL contracts for this expiration
         let nextUrl: string | null = `https://api.polygon.io/v3/snapshot/options/${apiUnderlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`;
@@ -169,8 +169,8 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
           
           const formattedExpiry = `${expiryDate.getFullYear().toString().slice(-2)}${(expiryDate.getMonth() + 1).toString().padStart(2, '0')}${expiryDate.getDate().toString().padStart(2, '0')}`;
           const formattedStrike = Math.round(trade.strike * 1000).toString().padStart(8, '0');
-          // Special handling for SPX option tickers - they use I:SPX format
-          const tickerUnderlying = underlying === 'SPX' ? 'I:SPX' : underlying;
+          // Use underlying ticker directly (SPX works as-is)
+          const tickerUnderlying = underlying;
           const optionTicker = `O:${tickerUnderlying}${formattedExpiry}${optionType}${formattedStrike}`;
           
           console.log(`🔍 Trying constructed ticker: ${optionTicker} (from expiry: ${trade.expiry}, strike: ${trade.strike})`);

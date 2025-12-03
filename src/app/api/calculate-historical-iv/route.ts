@@ -101,40 +101,40 @@ export async function GET(request: NextRequest) {
 
     const RISK_FREE_RATE = 0.045; // Approximate current risk-free rate
 
-    const getNextMonthlyExpiration = (fromDate: Date) => {
-      // Monthly options expire on the 3rd Friday of each month
-      const getThirdFriday = (year: number, month: number) => {
-        const firstDay = new Date(year, month, 1);
-        const firstFriday = firstDay.getDay() <= 5 
-          ? 5 - firstDay.getDay() + 1
-          : 12 - firstDay.getDay();
-        return new Date(year, month, firstFriday + 14); // Third Friday
-      };
-
-      let year = fromDate.getFullYear();
-      let month = fromDate.getMonth();
+    // Find all available expirations within 30-45 days from a given date
+    const getExpirations30to45Days = async (fromDate: Date, stockTicker: string): Promise<string[]> => {
+      const minDays = 30;
+      const maxDays = 45;
       
-      // Get this month's expiration
-      let expiration = getThirdFriday(year, month);
+      const minDate = new Date(fromDate);
+      minDate.setDate(minDate.getDate() + minDays);
+      const maxDate = new Date(fromDate);
+      maxDate.setDate(maxDate.getDate() + maxDays);
       
-      // If we're within 2 days of expiration or past it, use next month
-      const twoDaysBeforeExpiry = new Date(expiration);
-      twoDaysBeforeExpiry.setDate(twoDaysBeforeExpiry.getDate() - 2);
+      const minDateStr = minDate.toISOString().split('T')[0];
+      const maxDateStr = maxDate.toISOString().split('T')[0];
+      const asOfDateStr = fromDate.toISOString().split('T')[0];
       
-      console.log(`🔍 [${fromDate.toISOString().split('T')[0]}] This month expiry: ${expiration.toISOString().split('T')[0]}, 2-day cutoff: ${twoDaysBeforeExpiry.toISOString().split('T')[0]}`);
-      
-      if (fromDate >= twoDaysBeforeExpiry) {
-        console.log(`⏭️  [${fromDate.toISOString().split('T')[0]}] Past cutoff, moving to next month`);
-        month++;
-        if (month > 11) {
-          month = 0;
-          year++;
+      try {
+        // Fetch all available expirations for this ticker as of the historical date
+        const res = await fetch(
+          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${stockTicker}&expiration_date.gte=${minDateStr}&expiration_date.lte=${maxDateStr}&as_of=${asOfDateStr}&limit=1000&apiKey=${apiKey}`
+        );
+        const data = await res.json();
+        
+        if (!data.results || data.results.length === 0) {
+          return [];
         }
-        expiration = getThirdFriday(year, month);
+        
+        // Get unique expiration dates
+        const expirations = [...new Set(data.results.map((c: any) => c.expiration_date))] as string[];
+        expirations.sort();
+        
+        return expirations;
+      } catch (err) {
+        console.log(`❌ Error fetching expirations for ${asOfDateStr}:`, err);
+        return [];
       }
-      
-      console.log(`✅ [${fromDate.toISOString().split('T')[0]}] Using monthly expiration: ${expiration.toISOString().split('T')[0]}`);
-      return expiration;
     };
 
     // Generate array of dates to fetch - go back the full requested period
@@ -198,172 +198,181 @@ export async function GET(request: NextRequest) {
         const stockPrice = priceData.close;
         console.log(`💰 [${dateStr}] Stock price: $${stockPrice}`);
 
-        // Use next monthly expiration
-        const targetExpiration = getNextMonthlyExpiration(currentDate);
-        const expirationStr = targetExpiration.toISOString().split('T')[0];
+        // Find all expirations within 30-45 days
+        const expirations = await getExpirations30to45Days(currentDate, ticker);
         
-        console.log(`📅 [${dateStr}] Using monthly expiration ${expirationStr} (${Math.round((targetExpiration.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24))} days out)`);
-        
-        // Calculate time to expiration in years
-        const timeToExpiration = (targetExpiration.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24 * 365);
-        
-        if (timeToExpiration <= 0) {
-          console.log(`❌ [${dateStr}] Invalid expiration (${timeToExpiration.toFixed(4)} years), skipping`);
-          return null;
-        }
-
-        // Get available options contracts for this expiration AS OF the historical date
-        console.log(`🔎 [${dateStr}] Fetching contracts for expiration ${expirationStr} as of ${dateStr}...`);
-        const contractsRes = await fetch(
-          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${expirationStr}&as_of=${dateStr}&limit=1000&apiKey=${apiKey}`
-        );
-        const contractsData = await contractsRes.json();
-        
-        if (!contractsData.results || contractsData.results.length === 0) {
-          console.log(`❌ [${dateStr}] No contracts for expiration ${expirationStr} as of ${dateStr} (API returned ${contractsData.results ? 0 : 'null'} results), skipping`);
+        if (expirations.length === 0) {
+          console.log(`❌ [${dateStr}] No expirations found within 30-45 days, skipping`);
           skippedNoContracts++;
           return null;
         }
         
-        console.log(`✅ [${dateStr}] Found ${contractsData.results.length} total contracts for ${expirationStr}`);
+        console.log(`📅 [${dateStr}] Found ${expirations.length} expirations within 30-45 days: [${expirations.join(', ')}]`);
+        
+        // Calculate IV for each expiration and average them
+        const allExpirationCallIVs: number[] = [];
+        const allExpirationPutIVs: number[] = [];
+        
+        for (const expirationStr of expirations) {
+          const targetExpiration = new Date(expirationStr);
+          
+          // Calculate time to expiration in years
+          const timeToExpiration = (targetExpiration.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24 * 365);
+          
+          if (timeToExpiration <= 0) {
+            console.log(`❌ [${dateStr}] Invalid expiration ${expirationStr} (${timeToExpiration.toFixed(4)} years), skipping`);
+            continue;
+          }
+          
+          const daysOut = Math.round((targetExpiration.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
+          console.log(`📆 [${dateStr}] Processing expiration ${expirationStr} (${daysOut} days out)`);
 
-        // Get unique strikes
-        const allStrikes = [...new Set(contractsData.results.map((c: any) => c.strike_price))] as number[];
-        allStrikes.sort((a, b) => a - b);
-        
-        console.log(`🎯 [${dateStr}] Total unique strikes: ${allStrikes.length}, Stock price: $${stockPrice}`);
-        
-        // Find 5 OTM strikes for calls and puts
-        const atmIndex = allStrikes.findIndex(strike => strike >= stockPrice);
-        const callStrikes = allStrikes.slice(atmIndex, atmIndex + 5);
-        const putStrikes = allStrikes.slice(Math.max(0, atmIndex - 5), atmIndex);
-        
-        console.log(`🟢 [${dateStr}] Call strikes (5 OTM): [${callStrikes.join(', ')}]`);
-        console.log(`🔴 [${dateStr}] Put strikes (5 OTM): [${putStrikes.join(', ')}]`);
+          // Get available options contracts for this expiration AS OF the historical date
+          const contractsRes = await fetch(
+            `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${expirationStr}&as_of=${dateStr}&limit=1000&apiKey=${apiKey}`
+          );
+          const contractsData = await contractsRes.json();
+          
+          if (!contractsData.results || contractsData.results.length === 0) {
+            console.log(`❌ [${dateStr}] No contracts for expiration ${expirationStr}, skipping this expiration`);
+            continue;
+          }
 
-        // Fetch option prices and calculate IV - PARALLELIZED
-        const calculateStrikeIV = async (strike: number, type: 'call' | 'put') => {
-          try {
-            const optionType = type === 'call' ? 'C' : 'P';
-            const optionTicker = `O:${ticker}${expirationStr.replace(/-/g, '').substring(2)}${optionType}${String(strike * 1000).padStart(8, '0')}`;
-            
-            let optionPrice = null;
-            
-            // For recent dates (last 2 days), try snapshot first
-            const daysAgo = Math.floor((Date.now() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
-            
-            if (daysAgo <= 2) {
-              try {
-                const snapshotRes = await fetch(
-                  `https://api.polygon.io/v3/snapshot/options/${ticker}/${optionTicker}?apiKey=${apiKey}`
-                );
-                const snapshotData = await snapshotRes.json();
-                
-                if (snapshotData.results?.day?.close && snapshotData.results.day.close > 0) {
-                  optionPrice = snapshotData.results.day.close;
-                }
-              } catch (err) {
-                // Continue to historical data
-              }
-            }
-            
-            // If snapshot didn't work, get historical price for this date
-            if (!optionPrice) {
-              const optionPriceRes = await fetch(
-                `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/1/day/${dateStr}/${dateStr}?apiKey=${apiKey}`
-              );
-              const optionPriceData = await optionPriceRes.json();
+          // Get unique strikes
+          const allStrikes = [...new Set(contractsData.results.map((c: any) => c.strike_price))] as number[];
+          allStrikes.sort((a, b) => a - b);
+          
+          // Find ATM strike index, then get ±1 strike around ATM (3 strikes total)
+          const atmIndex = allStrikes.findIndex(strike => strike >= stockPrice);
+          
+          if (atmIndex === -1) {
+            console.log(`❌ [${dateStr}] No ATM strike found for expiration ${expirationStr}`);
+            continue;
+          }
+          
+          // Strikes: 1 below ATM + ATM + 1 above ATM = 3 strikes
+          const strikeStart = Math.max(0, atmIndex - 1);
+          const strikeEnd = Math.min(allStrikes.length, atmIndex + 2);
+          const strikes = allStrikes.slice(strikeStart, strikeEnd);
+          
+          console.log(`🎯 [${dateStr}] Strikes for ${expirationStr} (±1 ATM): [${strikes.join(', ')}]`);
+
+          // Calculate IV for each strike
+          const calculateStrikeIV = async (strike: number, type: 'call' | 'put') => {
+            try {
+              const optionType = type === 'call' ? 'C' : 'P';
+              const optionTicker = `O:${ticker}${expirationStr.replace(/-/g, '').substring(2)}${optionType}${String(strike * 1000).padStart(8, '0')}`;
               
-              if (!optionPriceData.results || optionPriceData.results.length === 0) {
+              let optionPrice = null;
+              
+              // For recent dates (last 2 days), try snapshot first
+              const daysAgo = Math.floor((Date.now() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
+              
+              if (daysAgo <= 2) {
+                try {
+                  const snapshotRes = await fetch(
+                    `https://api.polygon.io/v3/snapshot/options/${ticker}/${optionTicker}?apiKey=${apiKey}`
+                  );
+                  const snapshotData = await snapshotRes.json();
+                  
+                  if (snapshotData.results?.day?.close && snapshotData.results.day.close > 0) {
+                    optionPrice = snapshotData.results.day.close;
+                  }
+                } catch (err) {
+                  // Continue to historical data
+                }
+              }
+              
+              // If snapshot didn't work, get historical price for this date
+              if (!optionPrice) {
+                const optionPriceRes = await fetch(
+                  `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/1/day/${dateStr}/${dateStr}?apiKey=${apiKey}`
+                );
+                const optionPriceData = await optionPriceRes.json();
+                
+                if (!optionPriceData.results || optionPriceData.results.length === 0) {
+                  return null;
+                }
+                
+                optionPrice = optionPriceData.results[0].c; // Close price
+              }
+              
+              if (!optionPrice || optionPrice <= 0.01) {
                 return null;
               }
+
+              // Calculate implied volatility
+              const iv = calculateImpliedVolatility(
+                optionPrice,
+                stockPrice,
+                strike,
+                timeToExpiration,
+                RISK_FREE_RATE,
+                type
+              );
               
-              optionPrice = optionPriceData.results[0].c; // Close price
-            }
-            
-            if (!optionPrice || optionPrice <= 0.01) {
+              return iv;
+            } catch (err) {
               return null;
             }
+          };
 
-            // Calculate implied volatility
-            const iv = calculateImpliedVolatility(
-              optionPrice,
-              stockPrice,
-              strike,
-              timeToExpiration,
-              RISK_FREE_RATE,
-              type
-            );
-            
-            if (iv) {
-              console.log(`  💚 [${dateStr}] Calculated IV for ${type} $${strike}: ${(iv * 100).toFixed(2)}%`);
-            } else {
-              console.log(`  ❌ [${dateStr}] Failed to calculate IV for ${type} $${strike}`);
+          // Process all strikes in parallel for this expiration
+          const strikePromises = [
+            ...strikes.map(strike => calculateStrikeIV(strike, 'call').then(iv => ({ type: 'call', iv }))),
+            ...strikes.map(strike => calculateStrikeIV(strike, 'put').then(iv => ({ type: 'put', iv })))
+          ];
+          
+          const strikeResults = await Promise.all(strikePromises);
+          
+          const expCallIVs: number[] = [];
+          const expPutIVs: number[] = [];
+          
+          strikeResults.forEach(result => {
+            if (result.iv !== null && result.iv > 0.01 && result.iv < 5) {
+              if (result.type === 'call') {
+                expCallIVs.push(result.iv);
+              } else {
+                expPutIVs.push(result.iv);
+              }
             }
-            
-            return iv;
-          } catch (err) {
-            console.log(`  ❌ [${dateStr}] Error calculating ${type} $${strike}:`, err);
-            return null;
+          });
+          
+          // Average IVs for this expiration and add to overall collection
+          if (expCallIVs.length > 0) {
+            const avgCallIV = expCallIVs.reduce((a, b) => a + b, 0) / expCallIVs.length;
+            allExpirationCallIVs.push(avgCallIV);
+            console.log(`  🟢 [${dateStr}] ${expirationStr} Call IV: ${(avgCallIV * 100).toFixed(2)}%`);
           }
-        };
-
-        // Calculate average IV for calls and puts - PARALLEL PROCESSING
-        console.log(`\n📊 [${dateStr}] Calculating IVs in parallel...`);
-        const callIVs: number[] = [];
-        const putIVs: number[] = [];
-
-        // Sample 3 strikes from middle (skip first 2, take next 3)
-        const callStrikesToSample = callStrikes.slice(2, 5);
-        const putStrikesToSample = putStrikes.slice(-5, -2);
-
-        console.log(`📞 [${dateStr}] Processing ${callStrikesToSample.length} call + ${putStrikesToSample.length} put strikes in parallel`);
-        
-        // Process ALL strikes in parallel using Promise.all for maximum speed
-        const allPromises = [
-          ...callStrikesToSample.map(strike => 
-            calculateStrikeIV(strike, 'call').then(iv => ({ type: 'call', iv }))
-          ),
-          ...putStrikesToSample.map(strike => 
-            calculateStrikeIV(strike, 'put').then(iv => ({ type: 'put', iv }))
-          )
-        ];
-        
-        const results = await Promise.all(allPromises);
-        
-        // Separate results into calls and puts
-        results.forEach(result => {
-          if (result.iv !== null && result.iv > 0.01 && result.iv < 5) {
-            if (result.type === 'call') {
-              callIVs.push(result.iv);
-            } else {
-              putIVs.push(result.iv);
-            }
+          if (expPutIVs.length > 0) {
+            const avgPutIV = expPutIVs.reduce((a, b) => a + b, 0) / expPutIVs.length;
+            allExpirationPutIVs.push(avgPutIV);
+            console.log(`  🔴 [${dateStr}] ${expirationStr} Put IV: ${(avgPutIV * 100).toFixed(2)}%`);
           }
-        });
+        }
 
-        console.log(`📈 [${dateStr}] Results: ${callIVs.length} call IVs, ${putIVs.length} put IVs`);
+        // Average across all expirations
+        console.log(`📊 [${dateStr}] Averaging ${allExpirationCallIVs.length} call IVs and ${allExpirationPutIVs.length} put IVs from ${expirations.length} expirations`);
         
-        // Only include this day if we got at least 1 IV value for either calls or puts
-        if (callIVs.length > 0 || putIVs.length > 0) {
-          const avgCallIV = callIVs.length > 0 
-            ? (callIVs.reduce((a, b) => a + b, 0) / callIVs.length) * 100 
+        if (allExpirationCallIVs.length > 0 || allExpirationPutIVs.length > 0) {
+          const avgCallIV = allExpirationCallIVs.length > 0 
+            ? (allExpirationCallIVs.reduce((a, b) => a + b, 0) / allExpirationCallIVs.length) * 100 
             : null;
-          const avgPutIV = putIVs.length > 0 
-            ? (putIVs.reduce((a, b) => a + b, 0) / putIVs.length) * 100 
+          const avgPutIV = allExpirationPutIVs.length > 0 
+            ? (allExpirationPutIVs.reduce((a, b) => a + b, 0) / allExpirationPutIVs.length) * 100 
             : null;
 
-          console.log(`✅ [${dateStr}] Added to results - Call IV: ${avgCallIV?.toFixed(2)}%, Put IV: ${avgPutIV?.toFixed(2)}%`);
+          console.log(`✅ [${dateStr}] Final averaged IV - Call: ${avgCallIV?.toFixed(2)}%, Put: ${avgPutIV?.toFixed(2)}% (from ${expirations.length} expirations)`);
 
           return {
             date: dateStr,
             callIV: avgCallIV,
             putIV: avgPutIV,
             price: stockPrice,
-            expiration: expirationStr
+            expiration: expirations.join(', ')
           };
         } else {
-          console.log(`⚠️ [${dateStr}] No valid IV data calculated - skipping (callIVs: ${callIVs.length}, putIVs: ${putIVs.length})`);
+          console.log(`⚠️ [${dateStr}] No valid IV data calculated - skipping`);
           skippedNoIV++;
           return null;
         }
