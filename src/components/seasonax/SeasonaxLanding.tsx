@@ -9,12 +9,10 @@ import OpportunityCard from './OpportunityCard';
 
 
 interface SeasonaxLandingProps {
- onStartScreener?: () => void;
+ // No props needed - screener is always visible as a tab
 }
 
-const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({ 
-  onStartScreener
-}) => {
+const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  const [activeMarket, setActiveMarket] = useState('SP500');
  const [timePeriod, setTimePeriod] = useState('15Y'); // Changed default from 5Y to 15Y
  const [opportunities, setOpportunities] = useState<SeasonalPattern[]>([]);
@@ -23,8 +21,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  const [streamStatus, setStreamStatus] = useState<string>('');
  const [showWebsite, setShowWebsite] = useState(false);
  const [progressStats, setProgressStats] = useState({ processed: 0, total: 1000, found: 0 });
- const [eventSource, setEventSource] = useState<EventSource | null>(null);
- 
 
 
  const marketTabs = [
@@ -48,16 +44,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  loadMarketData();
  }, [timePeriod]); // React to time period changes
 
- // Cleanup EventSource on component unmount
- useEffect(() => {
- return () => {
- if (eventSource) {
- console.log(' Cleaning up EventSource on component unmount...');
- eventSource.close();
- }
- };
- }, [eventSource]);
-
  const loadMarketData = async () => {
  try {
  // Load fresh data directly from SeasonalScreenerService
@@ -78,19 +64,16 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  const years = selectedPeriod?.years || 15; // FULL years as requested - no limits
  
  try {
- // Load FULL data using MASSIVE CONCURRENCY with REAL-TIME results
+ // Load FULL data using batch processing with real-time results
  setStreamStatus('');
  
- // Real-time progress callback to show results as they're found using WORKER THREADS
+ // Real-time progress callback to show results as they're found
  let lastUpdate = 0;
- let realOpportunities;
  
- try {
- // Try massive concurrency first
- realOpportunities = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
+ const realOpportunities = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
  years, 
- 1000, // Process more stocks with massive concurrency
- 50, // Use 50 concurrent requests for performance
+ 1000, // Process 1000 stocks in batches of 10
+ 50, // Parameter unused - batching is now fixed at 10
  (processed, total, foundOpportunities, currentSymbol) => {
  // Throttle updates to prevent UI overwhelming (update every 100ms max)
  const now = Date.now();
@@ -106,11 +89,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  found: foundOpportunities.length 
  });
  
- // Update status with current processing info - MASSIVE CONCURRENCY
+ // Update status with current processing info
  if (currentSymbol) {
  setStreamStatus(`📊 ${currentSymbol} - Found ${foundOpportunities.length} qualified opportunities (${processed}/${total})`);
  } else {
- setStreamStatus(`📊 ${processed}/${total} processed with 50 concurrent requests - ${foundOpportunities.length} opportunities found`);
+ setStreamStatus(`📊 ${processed}/${total} processed - ${foundOpportunities.length} opportunities found`);
  }
  
  // Show opportunities as they're found - REAL-TIME UPDATES
@@ -119,16 +102,14 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  .sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
  
  console.log(` Setting ${foundOpportunities.length} opportunities in state:`, sortedOpportunities.slice(0, 3));
- console.log(` First opportunity structure:`, sortedOpportunities[0]);
  setOpportunities(sortedOpportunities as unknown as SeasonalPattern[]);
  
  // DISMISS LOADING SCREEN immediately when first opportunities are found
  if (foundOpportunities.length === 1) {
  console.log(' First opportunity found! Dismissing loading screen and showing results...');
  setLoading(false);
- setShowWebsite(true); // Enable the results view
+ setShowWebsite(true);
  } else if (foundOpportunities.length > 1 && loading) {
- // Make sure loading is dismissed for subsequent opportunities too
  console.log(` ${foundOpportunities.length} opportunities found, ensuring loading screen is dismissed`);
  setLoading(false);
  setShowWebsite(true);
@@ -139,7 +120,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  );
  
  if (realOpportunities && realOpportunities.length > 0) {
- console.log(`✅ Completed! Found ${realOpportunities.length} seasonal opportunities with 50 concurrent requests`);
+ console.log(`✅ Completed! Found ${realOpportunities.length} seasonal opportunities`);
  
  // Final sort and display
  const finalSorted = realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
@@ -150,164 +131,23 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  } else {
  throw new Error('No seasonal opportunities found');
  }
- 
- } catch (processingError) {
- console.warn('📊 Concurrent processing failed, falling back to regular processing:', processingError);
- setStreamStatus('📊 50 concurrent requests unavailable, falling back to standard processing...');
- 
- // Fallback to regular method
- realOpportunities = await seasonalService.screenSeasonalOpportunities(
- years, 
- 500, // Reduced count for regular processing
- 0, 
- (processed, total, foundOpportunities, currentSymbol) => {
- const now = Date.now();
- const shouldUpdate = now - lastUpdate > 100 || foundOpportunities.length > opportunities.length;
- 
- if (shouldUpdate) {
- lastUpdate = now;
- setProgressStats({ processed, total, found: foundOpportunities.length });
- 
- if (currentSymbol) {
- setStreamStatus(` Standard Processing: ${currentSymbol} - ${foundOpportunities.length} opportunities (${processed}/${total})`);
- }
- 
- if (foundOpportunities.length > 0) {
- const sortedOpportunities = foundOpportunities
- .sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
- setOpportunities(sortedOpportunities as unknown as SeasonalPattern[]);
- 
- if (foundOpportunities.length === 1) {
- setLoading(false);
- setShowWebsite(true);
- }
- }
- }
- }
- );
- 
- if (realOpportunities && realOpportunities.length > 0) {
- console.log(`✅ Fallback completed! Found ${realOpportunities.length} seasonal opportunities`);
- const finalSorted = realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
- setOpportunities(finalSorted as unknown as SeasonalPattern[]);
- setLoading(false);
- setStreamStatus('✅ Screening Completed');
- setProgressStats({ processed: 500, total: 500, found: realOpportunities.length });
- } else {
- throw new Error('No seasonal opportunities found in fallback mode');
- }
- }
- } catch (serviceError) {
- console.error(' Direct service failed, falling back to streaming API:', serviceError);
- 
- // Fallback to streaming API as last resort
- setStreamStatus(' Falling back to streaming API...');
- 
- // Close any existing EventSource connection
- if (eventSource) {
- console.log(' Closing existing EventSource connection...');
- eventSource.close();
- setEventSource(null);
- }
- 
- // Use streaming API for progressive loading
- const newEventSource = new EventSource(`/api/patterns/stream?years=${years}`);
- setEventSource(newEventSource);
- 
- newEventSource.onmessage = (event) => {
- try {
- const data = JSON.parse(event.data);
- 
- switch (data.type) {
- case 'status':
- setStreamStatus(data.message);
- if (data.processed !== undefined) {
- setProgressStats({ processed: data.processed, total: data.total, found: data.found });
- }
- console.log(` ${data.message}`);
- break;
- 
- case 'opportunity':
- // Add new opportunity to the list (check for duplicates with enhanced logic)
- setOpportunities(prev => {
- // Check if this symbol already exists (case insensitive)
- const exists = prev.some(existing => 
- existing.symbol.toUpperCase() === data.data.symbol.toUpperCase()
- );
- if (exists) {
- console.log(` Duplicate ${data.data.symbol} ignored (already exists)`);
- return prev; // Don't add duplicate
- }
- 
- const newOpportunities = [...prev, data.data];
- // Sort by average return (best opportunities first) and ensure uniqueness
- const uniqueOpportunities = newOpportunities.filter((opp, index, array) => 
- array.findIndex(o => o.symbol.toUpperCase() === opp.symbol.toUpperCase()) === index
- );
- return uniqueOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
- });
- setProgressStats(data.stats);
- console.log(` Found ${data.data.symbol}: ${data.data.averageReturn.toFixed(2)}% (${data.stats.found} total found)`);
- break;
- 
- case 'show_website':
- setShowWebsite(true);
- setLoading(false);
- setStreamStatus(data.message);
- setProgressStats({ processed: data.processed, total: data.total, found: data.found });
- console.log(` ${data.message}`);
- break;
- 
- case 'batch_complete':
- setStreamStatus(data.message);
- setProgressStats({ processed: data.processed, total: data.total, found: data.found });
- console.log(` ${data.message}`);
- break;
- 
- case 'complete':
- setStreamStatus(data.message);
- setProgressStats({ processed: data.processed, total: data.total, found: data.found });
- setLoading(false);
- console.log(` ${data.message}`);
- newEventSource.close();
- setEventSource(null);
- break;
- 
- case 'error':
- setError(data.message);
- setLoading(false);
- console.error(` ${data.message}`);
- newEventSource.close();
- setEventSource(null);
- break;
- }
- } catch (parseError) {
- console.error('Failed to parse stream data:', parseError);
- }
- };
- 
- newEventSource.onerror = (event) => {
- console.error('Stream error:', event);
- setError('Connection to streaming API lost');
- setLoading(false);
- newEventSource.close();
- setEventSource(null);
- };
- }
- 
  } catch (error) {
  const errorMsg = `Failed to start seasonal screening: ${error instanceof Error ? error.message : 'Unknown error'}`;
  console.error(` ${errorMsg}`);
  setError(errorMsg);
+ setLoading(false);
+ setShowWebsite(false);
+ }
+ } catch (outerError) {
+ console.error('Failed to load seasonalScreenerService:', outerError);
+ setError(`Failed to initialize screener: ${outerError instanceof Error ? outerError.message : 'Unknown error'}`);
  setLoading(false);
  }
  };
 
  const handleScreenerStart = (market: string) => {
  console.log(`Starting screener for ${market}`);
- if (onStartScreener) {
- onStartScreener();
- }
+ // Screener is now always visible, no navigation needed
  };
 
  const handleTabChange = (tabId: string) => {
@@ -355,8 +195,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
  {/* Hero Section */}
  <HeroSection 
- onScreenerStart={handleScreenerStart} 
- onStartScreener={onStartScreener}
+ onScreenerStart={handleScreenerStart}
  />
 
  {/* Controls Bar */}

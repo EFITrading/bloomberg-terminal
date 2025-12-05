@@ -1142,41 +1142,6 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         
         {/* Signal explanation - Removed as it's now in Market Interpretation */}
 
-        {/* Greek Score Breakdown */}
-        <div className="grid grid-cols-4 gap-4 pt-6 border-t border-gray-700">
-          <div className="text-center">
-            <div className="text-xs text-gray-400 uppercase mb-2">Δ Delta</div>
-            <div className={`text-xl font-bold ${
-              metrics.deltaScore > 0 ? 'text-green-400' : metrics.deltaScore < 0 ? 'text-red-400' : 'text-gray-400'
-            }`}>
-              {metrics.deltaScore > 0 ? '+' : ''}{metrics.deltaScore.toFixed(0)}
-            </div>
-          </div>
-          <div className="text-center">
-            <div className="text-xs text-gray-400 uppercase mb-2">Γ Gamma</div>
-            <div className={`text-xl font-bold ${
-              metrics.gammaScore > 0 ? 'text-green-400' : metrics.gammaScore < 0 ? 'text-red-400' : 'text-gray-400'
-            }`}>
-              {metrics.gammaScore > 0 ? '+' : ''}{metrics.gammaScore.toFixed(0)}
-            </div>
-          </div>
-          <div className="text-center">
-            <div className="text-xs text-gray-400 uppercase mb-2">Θ Theta</div>
-            <div className={`text-xl font-bold ${
-              metrics.thetaScore > 0 ? 'text-green-400' : metrics.thetaScore < 0 ? 'text-red-400' : 'text-gray-400'
-            }`}>
-              {metrics.thetaScore > 0 ? '+' : ''}{metrics.thetaScore.toFixed(0)}
-            </div>
-          </div>
-          <div className="text-center">
-            <div className="text-xs text-gray-400 uppercase mb-2">ν Vega</div>
-            <div className={`text-xl font-bold ${
-              metrics.vegaScore > 0 ? 'text-green-400' : metrics.vegaScore < 0 ? 'text-red-400' : 'text-gray-400'
-            }`}>
-              {metrics.vegaScore > 0 ? '+' : ''}{metrics.vegaScore.toFixed(0)}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Main Dashboard Grid */}
@@ -3384,6 +3349,7 @@ const DealerAttraction = () => {
   const [liveOIProgress, setLiveOIProgress] = useState(0);
   const [showVEX, setShowVEX] = useState(false);
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
+  const [useBloombergTheme, setUseBloombergTheme] = useState(false); // Bloomberg Terminal theme toggle
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'MAXPAIN' | 'OIGEX' | 'GEXSCREENER'>('MM');
 
@@ -4723,20 +4689,50 @@ const DealerAttraction = () => {
     const isHighestPositive = value > 0 && Math.abs(value - topVals.highestPositive) < 0.01;
     const isHighestNegative = value < 0 && Math.abs(Math.abs(value) - topVals.highestNegative) < 0.01;
     
-    if (isHighestPositive) {
-      // 100% opacity purple background with white text for highest positive
-      bgColor = 'text-white border border-purple-500/50';
-      bgColor += ' bg-purple-600';
-      label = 'MAGNET';
-    } else if (isHighestNegative) {
-      // 100% opacity blue background with white text for highest negative
-      bgColor = 'text-white border border-blue-500/50';
-      bgColor += ' bg-blue-600';
-      label = 'PIVOT';
-    } else if (value !== 0) {
-      bgColor = 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
+    // Bloomberg Terminal Theme
+    if (useBloombergTheme) {
+      if (isHighestPositive) {
+        bgColor = 'text-black font-black border-2 border-amber-400 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 ring-2 ring-amber-300/50';
+        label = 'MAGNET';
+      } else if (isHighestNegative) {
+        bgColor = 'text-black font-black border-2 border-cyan-400 bg-gradient-to-br from-cyan-400 via-cyan-500 to-cyan-600 ring-2 ring-cyan-300/50';
+        label = 'PIVOT';
+      } else if (value > 0) {
+        // Positive values - green intensity based on value
+        const intensity = Math.min(Math.abs(value) / (topVals.highestPositive || 1), 1);
+        if (intensity > 0.7) {
+          bgColor = 'text-white border border-emerald-500/60 bg-gradient-to-br from-emerald-900 to-emerald-800';
+        } else if (intensity > 0.4) {
+          bgColor = 'text-emerald-300 border border-emerald-600/40 bg-gradient-to-br from-emerald-950 to-black';
+        } else {
+          bgColor = 'text-emerald-400/80 border border-emerald-700/30 bg-black';
+        }
+      } else if (value < 0) {
+        // Negative values - red intensity based on value
+        const intensity = Math.min(Math.abs(value) / (topVals.highestNegative || 1), 1);
+        if (intensity > 0.7) {
+          bgColor = 'text-white border border-red-500/60 bg-gradient-to-br from-red-900 to-red-800';
+        } else if (intensity > 0.4) {
+          bgColor = 'text-red-300 border border-red-600/40 bg-gradient-to-br from-red-950 to-black';
+        } else {
+          bgColor = 'text-red-400/80 border border-red-700/30 bg-black';
+        }
+      } else {
+        bgColor = 'text-gray-600 border border-gray-800/50 bg-black';
+      }
     } else {
-      bgColor = 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30';
+      // Original Theme (Default)
+      if (isHighestPositive) {
+        bgColor = 'text-white border border-purple-500/50 bg-purple-600';
+        label = 'MAGNET';
+      } else if (isHighestNegative) {
+        bgColor = 'text-white border border-blue-500/50 bg-blue-600';
+        label = 'PIVOT';
+      } else if (value !== 0) {
+        bgColor = 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
+      } else {
+        bgColor = 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30';
+      }
     }
     
     return { bg: bgColor, ring: ringColor, label };
@@ -4784,6 +4780,19 @@ const DealerAttraction = () => {
     );
   }
 
+  // Dynamic border colors for Bloomberg theme
+  const borderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
+  const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800';
+  const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
+  
+  // Dynamic strike column width based on max strike price
+  const strikeColumnWidth = useMemo(() => {
+    const maxStrike = Math.max(...data.map(d => d.strike), 0);
+    if (maxStrike >= 10000) return 95;
+    if (maxStrike >= 1000) return 85;
+    return 75;
+  }, [data]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white">
       <style>{`
@@ -4829,6 +4838,28 @@ const DealerAttraction = () => {
           .dealer-attraction-container {
             padding-top: 30px !important;
           }
+        }
+        
+        /* Bloomberg Terminal Theme Styles */
+        .bb-table-header {
+          background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .bb-header {
+          font-family: 'Bloomberg', 'Consolas', 'Monaco', monospace;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+        }
+        
+        .bb-cell {
+          font-family: 'Bloomberg', 'Consolas', 'Monaco', monospace;
+          transition: all 0.15s ease;
+        }
+        
+        .bb-cell:hover {
+          transform: scale(1.02);
+          box-shadow: 0 0 8px rgba(255, 255, 255, 0.1);
         }
       `}</style>
       <div className="p-6 pt-24 md:pt-6 dealer-attraction-container">
@@ -4977,6 +5008,23 @@ const DealerAttraction = () => {
                           <option value="100%">±100% OTM</option>
                           </select>
                         </div>
+                        
+                        {/* Bloomberg Theme Toggle Button */}
+                        <button
+                          onClick={() => setUseBloombergTheme(!useBloombergTheme)}
+                          className={`flex items-center justify-center px-3 font-black text-sm transition-all rounded ${
+                            useBloombergTheme 
+                              ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400' 
+                              : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
+                          }`}
+                          style={{
+                            height: '46px',
+                            boxShadow: useBloombergTheme ? '0 0 10px rgba(245, 158, 11, 0.5)' : 'none'
+                          }}
+                          title="Toggle Bloomberg Terminal Theme"
+                        >
+                          BB
+                        </button>
                         
                         {/* REFRESH Button */}
                         <button
@@ -5151,7 +5199,10 @@ const DealerAttraction = () => {
                           <div className="flex items-center gap-4">
                             <div className="flex items-center gap-6">
                               {/* NORMAL (GEX) Checkbox */}
-                              <div className="flex items-center gap-2">
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGEX 
+                                ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'}`}>
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   type="checkbox"
                                   checked={showGEX}
@@ -5162,13 +5213,16 @@ const DealerAttraction = () => {
                                       setGexMode('Net GEX');
                                     }
                                   }}
-                                  className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-emerald-500 border-emerald-500/60 focus:ring-emerald-500 accent-emerald-500"
                                 />
-                                <span className="text-xs font-bold text-white uppercase tracking-wider">NORMAL</span>
+                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showGEX ? 'text-emerald-300 drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'text-white'}`}>NORMAL</span>
                               </div>
                               
                               {/* MM ACTIVITY (Dealer) Checkbox */}
-                              <div className="flex items-center gap-2">
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showDealer 
+                                ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'}`}>
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   type="checkbox"
                                   checked={showDealer}
@@ -5179,13 +5233,16 @@ const DealerAttraction = () => {
                                       setGexMode('Net Dealer');
                                     }
                                   }}
-                                  className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-amber-500 border-amber-500/60 focus:ring-amber-500 accent-amber-500"
                                 />
-                                <span className="text-xs font-bold text-yellow-400 uppercase tracking-wider">DEALER</span>
+                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showDealer ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-yellow-400'}`}>DEALER</span>
                               </div>
                               
                               {/* FLOW MAP Checkbox */}
-                              <div className="flex items-center gap-2">
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showFlowGEX 
+                                ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'}`}>
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   id="flowgex-checkbox-desktop"
                                   type="checkbox"
@@ -5197,13 +5254,16 @@ const DealerAttraction = () => {
                                     console.log(`🔥 FLOW GEX CHECKBOX CHANGED (desktop) - New value: ${e.target.checked}`);
                                     setShowFlowGEX(e.target.checked);
                                   }}
-                                  className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-orange-500 border-orange-500/60 focus:ring-orange-500 accent-orange-500"
                                 />
-                                <label htmlFor="flowgex-checkbox-desktop" className="text-xs font-bold text-orange-400 uppercase tracking-wider cursor-pointer">FLOW MAP</label>
+                                <label htmlFor="flowgex-checkbox-desktop" className={`relative z-10 text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${showFlowGEX ? 'text-orange-300 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]' : 'text-orange-400'}`}>FLOW MAP</label>
                               </div>
                               
                               {/* VOLATILITY (VEX) Checkbox */}
-                              <div className="flex items-center gap-2">
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showVEX 
+                                ? 'bg-gradient-to-b from-purple-500/25 via-black to-purple-900/30 border border-purple-400/70 shadow-[0_0_15px_rgba(168,85,247,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-purple-500/40 hover:shadow-[0_0_10px_rgba(168,85,247,0.2)]'}`}>
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   type="checkbox"
                                   checked={showVEX}
@@ -5213,24 +5273,27 @@ const DealerAttraction = () => {
                                       setVexMode('Net VEX');
                                     }
                                   }}
-                                  className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded focus:ring-purple-500 focus:ring-2"
+                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-purple-500 border-purple-500/60 focus:ring-purple-500 accent-purple-500"
                                 />
-                                <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">VOLATILITY</span>
+                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showVEX ? 'text-purple-300 drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]' : 'text-purple-400'}`}>VOLATILITY</span>
                               </div>
                               
                               {/* OI Checkbox */}
-                              <div className="flex items-center gap-2">
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showOI 
+                                ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                                : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'}`}>
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
                                   type="checkbox"
                                   checked={showOI}
                                   onChange={(e) => setShowOI(e.target.checked)}
-                                  className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                                  className="relative z-10 w-4 h-4 bg-black border-2 rounded focus:ring-2 transition-all text-blue-500 border-blue-500/60 focus:ring-blue-500 accent-blue-500"
                                 />
-                                <span className="text-xs font-bold text-white uppercase tracking-wider">OI</span>
+                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showOI ? 'text-blue-300 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]' : 'text-white'}`}>OI</span>
                               </div>
                               
                               {/* LIVE Button */}
-                              <div className="flex items-center gap-2">
+                              <div className="relative flex items-center gap-2">
                                 <button
                                   onClick={() => {
                                     // Check if ticker is typed in search bar (even without clicking enter)
@@ -5262,13 +5325,14 @@ const DealerAttraction = () => {
                                     }
                                   }}
                                   disabled={liveOILoading}
-                                  className={`px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all ${
+                                  className={`relative overflow-hidden px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all duration-300 ${
                                     liveMode 
-                                      ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/50' 
-                                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border-2 border-gray-700'
+                                      ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 text-green-300 border border-green-400/70 shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                                      : 'bg-gradient-to-b from-black/80 via-black to-black/90 text-gray-400 border border-white/10 hover:border-green-500/50 hover:text-green-400 hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
                                   } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                 >
-                                  {liveOILoading ? 'LOADING...' : liveMode ? 'LIVE ✓' : 'LIVE'}
+                                  <span className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></span>
+                                  <span className="relative z-10">{liveOILoading ? 'LOADING...' : liveMode ? '● LIVE' : 'LIVE'}</span>
                                 </button>
                                 {liveOILoading && (
                                   <div className="flex items-center gap-2">
@@ -5317,6 +5381,22 @@ const DealerAttraction = () => {
                           </div>
                         </div>
                       </div>
+                      
+                      {/* Bloomberg Theme Toggle Button */}
+                      <button
+                        onClick={() => setUseBloombergTheme(!useBloombergTheme)}
+                        className={`flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${
+                          useBloombergTheme 
+                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400' 
+                            : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
+                        }`}
+                        style={{
+                          boxShadow: useBloombergTheme ? '0 0 10px rgba(245, 158, 11, 0.5)' : 'none'
+                        }}
+                        title="Toggle Bloomberg Terminal Theme"
+                      >
+                        BB
+                      </button>
                       
                       {/* Desktop Refresh Button */}
                       <button
@@ -5510,18 +5590,27 @@ const DealerAttraction = () => {
                   {/* NORMAL (Net GEX) Table - conditionally rendered */}
                   {showGEX && (
                     <div key={`normal-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={{ width: tableWidth, maxWidth: tableWidth }}>
-                      <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
-                        <h3 className="text-lg font-extrabold text-white uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>NORMAL</h3>
+                      <div className={`${useBloombergTheme 
+                        ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
+                        : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
+                        {useBloombergTheme && (
+                          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                        )}
+                        <div className="flex items-center justify-center gap-3 relative z-10">
+                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
+                          <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(52,211,153,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>NORMAL</h3>
+                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
+                        </div>
                       </div>
-                      <div className="bg-gray-900 border border-gray-700 overflow-x-auto table-scroll-container" style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${80 + (expirations.length * 90)}px`, width: '100%' }}>
-                      <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
-                        <tr className="border-b border-gray-700 bg-black">
-                          <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl" style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}>
-                            <div className="text-xs font-bold text-white uppercase">Strike</div>
+                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                        <table style={{ minWidth: `${strikeColumnWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                      <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
+                        <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                          <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                            <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                           </th>
                           {expirations.map(exp => (
-                            <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-1 py-5" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                            <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
                               <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                 {formatDate(exp)}
                               </div>
@@ -5559,17 +5648,17 @@ const DealerAttraction = () => {
                             <tr 
                               key={idx} 
                               className={`hover:bg-gray-800/20 transition-colors ${
-                                isCurrentPriceRow ? 'border-2 border-orange-500' : 'border-b border-gray-800/30'
+                                isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
                               }`}
                             >
-                              <td className="px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 bg-black" style={{
-                                width: '80px',
-                                minWidth: '80px',
-                                maxWidth: '80px'
+                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                width: `${strikeColumnWidth}px`,
+                                minWidth: `${strikeColumnWidth}px`,
+                                maxWidth: `${strikeColumnWidth}px`
                               }}>
                                 <div className={`text-base font-mono font-bold ${
-                                  hasMagnetCell ? 'text-purple-600' :
-                                  hasPivotCell ? 'text-blue-600' :
+                                  hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
+                                  hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
                                   isCurrentPriceRow ? 'text-orange-500' : 'text-white'
                                 }`}>
                                   {row.strike.toFixed(1)}
@@ -5599,10 +5688,10 @@ const DealerAttraction = () => {
                                 return (
                                   <td
                                     key={exp}
-                                    className="px-1 py-3"
+                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
                                     style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
                                   >
-                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 rounded-lg text-center font-mono transition-all`}>
+                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
                                       {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
                                       <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                     </div>
@@ -5621,18 +5710,27 @@ const DealerAttraction = () => {
                   {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
                   {showDealer && (
                     <div key={`dealer-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={{ width: tableWidth, maxWidth: tableWidth }}>
-                      <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
-                        <h3 className="text-lg font-extrabold text-yellow-400 uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>DEALER</h3>
+                      <div className={`${useBloombergTheme 
+                        ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
+                        : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
+                        {useBloombergTheme && (
+                          <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                        )}
+                        <div className="flex items-center justify-center gap-3 relative z-10">
+                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
+                          <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(251,191,36,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>DEALER</h3>
+                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
+                        </div>
                       </div>
-                      <div className="bg-gray-900 border border-gray-700 overflow-x-auto table-scroll-container" style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${80 + (expirations.length * 90)}px`, width: '100%' }}>
-                      <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
-                        <tr className="border-b border-gray-700 bg-black">
-                          <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl" style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}>
-                            <div className="text-xs font-bold text-white uppercase">Strike</div>
+                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                        <table style={{ minWidth: `${strikeColumnWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                      <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
+                        <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                          <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                            <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                           </th>
                           {expirations.map(exp => (
-                            <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-1 py-5" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                            <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
                               <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                 {formatDate(exp)}
                               </div>
@@ -5670,17 +5768,17 @@ const DealerAttraction = () => {
                             <tr 
                               key={idx} 
                               className={`hover:bg-gray-800/20 transition-colors ${
-                                isCurrentPriceRow ? 'border-2 border-orange-500' : 'border-b border-gray-800/30'
+                                isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
                               }`}
                             >
-                              <td className="px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 bg-black" style={{
-                                width: '80px',
-                                minWidth: '80px',
-                                maxWidth: '80px'
+                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                width: `${strikeColumnWidth}px`,
+                                minWidth: `${strikeColumnWidth}px`,
+                                maxWidth: `${strikeColumnWidth}px`
                               }}>
                                 <div className={`text-base font-mono font-bold ${
-                                  hasMagnetCell ? 'text-purple-600' :
-                                  hasPivotCell ? 'text-blue-600' :
+                                  hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
+                                  hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
                                   isCurrentPriceRow ? 'text-orange-500' : 'text-white'
                                 }`}>
                                   {row.strike.toFixed(1)}
@@ -5706,10 +5804,10 @@ const DealerAttraction = () => {
                                 return (
                                   <td
                                     key={exp}
-                                    className="px-1 py-3"
+                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
                                     style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
                                   >
-                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 rounded-lg text-center font-mono transition-all`}>
+                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
                                       {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
                                       <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                     </div>
@@ -5728,18 +5826,27 @@ const DealerAttraction = () => {
                   {/* FLOW MAP Table - conditionally rendered */}
                   {showFlowGEX && (
                     <div key={`flowmap-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={{ width: tableWidth, maxWidth: tableWidth }}>
-                      <div className="bg-black border border-gray-700 border-b-0 px-4 py-3">
-                        <h3 className="text-lg font-extrabold text-orange-400 uppercase tracking-wider text-center" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>FLOW MAP</h3>
+                      <div className={`${useBloombergTheme 
+                        ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]' 
+                        : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
+                        {useBloombergTheme && (
+                          <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                        )}
+                        <div className="flex items-center justify-center gap-3 relative z-10">
+                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
+                          <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(251,146,60,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>FLOW MAP</h3>
+                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
+                        </div>
                       </div>
-                      <div className="bg-gray-900 border border-gray-700 overflow-x-auto table-scroll-container" style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${80 + (expirations.length * 90)}px`, width: '100%' }}>
-                        <thead className="sticky top-0 z-20 bg-black backdrop-blur-sm" style={{ top: '0', backgroundColor: '#000000' }}>
-                          <tr className="border-b border-gray-700 bg-black">
-                            <th className="px-3 py-5 text-left sticky left-0 bg-black z-30 border-r border-gray-700 shadow-xl" style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}>
-                              <div className="text-xs font-bold text-white uppercase">Strike</div>
+                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                        <table style={{ minWidth: `${strikeColumnWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                        <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
+                          <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                            <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                              <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                             </th>
                             {expirations.map(exp => (
-                              <th key={exp} className="text-center bg-black border-l border-r border-gray-800 shadow-lg px-1 py-5" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                              <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
                                 <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                   {formatDate(exp)}
                                 </div>
@@ -5776,17 +5883,17 @@ const DealerAttraction = () => {
                               <tr 
                                 key={idx} 
                                 className={`hover:bg-gray-800/20 transition-colors ${
-                                  isCurrentPriceRow ? 'border-2 border-orange-500' : 'border-b border-gray-800/30'
+                                  isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
                                 }`}
                               >
-                                <td className="px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 bg-black" style={{
-                                  width: '80px',
-                                  minWidth: '80px',
-                                  maxWidth: '80px'
+                                <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                  width: `${strikeColumnWidth}px`,
+                                  minWidth: `${strikeColumnWidth}px`,
+                                  maxWidth: `${strikeColumnWidth}px`
                                 }}>
                                   <div className={`text-base font-mono font-bold ${
-                                    hasMagnetCell ? 'text-purple-600' :
-                                    hasPivotCell ? 'text-blue-600' :
+                                    hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
+                                    hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
                                     isCurrentPriceRow ? 'text-orange-500' : 'text-white'
                                   }`}>
                                     {row.strike.toFixed(1)}
@@ -5800,10 +5907,10 @@ const DealerAttraction = () => {
                                   return (
                                     <td
                                       key={exp}
-                                      className="px-1 py-3"
+                                      className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
                                       style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
                                     >
-                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 rounded-lg text-center font-mono transition-all`}>
+                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
                                         {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
                                         <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                       </div>
@@ -5824,15 +5931,15 @@ const DealerAttraction = () => {
                 </div>
               ) : (
                 /* Original single table when only one mode is active */
-                <div className="bg-gray-900 border border-gray-700 overflow-x-auto table-scroll-container" style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                  <table style={{ minWidth: `${80 + (expirations.length * 90)}px`, width: '100%' }}>
-                    <thead className="sticky top-0 z-20 bg-black">
-                      <tr className="border-b border-gray-700 bg-black">
-                        <th className="px-3 py-4 text-left sticky left-0 bg-gradient-to-br from-black via-gray-900 to-black z-30 border-r border-gray-700 shadow-xl" style={{ width: '80px', minWidth: '80px', maxWidth: '80px' }}>
-                          <div className="text-xs font-bold text-white uppercase">Strike</div>
+                <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                  <table style={{ minWidth: `${strikeColumnWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                    <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}>
+                      <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                        <th className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                          <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                         </th>
                         {expirations.map(exp => (
-                          <th key={exp} className="text-center bg-gradient-to-br from-black via-gray-900 to-black border-l border-r border-gray-800 shadow-lg px-1 py-3" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                          <th key={exp} className={`text-center ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
                             <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                               {formatDate(exp)}
                             </div>
@@ -5927,17 +6034,17 @@ const DealerAttraction = () => {
                           <tr 
                             key={idx} 
                             className={`hover:bg-gray-800/20 transition-colors ${
-                              isCurrentPriceRow ? 'border-2 border-orange-500' : 'border-b border-gray-800/30'
+                              isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
                             }`}
                           >
-                            <td className="px-3 py-4 font-bold sticky left-0 z-10 border-r border-gray-700/30 bg-black" style={{
-                              width: '80px',
-                              minWidth: '80px',
-                              maxWidth: '80px'
+                            <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                              width: `${strikeColumnWidth}px`,
+                              minWidth: `${strikeColumnWidth}px`,
+                              maxWidth: `${strikeColumnWidth}px`
                             }}>
                               <div className={`text-base font-mono font-bold ${
-                                hasMagnetCell ? 'text-purple-600' :
-                                hasPivotCell ? 'text-blue-600' :
+                                hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
+                                hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
                                 isCurrentPriceRow ? 'text-orange-500' : 'text-white'
                               }`}>
                                 {row.strike.toFixed(1)}
@@ -6020,7 +6127,7 @@ const DealerAttraction = () => {
                               return (
                                 <td
                                   key={exp}
-                                  className="px-1 py-3"
+                                  className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
                                   style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
                                 >
                                   {/* Always display net value in a single cell */}
@@ -6043,7 +6150,7 @@ const DealerAttraction = () => {
                                     
                                     const cellStyle = getCellStyle(displayValue, showVEX, row.strike, exp, modeTopValues);
                                     return (
-                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 rounded-lg text-center font-mono transition-all hover:scale-105`}>
+                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105`}>
                                       
                                     {/* Display label if present (MAGNET/PIVOT) */}
                                     {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}

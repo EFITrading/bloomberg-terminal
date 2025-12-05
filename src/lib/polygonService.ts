@@ -364,8 +364,11 @@ class PolygonService {
 
  console.log(` Fetching ${years} years of bulk data for ${symbol} (${startDateStr} to ${endDateStr}) - Attempt ${attempt}/${maxRetries}`);
 
- // Use the backend API endpoint with enhanced error handling
- const endpoint = `/api/historical-data?symbol=${symbol}&startDate=${startDateStr}&endDate=${endDateStr}`;
+ // Call Polygon API directly to avoid server-side relative URL issue
+ const POLYGON_API_KEY = process.env.POLYGON_API_KEY || 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+ const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${startDateStr}/${endDateStr}?adjusted=true&sort=desc&limit=50000&apikey=${POLYGON_API_KEY}`;
+ 
+ console.log(` Direct Polygon API call for ${symbol}: ${url.replace(POLYGON_API_KEY, 'API_KEY')}`);
  
  // Add timeout and abort controller for better connection handling
  const controller = new AbortController();
@@ -374,7 +377,7 @@ class PolygonService {
  controller.abort();
  }, 15000);
 
- const response = await fetch(endpoint, {
+ const response = await fetch(url, {
  method: 'GET',
  signal: controller.signal,
  headers: {
@@ -410,18 +413,34 @@ class PolygonService {
  
  const data = await response.json();
  
- if (data && data.results && Array.isArray(data.results)) {
- if (data.results.length > 0) {
- console.log(` Retrieved ${data.results.length} data points for ${symbol}`);
+ // Enhanced validation with detailed logging
+ console.log(` Raw response for ${symbol}:`, JSON.stringify(data).slice(0, 200));
+ 
+ if (!data) {
+ console.error(` NULL response received for ${symbol}`);
+ return null;
+ }
+ 
+ if (!data.results) {
+ console.error(` Missing 'results' field for ${symbol}. Response keys: ${Object.keys(data).join(', ')}`);
+ return null;
+ }
+ 
+ if (!Array.isArray(data.results)) {
+ console.error(` 'results' is not an array for ${symbol}. Type: ${typeof data.results}`);
+ return null;
+ }
+ 
+ if (data.results.length === 0) {
+ console.error(` EMPTY results array for ${symbol}. Status: ${data.status}, Query: ${startDateStr} to ${endDateStr}`);
+ return null;
+ }
+ 
+ // Reverse array since we requested DESC order (newest first) but need ASC (oldest first)
+ data.results.reverse();
+ 
+ console.log(` ✓ Retrieved ${data.results.length} data points for ${symbol} (${startDateStr} to ${endDateStr})`);
  return data;
- } else {
- console.warn(` No data returned for ${symbol} in the requested time range`);
- return null;
- }
- }
-
- console.warn(` Invalid data format received for ${symbol}`);
- return null;
 
  } catch (error) {
  lastError = error instanceof Error ? error : new Error('Unknown error');

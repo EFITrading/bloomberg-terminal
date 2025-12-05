@@ -94,7 +94,7 @@ const TOP_SCREENER_SYMBOLS = [
  'HTFL', 'HTGC', 'HTHT', 'HTH', 'HUBB', 'HUBG', 'HUBS', 'HUM', 'HURN', 'HUT', 'HWC',
  'HWCPZ', 'HWKN', 'HWM', 'HXL', 'IAC', 'IAG', 'IBIT', 'IBM', 'IBKR', 'IBN', 'IBOC',
  'IBRX', 'IBP', 'ICE', 'ICLR', 'ICL', 'ICUI', 'IDA', 'IDCC', 'IDXX', 'IDYA', 'IEP', 'IE',
- 'IESC', 'IEX', 'IFF', 'IFS', 'IHG', 'IHS', 'ILMN', 'IMO', 'IMVT', 'INCY', 'INDB', 'INDV',
+ 'IESC', 'IEX', 'IFF', 'IFS', 'IHG', 'IHS', 'ILMN', 'IMVT', 'INCY', 'INDB', 'INDV',
  'INFA', 'INFY', 'ING', 'INGM', 'INGR', 'INOD', 'INSM', 'INSP', 'INSW', 'INTA', 'INTC',
  'INTR', 'INTU', 'INVH', 'IONQ', 'IONS', 'IOT', 'IPAR', 'IP', 'IPG', 'IPGP', 'IQ',
  'IQV', 'IR', 'IREN', 'IRM', 'IRON', 'IRTC', 'IRT', 'ISRG', 'IT', 'ITGR', 'ITRI',

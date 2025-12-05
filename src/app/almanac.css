@@ -1,0 +1,1318 @@
+/* Stock Trader's Almanac Styles - Bloomberg Terminal Black Theme */
+
+/* ===== TAB NAVIGATION ===== */
+.almanac-tabs {
+  display: flex;
+  gap: 12px;
+  background: #000000;
+  border-bottom: 1px solid #222222;
+  padding: 15px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.almanac-tab {
+  background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%);
+  color: #555555;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 14px 32px;
+  font-size: 15px;
+  font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.almanac-tab::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+}
+
+.almanac-tab:hover {
+  color: #888888;
+  background: linear-gradient(180deg, #222222 0%, #111111 50%, #050505 100%);
+  border-color: #3a3a3a;
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 6px 16px rgba(0, 0, 0, 0.6),
+    0 2px 4px rgba(0, 0, 0, 0.4);
+  transform: translateY(-1px);
+}
+
+.almanac-tab.active {
+  color: #ff6600 !important;
+  background: linear-gradient(180deg, #0d0d0d 0%, #000000 50%, #000000 100%);
+  border-color: #ff6600;
+  box-shadow: 
+    inset 0 0 30px rgba(255, 102, 0, 0.08),
+    0 0 20px rgba(255, 102, 0, 0.15),
+    0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.almanac-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 15%;
+  right: 15%;
+  height: 2px;
+  background: #ff6600;
+  box-shadow: 0 0 10px rgba(255, 102, 0, 0.8);
+}
+
+.almanac-content {
+  padding: 20px;
+  min-height: calc(100vh - 60px);
+  background: #000000;
+}
+
+/* ===== ALMANAC DAILY CHART ===== */
+.almanac-daily-chart {
+  background: #000000;
+  border: 1px solid #333333;
+  border-radius: 8px;
+  padding: 20px;
+  color: #ffffff;
+  font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Header row containing controls and legend */
+.almanac-daily-chart .chart-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #333333;
+  flex-shrink: 0;
+}
+
+.almanac-daily-chart .chart-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.almanac-daily-chart .month-selector {
+  background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%);
+  color: #ff6600 !important;
+  border: 1px solid #ff6600;
+  border-radius: 4px;
+  padding: 14px 24px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+  outline: none;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  box-shadow: 
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    inset 0 0 30px rgba(255, 102, 0, 0.08),
+    0 4px 12px rgba(0,0,0,0.5),
+    0 0 20px rgba(255, 102, 0, 0.15);
+  transition: all 0.15s ease;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff6600' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 16px;
+  padding-right: 45px;
+  position: relative;
+}
+
+.almanac-daily-chart .month-selector::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+  pointer-events: none;
+}
+
+.almanac-daily-chart .month-selector:hover {
+  border-color: #ff6600;
+  background: linear-gradient(180deg, #222222 0%, #111111 50%, #050505 100%);
+  box-shadow: 
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 6px 16px rgba(0,0,0,0.6),
+    0 0 25px rgba(255, 102, 0, 0.2);
+  transform: translateY(-1px);
+}
+
+.almanac-daily-chart .month-selector:focus {
+  border-color: #ff6600;
+  box-shadow: 
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 0 30px rgba(255, 102, 0, 0.1),
+    0 0 25px rgba(255, 102, 0, 0.3);
+}
+
+.almanac-daily-chart .month-selector option {
+  background: #000000;
+  color: #ffffff;
+  padding: 12px;
+  font-size: 14px;
+}
+
+.almanac-daily-chart .refresh-btn {
+  background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+  color: #888888;
+  border: 1px solid #333333;
+  border-radius: 3px;
+  padding: 10px 24px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 8px rgba(0,0,0,0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.almanac-daily-chart .refresh-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+}
+
+.almanac-daily-chart .refresh-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #222222 0%, #111111 100%);
+  color: #ffffff;
+  border-color: #444444;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.almanac-daily-chart .refresh-btn:active:not(:disabled) {
+  background: linear-gradient(180deg, #0d0d0d 0%, #1a1a1a 100%);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+}
+
+.almanac-daily-chart .refresh-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Toggle buttons */
+.almanac-daily-chart .toggle-buttons {
+  display: flex;
+  gap: 6px;
+  margin-right: 10px;
+}
+
+.almanac-daily-chart .toggle-btn {
+  background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+  color: #555555;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  padding: 10px 18px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), 0 2px 6px rgba(0,0,0,0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.almanac-daily-chart .toggle-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+}
+
+.almanac-daily-chart .toggle-btn:hover {
+  background: linear-gradient(180deg, #222222 0%, #111111 100%);
+  border-color: #3a3a3a;
+  color: #888888;
+}
+
+.almanac-daily-chart .toggle-btn.active {
+  background: linear-gradient(180deg, #0d0d0d 0%, #000000 100%);
+  color: #ff6600;
+  border-color: #ff6600;
+  box-shadow: inset 0 0 20px rgba(255, 102, 0, 0.08), 0 0 12px rgba(255, 102, 0, 0.15);
+}
+
+.almanac-daily-chart .toggle-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: #ff6600;
+  box-shadow: 0 0 8px rgba(255, 102, 0, 0.6);
+}
+
+/* Compact inline legend */
+.almanac-daily-chart .chart-legend-inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 15px;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.almanac-daily-chart .legend-group {
+  display: flex;
+  gap: 20px;
+  color: #888888;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.almanac-daily-chart .legend-row {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.almanac-daily-chart .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #cccccc;
+}
+
+.almanac-daily-chart .legend-line {
+  width: 20px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.almanac-daily-chart .chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #0a0a0a;
+  border: 1px solid #222222;
+  border-radius: 6px;
+}
+
+.almanac-daily-chart .legend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.almanac-daily-chart .legend-title {
+  font-size: 11px;
+  color: #888888;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.almanac-daily-chart .legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.almanac-daily-chart .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #cccccc;
+}
+
+.almanac-daily-chart .legend-line {
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.almanac-daily-chart .chart-container {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  background: #000000;
+  border: 1px solid #222222;
+  border-radius: 4px;
+}
+
+.almanac-daily-chart .chart-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.almanac-daily-chart .chart-loading,
+.almanac-daily-chart .chart-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  color: #888888;
+}
+
+.almanac-daily-chart .chart-attribution {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #222222;
+  font-size: 10px;
+  color: #666666;
+}
+
+.almanac-daily-chart .watermark {
+  color: #FF0000;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ===== ALMANAC CALENDAR ===== */
+.almanac-calendar {
+  background: #000000;
+  color: #ffffff;
+  font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+  padding: 20px;
+  border: 2px solid #333333;
+  max-width: 100%;
+}
+
+.almanac-calendar .calendar-header {
+  margin-bottom: 20px;
+}
+
+.almanac-calendar .calendar-title-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  margin-bottom: 15px;
+}
+
+.almanac-calendar .calendar-title {
+  font-size: 48px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: #ffffff;
+  margin: 0;
+}
+
+.almanac-calendar .nav-btn {
+  background: #1a1a1a;
+  color: #ffffff;
+  border: 1px solid #444444;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.almanac-calendar .nav-btn:hover {
+  background: #333333;
+  border-color: #666666;
+}
+
+.almanac-calendar .sector-seasonalities {
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  padding: 15px 20px;
+  margin-bottom: 15px;
+}
+
+.almanac-calendar .seasonality-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.almanac-calendar .seasonality-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.almanac-calendar .seasonality-label {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.almanac-calendar .seasonality-label.bullish {
+  color: #00FF00;
+}
+
+.almanac-calendar .seasonality-label.bearish {
+  color: #FF0000;
+}
+
+.almanac-calendar .seasonality-list {
+  font-size: 12px;
+  color: #cccccc;
+}
+
+.almanac-calendar .calendar-grid {
+  border: 2px solid #ffffff;
+  background: #000000;
+}
+
+.almanac-calendar .calendar-header-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  background: #000000;
+  border-bottom: 2px solid #ffffff;
+}
+
+.almanac-calendar .day-header {
+  padding: 12px 8px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 20px;
+  color: #ffffff;
+  background: linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #0a0a0a 100%);
+  border-right: 1px solid #333333;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 2px 4px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 -1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.almanac-calendar .day-header:last-child {
+  border-right: none;
+}
+
+.almanac-calendar .calendar-days {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.almanac-calendar .calendar-day {
+  min-height: 120px;
+  border-right: 1px solid #333333;
+  border-bottom: 1px solid #333333;
+  padding: 8px;
+  background: #000000;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.almanac-calendar .calendar-day:nth-child(5n) {
+  border-right: none;
+}
+
+.almanac-calendar .calendar-day.other-month {
+  background: #050505;
+  opacity: 0.3;
+}
+
+.almanac-calendar .calendar-day.weekend {
+  background: #0a0a0a;
+}
+
+.almanac-calendar .calendar-day.holiday {
+  background: #0f0a0a;
+}
+
+.almanac-calendar .day-number-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+/* Professional trend indicators */
+.almanac-calendar .day-indicator {
+  font-size: 12px;
+  font-weight: 900;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.almanac-calendar .day-indicator.bullish {
+  color: #00FF00;
+  background: rgba(0, 255, 0, 0.15);
+  border: 1px solid rgba(0, 255, 0, 0.3);
+}
+
+.almanac-calendar .day-indicator.bearish {
+  color: #FF0000;
+  background: rgba(255, 0, 0, 0.15);
+  border: 1px solid rgba(255, 0, 0, 0.3);
+}
+
+/* Subtle day background tinting */
+.almanac-calendar .calendar-day.bullish-day {
+  background: linear-gradient(135deg, rgba(0, 255, 0, 0.03) 0%, #000000 100%);
+  border-left: 2px solid rgba(0, 255, 0, 0.4);
+}
+
+.almanac-calendar .calendar-day.bearish-day {
+  background: linear-gradient(135deg, rgba(255, 0, 0, 0.03) 0%, #000000 100%);
+  border-left: 2px solid rgba(255, 0, 0, 0.4);
+}
+
+.almanac-calendar .day-icon {
+  font-size: 16px;
+}
+
+.almanac-calendar .day-icon.bullish {
+  color: #00FF00;
+}
+
+.almanac-calendar .day-icon.bearish {
+  color: #FF0000;
+}
+
+.almanac-calendar .day-number {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.almanac-calendar .day-special-notes {
+  margin-bottom: 4px;
+}
+
+.almanac-calendar .special-note {
+  font-size: 10px;
+  font-weight: 600;
+  color: #FF6B35;
+  line-height: 1.3;
+}
+
+.almanac-calendar .day-stats {
+  margin-bottom: 4px;
+}
+
+.almanac-calendar .day-stats .stat {
+  font-size: 9px;
+  font-weight: 600;
+  display: block;
+  line-height: 1.4;
+}
+
+.almanac-calendar .day-stats .stat.bullish {
+  color: #00FF00;
+}
+
+.almanac-calendar .day-stats .stat.bearish {
+  color: #FF0000;
+}
+
+.almanac-calendar .day-economic-releases {
+  margin-top: auto;
+  font-size: 9px;
+  color: #888888;
+}
+
+.almanac-calendar .economic-release {
+  line-height: 1.3;
+}
+
+.almanac-calendar .more-releases {
+  color: #666666;
+  font-style: italic;
+}
+
+.almanac-calendar .market-closed {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.almanac-calendar .closed-text {
+  font-size: 11px;
+  color: #666666;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.almanac-calendar .monthly-stats-row {
+  margin-top: 20px;
+  padding: 15px;
+  background: #0a0a0a;
+  border: 1px solid #333333;
+}
+
+.almanac-calendar .stat-box {
+  text-align: center;
+}
+
+.almanac-calendar .stat-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 15px;
+  display: block;
+}
+
+.almanac-calendar .stat-values {
+  display: flex;
+  justify-content: center;
+  gap: 60px;
+}
+
+.almanac-calendar .stat-item {
+  font-size: 14px;
+  color: #ffffff;
+  text-align: center;
+}
+
+.almanac-calendar .stat-detail {
+  font-size: 11px;
+  color: #888888;
+}
+
+.almanac-calendar .stat-rank {
+  font-size: 11px;
+  color: #FF6B35;
+  font-weight: 600;
+}
+
+.almanac-calendar .calendar-footer {
+  margin-top: 20px;
+  padding: 15px;
+  background: #0a0a0a;
+  border: 1px solid #333333;
+}
+
+.almanac-calendar .weekly-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 30px;
+  margin-bottom: 15px;
+  font-size: 10px;
+  color: #888888;
+}
+
+.almanac-calendar .legend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px 0;
+  border-top: 1px solid #333333;
+  border-bottom: 1px solid #333333;
+}
+
+.almanac-calendar .legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 11px;
+  color: #aaaaaa;
+}
+
+.almanac-calendar .bull-icon,
+.almanac-calendar .bear-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.almanac-calendar .disclaimer {
+  margin-top: 15px;
+  font-size: 10px;
+  color: #666666;
+  font-style: italic;
+}
+
+/* ===== MARKET AT A GLANCE ===== */
+.market-at-a-glance {
+  background: #000000;
+  color: #ffffff;
+  font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+  padding: 25px;
+  border: 2px solid #333333;
+  max-width: 900px;
+}
+
+.market-at-a-glance .glance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #FF6B35;
+}
+
+.market-at-a-glance .glance-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin: 0;
+}
+
+.market-at-a-glance .refresh-btn {
+  background: #1a1a1a;
+  color: #ffffff;
+  border: 1px solid #444444;
+  border-radius: 4px;
+  padding: 8px 20px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.market-at-a-glance .refresh-btn:hover {
+  background: #333333;
+  border-color: #666666;
+}
+
+.market-at-a-glance .index-prices-section {
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  padding: 15px 20px;
+  margin-bottom: 20px;
+}
+
+.market-at-a-glance .as-of-date {
+  font-size: 14px;
+  color: #888888;
+  margin-bottom: 10px;
+}
+
+.market-at-a-glance .index-prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 25px;
+}
+
+.market-at-a-glance .index-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.market-at-a-glance .index-name {
+  font-size: 14px;
+  color: #888888;
+}
+
+.market-at-a-glance .index-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.market-at-a-glance .index-change {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.market-at-a-glance .index-change.positive {
+  color: #00FF00;
+}
+
+.market-at-a-glance .index-change.negative {
+  color: #FF0000;
+}
+
+.market-at-a-glance .analysis-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.market-at-a-glance .analysis-section {
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  padding: 15px 20px;
+}
+
+.market-at-a-glance .section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.market-at-a-glance .section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.market-at-a-glance .section-outlook {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 3px;
+}
+
+.market-at-a-glance .section-outlook.outlook-bullish {
+  background: rgba(0, 255, 0, 0.15);
+  color: #00FF00;
+  border: 1px solid rgba(0, 255, 0, 0.3);
+}
+
+.market-at-a-glance .section-outlook.outlook-bearish {
+  background: rgba(255, 0, 0, 0.15);
+  color: #FF0000;
+  border: 1px solid rgba(255, 0, 0, 0.3);
+}
+
+.market-at-a-glance .section-outlook.outlook-neutral {
+  background: rgba(255, 193, 7, 0.15);
+  color: #FFC107;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.market-at-a-glance .section-rate {
+  font-size: 14px;
+  font-weight: 700;
+  color: #2196F3;
+  background: rgba(33, 150, 243, 0.15);
+  padding: 2px 10px;
+  border-radius: 3px;
+  border: 1px solid rgba(33, 150, 243, 0.3);
+}
+
+.market-at-a-glance .section-content {
+  font-size: 13px;
+  color: #cccccc;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.market-at-a-glance .sentiment-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.market-at-a-glance .sentiment-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.market-at-a-glance .meter-label {
+  font-size: 12px;
+  color: #888888;
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.market-at-a-glance .meter-bar {
+  flex: 1;
+  height: 12px;
+  background: #1a1a1a;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #333333;
+}
+
+.market-at-a-glance .meter-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.3s ease;
+}
+
+.market-at-a-glance .meter-fill.bullish {
+  background: linear-gradient(90deg, #00AA00, #00FF00);
+}
+
+.market-at-a-glance .meter-fill.bearish {
+  background: linear-gradient(90deg, #AA0000, #FF0000);
+}
+
+.market-at-a-glance .meter-fill.neutral {
+  background: linear-gradient(90deg, #AA8800, #FFCC00);
+}
+
+.market-at-a-glance .meter-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  width: 50px;
+  text-align: right;
+}
+
+.market-at-a-glance .glance-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #333333;
+  font-size: 10px;
+  color: #666666;
+}
+
+/* ===== LOADING STATES ===== */
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #333333;
+  border-top-color: #FF6B35;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== RESPONSIVE ADJUSTMENTS ===== */
+@media (max-width: 1200px) {
+  .almanac-calendar .calendar-day {
+    min-height: 100px;
+  }
+  
+  .almanac-calendar .day-number {
+    font-size: 16px;
+  }
+  
+  .almanac-calendar .stat-values {
+    gap: 30px;
+  }
+}
+
+@media (max-width: 768px) {
+  .almanac-calendar .calendar-title {
+    font-size: 32px;
+  }
+  
+  .almanac-calendar .calendar-day {
+    min-height: 80px;
+    padding: 4px;
+  }
+  
+  .almanac-calendar .day-number {
+    font-size: 14px;
+  }
+  
+  .almanac-calendar .day-icon {
+    font-size: 12px;
+  }
+  
+  .almanac-calendar .day-economic-releases,
+  .almanac-calendar .day-stats .stat {
+    font-size: 8px;
+  }
+  
+  .almanac-calendar .stat-values {
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .market-at-a-glance .index-prices {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .almanac-daily-chart .chart-legend {
+    flex-direction: column;
+  }
+  
+  .almanac-daily-chart .chart-container {
+    height: 350px;
+  }
+}
+
+/* ===== COMBINED ALMANAC LAYOUT (50% / 50%) ===== */
+.almanac-combined-layout {
+  display: flex;
+  flex-direction: row;
+  min-height: calc(100vh - 60px);
+  height: auto;
+  background: #000000;
+  gap: 0;
+  overflow: visible;
+}
+
+.almanac-section {
+  background: #000000;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.almanac-section.chart-section {
+  flex: 0 0 50%;
+  width: 50%;
+  border-right: 1px solid #333333;
+  overflow: visible;
+  height: fit-content;
+}
+
+.almanac-section.calendar-section {
+  flex: 0 0 50%;
+  width: 50%;
+  overflow-y: auto;
+  height: auto;
+  min-height: calc(100vh - 60px);
+}
+
+/* Adjust components for combined view */
+.almanac-combined-layout .almanac-daily-chart {
+  height: auto;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.almanac-combined-layout .almanac-daily-chart .chart-header-row {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+}
+
+.almanac-combined-layout .almanac-daily-chart .chart-controls-row {
+  flex-shrink: 0;
+}
+
+.almanac-combined-layout .almanac-daily-chart .chart-legend-inline {
+  font-size: 10px;
+}
+
+.almanac-combined-layout .almanac-daily-chart .legend-row {
+  gap: 10px;
+}
+
+.almanac-combined-layout .almanac-daily-chart .chart-container {
+  height: 1300px;
+  position: relative;
+}
+
+.almanac-combined-layout .almanac-daily-chart .chart-container canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.almanac-combined-layout .almanac-daily-chart .chart-title {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.almanac-combined-layout .almanac-daily-chart .legend-item {
+  gap: 6px;
+}
+
+.almanac-combined-layout .almanac-calendar {
+  height: auto;
+  min-height: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+}
+
+.almanac-combined-layout .almanac-calendar .calendar-header {
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.almanac-combined-layout .almanac-calendar .calendar-title {
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+
+.almanac-combined-layout .almanac-calendar .sector-seasonalities {
+  font-size: 11px;
+}
+
+.almanac-combined-layout .almanac-calendar .calendar-grid {
+  gap: 3px;
+  flex: 1;
+  min-height: auto;
+  height: auto;
+}
+
+.almanac-combined-layout .almanac-calendar .calendar-day {
+  min-height: 120px;
+  padding: 6px;
+}
+
+.almanac-combined-layout .almanac-calendar .day-number {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.almanac-combined-layout .almanac-calendar .day-icon {
+  font-size: 16px;
+}
+
+.almanac-combined-layout .almanac-calendar .day-stats .stat {
+  font-size: 13px;
+}
+
+.almanac-combined-layout .almanac-calendar .economic-release {
+  font-size: 13px;
+}
+
+.almanac-combined-layout .almanac-calendar .special-note {
+  font-size: 13px;
+}
+
+.almanac-combined-layout .almanac-calendar .monthly-stats-row {
+  margin-top: 15px;
+  padding: 10px;
+}
+
+.almanac-combined-layout .almanac-calendar .stat-label {
+  font-size: 12px;
+}
+
+.almanac-combined-layout .almanac-calendar .stat-item {
+  font-size: 14px;
+}
+
+.almanac-combined-layout .market-at-a-glance {
+  height: auto;
+  padding: 15px;
+}
+
+.almanac-combined-layout .market-at-a-glance .glance-header h2 {
+  font-size: 20px;
+}
+
+.almanac-combined-layout .market-at-a-glance .glance-date {
+  font-size: 16px;
+}
+
+.almanac-combined-layout .market-at-a-glance .index-prices {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.almanac-combined-layout .market-at-a-glance .index-item {
+  padding: 10px 12px;
+}
+
+.almanac-combined-layout .market-at-a-glance .index-name {
+  display: none;
+}
+
+.almanac-combined-layout .market-at-a-glance .index-price {
+  font-size: 15px;
+}
+
+.almanac-combined-layout .market-at-a-glance .index-change {
+  font-size: 12px;
+}
+
+.almanac-combined-layout .market-at-a-glance .analysis-sections {
+  gap: 15px;
+}
+
+.almanac-combined-layout .market-at-a-glance .analysis-section {
+  padding: 12px;
+}
+
+.almanac-combined-layout .market-at-a-glance .section-title {
+  font-size: 18px;
+}
+
+.almanac-combined-layout .market-at-a-glance .section-content {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.almanac-combined-layout .market-at-a-glance .outlook-badge {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+.almanac-combined-layout .market-at-a-glance .sentiment-meter {
+  height: 10px;
+}
+
+.almanac-combined-layout .market-at-a-glance .sentiment-label {
+  font-size: 10px;
+}
+
+.almanac-combined-layout .market-at-a-glance .sentiment-value {
+  font-size: 11px;
+}
+
+/* Responsive adjustments for combined layout */
+@media (max-width: 1400px) {
+  .almanac-combined-layout {
+    flex-direction: column;
+    height: auto;
+    min-height: calc(100vh - 60px);
+  }
+  
+  .almanac-section.chart-section,
+  .almanac-section.calendar-section {
+    flex: none;
+    width: 100%;
+    height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid #333333;
+  }
+  
+  .almanac-section.glance-section {
+    flex: none;
+    width: 100%;
+    height: auto;
+    min-height: 20vh;
+  }
+}

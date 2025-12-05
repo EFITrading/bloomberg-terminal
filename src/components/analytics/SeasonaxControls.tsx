@@ -20,15 +20,13 @@ interface SeasonaxControlsProps {
  onSettingsChange: (settings: Partial<ChartSettings>) => void;
  onRefresh?: () => void;
  onCompareStock?: (symbol: string) => void;
- onBackToTabs?: () => void;
 }
 
 const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({ 
  settings, 
  onSettingsChange,
  onRefresh,
- onCompareStock,
- onBackToTabs
+ onCompareStock
 }) => {
  const [chartType, setChartType] = useState<'line' | 'bar' | 'candle'>('line');
  const [showCompareDialog, setShowCompareDialog] = useState(false);
@@ -83,15 +81,6 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
  <div className="seasonax-controls">
  {/* Compare controls */}
  <div className="compare-controls">
- {onBackToTabs && (
- <button 
- className="back-btn" 
- onClick={onBackToTabs}
- title="Back to Data Driven"
- >
- ← Screener
- </button>
- )}
  <button 
  className="compare-btn" 
  onClick={handleCompare}

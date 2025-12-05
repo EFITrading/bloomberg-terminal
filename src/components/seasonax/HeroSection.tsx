@@ -1,16 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import WeeklyScanModal from './WeeklyScanModal';
 
 interface HeroSectionProps {
  onScreenerStart?: (market: string) => void;
- onStartScreener?: () => void;
 }
 
-const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScreener }) => {
+const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart }) => {
  const [selectedMarket, setSelectedMarket] = useState('S&P 500');
- const [isWeeklyScanOpen, setIsWeeklyScanOpen] = useState(false);
 
  const markets = [
  'S&P 500',
@@ -20,15 +17,9 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
  ];
 
  const handleStartScreener = () => {
- if (onStartScreener) {
- onStartScreener();
- } else if (onScreenerStart) {
+ if (onScreenerStart) {
  onScreenerStart(selectedMarket);
  }
- };
-
- const handleWeeklyScanClick = () => {
- setIsWeeklyScanOpen(true);
  };
 
  return (
@@ -57,33 +48,6 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
  onClick={handleStartScreener}
  >
  START SCAN
- </button>
- 
- <button 
- className="weekly-scan-btn"
- onClick={handleWeeklyScanClick}
- style={{
- backgroundColor: '#000000',
- color: '#ff6600',
- border: '1px solid #ff6600',
- padding: '12px 24px',
- fontSize: '14px',
- fontWeight: '600',
- borderRadius: '4px',
- cursor: 'pointer',
- transition: 'all 0.3s ease',
- marginLeft: '12px'
- }}
- onMouseEnter={(e) => {
- e.currentTarget.style.backgroundColor = '#ff6600';
- e.currentTarget.style.color = '#000000';
- }}
- onMouseLeave={(e) => {
- e.currentTarget.style.backgroundColor = '#000000';
- e.currentTarget.style.color = '#ff6600';
- }}
- >
- WEEKLY SCAN
  </button>
  
  <button 
@@ -118,11 +82,6 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onScreenerStart, onStartScree
  </button>
  </div>
  </div>
- 
- <WeeklyScanModal 
- isOpen={isWeeklyScanOpen}
- onClose={() => setIsWeeklyScanOpen(false)}
- />
  </div>
  );
 };

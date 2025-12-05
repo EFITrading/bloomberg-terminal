@@ -101,13 +101,12 @@ interface ChartSettings {
 }
 
 interface SeasonalityChartProps {
- onBackToTabs?: () => void;
  autoStart?: boolean;
  initialSymbol?: string;
  onClose?: () => void;
 }
 
-const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoStart = false, initialSymbol, onClose }) => {
+const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, initialSymbol, onClose }) => {
  const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || 'SPY');
  const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null);
  const [electionData, setElectionData] = useState<ElectionCycleData | null>(null);
@@ -120,7 +119,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
  const [notepadText, setNotepadText] = useState<string>('');
  const [savedNote, setSavedNote] = useState<string>('');
  const [isEditingNote, setIsEditingNote] = useState<boolean>(false);
- const [correlationData, setCorrelationData] = useState<{correlation: number, currentYearReturn: number, seasonalReturn: number} | null>(null);
  const [isElectionDropdownOpen, setIsElectionDropdownOpen] = useState<boolean>(false);
  const [displayElectionPeriod, setDisplayElectionPeriod] = useState<string>('Normal Mode');
  const [chartSettings, setChartSettings] = useState<ChartSettings>({
@@ -299,10 +297,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
  
  setSeasonalData(processedData);
  console.log('Seasonal data loaded successfully:', processedData.symbol, 'dailyData count:', processedData.dailyData.length);
-
- // Calculate correlation with current year (2025)
- const correlation = await calculateCorrelation(symbol, processedData);
- setCorrelationData(correlation);
 
  } catch (err) {
  const errorMessage = err instanceof Error ? err.message : 'Failed to load seasonal data';
@@ -599,6 +593,13 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
  };
 
  const { bestPeriod, worstPeriod } = analyze30DayPatterns(dailyData);
+ 
+ // DEBUG: Log calculated periods for comparison with screener
+ if (symbol === 'GLD' || symbol === 'LVS') {
+ console.log(`CHART ${symbol} calculated periods:`);
+ console.log(` Best: ${bestPeriod.period} (${(bestPeriod.avgReturn * 30).toFixed(2)}%)`);
+ console.log(` Worst: ${worstPeriod.period} (${(worstPeriod.avgReturn * 30).toFixed(2)}%)`);
+ }
 
  return {
  symbol,
@@ -944,52 +945,18 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
  return rawCorrelation >= 0 ? adjusted : -adjusted;
  };
 
- const getCorrelationStrength = (correlation: number): string => {
- const absCorr = Math.abs(correlation);
- if (absCorr >= 75) return 'Excellent';
- if (absCorr >= 55) return 'Strong';
- if (absCorr >= 35) return 'Moderate';
- if (absCorr >= 20) return 'Weak';
- return 'Very Weak';
- };
-
- const getCorrelationClass = (correlation: number): string => {
- const absCorr = Math.abs(correlation);
- if (correlation < 0) return 'correlation-negative';
- if (absCorr >= 75) return 'correlation-excellent';
- if (absCorr >= 55) return 'correlation-strong';
- if (absCorr >= 35) return 'correlation-moderate';
- if (absCorr >= 20) return 'correlation-weak';
- return 'correlation-very-weak';
- };
-
- const getCorrelationColor = (correlation: number, opacity: number = 1): string => {
- const absCorr = Math.abs(correlation);
- let color: string;
- 
- if (correlation < 0) {
- // Negative correlation - purple/pink
- color = `rgba(255, 105, 180, ${opacity})`;
- } else if (absCorr >= 75) {
- // Excellent - bright green
- color = `rgba(0, 255, 0, ${opacity})`;
- } else if (absCorr >= 55) {
- // Strong - light green
- color = `rgba(144, 238, 144, ${opacity})`;
- } else if (absCorr >= 35) {
- // Moderate - yellow/gold
- color = `rgba(255, 215, 0, ${opacity})`;
- } else if (absCorr >= 20) {
- // Weak - orange
- color = `rgba(255, 165, 0, ${opacity})`;
- } else {
- // Very weak - red
- color = `rgba(255, 69, 0, ${opacity})`;
+ if (!seasonalData || !selectedSymbol) {
+ return (
+ <div className="seasonality-chart-container">
+ <div className="seasonality-chart-header">
+ <h2>Historical Seasonal Pattern</h2>
+ </div>
+ <div className="seasonality-chart-content">
+ <p className="seasonality-chart-placeholder">Select a symbol to view its seasonal pattern</p>
+ </div>
+ </div>
+ );
  }
- 
- console.log(`Correlation: ${correlation}%, Color: ${color}`);
- return color;
- };
 
  const handleDateRangeChange = (direction: 'prev' | 'next') => {
  // Calculate new date range based on direction
@@ -1032,31 +999,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
  <button className="pain-point-btn compare-btn" onClick={handlePainPointClick}>Pain Point</button>
  </div>
  
- {/* Small Notepad */}
- <div className="seasonal-notepad">
- {isEditingNote || !savedNote ? (
- <input
- type="text"
- value={notepadText}
- onChange={(e) => setNotepadText(e.target.value)}
- onKeyPress={handleNoteKeyPress}
- onBlur={handleNoteBlur}
- placeholder="Note from Admin..."
- className="notepad-input"
- maxLength={100}
- autoFocus={isEditingNote}
- />
- ) : (
- <div 
- className="notepad-display"
- onClick={handleNoteClick}
- title="Click to edit"
- >
- {savedNote}
- </div>
- )}
- </div>
- 
  {/* Show monthly returns based on current mode */}
  {(isElectionMode ? electionData?.spyComparison?.monthlyData : seasonalData?.spyComparison?.monthlyData) && (
  <HorizontalMonthlyReturns 
@@ -1069,7 +1011,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
  settings={chartSettings}
  onSettingsChange={handleSettingsChange}
  onRefresh={handleRefresh}
- onBackToTabs={onBackToTabs}
  />
  </div>
 
@@ -1112,60 +1053,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ onBackToTabs, autoS
  sweetSpotPeriod={sweetSpotPeriod}
  painPointPeriod={painPointPeriod}
  />
- 
- {/* Correlation Display - Top Right Corner */}
- {correlationData && !isElectionMode && (() => {
- const mainColor = getCorrelationColor(correlationData.correlation);
- const shadowColor = getCorrelationColor(correlationData.correlation, 0.8);
- const weakColor = getCorrelationColor(correlationData.correlation, 0.9);
- console.log(' Colors calculated:', { mainColor, shadowColor, weakColor, correlation: correlationData.correlation });
- 
- return (
- <div 
- className="correlation-display"
- style={{
- ['--correlation-color' as any]: mainColor,
- ['--correlation-shadow' as any]: shadowColor,
- ['--correlation-weak' as any]: weakColor
- }}
- >
- <div 
- className="correlation-main-text"
- style={{
- fontSize: '16px',
- fontWeight: '600',
- textAlign: 'center' as const,
- marginBottom: '4px',
- letterSpacing: '0.5px',
- color: mainColor,
- textShadow: `0 0 6px ${shadowColor}`,
- transition: 'all 0.3s ease'
- }}
- >
- {correlationData.correlation}% correlation
- </div>
- <div className="correlation-details">
- 2025 YTD: {correlationData.currentYearReturn.toFixed(1)}%
- </div>
- <div 
- className="correlation-strength-text"
- style={{
- fontSize: '10px',
- textAlign: 'center' as const,
- fontWeight: '300',
- marginTop: '2px',
- textTransform: 'uppercase' as const,
- letterSpacing: '0.5px',
- color: weakColor,
- textShadow: `0 0 4px ${shadowColor}`,
- transition: 'all 0.3s ease'
- }}
- >
- {getCorrelationStrength(correlationData.correlation)}
- </div>
- </div>
- );
- })()}
  </div>
  </div>
  )}
