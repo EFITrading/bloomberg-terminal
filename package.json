@@ -7,7 +7,7 @@
     "dev:turbo": "next dev --turbopack",
     "dev:safe": "cd /d \"%~dp0\" && npm run dev",
     "build": "next build",
-    "vercel-build": "TURBOPACK=0 next build",
+    "vercel-build": "next build --no-turbopack",
     "start": "next start",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
