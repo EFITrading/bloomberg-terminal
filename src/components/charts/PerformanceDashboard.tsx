@@ -9,13 +9,13 @@ const SECTORS = [
   { symbol: 'XLF', name: 'Financials', color: '#ff6b35' },
   { symbol: 'XLV', name: 'Healthcare', color: '#4ecdc4' },
   { symbol: 'XLI', name: 'Industrials', color: '#ffd93d' },
-  { symbol: 'XLY', name: 'Consumer Discretionary', color: '#ff006e' },
-  { symbol: 'XLP', name: 'Consumer Staples', color: '#8338ec' },
+  { symbol: 'XLY', name: 'Discretionary', color: '#ff006e' },
+  { symbol: 'XLP', name: 'Staples', color: '#8338ec' },
   { symbol: 'XLE', name: 'Energy', color: '#06ffa5' },
   { symbol: 'XLU', name: 'Utilities', color: '#ff9f1c' },
   { symbol: 'XLRE', name: 'Real Estate', color: '#2ec4b6' },
   { symbol: 'XLB', name: 'Materials', color: '#e71d36' },
-  { symbol: 'XLC', name: 'Communication Services', color: '#a855f7' }
+  { symbol: 'XLC', name: 'Communication', color: '#a855f7' }
 ];
 
 const INDUSTRIES = [

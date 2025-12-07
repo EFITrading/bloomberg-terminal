@@ -67,6 +67,7 @@ interface MMDashboardProps {
   gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callTheta?: number, putTheta?: number, callVega?: number, putVega?: number}}};
   vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
   expirations: string[];
+  strikeWidth?: number;
 }
 
 interface SIDashboardProps {
@@ -86,7 +87,10 @@ interface MaxPainDashboardProps {
 }
 
 // MM Dashboard Component - Enhanced with Full Greeks
-const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
+const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations, strikeWidth = 75 }) => {
+  
+  // Use dynamic strike width from props
+  const strikeColumnWidth = strikeWidth;
   
   // State for max pain expiration selector
   const [maxPainExpiration, setMaxPainExpiration] = useState<string>('');
@@ -1500,7 +1504,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <table className="w-full">
             <thead className="bg-gray-900">
               <tr>
-                <th className="px-4 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest">Strike</th>
+                <th className="px-2 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>Strike</th>
                 <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Net MM</th>
                 <th className="px-4 py-4 text-right text-sm font-black text-green-500 uppercase tracking-widest">Call MM</th>
                 <th className="px-4 py-4 text-right text-sm font-black text-red-500 uppercase tracking-widest">Put MM</th>
@@ -1520,7 +1524,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                     key={item.strike} 
                     className="border-b border-gray-800 hover:bg-gray-900/50"
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
                       <div className="font-mono font-bold text-white">
                         ${item.strike.toFixed(1)}
                       </div>
@@ -1591,7 +1595,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           <table className="w-full">
             <thead className="bg-gray-900 sticky top-0 z-10">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Strike</th>
+                <th className="px-2 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>Strike</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">MM Risk</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Total OI</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Call OI</th>
@@ -3358,22 +3362,49 @@ const DealerAttraction = () => {
   // Calculate number of active tables and update parent container width
   const activeTableCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length;
   
+  // Dynamic strike column width for workbench tables based on data
+  const workbenchStrikeWidth = useMemo(() => {
+    const allStrikes = data.map(d => d.strike);
+    const maxStrike = allStrikes.length > 0 ? Math.max(...allStrikes) : 0;
+    const strikeLength = Math.floor(maxStrike).toString().length;
+    // Tight calculation: 20px base + (6px per digit) + 8px for decimal
+    const calculatedWidth = 20 + (strikeLength * 6) + 8;
+    return Math.max(50, Math.min(calculatedWidth, 70)); // Min 50px, max 70px
+  }, [data]);
+  
   React.useEffect(() => {
     // Find the parent sidebar panel and update its width ONLY if it's the dealer attraction panel
     const sidebarPanel = document.querySelector('.fixed.top-32.bottom-4.left-16[data-sidebar-panel="liquid"]') as HTMLElement;
     if (sidebarPanel) {
-      if (activeTableCount === 3) {
-        // All 3 tables - full width
-        sidebarPanel.style.width = 'calc(100vw - 4.0625rem)';
-      } else if (activeTableCount === 2) {
-        // 2 tables - slightly wider
-        sidebarPanel.style.width = '1775px';
-      } else {
-        // 1 table - normal width
+      // Count total items: OI chart (if enabled) + tables
+      const oiCount = showOI ? 1 : 0;
+      const totalItems = oiCount + activeTableCount;
+      
+      if (totalItems === 0 || totalItems === 1) {
+        // 0 items OR 1 item (OI only OR 1 table only) - 1200px
         sidebarPanel.style.width = '1200px';
+      } else if (totalItems === 2) {
+        if (showOI && activeTableCount === 1) {
+          // OI + 1 table: 1150px + 900px = 2050px
+          sidebarPanel.style.width = '2050px';
+        } else {
+          // 2 tables (no OI) - 1775px
+          sidebarPanel.style.width = '1775px';
+        }
+      } else if (totalItems === 3) {
+        if (showOI && activeTableCount === 2) {
+          // OI + 2 tables: 1150px + 1775px = 2925px
+          sidebarPanel.style.width = '2925px';
+        } else {
+          // 3 tables (no OI) - 2662px
+          sidebarPanel.style.width = '2662px';
+        }
+      } else if (totalItems >= 4) {
+        // OI + 3 tables - full width
+        sidebarPanel.style.width = 'calc(100vw - 4.0625rem)';
       }
     }
-  }, [activeTableCount]);
+  }, [activeTableCount, showOI]);
 
   // Live OI Update - Separate scan with AlgoFlow's exact logic
   const updateLiveOI = async () => {
@@ -4784,14 +4815,6 @@ const DealerAttraction = () => {
   const borderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
   const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800';
   const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
-  
-  // Dynamic strike column width based on max strike price
-  const strikeColumnWidth = useMemo(() => {
-    const maxStrike = Math.max(...data.map(d => d.strike), 0);
-    if (maxStrike >= 10000) return 95;
-    if (maxStrike >= 1000) return 85;
-    return 75;
-  }, [data]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white">
@@ -4906,7 +4929,7 @@ const DealerAttraction = () => {
                       {/* Row 1: Search + LIVE + Range + REFRESH */}
                       <div className="flex items-center gap-2">
                         {/* Search Bar */}
-                        <div className="search-bar-premium flex items-center space-x-2 px-3 rounded-md flex-shrink-0" style={{ width: '20%', minWidth: '100px', height: '46px' }}>
+                        <div className="search-bar-premium flex items-center space-x-1 px-2 rounded-md flex-shrink-0" style={{ width: '80px', height: '36px' }}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
                             <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
                             <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2"/>
@@ -4920,14 +4943,14 @@ const DealerAttraction = () => {
                                 handleTickerSubmit();
                               }
                             }}
-                            className="bg-transparent border-0 outline-none flex-1 text-lg font-bold uppercase"
+                            className="bg-transparent border-0 outline-none flex-1 text-sm font-bold uppercase"
                             style={{
                               color: '#ffffff',
                               textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
                               fontFamily: 'system-ui, -apple-system, sans-serif',
-                              letterSpacing: '0.8px'
+                              letterSpacing: '0.5px'
                             }}
-                            placeholder="Search..."
+                            placeholder="Ticker"
                           />
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
                             <path d="M12 5v14l7-7-7-7z" fill="currentColor"/>
@@ -4964,14 +4987,14 @@ const DealerAttraction = () => {
                             }
                           }}
                           disabled={liveOILoading}
-                          className="flex items-center justify-center gap-2 px-6 border-2 border-gray-800 hover:border-orange-500 text-black font-black text-sm uppercase tracking-wider transition-all rounded whitespace-nowrap"
+                          className="flex items-center justify-center gap-1 px-3 border-2 border-gray-800 hover:border-orange-500 text-black font-black text-xs uppercase tracking-wider transition-all rounded whitespace-nowrap"
                           style={{
                             background: liveMode ? '#22c55e' : '#ef4444',
                             boxShadow: liveMode 
                               ? 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(34,197,94,0.4)' 
                               : 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(239,68,68,0.4)',
-                            height: '46px',
-                            minWidth: '100px',
+                            height: '36px',
+                            minWidth: '60px',
                             opacity: liveOILoading ? 0.5 : 1,
                             cursor: liveOILoading ? 'not-allowed' : 'pointer'
                           }}
@@ -4982,16 +5005,15 @@ const DealerAttraction = () => {
                         </button>
                         
                         {/* Range Selector */}
-                        <div className="flex items-center gap-2 flex-1" style={{ height: '46px' }}>
-                          <span className="text-white font-black text-sm uppercase tracking-wider whitespace-nowrap">RANGE</span>
+                        <div className="flex items-center gap-1 flex-1" style={{ height: '36px' }}>
                           <select
                             value={otmFilter}
                             onChange={(e) => setOtmFilter(e.target.value as '1%' | '2%' | '3%' | '5%' | '8%' | '10%' | '15%' | '20%' | '25%' | '40%' | '50%' | '100%')}
-                            className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-4 text-white text-sm font-black uppercase appearance-none cursor-pointer rounded whitespace-nowrap flex-1"
+                            className="bg-black border-2 border-gray-800 focus:border-orange-500 focus:outline-none px-2 text-white text-xs font-black uppercase appearance-none cursor-pointer rounded whitespace-nowrap flex-1"
                             style={{
                               background: '#000000',
                               boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
-                              height: '46px'
+                              height: '36px'
                             }}
                           >
                             <option value="1%">±1% OTM</option>
@@ -5012,13 +5034,14 @@ const DealerAttraction = () => {
                         {/* Bloomberg Theme Toggle Button */}
                         <button
                           onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                          className={`flex items-center justify-center px-3 font-black text-sm transition-all rounded ${
+                          className={`flex items-center justify-center px-2 font-black text-xs transition-all rounded ${
                             useBloombergTheme 
                               ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400' 
                               : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
                           }`}
                           style={{
-                            height: '46px',
+                            height: '36px',
+                            width: '36px',
                             boxShadow: useBloombergTheme ? '0 0 10px rgba(245, 158, 11, 0.5)' : 'none'
                           }}
                           title="Toggle Bloomberg Terminal Theme"
@@ -5030,14 +5053,15 @@ const DealerAttraction = () => {
                         <button
                           onClick={() => fetchOptionsData()}
                           disabled={loading}
-                          className="flex items-center justify-center px-4 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-black text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-all rounded"
+                          className="flex items-center justify-center px-2 bg-black hover:bg-gray-900 border-2 border-gray-800 hover:border-orange-500 text-white hover:text-orange-500 font-black text-xs disabled:opacity-40 disabled:cursor-not-allowed transition-all rounded"
                           style={{
                             background: '#000000',
                             boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8), 0 4px 8px rgba(0,0,0,0.4)',
-                            height: '46px'
+                            height: '36px',
+                            width: '36px'
                           }}
                         >
-                          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                         </button>
                       </div>
                       
@@ -5045,10 +5069,12 @@ const DealerAttraction = () => {
                       <div className="flex items-center gap-2 overflow-x-auto">
                         {/* NORMAL */}
                         <div 
-                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{ 
-                            height: '46px',
-                            backgroundColor: 'transparent'
+                            height: '36px',
+                            background: showGEX ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%)' : 'transparent',
+                            border: showGEX ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
+                            boxShadow: showGEX ? 'inset 0 1px 2px rgba(34, 197, 94, 0.1), 0 2px 4px rgba(34, 197, 94, 0.2)' : 'none'
                           }}
                           onClick={() => {
                             const newValue = !showGEX;
@@ -5061,18 +5087,24 @@ const DealerAttraction = () => {
                             checked={showGEX}
                             onChange={() => {}}
                             className="w-4 h-4 text-green-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                            style={{
+                              accentColor: '#22c55e',
+                              boxShadow: showGEX ? '0 0 6px rgba(34, 197, 94, 0.5)' : 'none'
+                            }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showGEX ? '#22c55e' : '#ffffff' }}>
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showGEX ? '#22c55e' : '#ffffff', textShadow: showGEX ? '0 0 8px rgba(34, 197, 94, 0.5)' : 'none' }}>
                             NORMAL
                           </span>
                         </div>
                         
                         {/* MM ACTIVITY */}
                         <div 
-                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{ 
-                            height: '46px',
-                            backgroundColor: 'transparent'
+                            height: '36px',
+                            background: showDealer ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.05) 100%)' : 'transparent',
+                            border: showDealer ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid transparent',
+                            boxShadow: showDealer ? 'inset 0 1px 2px rgba(168, 85, 247, 0.1), 0 2px 4px rgba(168, 85, 247, 0.2)' : 'none'
                           }}
                           onClick={() => {
                             const newValue = !showDealer;
@@ -5085,18 +5117,24 @@ const DealerAttraction = () => {
                             checked={showDealer}
                             onChange={() => {}}
                             className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                            style={{
+                              accentColor: '#a855f7',
+                              boxShadow: showDealer ? '0 0 6px rgba(168, 85, 247, 0.5)' : 'none'
+                            }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showDealer ? '#a855f7' : '#ffffff' }}>
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showDealer ? '#a855f7' : '#facc15', textShadow: showDealer ? '0 0 8px rgba(168, 85, 247, 0.5)' : 'none' }}>
                             DEALER
                           </span>
                         </div>
                         
                         {/* FLOW MAP */}
                         <div 
-                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{ 
-                            height: '46px',
-                            backgroundColor: 'transparent'
+                            height: '36px',
+                            background: showFlowGEX ? 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(249, 115, 22, 0.05) 100%)' : 'transparent',
+                            border: showFlowGEX ? '1px solid rgba(249, 115, 22, 0.3)' : '1px solid transparent',
+                            boxShadow: showFlowGEX ? 'inset 0 1px 2px rgba(249, 115, 22, 0.1), 0 2px 4px rgba(249, 115, 22, 0.2)' : 'none'
                           }}
                           onClick={() => setShowFlowGEX(!showFlowGEX)}
                         >
@@ -5105,18 +5143,24 @@ const DealerAttraction = () => {
                             checked={showFlowGEX}
                             onChange={() => {}}
                             className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                            style={{
+                              accentColor: '#f97316',
+                              boxShadow: showFlowGEX ? '0 0 6px rgba(249, 115, 22, 0.5)' : 'none'
+                            }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showFlowGEX ? '#f97316' : '#ffffff' }}>
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showFlowGEX ? '#f97316' : '#fb923c', textShadow: showFlowGEX ? '0 0 8px rgba(249, 115, 22, 0.5)' : 'none' }}>
                             FLOW MAP
                           </span>
                         </div>
                         
                         {/* VOLATILITY */}
                         <div 
-                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{ 
-                            height: '46px',
-                            backgroundColor: 'transparent'
+                            height: '36px',
+                            background: showVEX ? 'linear-gradient(135deg, rgba(234, 179, 8, 0.15) 0%, rgba(234, 179, 8, 0.05) 100%)' : 'transparent',
+                            border: showVEX ? '1px solid rgba(234, 179, 8, 0.3)' : '1px solid transparent',
+                            boxShadow: showVEX ? 'inset 0 1px 2px rgba(234, 179, 8, 0.1), 0 2px 4px rgba(234, 179, 8, 0.2)' : 'none'
                           }}
                           onClick={() => {
                             const newValue = !showVEX;
@@ -5129,18 +5173,24 @@ const DealerAttraction = () => {
                             checked={showVEX}
                             onChange={() => {}}
                             className="w-4 h-4 text-yellow-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                            style={{
+                              accentColor: '#eab308',
+                              boxShadow: showVEX ? '0 0 6px rgba(234, 179, 8, 0.5)' : 'none'
+                            }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showVEX ? '#eab308' : '#ffffff' }}>
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showVEX ? '#eab308' : '#c084fc', textShadow: showVEX ? '0 0 8px rgba(234, 179, 8, 0.5)' : 'none' }}>
                             VOLATILITY
                           </span>
                         </div>
                         
                         {/* OPEN INTEREST */}
                         <div 
-                          className="flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg transition-all cursor-pointer"
+                          className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{ 
-                            height: '46px',
-                            backgroundColor: 'transparent'
+                            height: '36px',
+                            background: showOI ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)' : 'transparent',
+                            border: showOI ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
+                            boxShadow: showOI ? 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(59, 130, 246, 0.2)' : 'none'
                           }}
                           onClick={() => setShowOI(!showOI)}
                         >
@@ -5149,9 +5199,13 @@ const DealerAttraction = () => {
                             checked={showOI}
                             onChange={() => {}}
                             className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                            style={{
+                              accentColor: '#3b82f6',
+                              boxShadow: showOI ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none'
+                            }}
                           />
-                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showOI ? '#3b82f6' : '#ffffff' }}>
-                            OPEN INTEREST
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showOI ? '#3b82f6' : '#ffffff', textShadow: showOI ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none' }}>
+                            OI
                           </span>
                         </div>
                       </div>
@@ -5482,16 +5536,6 @@ const DealerAttraction = () => {
                             Max Pain
                           </button>
                           <button 
-                            onClick={() => setActiveWorkbenchTab('OIGEX')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
-                              activeWorkbenchTab === 'OIGEX' 
-                                ? 'bg-orange-600 text-white border-2 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.4)]' 
-                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-orange-400 hover:text-white border-2 border-gray-800 hover:border-orange-500 hover:bg-orange-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                            }`}
-                          >
-                            Open Interest and GEX
-                          </button>
-                          <button 
                             onClick={() => setActiveWorkbenchTab('GEXSCREENER')}
                             className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
                               activeWorkbenchTab === 'GEXSCREENER' 
@@ -5579,17 +5623,43 @@ const DealerAttraction = () => {
             <>
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
               
-              {/* Show multiple tables side by side when multiple modes are enabled */}
-              {(showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) ? (
-                <div className="flex gap-4 overflow-x-auto">
+              {/* Show multiple tables/charts side by side when multiple modes are enabled */}
+              {(showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) || (showOI && (showGEX || showDealer || showFlowGEX)) ? (
+                <div className="flex overflow-x-auto" style={{ gap: '1px' }}>
                   {(() => {
-                    const activeCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length;
-                    const tableWidth = activeCount === 3 ? 'calc(33.333% - 11px)' : 'calc(50% - 8px)';
+                    // Calculate table width based on context
+                    const tableWidths: string[] = [];
+                    
+                    if (showOI && activeTableCount === 2) {
+                      // OI + 2 tables: split 1775px between 2 tables
+                      tableWidths.push('887px', '887px');
+                    } else if (!showOI && activeTableCount === 2) {
+                      // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
+                      tableWidths.push('887px', '887px');
+                    } else if (!showOI && activeTableCount === 3) {
+                      // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
+                      tableWidths.push('887px', '887px', '886px');
+                    }
+                    
+                    let currentTableIndex = 0;
+                    const getTableWidth = () => {
+                      if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
+                        return { width: tableWidths[currentTableIndex], minWidth: tableWidths[currentTableIndex++] };
+                      }
+                      return undefined;
+                    };
+                    
                     return (
                       <>
+                  {/* Open Interest Chart - conditionally rendered */}
+                  {showOI && (
+                    <div className="flex-shrink-0" style={{ width: activeTableCount >= 1 ? '1150px' : '1200px', minWidth: activeTableCount >= 1 ? '1150px' : '1200px' }}>
+                      <OpenInterestChart selectedTicker={selectedTicker} hideTickerInput={true} compactMode={true} />
+                    </div>
+                  )}
                   {/* NORMAL (Net GEX) Table - conditionally rendered */}
                   {showGEX && (
-                    <div key={`normal-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={{ width: tableWidth, maxWidth: tableWidth }}>
+                    <div key={`normal-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
                       <div className={`${useBloombergTheme 
                         ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
                         : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
@@ -5603,10 +5673,10 @@ const DealerAttraction = () => {
                         </div>
                       </div>
                       <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${strikeColumnWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                        <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
                       <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                         <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                          <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                          <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
                             <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                           </th>
                           {expirations.map(exp => (
@@ -5652,9 +5722,9 @@ const DealerAttraction = () => {
                               }`}
                             >
                               <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                width: `${strikeColumnWidth}px`,
-                                minWidth: `${strikeColumnWidth}px`,
-                                maxWidth: `${strikeColumnWidth}px`
+                                width: `${workbenchStrikeWidth}px`,
+                                minWidth: `${workbenchStrikeWidth}px`,
+                                maxWidth: `${workbenchStrikeWidth}px`
                               }}>
                                 <div className={`text-base font-mono font-bold ${
                                   hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
@@ -5709,7 +5779,7 @@ const DealerAttraction = () => {
                   
                   {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
                   {showDealer && (
-                    <div key={`dealer-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={{ width: tableWidth, maxWidth: tableWidth }}>
+                    <div key={`dealer-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
                       <div className={`${useBloombergTheme 
                         ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
                         : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
@@ -5723,10 +5793,10 @@ const DealerAttraction = () => {
                         </div>
                       </div>
                       <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${strikeColumnWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                        <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
                       <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                         <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                          <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                          <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
                             <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                           </th>
                           {expirations.map(exp => (
@@ -5772,9 +5842,9 @@ const DealerAttraction = () => {
                               }`}
                             >
                               <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                width: `${strikeColumnWidth}px`,
-                                minWidth: `${strikeColumnWidth}px`,
-                                maxWidth: `${strikeColumnWidth}px`
+                                width: `${workbenchStrikeWidth}px`,
+                                minWidth: `${workbenchStrikeWidth}px`,
+                                maxWidth: `${workbenchStrikeWidth}px`
                               }}>
                                 <div className={`text-base font-mono font-bold ${
                                   hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
@@ -5825,7 +5895,7 @@ const DealerAttraction = () => {
                   
                   {/* FLOW MAP Table - conditionally rendered */}
                   {showFlowGEX && (
-                    <div key={`flowmap-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={{ width: tableWidth, maxWidth: tableWidth }}>
+                    <div key={`flowmap-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
                       <div className={`${useBloombergTheme 
                         ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]' 
                         : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
@@ -5839,10 +5909,10 @@ const DealerAttraction = () => {
                         </div>
                       </div>
                       <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${strikeColumnWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                        <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
                         <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                           <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                            <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                            <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
                               <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                             </th>
                             {expirations.map(exp => (
@@ -5887,9 +5957,9 @@ const DealerAttraction = () => {
                                 }`}
                               >
                                 <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                  width: `${strikeColumnWidth}px`,
-                                  minWidth: `${strikeColumnWidth}px`,
-                                  maxWidth: `${strikeColumnWidth}px`
+                                  width: `${workbenchStrikeWidth}px`,
+                                  minWidth: `${workbenchStrikeWidth}px`,
+                                  maxWidth: `${workbenchStrikeWidth}px`
                                 }}>
                                   <div className={`text-base font-mono font-bold ${
                                     hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
@@ -5929,13 +5999,18 @@ const DealerAttraction = () => {
                     );
                   })()}
                 </div>
+              ) : showOI ? (
+                // Show only Open Interest Chart when OI is enabled without other modes
+                <div className="w-full">
+                  <OpenInterestChart selectedTicker={selectedTicker} hideTickerInput={true} compactMode={true} />
+                </div>
               ) : (
                 /* Original single table when only one mode is active */
                 <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                  <table style={{ minWidth: `${strikeColumnWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                  <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
                     <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}>
                       <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                        <th className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                        <th className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
                           <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                         </th>
                         {expirations.map(exp => (
@@ -6038,9 +6113,9 @@ const DealerAttraction = () => {
                             }`}
                           >
                             <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                              width: `${strikeColumnWidth}px`,
-                              minWidth: `${strikeColumnWidth}px`,
-                              maxWidth: `${strikeColumnWidth}px`
+                              width: `${workbenchStrikeWidth}px`,
+                              minWidth: `${workbenchStrikeWidth}px`,
+                              maxWidth: `${workbenchStrikeWidth}px`
                             }}>
                               <div className={`text-base font-mono font-bold ${
                                 hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
@@ -6166,13 +6241,6 @@ const DealerAttraction = () => {
                                         {netVexAction}
                                       </div>
                                     )}
-                                    
-                                    {/* Show OI if enabled */}
-                                    {showOI && (
-                                      <div className="text-xs text-orange-400 font-bold mt-1">
-                                        OI: {formatOI(callOI + putOI)}
-                                      </div>
-                                    )}
                                   </div>
                                     );
                                   })()}
@@ -6186,8 +6254,6 @@ const DealerAttraction = () => {
                   </table>
                 </div>
               )}
-
-
             </>
           ) : activeTab === 'WORKBENCH' ? (
             // WORKBENCH Panel Content
@@ -6220,9 +6286,6 @@ const DealerAttraction = () => {
                     vexByStrikeByExpiration={vexByStrikeByExpiration}
                     expirations={expirations}
                   />
-                </div>
-                <div className="space-y-0" style={{ display: activeWorkbenchTab === 'OIGEX' ? 'block' : 'none' }}>
-                  <OpenInterestChart selectedTicker={selectedTicker} hideTickerInput={true} compactMode={true} />
                 </div>
                 <div style={{ display: activeWorkbenchTab === 'GEXSCREENER' ? 'block' : 'none' }}>
                   <GEXScreener compactMode={true} />

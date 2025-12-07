@@ -25,8 +25,8 @@ export default function OpenInterestChart({
  hideTickerInput = false,
  compactMode = false
 }: OpenInterestChartProps) {
- const [selectedTicker, setSelectedTicker] = useState<string>(propTicker || 'SPY');
- const [tickerInput, setTickerInput] = useState<string>(propTicker || 'SPY');
+ const [selectedTicker, setSelectedTicker] = useState<string>(propTicker || '');
+ const [tickerInput, setTickerInput] = useState<string>(propTicker || '');
  const [selectedExpiration, setSelectedExpiration] = useState<string>('');
  const [showAllDates, setShowAllDates] = useState<boolean>(false);
  const [expirationDates, setExpirationDates] = useState<string[]>([]);
@@ -71,6 +71,10 @@ export default function OpenInterestChart({
  const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
  const [expectedRange80, setExpectedRange80] = useState<{call: number, put: number} | null>(null);
  
+ // AI Tower Detection State
+ const [towerStructures, setTowerStructures] = useState<Array<{strike: number, leftStrike: number, rightStrike: number, type: 'call' | 'put'}>>([]);
+ const [showTowers, setShowTowers] = useState<boolean>(false);
+ 
  const svgRef = useRef<SVGSVGElement>(null);
 
  // Mobile detection
@@ -97,6 +101,78 @@ export default function OpenInterestChart({
  const t = 1.0 / (1.0 + p * x);
  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
  return sign * y;
+ };
+
+ // AI Tower Detection Function
+ const detectTowerStructures = () => {
+ if (!data || data.length === 0) {
+ console.log('No data available for tower detection');
+ return;
+ }
+
+ const towers: Array<{strike: number, leftStrike: number, rightStrike: number, type: 'call' | 'put'}> = [];
+ 
+ // Group data by strike and type
+ const strikeMap = new Map<string, OptionsData[]>();
+ data.forEach(d => {
+ const key = `${d.strike}-${d.type}`;
+ if (!strikeMap.has(key)) {
+ strikeMap.set(key, []);
+ }
+ strikeMap.get(key)!.push(d);
+ });
+
+ // Get unique strikes sorted
+ const uniqueStrikes = [...new Set(data.map(d => d.strike))].sort((a, b) => a - b);
+ 
+ // For each type (call/put), check for tower structures
+ ['call', 'put'].forEach(type => {
+ for (let i = 1; i < uniqueStrikes.length - 1; i++) {
+ const centerStrike = uniqueStrikes[i];
+ const leftStrike = uniqueStrikes[i - 1];
+ const rightStrike = uniqueStrikes[i + 1];
+ 
+ // Get OI values
+ const centerData = data.find(d => d.strike === centerStrike && d.type === type);
+ const leftData = data.find(d => d.strike === leftStrike && d.type === type);
+ const rightData = data.find(d => d.strike === rightStrike && d.type === type);
+ 
+ if (!centerData || !leftData || !rightData) continue;
+ 
+ const centerOI = centerData.openInterest;
+ const leftOI = leftData.openInterest;
+ const rightOI = rightData.openInterest;
+ 
+ // Check tower criteria:
+ // 1. Left and Right OI must be 50% or less of center
+ // 2. Left and Right OI must be at least 15% of center
+ const leftPercent = (leftOI / centerOI) * 100;
+ const rightPercent = (rightOI / centerOI) * 100;
+ 
+ if (leftPercent >= 25 && leftPercent <= 65 && 
+ rightPercent >= 25 && rightPercent <= 65) {
+ towers.push({
+ strike: centerStrike,
+ leftStrike: leftStrike,
+ rightStrike: rightStrike,
+ type: type as 'call' | 'put'
+ });
+ 
+ console.log(`🏰 Tower detected at ${centerStrike} (${type}):`, {
+ center: centerOI,
+ left: leftOI,
+ right: rightOI,
+ leftPercent: leftPercent.toFixed(1) + '%',
+ rightPercent: rightPercent.toFixed(1) + '%'
+ });
+ }
+ }
+ });
+ 
+ setTowerStructures(towers);
+ setShowTowers(true);
+ 
+ console.log('🏰 Detected towers:', towers.length, 'structure(s)');
  };
 
  const calculateD2 = (S: number, K: number, r: number, sigma: number, T: number): number => {
@@ -789,6 +865,76 @@ export default function OpenInterestChart({
  container.select('.expected-range-call-label')
  .attr('x', callXPosition);
  }
+ 
+ // Update tower structures position during zoom
+ if (showTowers && towerStructures.length > 0) {
+ towerStructures.forEach((tower, index) => {
+ const centerStrike = tower.strike;
+ const leftStrike = tower.leftStrike;
+ const rightStrike = tower.rightStrike;
+ 
+ // Check if strikes are in visible range
+ if (!visibleStrikes.includes(centerStrike)) {
+ container.select(`.tower-group.tower-${index}`).style('display', 'none');
+ return;
+ }
+ 
+ container.select(`.tower-group.tower-${index}`).style('display', 'block');
+ 
+ // Calculate new positions
+ const centerX = (newXBandScale(centerStrike.toString()) || 0) + newXBandScale.bandwidth() / 2;
+ 
+ // Get sub-scale positions for the specific type (call/put)
+ const newXSubScale = d3.scaleBand()
+ .domain(['call', 'put'])
+ .range([0, newXBandScale.bandwidth()])
+ .padding(0.1);
+ 
+ // Calculate the actual bar positions including sub-band offset
+ const centerBarX = (newXBandScale(centerStrike.toString()) || 0) + (newXSubScale(tower.type) || 0);
+ const leftBarX = (newXBandScale(leftStrike.toString()) || 0) + (newXSubScale(tower.type) || 0);
+ const rightBarX = (newXBandScale(rightStrike.toString()) || 0) + (newXSubScale(tower.type) || 0);
+ const barWidth = newXSubScale.bandwidth();
+ 
+ // Calculate corner positions for corner-to-corner connections
+ const centerLeftCorner = centerBarX;
+ const centerRightCorner = centerBarX + barWidth;
+ const leftRightCorner = leftBarX + barWidth;
+ const rightLeftCorner = rightBarX;
+ 
+ // Get updated Y positions for all three bars
+ const centerData = visibleData.find(d => d.strike === centerStrike && d.type === tower.type);
+ const leftData = visibleData.find(d => d.strike === leftStrike && d.type === tower.type);
+ const rightData = visibleData.find(d => d.strike === rightStrike && d.type === tower.type);
+ 
+ const centerOI = centerData?.openInterest || 0;
+ const leftOI = leftData?.openInterest || 0;
+ const rightOI = rightData?.openInterest || 0;
+ 
+ const centerY = newYScale(centerOI);
+ const leftY = newYScale(leftOI);
+ const rightY = newYScale(rightOI);
+ 
+ // Update left bridge line - right corner of left bar to left corner of center bar
+ container.select(`.tower-${index} .tower-bridge-left`)
+ .attr('x1', leftRightCorner)
+ .attr('x2', centerLeftCorner)
+ .attr('y1', leftY)
+ .attr('y2', centerY);
+ 
+ // Update right bridge line - right corner of center bar to left corner of right bar
+ container.select(`.tower-${index} .tower-bridge-right`)
+ .attr('x1', centerRightCorner)
+ .attr('x2', rightLeftCorner)
+ .attr('y1', centerY)
+ .attr('y2', rightY);
+ 
+ // Update king emoji position
+ container.select(`.tower-${index} .tower-king-emoji`)
+ .attr('x', centerBarX + barWidth / 2)
+ .attr('y', centerY - 10);
+ });
+ }
  });
 
  // Filter data based on toggle states
@@ -1048,6 +1194,158 @@ export default function OpenInterestChart({
 
 
 
+ // AI Tower Structure Visualization
+ if (showTowers && towerStructures.length > 0) {
+ console.log('🏰 Rendering towers:', towerStructures.length);
+ 
+ towerStructures.forEach((tower, index) => {
+ // Find the center strike position - using the band center
+ const centerStrikeStr = tower.strike.toString();
+ const leftStrikeStr = tower.leftStrike.toString();
+ const rightStrikeStr = tower.rightStrike.toString();
+ 
+ const centerBandX = xScale(centerStrikeStr);
+ const leftBandX = xScale(leftStrikeStr);
+ const rightBandX = xScale(rightStrikeStr);
+ 
+ if (centerBandX === undefined || leftBandX === undefined || rightBandX === undefined) {
+ console.log('⚠️ Strike not found in scale for tower:', tower);
+ return;
+ }
+ 
+ // Calculate center positions of each band
+ const centerX = centerBandX + xScale.bandwidth() / 2;
+ const leftX = leftBandX + xScale.bandwidth() / 2;
+ const rightX = rightBandX + xScale.bandwidth() / 2;
+ 
+ // Get sub-scale positions for the specific type (call/put)
+ const xSubScale = d3.scaleBand()
+ .domain(['call', 'put'])
+ .range([0, xScale.bandwidth()])
+ .padding(0.1);
+ 
+ // Calculate the actual bar positions including sub-band offset
+ const centerBarX = centerBandX + (xSubScale(tower.type) || 0);
+ const leftBarX = leftBandX + (xSubScale(tower.type) || 0);
+ const rightBarX = rightBandX + (xSubScale(tower.type) || 0);
+ const barWidth = xSubScale.bandwidth();
+ 
+ // Calculate corner positions for corner-to-corner connections
+ const centerLeftCorner = centerBarX; // Left edge of center bar
+ const centerRightCorner = centerBarX + barWidth; // Right edge of center bar
+ const leftRightCorner = leftBarX + barWidth; // Right edge of left bar
+ const rightLeftCorner = rightBarX; // Left edge of right bar
+ 
+ // Get the height of the center bar for positioning
+ const centerData = data.find(d => d.strike === tower.strike && d.type === tower.type);
+ const leftData = data.find(d => d.strike === tower.leftStrike && d.type === tower.type);
+ const rightData = data.find(d => d.strike === tower.rightStrike && d.type === tower.type);
+ 
+ const centerOI = centerData?.openInterest || 0;
+ const leftOI = leftData?.openInterest || 0;
+ const rightOI = rightData?.openInterest || 0;
+ 
+ const centerY = yScale(centerOI);
+ const leftY = yScale(leftOI);
+ const rightY = yScale(rightOI);
+ 
+ console.log(`🏰 Tower #${index + 1}:`, {
+ strike: tower.strike,
+ type: tower.type,
+ centerX,
+ centerLeftCorner,
+ centerRightCorner,
+ leftRightCorner,
+ rightLeftCorner,
+ centerY,
+ leftY,
+ rightY
+ });
+ 
+ // Create a group for this tower with higher z-index
+ const towerGroup = container
+ .append('g')
+ .attr('class', `tower-group tower-${index}`)
+ .style('pointer-events', 'all');
+ 
+ // Line color based on type
+ const lineColor = tower.type === 'call' ? '#ffd700' : '#a855f7';
+ 
+ // Draw left bridge line - from right corner of left bar to left corner of center bar
+ towerGroup
+ .append('line')
+ .attr('class', 'tower-bridge-left')
+ .attr('x1', leftRightCorner)
+ .attr('x2', centerLeftCorner)
+ .attr('y1', leftY)
+ .attr('y2', centerY)
+ .style('stroke', lineColor)
+ .style('stroke-width', 2)
+ .style('opacity', 1);
+ 
+ // Draw right bridge line - from right corner of center bar to left corner of right bar
+ towerGroup
+ .append('line')
+ .attr('class', 'tower-bridge-right')
+ .attr('x1', centerRightCorner)
+ .attr('x2', rightLeftCorner)
+ .attr('y1', centerY)
+ .attr('y2', rightY)
+ .style('stroke', lineColor)
+ .style('stroke-width', 2)
+ .style('opacity', 1);
+ 
+ // Add glowing King emoji at the center
+ const kingEmoji = towerGroup
+ .append('text')
+ .attr('class', 'tower-king-emoji')
+ .attr('x', centerBarX + barWidth / 2)
+ .attr('y', centerY - 10)
+ .style('text-anchor', 'middle')
+ .style('font-size', '28px')
+ .style('cursor', 'pointer')
+ .text('👑');
+ 
+ // Add tooltip on hover
+ kingEmoji
+ .on('mouseover', function(event) {
+ const tooltip = d3.select('body')
+ .append('div')
+ .attr('class', 'tower-tooltip')
+ .style('position', 'absolute')
+ .style('background', 'rgba(0, 0, 0, 0.95)')
+ .style('color', '#ffd700')
+ .style('padding', '12px')
+ .style('border-radius', '8px')
+ .style('border', '2px solid #ffd700')
+ .style('font-family', '"SF Pro Display", sans-serif')
+ .style('font-size', '13px')
+ .style('font-weight', '600')
+ .style('pointer-events', 'none')
+ .style('z-index', '10000')
+ .style('box-shadow', '0 4px 20px rgba(255, 215, 0, 0.6)')
+ .html(`
+ <div style="color: #ffd700; font-weight: bold; margin-bottom: 8px;">🏰 TOWER STRUCTURE #${index + 1}</div>
+ <div style="color: #fff;">Type: <span style="color: ${tower.type === 'call' ? '#00ff88' : '#ff4444'}">${tower.type.toUpperCase()}</span></div>
+ <div style="color: #fff;">Center Strike: <span style="color: #ffd700">$${tower.strike}</span></div>
+ <div style="color: #fff;">Left Strike: $${tower.leftStrike}</div>
+ <div style="color: #fff;">Right Strike: $${tower.rightStrike}</div>
+ <div style="color: #fff;">Center OI: ${centerOI.toLocaleString()}</div>
+ <div style="margin-top: 8px; color: #ff9900; font-size: 11px;">This structure indicates concentrated dealer positioning</div>
+ `);
+ 
+ tooltip
+ .style('left', (event.pageX + 15) + 'px')
+ .style('top', (event.pageY - 10) + 'px');
+ })
+ .on('mouseout', function() {
+ d3.selectAll('.tower-tooltip').remove();
+ });
+ });
+ 
+ console.log('✅ Tower rendering complete');
+ }
+
  // Add zoom rectangle AFTER all other elements - covering the entire chart area
  const zoomRect = svg
  .append('rect')
@@ -1072,7 +1370,7 @@ export default function OpenInterestChart({
  const actualBarsCreated = container.selectAll('.bar').size();
  console.log(' Chart creation complete. Total bars created:', actualBarsCreated);
 
- }, [data, showCalls, showPuts, currentPrice, showNetOI, expectedRange80]);
+ }, [data, showCalls, showPuts, currentPrice, showNetOI, expectedRange80, showTowers, towerStructures]);
 
  return (
  <div style={{ color: '#ff9900', fontFamily: '"Roboto Mono", monospace', overflowX: 'hidden', overflowY: 'visible' }}>
@@ -1398,8 +1696,7 @@ export default function OpenInterestChart({
  }}>
  <button
  onClick={() => {
- // TODO: Implement AI Assistance functionality
- console.log('AI Assistance clicked');
+ detectTowerStructures();
  }}
  style={{
  background: '#3b82f6',
@@ -1443,6 +1740,45 @@ export default function OpenInterestChart({
  >
  AI
  </button>
+
+ {/* Tower Toggle Button - only show if towers detected */}
+ {towerStructures.length > 0 && (
+ <button
+ onClick={() => setShowTowers(!showTowers)}
+ style={{
+ background: showTowers ? '#ffd700' : '#333333',
+ border: showTowers ? '1px solid #ffd700' : '1px solid #555555',
+ borderRadius: '8px',
+ color: showTowers ? '#000000' : '#999999',
+ padding: '10px 16px',
+ fontSize: '13px',
+ fontWeight: '600',
+ letterSpacing: '0.3px',
+ cursor: 'pointer',
+ transition: 'all 0.2s ease',
+ fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+ textTransform: 'uppercase',
+ boxShadow: showTowers 
+ ? '0 2px 8px rgba(255, 215, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+ : '0 1px 4px rgba(0, 0, 0, 0.4)',
+ textShadow: showTowers ? '0 1px 1px rgba(0, 0, 0, 0.3)' : 'none'
+ }}
+ onMouseEnter={(e) => {
+ if (showTowers) {
+ e.currentTarget.style.background = '#ffed4e';
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ } else {
+ e.currentTarget.style.background = '#444444';
+ }
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.background = showTowers ? '#ffd700' : '#333333';
+ e.currentTarget.style.transform = 'translateY(0)';
+ }}
+ >
+ 👑 Towers ({towerStructures.length})
+ </button>
+ )}
 
  {/* OI Dropdown Button */}
  <div style={{ position: 'relative' }}>
@@ -1705,6 +2041,8 @@ export default function OpenInterestChart({
  setShowPositiveGamma={setShowPositiveGamma}
  setShowNegativeGamma={setShowNegativeGamma}
  compactMode={compactMode}
+ towerStructures={towerStructures}
+ showTowers={showTowers}
  />
  </div>
  );

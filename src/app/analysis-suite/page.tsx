@@ -8,7 +8,7 @@ import LiquidationScreener from '../../components/analytics/LiquidationScreener'
 
 export default function AnalysisSuite() {
  // Pass ticker and expiration to OpenInterestChart and get them back
- const [selectedTicker, setSelectedTicker] = useState('SPY');
+ const [selectedTicker, setSelectedTicker] = useState('');
  const [selectedExpiration, setSelectedExpiration] = useState(''); // Start empty, let OpenInterestChart set it
  const [currentPrice, setCurrentPrice] = useState(0);
  const [loading, setLoading] = useState(false);

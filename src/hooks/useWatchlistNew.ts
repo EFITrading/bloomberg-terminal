@@ -12,14 +12,14 @@ const WATCHLIST_SYMBOLS = [
  { symbol: 'XLK', name: 'Technology Select Sector SPDR Fund', type: 'SECTOR' },
  { symbol: 'XLF', name: 'Financial Select Sector SPDR Fund', type: 'SECTOR' },
  { symbol: 'XLV', name: 'Health Care Select Sector SPDR Fund', type: 'SECTOR' },
- { symbol: 'XLY', name: 'Consumer Discretionary Select Sector SPDR', type: 'SECTOR' },
- { symbol: 'XLP', name: 'Consumer Staples Select Sector SPDR Fund', type: 'SECTOR' },
+ { symbol: 'XLY', name: 'Discretionary Select Sector SPDR', type: 'SECTOR' },
+ { symbol: 'XLP', name: 'Staples Select Sector SPDR Fund', type: 'SECTOR' },
  { symbol: 'XLE', name: 'Energy Select Sector SPDR Fund', type: 'SECTOR' },
  { symbol: 'XLI', name: 'Industrial Select Sector SPDR Fund', type: 'SECTOR' },
  { symbol: 'XLB', name: 'Materials Select Sector SPDR Fund', type: 'SECTOR' },
  { symbol: 'XLRE', name: 'Real Estate Select Sector SPDR Fund', type: 'SECTOR' },
  { symbol: 'XLU', name: 'Utilities Select Sector SPDR Fund', type: 'SECTOR' },
- { symbol: 'XLC', name: 'Communication Services Select Sector SPDR', type: 'SECTOR' },
+ { symbol: 'XLC', name: 'Communication Select Sector SPDR', type: 'SECTOR' },
  { symbol: 'TLT', name: 'iShares 20+ Year Treasury Bond ETF', type: 'ETF' },
  { symbol: 'GLD', name: 'SPDR Gold Shares', type: 'ETF' }
 ];

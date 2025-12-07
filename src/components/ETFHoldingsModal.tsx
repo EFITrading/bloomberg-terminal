@@ -398,22 +398,23 @@ const ETFHoldingsModal: React.FC<ETFHoldingsModalProps> = ({ isOpen, onClose, et
                 gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
                 gap: '0',
                 borderBottom: '1px solid #FF6600',
-                background: '#000000',
+                background: 'linear-gradient(to bottom, rgba(20, 20, 20, 0.8) 0%, rgba(0, 0, 0, 1) 50%, rgba(10, 10, 10, 0.8) 100%)',
+                boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 3px rgba(0, 0, 0, 0.8), 0 4px 8px rgba(0, 0, 0, 0.5)',
                 padding: '10px 20px',
-                fontSize: '24px',
+                fontSize: '20px',
                 fontWeight: '700',
                 color: '#ffffff',
                 textTransform: 'uppercase',
                 letterSpacing: '1.5px',
                 fontFamily: 'monospace'
               }}>
-                <div>SYMBOL</div>
-                <div style={{ textAlign: 'center' }}>PRICE</div>
-                <div style={{ textAlign: 'center' }}>CHANGE</div>
-                <div style={{ textAlign: 'center' }}>1D</div>
-                <div style={{ textAlign: 'center' }}>5D</div>
-                <div style={{ textAlign: 'center' }}>13D</div>
-                <div style={{ textAlign: 'center' }}>21D</div>
+                <div style={{ borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>SYMBOL</div>
+                <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>PRICE</div>
+                <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>CHANGE</div>
+                <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>1D</div>
+                <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>5D</div>
+                <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>13D</div>
+                <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>21D</div>
                 <div style={{ textAlign: 'center' }}>YTD</div>
               </div>
               
@@ -427,26 +428,34 @@ const ETFHoldingsModal: React.FC<ETFHoldingsModalProps> = ({ isOpen, onClose, et
                       gap: '0',
                       padding: '10px 20px',
                       borderBottom: '1px solid #111',
-                      background: index % 2 === 0 ? '#000000' : '#0a0a0a',
+                      borderRight: '1px solid rgba(255, 102, 0, 0.15)',
+                      background: index % 2 === 0 
+                        ? 'linear-gradient(to bottom, rgba(20, 20, 20, 0.4) 0%, rgba(0, 0, 0, 0.8) 50%, rgba(10, 10, 10, 0.6) 100%)' 
+                        : 'linear-gradient(to bottom, rgba(15, 15, 15, 0.4) 0%, rgba(5, 5, 5, 0.8) 50%, rgba(8, 8, 8, 0.6) 100%)',
+                      boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6), 0 2px 4px rgba(0, 0, 0, 0.3)',
                       transition: 'all 0.15s',
                       fontSize: '12px',
                       position: 'relative'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 102, 0, 0.08)';
+                      e.currentTarget.style.background = 'linear-gradient(to bottom, rgba(255, 102, 0, 0.15) 0%, rgba(255, 102, 0, 0.08) 50%, rgba(255, 102, 0, 0.12) 100%)';
+                      e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 3px rgba(0, 0, 0, 0.8), 0 4px 8px rgba(255, 102, 0, 0.2)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = index % 2 === 0 ? '#000000' : '#0a0a0a';
+                      e.currentTarget.style.background = index % 2 === 0 
+                        ? 'linear-gradient(to bottom, rgba(20, 20, 20, 0.4) 0%, rgba(0, 0, 0, 0.8) 50%, rgba(10, 10, 10, 0.6) 100%)' 
+                        : 'linear-gradient(to bottom, rgba(15, 15, 15, 0.4) 0%, rgba(5, 5, 5, 0.8) 50%, rgba(8, 8, 8, 0.6) 100%)';
+                      e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6), 0 2px 4px rgba(0, 0, 0, 0.3)';
                     }}
                     >
                       {/* Symbol */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>
                         <span style={{ fontWeight: '700', color: '#FF6600', fontSize: '20px', fontFamily: 'monospace', letterSpacing: '1px' }}>{holding.symbol}</span>
                         <span style={{ fontSize: '11px', color: '#555', fontFamily: 'monospace' }}>{holding.name}</span>
                       </div>
                       
                       {/* Price */}
-                      <div style={{ fontWeight: '700', color: '#fff', fontFamily: 'monospace', textAlign: 'center', fontSize: '18px' }}>
+                      <div style={{ fontWeight: '700', color: '#fff', fontFamily: 'monospace', textAlign: 'center', fontSize: '18px', borderRight: '1px solid rgba(255, 102, 0, 0.15)', paddingRight: '10px' }}>
                         {formatPrice(holding.price)}
                       </div>
                       
@@ -456,7 +465,9 @@ const ETFHoldingsModal: React.FC<ETFHoldingsModalProps> = ({ isOpen, onClose, et
                         color: holding.change >= 0 ? '#00ff00' : '#ff0000',
                         fontFamily: 'monospace',
                         textAlign: 'center',
-                        fontSize: '18px'
+                        fontSize: '18px',
+                        borderRight: '1px solid rgba(255, 102, 0, 0.15)',
+                        paddingRight: '10px'
                       }}>
                         {formatChange(holding.change, holding.changePercent)}
                       </div>
@@ -468,7 +479,9 @@ const ETFHoldingsModal: React.FC<ETFHoldingsModalProps> = ({ isOpen, onClose, et
                         textAlign: 'center',
                         fontSize: '17px',
                         fontFamily: 'monospace',
-                        letterSpacing: '0.5px'
+                        letterSpacing: '0.5px',
+                        borderRight: '1px solid rgba(255, 102, 0, 0.15)',
+                        paddingRight: '10px'
                       }}>
                         {holding.perf1d.status}
                       </div>
@@ -480,7 +493,9 @@ const ETFHoldingsModal: React.FC<ETFHoldingsModalProps> = ({ isOpen, onClose, et
                         textAlign: 'center',
                         fontSize: '17px',
                         fontFamily: 'monospace',
-                        letterSpacing: '0.5px'
+                        letterSpacing: '0.5px',
+                        borderRight: '1px solid rgba(255, 102, 0, 0.15)',
+                        paddingRight: '10px'
                       }}>
                         {holding.perf5d.status}
                       </div>
@@ -492,7 +507,9 @@ const ETFHoldingsModal: React.FC<ETFHoldingsModalProps> = ({ isOpen, onClose, et
                         textAlign: 'center',
                         fontSize: '17px',
                         fontFamily: 'monospace',
-                        letterSpacing: '0.5px'
+                        letterSpacing: '0.5px',
+                        borderRight: '1px solid rgba(255, 102, 0, 0.15)',
+                        paddingRight: '10px'
                       }}>
                         {holding.perf13d.status}
                       </div>
@@ -504,7 +521,9 @@ const ETFHoldingsModal: React.FC<ETFHoldingsModalProps> = ({ isOpen, onClose, et
                         textAlign: 'center',
                         fontSize: '17px',
                         fontFamily: 'monospace',
-                        letterSpacing: '0.5px'
+                        letterSpacing: '0.5px',
+                        borderRight: '1px solid rgba(255, 102, 0, 0.15)',
+                        paddingRight: '10px'
                       }}>
                         {holding.perf21d.status}
                       </div>

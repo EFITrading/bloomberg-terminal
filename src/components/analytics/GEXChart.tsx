@@ -20,6 +20,8 @@ interface GEXChartProps {
  setShowPositiveGamma: (show: boolean) => void;
  setShowNegativeGamma: (show: boolean) => void;
  compactMode?: boolean;
+ towerStructures?: Array<{strike: number, leftStrike: number, rightStrike: number, type: 'call' | 'put'}>;
+ showTowers?: boolean;
 }
 
 export default function GEXChart({ 
@@ -31,7 +33,9 @@ export default function GEXChart({
  showNegativeGamma,
  setShowPositiveGamma,
  setShowNegativeGamma,
- compactMode = false
+ compactMode = false,
+ towerStructures = [],
+ showTowers = false
 }: GEXChartProps) {
  const [data, setData] = useState<GEXData[]>([]);
  const [loading, setLoading] = useState<boolean>(false);
@@ -603,6 +607,69 @@ export default function GEXChart({
  container.select('.current-price-label')
  .attr('x', xPosition);
  }
+ 
+ // Update tower structures position during zoom
+ if (showTowers && towerStructures && towerStructures.length > 0) {
+ towerStructures.forEach((tower, index) => {
+ const centerStrike = tower.strike;
+ const leftStrike = tower.leftStrike;
+ const rightStrike = tower.rightStrike;
+ 
+ // Check if strikes are in visible range
+ if (!visibleStrikes.includes(centerStrike)) {
+ container.select(`.tower-group.tower-${index}`).style('display', 'none');
+ return;
+ }
+ 
+ container.select(`.tower-group.tower-${index}`).style('display', 'block');
+ 
+ // Calculate new positions
+ const centerBarX = newXBandScale(centerStrike.toString()) || 0;
+ const leftBarX = newXBandScale(leftStrike.toString()) || 0;
+ const rightBarX = newXBandScale(rightStrike.toString()) || 0;
+ const barWidth = newXBandScale.bandwidth();
+ 
+ // Calculate corner positions
+ const centerLeftCorner = centerBarX;
+ const centerRightCorner = centerBarX + barWidth;
+ const leftRightCorner = leftBarX + barWidth;
+ const rightLeftCorner = rightBarX;
+ 
+ // Get updated Y positions for all three bars
+ const centerData = visibleData.find(d => d.strike === centerStrike && d.type === tower.type);
+ const leftData = visibleData.find(d => d.strike === leftStrike && d.type === tower.type);
+ const rightData = visibleData.find(d => d.strike === rightStrike && d.type === tower.type);
+ 
+ if (!centerData || !leftData || !rightData) return;
+ 
+ const centerGEX = showGEX ? centerData.gammaExposure : centerData.deltaExposure;
+ const leftGEX = showGEX ? leftData.gammaExposure : leftData.deltaExposure;
+ const rightGEX = showGEX ? rightData.gammaExposure : rightData.deltaExposure;
+ 
+ const centerY = centerGEX >= 0 ? newYScale(centerGEX) : newYScale(0);
+ const leftY = leftGEX >= 0 ? newYScale(leftGEX) : newYScale(0);
+ const rightY = rightGEX >= 0 ? newYScale(rightGEX) : newYScale(0);
+ 
+ // Update left bridge line
+ container.select(`.tower-${index} .tower-bridge-left`)
+ .attr('x1', leftRightCorner)
+ .attr('x2', centerLeftCorner)
+ .attr('y1', leftY)
+ .attr('y2', centerY);
+ 
+ // Update right bridge line
+ container.select(`.tower-${index} .tower-bridge-right`)
+ .attr('x1', centerRightCorner)
+ .attr('x2', rightLeftCorner)
+ .attr('y1', centerY)
+ .attr('y2', rightY);
+ 
+ // Update king emoji position
+ container.select(`.tower-${index} .tower-king-emoji`)
+ .attr('x', centerBarX + barWidth / 2)
+ .attr('y', centerY - 10);
+ });
+ }
  });
 
  // Create axes with intelligent tick filtering
@@ -849,6 +916,132 @@ export default function GEXChart({
 
 
 
+ // AI Tower Structure Visualization
+ if (showTowers && towerStructures && towerStructures.length > 0) {
+ console.log('🏰 Rendering towers on GEX chart:', towerStructures.length);
+ 
+ towerStructures.forEach((tower, index) => {
+ // Find the strike positions
+ const centerStrikeStr = tower.strike.toString();
+ const leftStrikeStr = tower.leftStrike.toString();
+ const rightStrikeStr = tower.rightStrike.toString();
+ 
+ const centerBandX = xScale(centerStrikeStr);
+ const leftBandX = xScale(leftStrikeStr);
+ const rightBandX = xScale(rightStrikeStr);
+ 
+ if (centerBandX === undefined || leftBandX === undefined || rightBandX === undefined) {
+ console.log('⚠️ Strike not found in GEX scale for tower:', tower);
+ return;
+ }
+ 
+ // Get the GEX data for positioning
+ const centerData = data.find(d => d.strike === tower.strike && d.type === tower.type);
+ const leftData = data.find(d => d.strike === tower.leftStrike && d.type === tower.type);
+ const rightData = data.find(d => d.strike === tower.rightStrike && d.type === tower.type);
+ 
+ if (!centerData || !leftData || !rightData) return;
+ 
+ const centerGEX = showGEX ? centerData.gammaExposure : centerData.deltaExposure;
+ const leftGEX = showGEX ? leftData.gammaExposure : leftData.deltaExposure;
+ const rightGEX = showGEX ? rightData.gammaExposure : rightData.deltaExposure;
+ 
+ const centerY = centerGEX >= 0 ? yScale(centerGEX) : yScale(0);
+ const leftY = leftGEX >= 0 ? yScale(leftGEX) : yScale(0);
+ const rightY = rightGEX >= 0 ? yScale(rightGEX) : yScale(0);
+ 
+ // Calculate bar positions (GEX chart uses centered bars, not sub-bands)
+ const centerBarX = centerBandX;
+ const leftBarX = leftBandX;
+ const rightBarX = rightBandX;
+ const barWidth = xScale.bandwidth();
+ 
+ // Calculate corner positions
+ const centerLeftCorner = centerBarX;
+ const centerRightCorner = centerBarX + barWidth;
+ const leftRightCorner = leftBarX + barWidth;
+ const rightLeftCorner = rightBarX;
+ 
+ // Create tower group
+ const towerGroup = container
+ .append('g')
+ .attr('class', `tower-group tower-${index}`)
+ .style('pointer-events', 'all');
+ 
+ // Line color
+ const lineColor = tower.type === 'call' ? '#ffd700' : '#a855f7';
+ 
+ // Draw left bridge line
+ towerGroup
+ .append('line')
+ .attr('class', 'tower-bridge-left')
+ .attr('x1', leftRightCorner)
+ .attr('x2', centerLeftCorner)
+ .attr('y1', leftY)
+ .attr('y2', centerY)
+ .style('stroke', lineColor)
+ .style('stroke-width', 2)
+ .style('opacity', 1);
+ 
+ // Draw right bridge line
+ towerGroup
+ .append('line')
+ .attr('class', 'tower-bridge-right')
+ .attr('x1', centerRightCorner)
+ .attr('x2', rightLeftCorner)
+ .attr('y1', centerY)
+ .attr('y2', rightY)
+ .style('stroke', lineColor)
+ .style('stroke-width', 2)
+ .style('opacity', 1);
+ 
+ // Add King emoji
+ towerGroup
+ .append('text')
+ .attr('class', 'tower-king-emoji')
+ .attr('x', centerBarX + barWidth / 2)
+ .attr('y', centerY - 10)
+ .style('text-anchor', 'middle')
+ .style('font-size', '28px')
+ .style('cursor', 'pointer')
+ .text('👑')
+ .on('mouseover', function(event) {
+ const tooltip = d3.select('body')
+ .append('div')
+ .attr('class', 'tower-tooltip')
+ .style('position', 'absolute')
+ .style('background', 'rgba(0, 0, 0, 0.95)')
+ .style('color', '#ffd700')
+ .style('padding', '12px')
+ .style('border-radius', '8px')
+ .style('border', '2px solid #ffd700')
+ .style('font-family', '"SF Pro Display", sans-serif')
+ .style('font-size', '13px')
+ .style('font-weight', '600')
+ .style('pointer-events', 'none')
+ .style('z-index', '10000')
+ .style('box-shadow', '0 4px 20px rgba(255, 215, 0, 0.6)')
+ .html(`
+ <div style="color: #ffd700; font-weight: bold; margin-bottom: 8px;">🏰 TOWER STRUCTURE #${index + 1} (GEX)</div>
+ <div style="color: #fff;">Type: <span style="color: ${tower.type === 'call' ? '#00ff88' : '#ff4444'}">${tower.type.toUpperCase()}</span></div>
+ <div style="color: #fff;">Center Strike: <span style="color: #ffd700">$${tower.strike}</span></div>
+ <div style="color: #fff;">Left Strike: $${tower.leftStrike}</div>
+ <div style="color: #fff;">Right Strike: $${tower.rightStrike}</div>
+ <div style="margin-top: 8px; color: #ff9900; font-size: 11px;">This structure indicates concentrated dealer positioning</div>
+ `);
+ 
+ tooltip
+ .style('left', (event.pageX + 15) + 'px')
+ .style('top', (event.pageY - 10) + 'px');
+ })
+ .on('mouseout', function() {
+ d3.selectAll('.tower-tooltip').remove();
+ });
+ });
+ 
+ console.log('✅ GEX Tower rendering complete');
+ }
+
  // Add zoom rectangle AFTER all other elements - covering the entire chart area - EXACT COPY from OpenInterestChart
  const zoomRect = svg
  .append('rect')
@@ -869,7 +1062,7 @@ export default function GEXChart({
  svg.call(zoom.transform as any, zoomTransform);
  }
 
- }, [data, showPositiveGamma, showNegativeGamma, showGEX]);
+ }, [data, showPositiveGamma, showNegativeGamma, showGEX, showTowers, towerStructures]);
 
  return (
  <div style={{ marginTop: isMobile ? '0px' : compactMode ? '-20px' : '32px' }}>
