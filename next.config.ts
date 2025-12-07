@@ -21,7 +21,6 @@ const nextConfig: NextConfig = {
   // CRITICAL: Ensure middleware runs in Next.js 15
   skipMiddlewareUrlNormalize: false,
   skipTrailingSlashRedirect: false,
-  serverExternalPackages: ['worker_threads'],
   // Environment variables for production
   env: {
     VERCEL_ENV: process.env.VERCEL_ENV || 'development',
