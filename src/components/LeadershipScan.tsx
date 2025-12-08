@@ -439,7 +439,7 @@ export default function LeadershipScan() {
  };
 
  const renderLeaderCard = (leader: LeadershipStock, index: number) => (
- <div key={leader.symbol} style={{
+ <div key={`${leader.symbol}-${index}`} style={{
  background: 'linear-gradient(135deg, #1a1a1a 0%, #262626 50%, #1a1a1a 100%)',
  border: '1px solid #333333',
  borderRadius: '8px',

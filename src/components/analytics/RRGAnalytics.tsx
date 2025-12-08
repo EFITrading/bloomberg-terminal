@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import RRGChart from './RRGChart';
 import RRGService, { RRGCalculationResult } from '@/lib/rrgService';
+import IVRRGService, { IVRRGCalculationResult } from '@/lib/ivRRGService';
 import './RRGAnalytics.css';
 
 interface RRGAnalyticsProps {
@@ -15,6 +16,7 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  defaultBenchmark = 'SPY'
 }) => {
  const [rrgData, setRrgData] = useState<RRGCalculationResult[]>([]);
+ const [ivRRGData, setIvRRGData] = useState<IVRRGCalculationResult[]>([]);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
  const [showTails, setShowTails] = useState(true);
@@ -33,8 +35,24 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  const [selectedIndustryETF, setSelectedIndustryETF] = useState<string | null>(null);
  const [customSymbols, setCustomSymbols] = useState<string>('');
  const [refreshing, setRefreshing] = useState(false);
+ const [chartMode, setChartMode] = useState<'RS' | 'IV'>('RS'); // New: Chart mode selector
+ const [ivDataLoaded, setIvDataLoaded] = useState(false); // Track if IV data has been loaded
+
+ // Update timeframe when switching chart modes
+ useEffect(() => {
+   if (chartMode === 'IV' && !timeframe.includes('year')) {
+     // Switch to IV mode - default to 1 Year if coming from RS mode
+     setTimeframe('1 year');
+     setIvDataLoaded(false); // Reset IV data loaded state
+     setIvRRGData([]); // Clear previous IV data
+   } else if (chartMode === 'RS' && timeframe.includes('year')) {
+     // Switch to RS mode - default to 14 weeks if coming from IV mode
+     setTimeframe('14 weeks');
+   }
+ }, [chartMode]);
 
  const rrgService = new RRGService();
+ const ivRRGService = new IVRRGService();
 
  // Handle tail length change with persistence
  const handleTailLengthChange = (newLength: number) => {
@@ -44,15 +62,25 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  }
  };
 
- const timeframeOptions = [
- { label: '4 weeks', value: '4 weeks', weeks: 8, rsPeriod: 4, momentumPeriod: 4 },
- { label: '8 weeks', value: '8 weeks', weeks: 12, rsPeriod: 8, momentumPeriod: 8 },
- { label: '14 weeks', value: '14 weeks', weeks: 18, rsPeriod: 14, momentumPeriod: 14 },
- { label: '26 weeks', value: '26 weeks', weeks: 30, rsPeriod: 26, momentumPeriod: 26 },
- { label: '52 weeks', value: '52 weeks', weeks: 56, rsPeriod: 52, momentumPeriod: 52 }
+ // RS mode timeframe options (weeks-based)
+ const rsTimeframeOptions = [
+  { label: '4 weeks', value: '4 weeks', weeks: 8, rsPeriod: 4, momentumPeriod: 4 },
+  { label: '8 weeks', value: '8 weeks', weeks: 12, rsPeriod: 8, momentumPeriod: 8 },
+  { label: '14 weeks', value: '14 weeks', weeks: 18, rsPeriod: 14, momentumPeriod: 14 },
+  { label: '26 weeks', value: '26 weeks', weeks: 30, rsPeriod: 26, momentumPeriod: 26 },
+  { label: '52 weeks', value: '52 weeks', weeks: 56, rsPeriod: 52, momentumPeriod: 52 }
  ];
 
- const benchmarkOptions = [
+ // IV mode timeframe options (years-based)
+ const ivTimeframeOptions = [
+  { label: '1 Year', value: '1 year', weeks: 52, rsPeriod: 52, momentumPeriod: 52 },
+  { label: '2 Years', value: '2 years', weeks: 104, rsPeriod: 104, momentumPeriod: 104 },
+  { label: '3 Years', value: '3 years', weeks: 156, rsPeriod: 156, momentumPeriod: 156 },
+  { label: '4 Years', value: '4 years', weeks: 208, rsPeriod: 208, momentumPeriod: 208 }
+ ];
+
+ // Select appropriate timeframe options based on chart mode
+ const timeframeOptions = chartMode === 'IV' ? ivTimeframeOptions : rsTimeframeOptions; const benchmarkOptions = [
  { label: 'S&P 500 (SPY)', value: 'SPY' },
  { label: 'NASDAQ 100 (QQQ)', value: 'QQQ' },
  { label: 'Russell 2000 (IWM)', value: 'IWM' },
@@ -191,11 +219,109 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  setError(null);
 
  try {
- const selectedTimeframe = timeframeOptions.find(tf => tf.value === timeframe);
+ // Get the appropriate timeframe options based on chart mode
+ const currentTimeframeOptions = chartMode === 'IV' ? ivTimeframeOptions : rsTimeframeOptions;
+ const selectedTimeframe = currentTimeframeOptions.find(tf => tf.value === timeframe);
+ 
  if (!selectedTimeframe) {
- throw new Error('Invalid timeframe selected');
+ console.warn(`Invalid timeframe "${timeframe}" for ${chartMode} mode, defaulting...`);
+ // Default to first option if current timeframe is invalid
+ const defaultTimeframe = currentTimeframeOptions[0];
+ setTimeframe(defaultTimeframe.value);
+ return; // Let the useEffect re-trigger with valid timeframe
  }
 
+ // Load data based on chart mode (RS or IV)
+ if (chartMode === 'IV') {
+ // IV mode: Load IV-based RRG data
+ console.log('📊 Loading IV-based RRG data...');
+ 
+ let ivData: IVRRGCalculationResult[];
+ 
+ if (selectedMode === 'sectors') {
+ if (selectedSectorETF && sectorETFs[selectedSectorETF as keyof typeof sectorETFs]) {
+ // Load holdings of selected sector ETF with IV
+ const etfInfo = sectorETFs[selectedSectorETF as keyof typeof sectorETFs];
+ console.log(` Loading ${selectedSectorETF} holdings IV-RRG data...`);
+ ivData = await ivRRGService.calculateIVBasedRRG(
+ etfInfo.holdings,
+ selectedSectorETF,
+ selectedTimeframe.weeks * 7, // Convert weeks to days
+ selectedTimeframe.rsPeriod,
+ selectedTimeframe.momentumPeriod,
+ 10
+ );
+ } else {
+ // Load standard sector IV analysis
+ console.log(' Loading Sector IV-RRG data...');
+ ivData = await ivRRGService.calculateSectorIVRRG(
+ selectedTimeframe.weeks * 7, // Convert weeks to days
+ selectedTimeframe.rsPeriod,
+ selectedTimeframe.momentumPeriod,
+ 10
+ );
+ }
+ } else if (selectedMode === 'industries') {
+ if (selectedIndustryETF && industryETFs[selectedIndustryETF as keyof typeof industryETFs]) {
+ const etfInfo = industryETFs[selectedIndustryETF as keyof typeof industryETFs];
+ console.log(` Loading ${selectedIndustryETF} holdings IV-RRG data...`);
+ ivData = await ivRRGService.calculateIVBasedRRG(
+ etfInfo.holdings,
+ selectedIndustryETF,
+ selectedTimeframe.weeks * 7,
+ selectedTimeframe.rsPeriod,
+ selectedTimeframe.momentumPeriod,
+ 10
+ );
+ } else {
+ const industrySymbols = Object.keys(industryETFs);
+ ivData = await ivRRGService.calculateIVBasedRRG(
+ industrySymbols,
+ benchmark,
+ selectedTimeframe.weeks * 7,
+ selectedTimeframe.rsPeriod,
+ selectedTimeframe.momentumPeriod,
+ 10
+ );
+ }
+ } else {
+ const symbols = customSymbols
+ .split(',')
+ .map(s => s && s.trim() ? s.trim().toUpperCase() : '')
+ .filter(s => s.length > 0);
+
+ if (symbols.length === 0) {
+ throw new Error('Please enter at least one symbol for custom analysis');
+ }
+
+ console.log(' Loading Custom IV-RRG data...');
+ ivData = await ivRRGService.calculateIVBasedRRG(
+ symbols,
+ benchmark,
+ selectedTimeframe.weeks * 7,
+ selectedTimeframe.rsPeriod,
+ selectedTimeframe.momentumPeriod,
+ 10
+ );
+ }
+ 
+ // Transform IV data to match RRG chart expected structure (ivRatio -> rsRatio, ivMomentum -> rsMomentum)
+ const transformedIvData = ivData.map(item => ({
+ ...item,
+ rsRatio: item.ivRatio,
+ rsMomentum: item.ivMomentum,
+ tail: item.tail.map(t => ({
+ ...t,
+ rsRatio: t.ivRatio,
+ rsMomentum: t.ivMomentum
+ }))
+ }));
+ 
+ setIvRRGData(transformedIvData as any);
+ console.log(' IV-RRG data loaded successfully:', ivData.length, 'items');
+ 
+ } else {
+ // RS mode: Load standard RS-based RRG data
  let data: RRGCalculationResult[];
 
  if (selectedMode === 'sectors') {
@@ -270,6 +396,7 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
 
  setRrgData(data);
  console.log(' RRG data loaded successfully:', data.length, 'items');
+ }
 
  } catch (err) {
  const errorMessage = err instanceof Error ? err.message : 'Failed to load RRG data';
@@ -286,17 +413,46 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  setRefreshing(false);
  };
 
+ // Manual scan trigger for IV mode
+ const scanIVData = async () => {
+   setIvDataLoaded(true);
+   await loadRRGData();
+ };
+
  // Load data on component mount and when settings change
+ // For IV mode, only load if manually triggered
  useEffect(() => {
- loadRRGData();
- }, [timeframe, benchmark, selectedMode, selectedSectorETF, selectedIndustryETF]);
+   if (chartMode === 'RS') {
+     // Auto-load for RS mode
+     loadRRGData();
+   }
+   // IV mode requires manual scan via scanIVData button
+ }, [timeframe, benchmark, selectedMode, selectedSectorETF, selectedIndustryETF, chartMode]);
 
  const getQuadrantSummary = () => {
+ const currentData = chartMode === 'IV' ? ivRRGData : rrgData;
+ 
  const summary = {
- leading: rrgData.filter(d => d.rsRatio >= 100 && d.rsMomentum >= 100),
- weakening: rrgData.filter(d => d.rsRatio >= 100 && d.rsMomentum < 100),
- lagging: rrgData.filter(d => d.rsRatio < 100 && d.rsMomentum < 100),
- improving: rrgData.filter(d => d.rsRatio < 100 && d.rsMomentum >= 100)
+ leading: currentData.filter(d => {
+ const ratio = chartMode === 'IV' ? (d as IVRRGCalculationResult).ivRatio : (d as RRGCalculationResult).rsRatio;
+ const momentum = chartMode === 'IV' ? (d as IVRRGCalculationResult).ivMomentum : (d as RRGCalculationResult).rsMomentum;
+ return ratio >= 100 && momentum >= 100;
+ }),
+ weakening: currentData.filter(d => {
+ const ratio = chartMode === 'IV' ? (d as IVRRGCalculationResult).ivRatio : (d as RRGCalculationResult).rsRatio;
+ const momentum = chartMode === 'IV' ? (d as IVRRGCalculationResult).ivMomentum : (d as RRGCalculationResult).rsMomentum;
+ return ratio >= 100 && momentum < 100;
+ }),
+ lagging: currentData.filter(d => {
+ const ratio = chartMode === 'IV' ? (d as IVRRGCalculationResult).ivRatio : (d as RRGCalculationResult).rsRatio;
+ const momentum = chartMode === 'IV' ? (d as IVRRGCalculationResult).ivMomentum : (d as RRGCalculationResult).rsMomentum;
+ return ratio < 100 && momentum < 100;
+ }),
+ improving: currentData.filter(d => {
+ const ratio = chartMode === 'IV' ? (d as IVRRGCalculationResult).ivRatio : (d as RRGCalculationResult).rsRatio;
+ const momentum = chartMode === 'IV' ? (d as IVRRGCalculationResult).ivMomentum : (d as RRGCalculationResult).rsMomentum;
+ return ratio < 100 && momentum >= 100;
+ })
  };
 
  return summary;
@@ -305,13 +461,87 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  const quadrantSummary = getQuadrantSummary();
 
  return (
- <div className="rrg-analytics-container">
+ <div className="rrg-analytics-container" style={{ position: 'relative' }}>
+ {/* Chart Mode Selector - Compass Style (Top-Left, above chart) */}
+ {!loading && !error && (
+ <div style={{
+ position: 'absolute',
+ top: '10px',
+ left: '10px',
+ zIndex: 2000,
+ display: 'flex',
+ gap: '0px',
+ background: 'rgba(26, 26, 26, 0.95)',
+ border: '2px solid #00bcd4',
+ borderRadius: '6px',
+ overflow: 'hidden',
+ boxShadow: '0 4px 20px rgba(0, 188, 212, 0.3)'
+ }}>
+ <button
+ onClick={() => setChartMode('RS')}
+ style={{
+ padding: '10px 20px',
+ background: chartMode === 'RS' ? '#00bcd4' : 'transparent',
+ color: chartMode === 'RS' ? '#000' : '#00bcd4',
+ border: 'none',
+ cursor: 'pointer',
+ fontFamily: '"Bloomberg Terminal", monospace',
+ fontSize: '13px',
+ fontWeight: 'bold',
+ letterSpacing: '1px',
+ transition: 'all 0.2s ease',
+ borderRight: chartMode === 'RS' ? 'none' : '1px solid #00bcd4'
+ }}
+ onMouseEnter={(e) => {
+ if (chartMode !== 'RS') {
+ e.currentTarget.style.background = 'rgba(0, 188, 212, 0.1)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (chartMode !== 'RS') {
+ e.currentTarget.style.background = 'transparent';
+ }
+ }}
+ >
+ Relative Strength
+ </button>
+ <button
+ onClick={() => setChartMode('IV')}
+ style={{
+ padding: '10px 20px',
+ background: chartMode === 'IV' ? '#00bcd4' : 'transparent',
+ color: chartMode === 'IV' ? '#000' : '#00bcd4',
+ border: 'none',
+ cursor: 'pointer',
+ fontFamily: '"Bloomberg Terminal", monospace',
+ fontSize: '13px',
+ fontWeight: 'bold',
+ letterSpacing: '1px',
+ transition: 'all 0.2s ease'
+ }}
+ onMouseEnter={(e) => {
+ if (chartMode !== 'IV') {
+ e.currentTarget.style.background = 'rgba(0, 188, 212, 0.1)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (chartMode !== 'IV') {
+ e.currentTarget.style.background = 'transparent';
+ }
+ }}
+ >
+ Implied Volatility
+ </button>
+ </div>
+ )}
+ 
+ 
  {loading && (
  <div className="rrg-loading">
  <div className="loading-content">
  <div className="loading-spinner"></div>
- <h3>Loading RRG Data...</h3>
- <p>Fetching historical price data and calculating relative rotation metrics</p>
+ <h3>Loading {chartMode === 'IV' ? 'IV-based' : 'RS-based'} RRG Data...</h3>
+ <p>Fetching historical {chartMode === 'IV' ? 'IV' : 'price'} data and calculating relative rotation metrics</p>
  </div>
  </div>
  )}
@@ -319,7 +549,7 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  {error && (
  <div className="rrg-error">
  <div className="error-content">
- <h3> Error Loading Data</h3>
+ <h3>❌ Error Loading Data</h3>
  <p>{error}</p>
  <button onClick={loadRRGData} className="retry-btn">
  Retry
@@ -328,10 +558,10 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  </div>
  )}
 
- {!loading && !error && rrgData.length > 0 && (
+ {!loading && !error && (chartMode === 'RS' ? rrgData.length > 0 : true) && (
  <>
  <RRGChart
- data={rrgData}
+ data={chartMode === 'IV' ? (ivDataLoaded ? ivRRGData as any : []) : rrgData}
  benchmark={benchmark}
  width={1500}
  height={950}
@@ -360,6 +590,7 @@ const RRGAnalytics: React.FC<RRGAnalyticsProps> = ({
  industryETFs={industryETFs}
  selectedIndustryETF={selectedIndustryETF}
  loading={loading}
+ chartMode={chartMode} // Pass chart mode to RRGChart
  />
  </>
  )}

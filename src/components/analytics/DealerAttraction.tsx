@@ -1,7 +1,442 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { RefreshCw, AlertCircle, TrendingUp, Activity, Target, BarChart3, Gauge } from 'lucide-react';
-import OpenInterestChart from './OpenInterestChart';
-import GEXScreener from './GEXScreener';
+import DealerOpenInterestChart from './DealerOpenInterestChart';
+import DealerGEXChart from './DealerGEXChart';
+
+// Unified OI/GEX Tab Component with shared expiration state
+const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
+  const [sharedExpiration, setSharedExpiration] = useState<string>('');
+  const [expirationDates, setExpirationDates] = useState<string[]>([]);
+  
+  // OI Chart State
+  const [showCalls, setShowCalls] = useState<boolean>(true);
+  const [showPuts, setShowPuts] = useState<boolean>(true);
+  const [showNetOI, setShowNetOI] = useState<boolean>(false);
+  const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
+  const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('');
+  const [expectedRange90, setExpectedRange90] = useState<{call: number, put: number} | null>(null);
+  
+  // GEX Chart State
+  const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
+  const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
+  const [showNetGamma, setShowNetGamma] = useState<boolean>(true);
+  
+  // Unified Controls (affect both charts)
+  const [showPremium, setShowPremium] = useState<boolean>(false);
+  const [showAITowers, setShowAITowers] = useState<boolean>(false);
+
+  // Fetch expiration dates once
+  useEffect(() => {
+    if (!selectedTicker) return;
+    
+    const fetchExpirations = async () => {
+      try {
+        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`);
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          const dates = Object.keys(result.data).sort();
+          setExpirationDates(dates);
+          
+          if (dates.length > 0 && !sharedExpiration) {
+            setSharedExpiration(dates[0]);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching expirations:', err);
+      }
+    };
+
+    fetchExpirations();
+  }, [selectedTicker]);
+
+  return (
+    <div className="space-y-8">
+      {/* Unified Control Bar - All Controls in One Place */}
+      <div style={{
+        display: 'flex',
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: '16px',
+        alignItems: 'center',
+        padding: '20px 24px',
+        background: '#000000',
+        borderRadius: '12px',
+        border: '1px solid #333333',
+        boxShadow: `
+          0 8px 32px rgba(0, 0, 0, 0.8),
+          0 2px 8px rgba(0, 0, 0, 0.6),
+          inset 0 1px 0 rgba(255, 255, 255, 0.1),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.8)
+        `,
+        position: 'relative' as const,
+        zIndex: 100,
+        transform: 'translateZ(0)',
+        backdropFilter: 'blur(20px)',
+        overflow: 'visible' as const
+      }}>
+        {/* 3D Highlight Effect */}
+        <div style={{
+          position: 'absolute' as const,
+          top: '1px',
+          left: '1px',
+          right: '1px',
+          height: '50%',
+          background: 'rgba(255, 255, 255, 0.05)',
+          borderRadius: '12px 12px 0 0',
+          pointerEvents: 'none' as const
+        }} />
+        
+        {/* Expiration Selector */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          zIndex: 1
+        }}>
+          <select
+            value={sharedExpiration}
+            onChange={(e) => setSharedExpiration(e.target.value)}
+            style={{
+              background: '#000000',
+              border: '1px solid #333333',
+              borderRadius: '8px',
+              color: '#ffffff',
+              padding: '10px 14px',
+              fontSize: '14px',
+              fontWeight: '500',
+              minWidth: '85px',
+              outline: 'none',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+              boxShadow: `
+                inset 0 2px 4px rgba(0, 0, 0, 0.6),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+                0 1px 0 rgba(255, 255, 255, 0.1)
+              `,
+              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
+            }}
+          >
+            <option key="45-days" value="45-days" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
+              45 Days (All)
+            </option>
+            {expirationDates.map(date => (
+              <option key={date} value={date} style={{ background: '#000000', color: '#ffffff' }}>
+                {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Divider */}
+        <div style={{
+          width: '1px',
+          height: '30px',
+          background: 'linear-gradient(180deg, transparent, #333333, transparent)',
+          margin: '0 8px',
+          zIndex: 1
+        }} />
+
+        {/* 90% Range P/C Display */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column' as const,
+          alignItems: 'center',
+          gap: '2px',
+          padding: '10px 14px',
+          background: '#000000',
+          borderRadius: '8px',
+          border: '1px solid #333333',
+          boxShadow: `
+            inset 0 2px 4px rgba(0, 0, 0, 0.6),
+            inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+            0 1px 0 rgba(255, 255, 255, 0.1)
+          `,
+          zIndex: 1
+        }}>
+          <div style={{
+            color: '#ff6600',
+            fontSize: '10px',
+            fontWeight: '600',
+            letterSpacing: '0.5px',
+            textTransform: 'uppercase' as const
+          }}>
+            90% Range P/C
+          </div>
+          <div style={{
+            color: '#ffffff',
+            fontSize: '13px',
+            fontWeight: '600',
+            fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
+          }}>
+            {expectedRangePCRatio || 'Calculating...'}
+          </div>
+        </div>
+
+        {/* 45D P/C Display */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column' as const,
+          alignItems: 'center',
+          gap: '2px',
+          padding: '10px 14px',
+          background: '#000000',
+          borderRadius: '8px',
+          border: '1px solid #333333',
+          boxShadow: `
+            inset 0 2px 4px rgba(0, 0, 0, 0.6),
+            inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+            0 1px 0 rgba(255, 255, 255, 0.1)
+          `,
+          zIndex: 1
+        }}>
+          <div style={{
+            color: '#ff6600',
+            fontSize: '10px',
+            fontWeight: '600',
+            letterSpacing: '0.5px',
+            textTransform: 'uppercase' as const
+          }}>
+            45D P/C
+          </div>
+          <div style={{
+            color: '#ffffff',
+            fontSize: '13px',
+            fontWeight: '600',
+            fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
+          }}>
+            {cumulativePCRatio45Days || 'Calculating...'}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div style={{
+          width: '1px',
+          height: '30px',
+          background: 'linear-gradient(180deg, transparent, #333333, transparent)',
+          margin: '0 8px',
+          zIndex: 1
+        }} />
+
+        {/* AI Button - Detects and Shows Towers */}
+        <button
+          onClick={() => setShowAITowers(!showAITowers)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '10px 16px',
+            background: showAITowers ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#000000',
+            border: showAITowers ? '1px solid #667eea' : '1px solid #333333',
+            borderRadius: '8px',
+            color: '#ffffff',
+            fontSize: '13px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            boxShadow: showAITowers ? '0 4px 12px rgba(102, 126, 234, 0.4)' : `
+              inset 0 2px 4px rgba(0, 0, 0, 0.6),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+              0 1px 0 rgba(255, 255, 255, 0.1)
+            `,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.5px',
+            zIndex: 1
+          }}
+          onMouseEnter={(e) => {
+            if (showAITowers) {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.6)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = showAITowers ? '0 4px 12px rgba(102, 126, 234, 0.4)' : 'none';
+          }}
+        >
+          👑 AI
+        </button>
+
+        {/* Premium Toggle Button - Affects Both Charts */}
+        <button
+          onClick={() => setShowPremium(!showPremium)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '10px 16px',
+            background: showPremium ? 'rgba(255, 170, 0, 0.2)' : '#000000',
+            border: showPremium ? '1px solid #ffaa00' : '1px solid #333333',
+            borderRadius: '8px',
+            color: showPremium ? '#ffaa00' : '#ffffff',
+            fontSize: '13px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            boxShadow: showPremium ? 'none' : `
+              inset 0 2px 4px rgba(0, 0, 0, 0.6),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+              0 1px 0 rgba(255, 255, 255, 0.1)
+            `,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.5px',
+            zIndex: 1
+          }}
+        >
+          💰 Premium
+        </button>
+
+        {/* Divider */}
+        <div style={{
+          width: '1px',
+          height: '30px',
+          background: 'linear-gradient(180deg, transparent, #333333, transparent)',
+          margin: '0 8px',
+          zIndex: 1
+        }} />
+
+        {/* Calls/Puts Dropdown */}
+        <select
+          value={showNetOI ? 'net' : (showCalls && showPuts ? 'both' : (showCalls ? 'calls' : 'puts'))}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === 'both') {
+              setShowCalls(true);
+              setShowPuts(true);
+              setShowNetOI(false);
+            } else if (value === 'calls') {
+              setShowCalls(true);
+              setShowPuts(false);
+              setShowNetOI(false);
+            } else if (value === 'puts') {
+              setShowCalls(false);
+              setShowPuts(true);
+              setShowNetOI(false);
+            } else if (value === 'net') {
+              setShowNetOI(true);
+              setShowCalls(false);
+              setShowPuts(false);
+            }
+          }}
+          style={{
+            background: '#000000',
+            border: '1px solid #333333',
+            borderRadius: '8px',
+            color: '#ffffff',
+            padding: '10px 14px',
+            fontSize: '13px',
+            fontWeight: '500',
+            minWidth: '60px',
+            outline: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+            boxShadow: `
+              inset 0 2px 4px rgba(0, 0, 0, 0.6),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+              0 1px 0 rgba(255, 255, 255, 0.1)
+            `,
+            textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+            zIndex: 1
+          }}
+        >
+          <option value="both" style={{ background: '#000000', color: '#ffffff' }}>OI</option>
+          <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>Calls Only</option>
+          <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>Puts Only</option>
+          <option value="net" style={{ background: '#000000', color: '#ffffff' }}>Net OI</option>
+        </select>
+
+        {/* Divider */}
+        <div style={{
+          width: '1px',
+          height: '30px',
+          background: 'linear-gradient(180deg, transparent, #333333, transparent)',
+          margin: '0 8px',
+          zIndex: 1
+        }} />
+
+        {/* Gamma Dropdown */}
+        <select
+          value={showNetGamma ? 'net' : (showPositiveGamma && showNegativeGamma ? 'both' : (showPositiveGamma ? 'positive' : 'negative'))}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === 'both') {
+              setShowPositiveGamma(true);
+              setShowNegativeGamma(true);
+              setShowNetGamma(false);
+            } else if (value === 'positive') {
+              setShowPositiveGamma(true);
+              setShowNegativeGamma(false);
+              setShowNetGamma(false);
+            } else if (value === 'negative') {
+              setShowPositiveGamma(false);
+              setShowNegativeGamma(true);
+              setShowNetGamma(false);
+            } else if (value === 'net') {
+              setShowNetGamma(true);
+              setShowPositiveGamma(false);
+              setShowNegativeGamma(false);
+            }
+          }}
+          style={{
+            background: '#000000',
+            border: '1px solid #333333',
+            borderRadius: '8px',
+            color: '#ffffff',
+            padding: '10px 14px',
+            fontSize: '13px',
+            fontWeight: '500',
+            minWidth: '65px',
+            outline: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+            boxShadow: `
+              inset 0 2px 4px rgba(0, 0, 0, 0.6),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+              0 1px 0 rgba(255, 255, 255, 0.1)
+            `,
+            textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+            zIndex: 1
+          }}
+        >
+          <option value="both" style={{ background: '#000000', color: '#ffffff' }}>GEX</option>
+          <option value="positive" style={{ background: '#000000', color: '#ffffff' }}>Positive Only</option>
+          <option value="negative" style={{ background: '#000000', color: '#ffffff' }}>Negative Only</option>
+          <option value="net" style={{ background: '#000000', color: '#ffffff' }}>Net GEX</option>
+        </select>
+      </div>
+
+      <DealerOpenInterestChart 
+        selectedTicker={selectedTicker}
+        compactMode={true}
+        selectedExpiration={sharedExpiration}
+        hideAllControls={true}
+        oiViewMode={showPremium ? 'premium' : 'contracts'}
+        showCalls={showCalls}
+        showPuts={showPuts}
+        showNetOI={showNetOI}
+        showTowers={showAITowers}
+        onExpectedRangePCRatioChange={setExpectedRangePCRatio}
+        onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days}
+        onExpectedRange90Change={setExpectedRange90}
+      />
+      <DealerGEXChart 
+        selectedTicker={selectedTicker}
+        compactMode={true}
+        selectedExpiration={sharedExpiration}
+        hideAllControls={true}
+        gexViewMode={showPremium ? 'premium' : 'gex'}
+        showPositiveGamma={showPositiveGamma}
+        showNegativeGamma={showNegativeGamma}
+        showNetGamma={showNetGamma}
+        showAttrax={showAITowers}
+        expectedRange90={expectedRange90}
+      />
+    </div>
+  );
+};
 
 interface GEXData {
   strike: number;
@@ -3355,7 +3790,7 @@ const DealerAttraction = () => {
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
   const [useBloombergTheme, setUseBloombergTheme] = useState(false); // Bloomberg Terminal theme toggle
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
-  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'MAXPAIN' | 'OIGEX' | 'GEXSCREENER'>('MM');
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'MAXPAIN'>('MM');
 
   const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
@@ -5536,14 +5971,14 @@ const DealerAttraction = () => {
                             Max Pain
                           </button>
                           <button 
-                            onClick={() => setActiveWorkbenchTab('GEXSCREENER')}
+                            onClick={() => setActiveWorkbenchTab('OIGEX')}
                             className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
-                              activeWorkbenchTab === 'GEXSCREENER' 
-                                ? 'bg-cyan-600 text-white border-2 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)]' 
-                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-cyan-400 hover:text-white border-2 border-gray-800 hover:border-cyan-500 hover:bg-cyan-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                              activeWorkbenchTab === 'OIGEX' 
+                                ? 'bg-orange-600 text-white border-2 border-orange-500 shadow-[0_0_15px_rgba(255,102,0,0.4)]' 
+                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-orange-400 hover:text-white border-2 border-gray-800 hover:border-orange-500 hover:bg-orange-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
                             }`}
                           >
-                            GEX Screener
+                            OI/GEX Charts
                           </button>
                         </div>
                         
@@ -5626,6 +6061,12 @@ const DealerAttraction = () => {
               {/* Show multiple tables/charts side by side when multiple modes are enabled */}
               {(showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) || (showOI && (showGEX || showDealer || showFlowGEX)) ? (
                 <div className="flex overflow-x-auto" style={{ gap: '1px' }}>
+                  {/* OI/GEX Charts - Show when OI checkbox is active */}
+                  {showOI && (
+                    <div className="flex-shrink-0" style={{ width: '1150px', minWidth: '1150px' }}>
+                      <OIGEXTab selectedTicker={selectedTicker} />
+                    </div>
+                  )}
                   {(() => {
                     // Calculate table width based on context
                     const tableWidths: string[] = [];
@@ -5651,12 +6092,6 @@ const DealerAttraction = () => {
                     
                     return (
                       <>
-                  {/* Open Interest Chart - conditionally rendered */}
-                  {showOI && (
-                    <div className="flex-shrink-0" style={{ width: activeTableCount >= 1 ? '1150px' : '1200px', minWidth: activeTableCount >= 1 ? '1150px' : '1200px' }}>
-                      <OpenInterestChart selectedTicker={selectedTicker} hideTickerInput={true} compactMode={true} />
-                    </div>
-                  )}
                   {/* NORMAL (Net GEX) Table - conditionally rendered */}
                   {showGEX && (
                     <div key={`normal-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
@@ -5999,11 +6434,6 @@ const DealerAttraction = () => {
                     );
                   })()}
                 </div>
-              ) : showOI ? (
-                // Show only Open Interest Chart when OI is enabled without other modes
-                <div className="w-full">
-                  <OpenInterestChart selectedTicker={selectedTicker} hideTickerInput={true} compactMode={true} />
-                </div>
               ) : (
                 /* Original single table when only one mode is active */
                 <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
@@ -6287,10 +6717,6 @@ const DealerAttraction = () => {
                     expirations={expirations}
                   />
                 </div>
-                <div style={{ display: activeWorkbenchTab === 'GEXSCREENER' ? 'block' : 'none' }}>
-                  <GEXScreener compactMode={true} />
-                </div>
-                
 
               </div>
             </div>

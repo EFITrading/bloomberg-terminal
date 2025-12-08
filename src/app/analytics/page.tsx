@@ -9,6 +9,7 @@ import RSScreener from '@/components/RSScreener';
 import HVScreener from '@/components/HVScreener';
 import LeadershipScan from '@/components/LeadershipScan';
 import PerformanceDashboard from '@/components/charts/PerformanceDashboard';
+import MarketHeatmap from '@/components/analytics/MarketHeatmap';
 
 export default function Analytics() {
  const [activeTab, setActiveTab] = useState('rrg');
@@ -16,15 +17,6 @@ export default function Analytics() {
  return (
  <>
  <div className="terminal-container">
- <div className="terminal-header">
- <div className="terminal-title">Analytics Suite</div>
- <div className="terminal-controls">
- <span className="control-button minimize"></span>
- <span className="control-button maximize"></span>
- <span className="control-button close"></span>
- </div>
- </div>
- 
  {/* Tab Navigation */}
  <div style={{
  background: '#000000',
@@ -39,80 +31,84 @@ export default function Analytics() {
  className="analytics-tab-button"
  onClick={() => setActiveTab('rrg')}
  style={{
- background: activeTab === 'rrg' ? '#ff8500' : '#000000',
- color: activeTab === 'rrg' ? '#000000' : '#ffffff',
- border: 'none',
- padding: '20px 40px',
+ background: activeTab === 'rrg' 
+ ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
+ : 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
+ color: activeTab === 'rrg' ? '#ff8500' : '#ffffff',
+ border: activeTab === 'rrg' ? '1px solid rgba(255, 133, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+ borderRadius: '12px',
+ margin: '8px',
+ padding: '16px 32px',
  fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
- fontSize: '16px',
- fontWeight: '800',
+ fontSize: '13px',
+ fontWeight: '700',
  textTransform: 'uppercase',
- letterSpacing: '2px',
+ letterSpacing: '1.5px',
  cursor: 'pointer',
  transition: 'all 0.3s ease',
- borderRight: '1px solid #333333',
- borderBottom: activeTab === 'rrg' ? '4px solid #ff8500' : '4px solid transparent',
  position: 'relative',
  flex: '1',
  textAlign: 'center',
- boxShadow: activeTab === 'rrg' ? '0 0 20px rgba(255, 133, 0, 0.4)' : 'none'
+ boxShadow: activeTab === 'rrg' 
+ ? 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 133, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.5)'
+ : 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)'
  }}
  onMouseEnter={(e) => {
  if (activeTab !== 'rrg') {
  e.currentTarget.style.color = '#ff8500';
- e.currentTarget.style.background = '#111111';
- e.currentTarget.style.borderBottom = '4px solid #ff8500';
- e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 133, 0, 0.2)';
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 16px rgba(255, 133, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.6)';
  }
  }}
  onMouseLeave={(e) => {
  if (activeTab !== 'rrg') {
  e.currentTarget.style.color = '#ffffff';
- e.currentTarget.style.background = '#000000';
- e.currentTarget.style.borderBottom = '4px solid transparent';
- e.currentTarget.style.boxShadow = 'none';
+ e.currentTarget.style.transform = 'translateY(0)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)';
  }
  }}
  >
- RELATIVE ROTATION GRAPH
+ RELATIVE ROTATION
  </button>
  
  <button
  className="analytics-tab-button"
  onClick={() => setActiveTab('rs-screener')}
  style={{
- background: activeTab === 'rs-screener' ? '#ff8500' : '#000000',
- color: activeTab === 'rs-screener' ? '#000000' : '#ffffff',
- border: 'none',
- padding: '20px 40px',
+ background: activeTab === 'rs-screener' 
+ ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
+ : 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
+ color: activeTab === 'rs-screener' ? '#ff8500' : '#ffffff',
+ border: activeTab === 'rs-screener' ? '1px solid rgba(255, 133, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+ borderRadius: '12px',
+ margin: '8px',
+ padding: '16px 32px',
  fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
- fontSize: '16px',
- fontWeight: '800',
+ fontSize: '13px',
+ fontWeight: '700',
  textTransform: 'uppercase',
- letterSpacing: '2px',
+ letterSpacing: '1.5px',
  cursor: 'pointer',
  transition: 'all 0.3s ease',
- borderRight: '1px solid #333333',
- borderBottom: activeTab === 'rs-screener' ? '4px solid #ff8500' : '4px solid transparent',
  position: 'relative',
  flex: '1',
  textAlign: 'center',
- boxShadow: activeTab === 'rs-screener' ? '0 0 20px rgba(255, 133, 0, 0.4)' : 'none'
+ boxShadow: activeTab === 'rs-screener' 
+ ? 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 133, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.5)'
+ : 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)'
  }}
  onMouseEnter={(e) => {
  if (activeTab !== 'rs-screener') {
  e.currentTarget.style.color = '#ff8500';
- e.currentTarget.style.background = '#111111';
- e.currentTarget.style.borderBottom = '4px solid #ff8500';
- e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 133, 0, 0.2)';
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 16px rgba(255, 133, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.6)';
  }
  }}
  onMouseLeave={(e) => {
  if (activeTab !== 'rs-screener') {
  e.currentTarget.style.color = '#ffffff';
- e.currentTarget.style.background = '#000000';
- e.currentTarget.style.borderBottom = '4px solid transparent';
- e.currentTarget.style.boxShadow = 'none';
+ e.currentTarget.style.transform = 'translateY(0)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)';
  }
  }}
  >
@@ -123,38 +119,40 @@ export default function Analytics() {
  className="analytics-tab-button"
  onClick={() => setActiveTab('hv-screener')}
  style={{
- background: activeTab === 'hv-screener' ? '#ff8500' : '#000000',
- color: activeTab === 'hv-screener' ? '#000000' : '#ffffff',
- border: 'none',
- padding: '20px 40px',
+ background: activeTab === 'hv-screener' 
+ ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
+ : 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
+ color: activeTab === 'hv-screener' ? '#ff8500' : '#ffffff',
+ border: activeTab === 'hv-screener' ? '1px solid rgba(255, 133, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+ borderRadius: '12px',
+ margin: '8px',
+ padding: '16px 32px',
  fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
- fontSize: '16px',
- fontWeight: '800',
+ fontSize: '13px',
+ fontWeight: '700',
  textTransform: 'uppercase',
- letterSpacing: '2px',
+ letterSpacing: '1.5px',
  cursor: 'pointer',
  transition: 'all 0.3s ease',
- borderRight: '1px solid #333333',
- borderBottom: activeTab === 'hv-screener' ? '4px solid #ff8500' : '4px solid transparent',
  position: 'relative',
  flex: '1',
  textAlign: 'center',
- boxShadow: activeTab === 'hv-screener' ? '0 0 20px rgba(255, 133, 0, 0.4)' : 'none'
+ boxShadow: activeTab === 'hv-screener' 
+ ? 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 133, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.5)'
+ : 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)'
  }}
  onMouseEnter={(e) => {
  if (activeTab !== 'hv-screener') {
  e.currentTarget.style.color = '#ff8500';
- e.currentTarget.style.background = '#111111';
- e.currentTarget.style.borderBottom = '4px solid #ff8500';
- e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 133, 0, 0.2)';
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 16px rgba(255, 133, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.6)';
  }
  }}
  onMouseLeave={(e) => {
  if (activeTab !== 'hv-screener') {
  e.currentTarget.style.color = '#ffffff';
- e.currentTarget.style.background = '#000000';
- e.currentTarget.style.borderBottom = '4px solid transparent';
- e.currentTarget.style.boxShadow = 'none';
+ e.currentTarget.style.transform = 'translateY(0)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)';
  }
  }}
  >
@@ -165,37 +163,40 @@ export default function Analytics() {
  className="analytics-tab-button"
  onClick={() => setActiveTab('leadership-scan')}
  style={{
- background: activeTab === 'leadership-scan' ? '#ff8500' : '#000000',
- color: activeTab === 'leadership-scan' ? '#000000' : '#ffffff',
- border: 'none',
- padding: '20px 40px',
+ background: activeTab === 'leadership-scan' 
+ ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
+ : 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
+ color: activeTab === 'leadership-scan' ? '#ff8500' : '#ffffff',
+ border: activeTab === 'leadership-scan' ? '1px solid rgba(255, 133, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+ borderRadius: '12px',
+ margin: '8px',
+ padding: '16px 32px',
  fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
- fontSize: '16px',
- fontWeight: '800',
+ fontSize: '13px',
+ fontWeight: '700',
  textTransform: 'uppercase',
- letterSpacing: '2px',
+ letterSpacing: '1.5px',
  cursor: 'pointer',
  transition: 'all 0.3s ease',
- borderBottom: activeTab === 'leadership-scan' ? '4px solid #ff8500' : '4px solid transparent',
  position: 'relative',
  flex: '1',
  textAlign: 'center',
- boxShadow: activeTab === 'leadership-scan' ? '0 0 20px rgba(255, 133, 0, 0.4)' : 'none'
+ boxShadow: activeTab === 'leadership-scan' 
+ ? 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 133, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.5)'
+ : 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)'
  }}
  onMouseEnter={(e) => {
  if (activeTab !== 'leadership-scan') {
  e.currentTarget.style.color = '#ff8500';
- e.currentTarget.style.background = '#111111';
- e.currentTarget.style.borderBottom = '4px solid #ff8500';
- e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 133, 0, 0.2)';
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 16px rgba(255, 133, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.6)';
  }
  }}
  onMouseLeave={(e) => {
  if (activeTab !== 'leadership-scan') {
  e.currentTarget.style.color = '#ffffff';
- e.currentTarget.style.background = '#000000';
- e.currentTarget.style.borderBottom = '4px solid transparent';
- e.currentTarget.style.boxShadow = 'none';
+ e.currentTarget.style.transform = 'translateY(0)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)';
  }
  }}
  >
@@ -206,41 +207,88 @@ export default function Analytics() {
  className="analytics-tab-button"
  onClick={() => setActiveTab('performance')}
  style={{
- background: activeTab === 'performance' ? '#ff8500' : '#000000',
- color: activeTab === 'performance' ? '#000000' : '#ffffff',
- border: 'none',
- padding: '20px 40px',
+ background: activeTab === 'performance' 
+ ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
+ : 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
+ color: activeTab === 'performance' ? '#ff8500' : '#ffffff',
+ border: activeTab === 'performance' ? '1px solid rgba(255, 133, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+ borderRadius: '12px',
+ margin: '8px',
+ padding: '16px 32px',
  fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
- fontSize: '16px',
- fontWeight: '800',
+ fontSize: '13px',
+ fontWeight: '700',
  textTransform: 'uppercase',
- letterSpacing: '2px',
+ letterSpacing: '1.5px',
  cursor: 'pointer',
  transition: 'all 0.3s ease',
- borderBottom: activeTab === 'performance' ? '4px solid #ff8500' : '4px solid transparent',
  position: 'relative',
  flex: '1',
  textAlign: 'center',
- boxShadow: activeTab === 'performance' ? '0 0 20px rgba(255, 133, 0, 0.4)' : 'none'
+ boxShadow: activeTab === 'performance' 
+ ? 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 133, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.5)'
+ : 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)'
  }}
  onMouseEnter={(e) => {
  if (activeTab !== 'performance') {
  e.currentTarget.style.color = '#ff8500';
- e.currentTarget.style.background = '#111111';
- e.currentTarget.style.borderBottom = '4px solid #ff8500';
- e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 133, 0, 0.2)';
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 16px rgba(255, 133, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.6)';
  }
  }}
  onMouseLeave={(e) => {
  if (activeTab !== 'performance') {
  e.currentTarget.style.color = '#ffffff';
- e.currentTarget.style.background = '#000000';
- e.currentTarget.style.borderBottom = '4px solid transparent';
- e.currentTarget.style.boxShadow = 'none';
+ e.currentTarget.style.transform = 'translateY(0)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)';
  }
  }}
  >
- PERFORMANCE COMPARISON
+ KOYFIN
+ </button>
+
+ <button
+ className="analytics-tab-button"
+ onClick={() => setActiveTab('heatmap')}
+ style={{
+ background: activeTab === 'heatmap' 
+ ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
+ : 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
+ color: activeTab === 'heatmap' ? '#ff8500' : '#ffffff',
+ border: activeTab === 'heatmap' ? '1px solid rgba(255, 133, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+ borderRadius: '12px',
+ margin: '8px',
+ padding: '16px 32px',
+ fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
+ fontSize: '13px',
+ fontWeight: '700',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ cursor: 'pointer',
+ transition: 'all 0.3s ease',
+ position: 'relative',
+ flex: '1',
+ textAlign: 'center',
+ boxShadow: activeTab === 'heatmap' 
+ ? 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 133, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.5)'
+ : 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)'
+ }}
+ onMouseEnter={(e) => {
+ if (activeTab !== 'heatmap') {
+ e.currentTarget.style.color = '#ff8500';
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 16px rgba(255, 133, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.6)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (activeTab !== 'heatmap') {
+ e.currentTarget.style.color = '#ffffff';
+ e.currentTarget.style.transform = 'translateY(0)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)';
+ }
+ }}
+ >
+ MARKET HEATMAP
  </button>
  </div>
 
@@ -275,6 +323,17 @@ export default function Analytics() {
  minHeight: '600px'
  }}>
  <PerformanceDashboard isVisible={true} />
+ </div>
+ )}
+ 
+ {/* Market Heatmap - Only render when active */}
+ {activeTab === 'heatmap' && (
+ <div style={{ 
+ width: '100%',
+ height: 'calc(100vh - 200px)',
+ minHeight: '600px'
+ }}>
+ <MarketHeatmap />
  </div>
  )}
  </div>
