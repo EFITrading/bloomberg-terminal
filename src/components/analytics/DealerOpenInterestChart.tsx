@@ -150,8 +150,12 @@ export default function DealerOpenInterestChart({
       .map(([interval]) => interval)
       .filter(interval => interval > 0);
     
+    // For Net OI mode, data structure is different (one entry per strike)
+    // For normal mode, separate call/put entries
+    const typesToCheck = showNetOI ? ['call', 'put'] : ['call', 'put'];
+    
     // For each type (call/put), check for tower structures
-    ['call', 'put'].forEach(type => {
+    typesToCheck.forEach(type => {
       for (let i = 0; i < uniqueStrikes.length; i++) {
         const centerStrike = uniqueStrikes[i];
         
@@ -160,19 +164,27 @@ export default function DealerOpenInterestChart({
           continue;
         }
         
-        // Get center data
-        const centerData = data.find(d => d.strike === centerStrike && d.type === type);
+        // Get center data - in Net OI mode, we look at all bars regardless of color
+        let centerData;
+        if (showNetOI) {
+          // In Net OI mode, one entry per strike - check if this entry matches our type
+          centerData = data.find(d => d.strike === centerStrike && d.type === type);
+        } else {
+          // In normal mode, separate call/put entries
+          centerData = data.find(d => d.strike === centerStrike && d.type === type);
+        }
+        
         if (!centerData) continue;
         
         const centerOI = centerData.openInterest;
         if (centerOI === 0) continue;
         
-        // Try multiple distance intervals (adjacent, $5 apart, $2.5 apart, etc.)
+        // Try multiple distance intervals (adjacent, $5 apart, $10 apart)
         const distancesToCheck = [1]; // Start with adjacent strikes
         
-        // Add common intervals if they exist
-        commonIntervals.slice(0, 3).forEach(interval => {
-          if (interval >= 1 && interval <= 10) {
+        // Add common intervals if they exist - now including $10
+        commonIntervals.slice(0, 4).forEach(interval => {
+          if (interval >= 1 && interval <= 15) {
             const stepsAway = Math.round(interval / (uniqueStrikes[1] - uniqueStrikes[0]));
             if (stepsAway > 1) {
               distancesToCheck.push(stepsAway);
@@ -191,8 +203,15 @@ export default function DealerOpenInterestChart({
           const rightStrike = uniqueStrikes[rightIndex];
           
           // Get OI values
-          const leftData = data.find(d => d.strike === leftStrike && d.type === type);
-          const rightData = data.find(d => d.strike === rightStrike && d.type === type);
+          let leftData, rightData;
+          if (showNetOI) {
+            // In Net OI mode, match the type (color)
+            leftData = data.find(d => d.strike === leftStrike && d.type === type);
+            rightData = data.find(d => d.strike === rightStrike && d.type === type);
+          } else {
+            leftData = data.find(d => d.strike === leftStrike && d.type === type);
+            rightData = data.find(d => d.strike === rightStrike && d.type === type);
+          }
           
           if (!leftData || !rightData) continue;
           
@@ -414,21 +433,33 @@ export default function DealerOpenInterestChart({
             // Convert to chart format
             const chartData: OptionsData[] = [];
             aggregatedData.forEach(data => {
-              if (data.callOI > 0) {
+              if (showNetOI) {
+                const netOI = data.callOI - data.putOI;
+                const netPremium = data.callPremium - data.putPremium;
+                // Always show net OI
                 chartData.push({
                   strike: data.strike,
-                  openInterest: data.callOI,
-                  premium: data.callPremium,
-                  type: 'call'
+                  openInterest: Math.abs(netOI),
+                  premium: Math.abs(netPremium),
+                  type: netOI >= 0 ? 'call' : 'put'
                 });
-              }
-              if (data.putOI > 0) {
-                chartData.push({
-                  strike: data.strike,
-                  openInterest: data.putOI,
-                  premium: data.putPremium,
-                  type: 'put'
-                });
+              } else {
+                if (showCalls && data.callOI > 0) {
+                  chartData.push({
+                    strike: data.strike,
+                    openInterest: data.callOI,
+                    premium: data.callPremium,
+                    type: 'call'
+                  });
+                }
+                if (showPuts && data.putOI > 0) {
+                  chartData.push({
+                    strike: data.strike,
+                    openInterest: data.putOI,
+                    premium: data.putPremium,
+                    type: 'put'
+                  });
+                }
               }
             });
             
@@ -495,14 +526,13 @@ export default function DealerOpenInterestChart({
             if (showNetOI) {
               const netOI = value.callOI - value.putOI;
               const netPremium = value.callPremium - value.putPremium;
-              if (netOI !== 0) {
-                chartData.push({
-                  strike,
-                  openInterest: Math.abs(netOI),
-                  premium: Math.abs(netPremium),
-                  type: netOI >= 0 ? 'call' : 'put'
-                });
-              }
+              // Always show net OI, even if zero (to show balanced strikes)
+              chartData.push({
+                strike,
+                openInterest: Math.abs(netOI), // Use absolute for bar height
+                premium: Math.abs(netPremium),
+                type: netOI >= 0 ? 'call' : 'put' // Color indicates direction
+              });
             } else {
               if (showCalls && value.callOI > 0) {
                 chartData.push({
@@ -1370,6 +1400,16 @@ export default function DealerOpenInterestChart({
         // Line color based on type - gold for calls, purple for puts
         const lineColor = tower.type === 'call' ? '#ffd700' : '#a855f7';
         
+        // Determine stroke style based on strike distance
+        const strikeDistance = Math.abs(tower.strike - tower.leftStrike);
+        let strokeDasharray = 'none'; // Default solid line for $1 strikes
+        
+        if (Math.abs(strikeDistance - 10) < 0.1) {
+          strokeDasharray = '8,4'; // Dashed line for $10 strikes
+        } else if (Math.abs(strikeDistance - 5) < 0.1) {
+          strokeDasharray = '2,2'; // Dotted line for $5 strikes
+        }
+        
         // Draw left bridge line - from right corner of left bar to left corner of center bar
         towerGroup
           .append('line')
@@ -1380,6 +1420,7 @@ export default function DealerOpenInterestChart({
           .attr('y2', centerY)
           .style('stroke', lineColor)
           .style('stroke-width', 2)
+          .style('stroke-dasharray', strokeDasharray)
           .style('opacity', 1);
         
         // Draw right bridge line - from right corner of center bar to left corner of right bar
@@ -1392,6 +1433,7 @@ export default function DealerOpenInterestChart({
           .attr('y2', rightY)
           .style('stroke', lineColor)
           .style('stroke-width', 2)
+          .style('stroke-dasharray', strokeDasharray)
           .style('opacity', 1);
         
         // Add animated tower icon at the center

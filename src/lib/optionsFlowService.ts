@@ -296,7 +296,7 @@ export class OptionsFlowService {
   ): Promise<ProcessedTrade[]> {
     let tickersToScan: string[];
     
-    if (!ticker || ticker.toLowerCase() === 'all') {
+    if (!ticker || ticker.toLowerCase() === 'all' || ticker === 'ALL_EXCLUDE_ETF_MAG7') {
       tickersToScan = this.getTop1000Symbols();
       console.log(`🎯 SCAN: ${tickersToScan.length} symbols across all CPU cores`);
     } else if (ticker && ticker.includes(',')) {
@@ -776,10 +776,10 @@ export class OptionsFlowService {
     let filtered = trades;
     
     // Filter by ticker if specified (but not for 'ALL' requests)
-    if (targetTicker && targetTicker.toLowerCase() !== 'all') {
+    if (targetTicker && targetTicker.toLowerCase() !== 'all' && targetTicker !== 'ALL_EXCLUDE_ETF_MAG7') {
       filtered = filtered.filter(trade => trade.underlying_ticker === targetTicker);
       console.log(`📊 After ticker filter: ${filtered.length} trades`);
-    } else if (targetTicker && targetTicker.toLowerCase() === 'all') {
+    } else if (targetTicker && (targetTicker.toLowerCase() === 'all' || targetTicker === 'ALL_EXCLUDE_ETF_MAG7')) {
       console.log(`📊 ALL ticker request - no ticker filtering applied`);
     }
     
@@ -2265,8 +2265,20 @@ export class OptionsFlowService {
   }
 
   private getTop1000Symbols(): string[] {
-    // Use TOP_1800_SYMBOLS for options flow scanner (excludes SPY, QQQ, NVDA)
-    return TOP_1800_SYMBOLS;
+    // ETFs to exclude
+    const ETFS = ['SPY', 'QQQ', 'IWM', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG',
+                  'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC',
+                  'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'DIA', 'SMH',
+                  'VXX', 'UVXY'];
+    
+    // MAG7 to exclude
+    const MAG7 = ['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG'];
+    
+    // Combine exclusion list
+    const EXCLUDE = new Set([...ETFS, ...MAG7]);
+    
+    // Filter out ETFs and MAG7 from TOP_1800_SYMBOLS
+    return TOP_1800_SYMBOLS.filter(ticker => !EXCLUDE.has(ticker));
   }
 
   // UTILITY: Chunk array into batches for batch processing

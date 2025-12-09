@@ -181,7 +181,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
 
  const loadElectionCycleAnalysis = async (
  symbol: string, 
- electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
+ electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election',
+ yearsOverride?: number
  ) => {
  setLoading(true);
  setError(null);
@@ -189,10 +190,12 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  try {
  console.log(`Loading election cycle analysis for ${symbol} - ${electionType}`);
  
+ const yearsToUse = yearsOverride ?? chartSettings.yearsOfData;
+ 
  const electionResult = await electionCycleService.analyzeElectionCycleSeasonality(
  symbol,
  electionType,
- 20 // 20 years of data
+ Math.min(yearsToUse, 20) // Use the override or current setting
  );
 
  if (electionResult) {
@@ -211,7 +214,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  }
  };
 
- const loadSeasonalAnalysis = async (symbol: string) => {
+ const loadSeasonalAnalysis = async (symbol: string, yearsOverride?: number) => {
  setLoading(true);
  setError(null);
  
@@ -219,7 +222,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  const cache = GlobalDataCache.getInstance();
  
  // Calculate date range (max 20 years due to API limit)
- const yearsToFetch = Math.min(chartSettings.yearsOfData, 20);
+ const yearsToUse = yearsOverride ?? chartSettings.yearsOfData;
+ const yearsToFetch = Math.min(yearsToUse, 20);
  const endDate = new Date();
  const startDate = new Date();
  startDate.setFullYear(endDate.getFullYear() - yearsToFetch);
@@ -768,9 +772,9 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  if (newSettings.yearsOfData && newSettings.yearsOfData !== chartSettings.yearsOfData) {
  if (selectedSymbol) {
  if (isElectionMode) {
- loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
+ loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election', newSettings.yearsOfData);
  } else {
- loadSeasonalAnalysis(selectedSymbol);
+ loadSeasonalAnalysis(selectedSymbol, newSettings.yearsOfData);
  }
  }
  }

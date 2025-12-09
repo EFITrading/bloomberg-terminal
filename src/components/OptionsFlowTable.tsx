@@ -433,7 +433,7 @@ interface OptionsFlowTableProps {
  summary: OptionsFlowSummary;
  marketInfo?: MarketInfo;
  loading?: boolean;
- onRefresh?: () => void;
+ onRefresh?: (ticker?: string) => void;
  onClearData?: () => void;
  selectedTicker: string;
  onTickerChange: (ticker: string) => void;
@@ -468,14 +468,21 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  const [expirationEndDate, setExpirationEndDate] = useState<string>('');
  const [blacklistedTickers, setBlacklistedTickers] = useState<string[]>(['', '', '', '', '']);
  const [selectedTickerFilter, setSelectedTickerFilter] = useState<string>('');
- const [inputTicker, setInputTicker] = useState<string>(selectedTicker);
+ const [inputTicker, setInputTicker] = useState<string>('');
  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
  const [isFilterDialogOpen, setIsFilterDialogOpen] = useState<boolean>(false);
  const [currentPage, setCurrentPage] = useState<number>(1);
  const [itemsPerPage] = useState<number>(250);
+ const [quickFilters, setQuickFilters] = useState<{
+ otm: boolean;
+ weekly: boolean;
+ premium100k: boolean;
+ sweep: boolean;
+ }>({ otm: false, weekly: false, premium100k: false, sweep: false });
  const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false);
  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
  const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
+ const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({});
  const [tradesWithFillStyles, setTradesWithFillStyles] = useState<OptionsFlowData[]>([]);
  const [isMounted, setIsMounted] = useState(false);
 
@@ -502,13 +509,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  };
  }
  }, []);
-
- // Only sync input field with selectedTicker when not actively typing
- useEffect(() => {
- if (!isInputFocused) {
- setInputTicker(selectedTicker);
- }
- }, [selectedTicker, isInputFocused]);
 
  // Fetch current prices using the direct API call that works (anti-flicker)
  const fetchCurrentPrices = async (tickers: string[]) => {
@@ -638,6 +638,50 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  clearInterval(interval);
  };
  }, [data.length]); // Only re-setup when data length changes, not content
+
+ // Fetch current option prices for position tracking (only when EFI Highlights is ON)
+ const fetchCurrentOptionPrices = async (trades: OptionsFlowData[]) => {
+ const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+ const pricesUpdate: Record<string, number> = {};
+ 
+ console.log(`📊 Fetching current option prices for ${trades.length} EFI trades...`);
+ 
+ for (const trade of trades) {
+ try {
+ const expiry = trade.expiry.replace(/-/g, '').slice(2);
+ const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+ const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+ const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+ 
+ const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+ 
+ const response = await fetch(snapshotUrl, {
+ signal: AbortSignal.timeout(5000)
+ });
+ 
+ if (response.ok) {
+ const data = await response.json();
+ if (data.results && data.results.last_quote) {
+ const bid = data.results.last_quote.bid || 0;
+ const ask = data.results.last_quote.ask || 0;
+ const currentPrice = (bid + ask) / 2;
+ 
+ if (currentPrice > 0) {
+ pricesUpdate[optionTicker] = currentPrice;
+ }
+ }
+ }
+ } catch (error) {
+ console.error(`Failed to fetch price for ${trade.ticker}:`, error);
+ }
+ 
+ // Add small delay to avoid rate limiting
+ await new Promise(resolve => setTimeout(resolve, 50));
+ }
+ 
+ setCurrentOptionPrices(prev => ({ ...prev, ...pricesUpdate }));
+ console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} option prices`);
+ };
 
  // EFI Highlights criteria checker
  const meetsEfiCriteria = (trade: OptionsFlowData): boolean => {
@@ -870,6 +914,25 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  });
  });
  }
+
+ // Quick Filters
+ if (quickFilters.otm) {
+ filtered = filtered.filter(trade => trade.moneyness === 'OTM');
+ }
+ if (quickFilters.weekly) {
+ const today = new Date();
+ const oneWeekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+ filtered = filtered.filter(trade => {
+ const expiryDate = new Date(trade.expiry);
+ return expiryDate <= oneWeekFromNow;
+ });
+ }
+ if (quickFilters.premium100k) {
+ filtered = filtered.filter(trade => trade.total_premium >= 100000);
+ }
+ if (quickFilters.sweep) {
+ filtered = filtered.filter(trade => trade.trade_type === 'SWEEP');
+ }
  
  // Expiration date range filter
  if (expirationStartDate || expirationEndDate) {
@@ -919,7 +982,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  });
 
  return filtered;
- }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive]);
+ }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive, quickFilters]);
 
  // Automatically enrich trades with Vol/OI AND Fill Style in ONE combined call - IMMEDIATELY as part of scan
  useEffect(() => {
@@ -958,6 +1021,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  useEffect(() => {
  setCurrentPage(1);
  }, [selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers]);
+
+ // Fetch current option prices when EFI Highlights is ON
+ useEffect(() => {
+ if (efiHighlightsActive && filteredAndSortedData.length > 0) {
+ fetchCurrentOptionPrices(filteredAndSortedData);
+ }
+ }, [efiHighlightsActive, filteredAndSortedData]);
 
  const formatCurrency = (value: number) => {
  return new Intl.NumberFormat('en-US', {
@@ -1516,87 +1586,364 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  overflow: 'visible',
  marginTop: '15px'
  }}>
- <div className="px-4 py-3 md:px-8 md:py-6 bg-black" style={{
+ <div className="px-8 py-5 bg-black" style={{
  width: '100%',
- overflow: 'visible'
+ overflow: 'visible',
+ background: 'linear-gradient(180deg, #0d0d0d 0%, #000000 100%)',
+ borderBottom: '1px solid #ff8500',
+ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 133, 0, 0.1)'
  }}>
- <div className="control-bar flex items-center justify-between h-auto md:h-16" style={{ width: 'max-content', minWidth: '1080px' }}>
- <div className="flex items-center gap-2 md:gap-4" style={{ flexShrink: 0, width: 'max-content' }}>
- {/* Search Input with Icon */}
- <div className="relative">
- {/* Search Icon - Positioned on the left */}
+ <div className="control-bar flex items-center justify-between" style={{ width: '100%', maxWidth: '1800px' }}>
+ <div className="flex items-center gap-3" style={{ flexShrink: 0 }}>
+ {/* Compact Search Bar */}
+ <div className="relative" style={{ width: '240px' }}>
  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 z-10 pointer-events-none">
- <svg className="w-4 h-4 text-cyan-400 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+ <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
  </svg>
  </div>
- {/* Text Input - Text starts to the right of icon */}
  <input
  type="text"
  value={inputTicker}
  onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
  onFocus={(e) => { 
  setIsInputFocused(true); 
- e.target.style.border = '1px solid #06b6d4'; 
- e.target.style.boxShadow = '0 0 0 2px rgba(6, 182, 212, 0.3), inset 0 2px 4px rgba(0, 0, 0, 0.3)'; 
+ e.target.style.border = '2px solid #ff8500'; 
+ e.target.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
  }}
  onKeyDown={(e) => {
- if (e.key === 'Enter') {
- onTickerChange(inputTicker);
+ if (e.key === 'Enter' && inputTicker.trim()) {
+ const ticker = inputTicker.trim();
+ onTickerChange(ticker);
+ onRefresh?.(ticker);
  setIsInputFocused(false);
  }
  }}
  onBlur={(e) => {
  setIsInputFocused(false);
- e.target.style.border = '1px solid #1a1a1a'; 
- e.target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(255, 255, 255, 0.1)';
- if (inputTicker && inputTicker !== selectedTicker) {
- onTickerChange(inputTicker);
- }
+ e.target.style.border = '2px solid #1f1f1f'; 
+ e.target.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
  }}
- placeholder="Enter ticker symbol..."
- className="w-44 h-12 text-white font-mono text-sm placeholder-gray-400 transition-all duration-300 focus:outline-none"
+ placeholder="TICKER"
+ className="text-white font-mono placeholder-gray-500 transition-all duration-200"
  style={{ 
- paddingLeft: '2.75rem',
+ width: '100%',
+ height: '48px',
+ paddingLeft: '2.5rem',
  paddingRight: '1rem',
- borderRadius: '12px',
+ borderRadius: '4px',
  fontSize: '14px',
- letterSpacing: '0.5px',
- background: 'linear-gradient(145deg, #000000, #0a0a0a)',
- border: '1px solid #1a1a1a',
- boxShadow: 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(255, 255, 255, 0.1)'
+ fontWeight: '700',
+ letterSpacing: '1.2px',
+ background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 100%)',
+ border: '2px solid #1f1f1f',
+ textTransform: 'uppercase',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none'
  }}
- maxLength={10}
+ maxLength={20}
  />
  </div>
- 
- {/* EFI Highlights Toggle */}
+
+ {/* Scan Shortcuts */}
+ <div className="flex items-center gap-2">
  <button
- onClick={() => setEfiHighlightsActive(!efiHighlightsActive)}
- className={`h-10 px-16 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none`}
+ onClick={() => {
+ setSelectedOptionTypes(['call']);
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
  style={{
- background: efiHighlightsActive 
- ? 'linear-gradient(145deg, #000000, #0a0a0a)' 
- : 'linear-gradient(145deg, #000000, #0a0a0a)',
- border: '1px solid #1a1a1a',
- boxShadow: 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
- }}
- onMouseEnter={(e) => {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(255, 255, 255, 0.1)';
- }}
- onMouseLeave={(e) => {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '15px',
+ letterSpacing: '1.2px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#84cc16'
  }}
  >
- <svg className={`w-4 h-4 ${efiHighlightsActive ? 'animate-bounce text-amber-400' : 'animate-pulse text-amber-500'} drop-shadow-lg`} fill={efiHighlightsActive ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
- <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+ CALLS
+ </button>
+ <button
+ onClick={() => {
+ setSelectedOptionTypes(['put']);
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '15px',
+ letterSpacing: '1.2px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#dc2626'
+ }}
+ >
+ PUTS
+ </button>
+ <button
+ onClick={() => {
+ setInputTicker('ETF');
+ onTickerChange('ETF');
+ onRefresh?.('ETF');
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '15px',
+ letterSpacing: '1.2px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#ff8500'
+ }}
+ >
+ ETF
+ </button>
+ <button
+ onClick={() => {
+ setInputTicker('MAG7');
+ onTickerChange('MAG7');
+ onRefresh?.('MAG7');
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '15px',
+ letterSpacing: '1.2px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#a855f7'
+ }}
+ >
+ MAG7
+ </button>
+ <button
+ onClick={() => {
+ setInputTicker('ALL');
+ onTickerChange('ALL');
+ onRefresh?.('ALL');
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '15px',
+ letterSpacing: '1.2px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#ffffff'
+ }}
+ >
+ ALL
+ </button>
+ </div>
+
+ {/* Divider */}
+ <div style={{ width: '1px', height: '48px', background: '#2a2a2a' }}></div>
+
+ {/* Quick Filters */}
+ <div className="flex items-center gap-2">
+ <button
+ onClick={() => {
+ setQuickFilters(prev => ({ ...prev, otm: !prev.otm }));
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '12px',
+ letterSpacing: '1px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#3b82f6'
+ }}
+ >
+ OTM
+ </button>
+ <button
+ onClick={() => {
+ setQuickFilters(prev => ({ ...prev, premium100k: !prev.premium100k }));
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '12px',
+ letterSpacing: '1px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#22c55e'
+ }}
+ >
+ 100K+
+ </button>
+ <button
+ onClick={() => {
+ setQuickFilters(prev => ({ ...prev, weekly: !prev.weekly }));
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '12px',
+ letterSpacing: '1px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#ef4444'
+ }}
+ >
+ WKLYs
+ </button>
+ <button
+ onClick={() => {
+ setQuickFilters(prev => ({ ...prev, sweep: !prev.sweep }));
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '12px',
+ letterSpacing: '1px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#fbbf24'
+ }}
+ >
+ SWEEP
+ </button>
+ </div>
+
+ {/* Divider */}
+ <div style={{ width: '1px', height: '48px', background: '#2a2a2a' }}></div>
+ 
+ {/* Premium SCAN Button */}
+ <button
+ onClick={() => {
+ if (inputTicker.trim()) {
+ const ticker = inputTicker.trim();
+ onTickerChange(ticker);
+ onRefresh?.(ticker);
+ }
+ }}
+ disabled={!inputTicker.trim() || loading}
+ className={`px-10 font-black uppercase transition-all duration-200 flex items-center gap-3 ${
+ !inputTicker.trim() || loading ? 'opacity-40 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-[0.98]'
+ }`}
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+ border: '2px solid #ff8500',
+ borderRadius: '4px',
+ fontSize: '15px',
+ letterSpacing: '2px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ position: 'relative',
+ overflow: 'hidden',
+ color: '#ff8500',
+ outline: 'none'
+ }}
+ onMouseEnter={(e) => {
+ if (!loading && inputTicker.trim()) {
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ e.currentTarget.style.border = '2px solid #ffaa00';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (!loading && inputTicker.trim()) {
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ e.currentTarget.style.border = '2px solid #ff8500';
+ }
+ }}
+ >
+ <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3.5}>
+ <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
  </svg>
- <span>EFI Highlights</span>
- <span className={`text-xs px-2 py-0.5 rounded-full transition-colors duration-300 ${efiHighlightsActive ? 'bg-amber-400 text-black shadow-lg' : 'bg-gray-700 text-gray-400'}`}>
+ <span>SCAN</span>
+ </button>
+ 
+ {/* Premium EFI Highlights Toggle */}
+ <button
+ onClick={() => setEfiHighlightsActive(!efiHighlightsActive)}
+ className="px-8 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+ style={{
+ height: '48px',
+ background: efiHighlightsActive 
+ ? 'linear-gradient(180deg, #ff9500 0%, #ff8500 50%, #ff7500 100%)'
+ : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+ border: efiHighlightsActive ? '1px solid #ffaa00' : '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '14px',
+ letterSpacing: '1.5px',
+ fontWeight: '900',
+ boxShadow: efiHighlightsActive 
+ ? 'inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 0 rgba(0, 0, 0, 0.3)'
+ : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+ }}
+ onMouseEnter={(e) => {
+ if (efiHighlightsActive) {
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -2px 0 rgba(0, 0, 0, 0.3)';
+ } else {
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (efiHighlightsActive) {
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 0 rgba(0, 0, 0, 0.3)';
+ } else {
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ }
+ }}
+ >
+ <svg className={`w-5 h-5 transition-all duration-200 ${efiHighlightsActive ? 'text-black' : 'text-orange-500'}`} 
+ fill={efiHighlightsActive ? 'currentColor' : 'none'} 
+ stroke="currentColor" 
+ viewBox="0 0 24 24" 
+ strokeWidth={2}
+ >
+ <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+ </svg>
+ <span style={{ color: efiHighlightsActive ? '#000000' : '#ffffff' }}>EFI HIGHLIGHTS</span>
+ <div className={`px-3 py-1 font-black rounded transition-all duration-200`}
+ style={{
+ fontSize: '11px',
+ letterSpacing: '1px',
+ background: efiHighlightsActive ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 133, 0, 0.1)',
+ color: efiHighlightsActive ? '#ff8500' : '#666666',
+ boxShadow: efiHighlightsActive ? 'inset 0 1px 3px rgba(0, 0, 0, 0.5)' : 'inset 0 1px 3px rgba(0, 0, 0, 0.8)'
+ }}
+ >
  {efiHighlightsActive ? 'ON' : 'OFF'}
- </span>
+ </div>
  </button>
  
  {/* Active Ticker Filter */}
@@ -1616,55 +1963,53 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  </div>
  )}
  
- {/* Action Buttons */}
- <div className="flex items-center gap-4">
+ {/* Premium Action Buttons */}
+ <div className="flex items-center gap-3">
  <button 
- onClick={onRefresh} 
+ onClick={() => onRefresh?.()} 
  disabled={loading}
- className={`h-10 px-16 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 min-w-[150px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none ${
+ className={`px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 focus:outline-none ${
  loading 
- ? 'cursor-not-allowed opacity-60' 
- : ''
+ ? 'cursor-not-allowed opacity-40' 
+ : 'hover:scale-[1.02] active:scale-[0.98]'
  }`}
  style={{
- background: loading 
- ? 'linear-gradient(145deg, #0a0a0a, #1a1a1a)' 
- : 'linear-gradient(145deg, #000000, #0a0a0a)',
- border: loading ? '1px solid #1a1a1a' : '1px solid #1a1a1a',
- boxShadow: loading 
- ? 'inset 0 2px 6px rgba(0, 0, 0, 0.4)' 
- : 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+ border: '2px solid #0ea5e9',
+ borderRadius: '4px',
+ fontSize: '14px',
+ letterSpacing: '1.5px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
  }}
  onMouseEnter={(e) => {
  if (!loading) {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(59, 130, 246, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
- target.style.border = '1px solid #3b82f6';
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ e.currentTarget.style.border = '2px solid #38bdf8';
  }
  }}
  onMouseLeave={(e) => {
  if (!loading) {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
- target.style.border = '1px solid #1a1a1a';
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ e.currentTarget.style.border = '2px solid #0ea5e9';
  }
  }}
  >
  {loading ? (
  <>
- <svg className="w-4 h-4 animate-spin text-blue-400 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
- <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+ <svg className="animate-spin h-5 w-5 text-cyan-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5}>
+ <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+ <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
  </svg>
- <span>
- {streamingStatus || 'Scanning...'}
- </span>
+ <span>{streamingStatus || 'SCANNING...'}</span>
  </>
  ) : (
  <>
- <svg className="w-4 h-4 animate-pulse text-blue-500 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
- <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+ <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+ <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
  </svg>
- <span>Refresh Flow</span>
+ <span>REFRESH</span>
  </>
  )}
  </button>
@@ -1674,39 +2019,38 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <button 
  onClick={onClearData} 
  disabled={loading}
- className={`h-10 px-16 text-white text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-2.5 min-w-[150px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none ${
+ className={`px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 focus:outline-none ${
  loading 
- ? 'cursor-not-allowed opacity-60' 
- : ''
+ ? 'cursor-not-allowed opacity-40' 
+ : 'hover:scale-[1.02] active:scale-[0.98]'
  }`}
  style={{
- background: loading 
- ? 'linear-gradient(145deg, #0a0a0a, #1a1a1a)' 
- : 'linear-gradient(145deg, #800000, #a00000)',
- border: loading ? '1px solid #1a1a1a' : '1px solid #a00000',
- boxShadow: loading 
- ? 'inset 0 2px 6px rgba(0, 0, 0, 0.4)' 
- : 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+ border: '2px solid #ef4444',
+ borderRadius: '4px',
+ fontSize: '14px',
+ letterSpacing: '1.5px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
  }}
  onMouseEnter={(e) => {
  if (!loading) {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(220, 38, 127, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
- target.style.border = '1px solid #dc267f';
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ e.currentTarget.style.border = '2px solid #f87171';
  }
  }}
  onMouseLeave={(e) => {
  if (!loading) {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
- target.style.border = '1px solid #a00000';
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ e.currentTarget.style.border = '2px solid #ef4444';
  }
  }}
  >
- <svg className="w-4 h-4 text-red-500 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
- <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+ <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+ <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
  </svg>
- <span>Clear Data</span>
+ <span>CLEAR</span>
  </button>
  )}
 
@@ -1721,28 +2065,30 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  console.log('Filter button clicked - opening dialog');
  setIsFilterDialogOpen(true);
  }}
- className="filter-button h-8 md:h-10 px-4 md:px-6 text-white text-xs md:text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-1.5 md:gap-2.5 min-w-[70px] transform hover:scale-105 hover:translate-y-[-1px] active:translate-y-[1px] focus:outline-none"
+ className="px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
  style={{
- background: 'linear-gradient(145deg, #000000, #0a0a0a)',
- border: '1px solid #f59e0b',
- boxShadow: 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(245, 158, 11, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)'
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+ border: '2px solid #ff8500',
+ borderRadius: '4px',
+ fontSize: '14px',
+ letterSpacing: '1.5px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
  }}
  onMouseEnter={(e) => {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(245, 158, 11, 0.4), 0 1px 2px rgba(255, 255, 255, 0.1)';
- target.style.border = '1px solid #fbbf24';
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ e.currentTarget.style.border = '2px solid #ffaa00';
  }}
  onMouseLeave={(e) => {
- const target = e.target as HTMLButtonElement;
- target.style.boxShadow = 'inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(245, 158, 11, 0.3), 0 1px 2px rgba(255, 255, 255, 0.1)';
- target.style.border = '1px solid #f59e0b';
+ e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+ e.currentTarget.style.border = '2px solid #ff8500';
  }}
  >
- <svg className="w-4 h-4 animate-pulse text-amber-400 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
- <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+ <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+ <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
  </svg>
- <span className="hidden md:inline">Filter</span>
- <span className="md:hidden">...</span>
+ <span>FILTER</span>
  </button>
 
  {/* Vertical Divider */}
@@ -1907,6 +2253,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  >
  Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
+ {efiHighlightsActive && (
+ <th 
+ className="text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+ >
+ Position
+ </th>
+ )}
  </tr>
  </thead>
  <tbody>
@@ -1942,18 +2295,28 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell">
  <div className="flex flex-col space-y-0.5 md:space-y-1">
  <div className="flex flex-wrap items-center gap-1">
- <span className="text-cyan-400 font-bold size-text text-xs md:text-base">{trade.trade_size.toLocaleString()}</span> 
- <span className="text-slate-400 premium-at text-xs md:text-base"> @ </span>
- <span className="text-yellow-400 font-bold premium-value text-xs md:text-base">{trade.premium_per_contract.toFixed(2)}</span>
+ <span className="text-cyan-400 font-bold size-text" style={{ fontSize: '12px' }}>
+ <span className="md:hidden">{trade.trade_size.toLocaleString()}</span>
+ <span className="hidden md:inline" style={{ fontSize: '19px' }}>{trade.trade_size.toLocaleString()}</span>
+ </span>
+ <span className="text-slate-400 premium-at" style={{ fontSize: '12px' }}>
+ <span className="md:hidden"> @ </span>
+ <span className="hidden md:inline" style={{ fontSize: '19px' }}> @ </span>
+ </span>
+ <span className="text-yellow-400 font-bold premium-value" style={{ fontSize: '12px' }}>
+ <span className="md:hidden">{trade.premium_per_contract.toFixed(2)}</span>
+ <span className="hidden md:inline" style={{ fontSize: '19px' }}>{trade.premium_per_contract.toFixed(2)}</span>
+ </span>
  {(trade as any).fill_style && (
- <span className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md text-xs md:text-sm font-bold ${
+ <span className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${
  (trade as any).fill_style === 'A' ? 'text-green-400 bg-green-400/10 border border-green-400/30' :
  (trade as any).fill_style === 'AA' ? 'text-green-300 bg-green-300/10 border border-green-300/30' :
  (trade as any).fill_style === 'B' ? 'text-red-400 bg-red-400/10 border border-red-400/30' :
  (trade as any).fill_style === 'BB' ? 'text-red-300 bg-red-300/10 border border-red-300/30' :
  'text-gray-500 bg-gray-500/10 border border-gray-500/30'
- }`}>
- {(trade as any).fill_style}
+ }`} style={{ fontSize: '12px' }}>
+ <span className="md:hidden">{(trade as any).fill_style}</span>
+ <span className="hidden md:inline" style={{ fontSize: '15px' }}>{(trade as any).fill_style}</span>
  </span>
  )}
  </div>
@@ -1971,19 +2334,19 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  </td>
  <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
  {(typeof trade.volume === 'number' && typeof trade.open_interest === 'number') ? (
- <div className="flex flex-col items-center">
- <div className="text-cyan-400 font-bold text-xs md:text-base">
+ <div className="flex items-center justify-center gap-1">
+ <span className="text-cyan-400 font-bold" style={{ fontSize: '19.2px' }}>
  {trade.volume.toLocaleString()}
- </div>
- <div className="text-gray-400 text-xs md:text-sm">
+ </span>
+ <span className="text-gray-400" style={{ fontSize: '16.8px' }}>
  /
- </div>
- <div className="text-purple-400 font-bold text-xs md:text-base">
+ </span>
+ <span className="text-purple-400 font-bold" style={{ fontSize: '19.2px' }}>
  {trade.open_interest.toLocaleString()}
- </div>
+ </span>
  </div>
  ) : (
- <span className="text-gray-500 text-xs md:text-base">
+ <span className="text-gray-500" style={{ fontSize: '19.2px' }}>
  --
  </span>
  )}
@@ -1993,6 +2356,189 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  {(trade.classification || trade.trade_type) === 'MULTI-LEG' ? 'ML' : (trade.classification || trade.trade_type)}
  </span>
  </td>
+ {efiHighlightsActive && (() => {
+ const expiry = trade.expiry.replace(/-/g, '').slice(2);
+ const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+ const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+ const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+ const currentPrice = currentOptionPrices[optionTicker];
+ const entryPrice = trade.premium_per_contract;
+ 
+ if (currentPrice && currentPrice > 0) {
+ const currentValue = currentPrice * trade.trade_size * 100;
+ const entryValue = trade.total_premium;
+ const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+ const priceHigher = currentPrice > entryPrice;
+ 
+ // Determine color based on fill_style (A/AA = Ask, B/BB = Bid) and option type
+ let color = '#9ca3af'; // default gray
+ const fillStyle = trade.fill_style || '';
+ const isCall = trade.type.toLowerCase() === 'call';
+ 
+ if (fillStyle === 'A' || fillStyle === 'AA') {
+ // Ask side - green if price went up, red if down (both calls and puts)
+ color = priceHigher ? '#00ff00' : '#ff0000';
+ } else if (fillStyle === 'B' || fillStyle === 'BB') {
+ // Bid side - red if price went up, green if down (both calls and puts)
+ color = priceHigher ? '#ff0000' : '#00ff00';
+ }
+ 
+ // Calculate Confidence Score (0-100)
+ let confidenceScore = 0;
+ 
+ // 1. Expiration Score (25 points max)
+ const daysToExpiry = trade.days_to_expiry;
+ if (daysToExpiry <= 7) confidenceScore += 25;
+ else if (daysToExpiry <= 14) confidenceScore += 20;
+ else if (daysToExpiry <= 21) confidenceScore += 15;
+ else if (daysToExpiry <= 28) confidenceScore += 10;
+ else if (daysToExpiry <= 42) confidenceScore += 5;
+ 
+ // 2. Contract Price Score (40 points max)
+ if (percentChange <= -66) confidenceScore += 10;
+ else if (percentChange <= -40) confidenceScore += 40;
+ else if (percentChange <= -30) confidenceScore += 35;
+ else if (percentChange <= -20) confidenceScore += 30;
+ else if (percentChange >= -10 && percentChange <= 10) confidenceScore += 15;
+ else if (percentChange >= 20) confidenceScore += 5;
+ 
+ // 3. Combo Trade Score (10 points max)
+ // Check if there's an opposing trade with similar characteristics
+ const hasComboTrade = filteredAndSortedData.some(t => {
+ if (t.underlying_ticker !== trade.underlying_ticker) return false;
+ if (t.expiry !== trade.expiry) return false;
+ if (Math.abs(t.strike - trade.strike) > trade.strike * 0.05) return false;
+ 
+ const oppositeFill = t.fill_style || '';
+ const oppositeType = t.type.toLowerCase();
+ 
+ // Bullish combo: Calls with A/AA + Puts with B/BB
+ if (isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+ return oppositeType === 'put' && (oppositeFill === 'B' || oppositeFill === 'BB');
+ }
+ // Bearish combo: Calls with B/BB + Puts with A/AA
+ if (isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+ return oppositeType === 'put' && (oppositeFill === 'A' || oppositeFill === 'AA');
+ }
+ // For puts, reverse logic
+ if (!isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+ return oppositeType === 'call' && (oppositeFill === 'A' || oppositeFill === 'AA');
+ }
+ if (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+ return oppositeType === 'call' && (oppositeFill === 'B' || oppositeFill === 'BB');
+ }
+ return false;
+ });
+ if (hasComboTrade) confidenceScore += 10;
+ 
+ // 4. Price Action Score (25 points max)
+ // Note: This requires historical price data and standard deviation calculation
+ // For now, we'll assign a placeholder score based on days to expiry as proxy
+ // You can enhance this by fetching actual price history and calculating std dev
+ if (daysToExpiry >= 1 && daysToExpiry <= 1) confidenceScore += 15;
+ else if (daysToExpiry >= 2 && daysToExpiry <= 2) confidenceScore += 20;
+ else if (daysToExpiry >= 3 && daysToExpiry <= 3) confidenceScore += 25;
+ else if (daysToExpiry >= 4 && daysToExpiry <= 4) confidenceScore += 20;
+ else if (daysToExpiry >= 5) confidenceScore += 10;
+ 
+ // Smart formatting for value
+ const formatValue = (val: number): string => {
+ if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
+ if (val >= 1000) return `$${(val / 1000).toFixed(1)}K`;
+ return `$${val.toFixed(0)}`;
+ };
+ 
+ // Color code confidence score
+ let scoreColor = '#ff0000'; // F = Red
+ if (confidenceScore >= 85) scoreColor = '#00ff00'; // A = Bright Green
+ else if (confidenceScore >= 70) scoreColor = '#84cc16'; // B = Lime Green
+ else if (confidenceScore >= 50) scoreColor = '#fbbf24'; // C = Yellow
+ else if (confidenceScore >= 33) scoreColor = '#3b82f6'; // D = Blue
+ 
+ // Grade letter
+ let grade = 'F';
+ if (confidenceScore >= 85) grade = 'A+';
+ else if (confidenceScore >= 80) grade = 'A';
+ else if (confidenceScore >= 75) grade = 'A-';
+ else if (confidenceScore >= 70) grade = 'B+';
+ else if (confidenceScore >= 65) grade = 'B';
+ else if (confidenceScore >= 60) grade = 'B-';
+ else if (confidenceScore >= 55) grade = 'C+';
+ else if (confidenceScore >= 50) grade = 'C';
+ else if (confidenceScore >= 48) grade = 'C-';
+ else if (confidenceScore >= 43) grade = 'D+';
+ else if (confidenceScore >= 38) grade = 'D';
+ else if (confidenceScore >= 33) grade = 'D-';
+ 
+ return (
+ <td className="p-2 md:p-6 border-r border-gray-700/30">
+ <div className="flex items-center gap-2">
+ <span style={{ color, fontWeight: 'bold', fontSize: '16.8px', whiteSpace: 'nowrap' }}>
+ ${currentPrice.toFixed(2)}
+ </span>
+ <span style={{ color, fontSize: '14.4px', whiteSpace: 'nowrap' }}>
+ {formatValue(currentValue)}
+ </span>
+ <span style={{ color, fontWeight: 'bold', fontSize: '15.6px', whiteSpace: 'nowrap' }}>
+ {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
+ </span>
+ <div style={{ 
+ display: 'inline-flex',
+ alignItems: 'center',
+ justifyContent: 'center',
+ width: '78px',
+ height: '78px',
+ border: `6px solid ${scoreColor}`,
+ borderRadius: '50%',
+ background: `linear-gradient(135deg, ${scoreColor}20 0%, ${scoreColor}05 50%, ${scoreColor}30 100%)`,
+ marginLeft: '10px',
+ transform: 'rotate(-12deg)',
+ boxShadow: `
+ 0 8px 16px rgba(0, 0, 0, 0.6),
+ inset 0 -3px 8px rgba(0, 0, 0, 0.7),
+ inset 0 3px 8px rgba(255, 255, 255, 0.1)
+ `,
+ position: 'relative'
+ }}>
+ <div style={{
+ position: 'absolute',
+ top: '3px',
+ left: '3px',
+ right: '3px',
+ bottom: '3px',
+ border: `2px dashed ${scoreColor}80`,
+ borderRadius: '50%'
+ }}></div>
+ <span style={{ 
+ color: scoreColor, 
+ fontWeight: 'normal', 
+ fontSize: '31.2px', 
+ fontStyle: 'italic',
+ fontFamily: 'Impact, Georgia, serif',
+ textShadow: `
+ 0 3px 0 rgba(0, 0, 0, 0.8),
+ 0 -1px 0 rgba(255, 255, 255, 0.3),
+ 2px 2px 4px rgba(0, 0, 0, 0.9)
+ `,
+ transform: 'rotate(12deg)',
+ letterSpacing: '1px',
+ filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
+ WebkitTextStroke: `0.5px ${scoreColor}`
+ }}>
+ {grade}
+ </span>
+ </div>
+ </div>
+ </td>
+ );
+ } else {
+ return (
+ <td className="p-2 md:p-6 border-r border-gray-700/30">
+ <span className="text-gray-500 text-sm">Loading...</span>
+ </td>
+ );
+ }
+ })()}
  </tr>
  );
  })}

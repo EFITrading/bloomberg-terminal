@@ -252,7 +252,7 @@ export default function OptionsFlowPage() {
  });
  const [loading, setLoading] = useState(false);
  const [lastUpdate, setLastUpdate] = useState<string>('');
- const [selectedTicker, setSelectedTicker] = useState('ALL');
+ const [selectedTicker, setSelectedTicker] = useState('');
  const [streamingStatus, setStreamingStatus] = useState<string>('');
  const [streamingProgress, setStreamingProgress] = useState<{current: number, total: number} | null>(null);
  const [streamError, setStreamError] = useState<string>('');
@@ -260,7 +260,7 @@ export default function OptionsFlowPage() {
  const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
 
  // Live options flow fetch
- const fetchOptionsFlowStreaming = async (currentRetry: number = 0) => {
+ const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
  setLoading(true);
  setStreamError('');
  
@@ -274,7 +274,18 @@ export default function OptionsFlowPage() {
  }
  
  try {
- const eventSource = new EventSource(`/api/stream-options-flow?ticker=${selectedTicker}`);
+ // Map scan categories to appropriate ticker parameter
+ let tickerParam = tickerOverride || selectedTicker;
+ if (tickerParam === 'MAG7') {
+ tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG';
+ } else if (tickerParam === 'ETF') {
+ tickerParam = 'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY';
+ } else if (tickerParam === 'ALL') {
+ tickerParam = 'ALL_EXCLUDE_ETF_MAG7'; // Special flag for backend
+ }
+ // Otherwise use the ticker as-is for individual ticker searches
+ 
+ const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
  
  eventSource.onmessage = (event) => {
  try {
@@ -512,8 +523,19 @@ export default function OptionsFlowPage() {
  try {
  console.log(`📊 Fetching live options flow data...`);
  
+ // Map scan categories to appropriate ticker parameter
+ let tickerParam = selectedTicker;
+ if (selectedTicker === 'MAG7') {
+ tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG';
+ } else if (selectedTicker === 'ETF') {
+ tickerParam = 'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY';
+ } else if (selectedTicker === 'ALL') {
+ tickerParam = 'ALL_EXCLUDE_ETF_MAG7';
+ }
+ // Otherwise use the ticker as-is for individual ticker searches
+ 
  // Fetch fresh live data only
- const response = await fetch(`/api/live-options-flow?ticker=${selectedTicker}`);
+ const response = await fetch(`/api/live-options-flow?ticker=${tickerParam}`);
  
  if (!response.ok) {
  const errorData = await response.json().catch(() => ({}));
@@ -565,25 +587,21 @@ export default function OptionsFlowPage() {
  }
  };
 
- // Initial load - fetch current date live data by default
- useEffect(() => {
- // Reset completion flag on ticker change
- setIsStreamComplete(false);
- // Always fetch live streaming data (data will accumulate via prevData)
- fetchOptionsFlowStreaming(0);
- }, [selectedTicker]);
+ // NO AUTO-SCAN - User must manually trigger scan
+ // useEffect removed - scan only on explicit user action
 
- const handleRefresh = () => {
+ const handleRefresh = (tickerOverride?: string) => {
  // Reset error state and retry count
  setStreamError('');
  setRetryCount(0);
  setIsStreamComplete(false);
  // Always refresh with live streaming data
- fetchOptionsFlowStreaming(0);
+ fetchOptionsFlowStreaming(0, tickerOverride);
  };
 
  const handleClearData = () => {
- // Clear existing data and start fresh setData([]);
+ // Clear existing data and start fresh
+ setData([]);
  setSummary({
  total_trades: 0,
  total_premium: 0,
