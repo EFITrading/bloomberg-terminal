@@ -125,7 +125,6 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
   const [impliedVolatility, setImpliedVolatility] = useState(0); const [otmPercentage, setOtmPercentage] = useState(10); // Default 10% OTM range
  const [customPremium, setCustomPremium] = useState<number | null>(null); // User-editable premium price
  const [viewMode, setViewMode] = useState<'table' | 'line'>('table'); // Toggle between Table P/L and Line P/L
- const [mainTab, setMainTab] = useState<'calculator' | 'optionsChain'>('calculator'); // Main tab toggle
  const [hoveredPrice, setHoveredPrice] = useState<number | null>(null);
  const [isHoveringChart, setIsHoveringChart] = useState(false);
  const [isEditingPrice, setIsEditingPrice] = useState(false);
@@ -1026,38 +1025,6 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <div className="absolute -bottom-4 -right-4 w-6 h-6 border border-orange-400/20 rotate-45 animate-spin" style={{animationDuration: '6s', animationDelay: '2s'}}></div>
  </div>
 
- {/* Main Tabs */}
- <div className="flex border-b-2 border-gray-800 bg-black relative overflow-hidden">
- <div className="absolute inset-0 opacity-20">
- <div className="absolute top-0 left-1/4 w-32 h-32 bg-orange-500 rounded-full blur-3xl"></div>
- <div className="absolute bottom-0 right-1/4 w-24 h-24 bg-yellow-500 rounded-full blur-3xl"></div>
- <div className="absolute top-1/2 left-1/2 w-20 h-20 bg-amber-500 rounded-full blur-2xl"></div>
- </div>
- <button
- type="button"
- onClick={() => setMainTab('calculator')}
- className={`relative flex-1 py-4 px-8 text-base font-bold uppercase tracking-wider transition-all duration-300 ${mainTab === 'calculator' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
- >
- {mainTab === 'calculator' && (
- <div className="absolute inset-0 bg-gradient-to-br from-orange-600/20 via-yellow-600/10 to-amber-600/20 backdrop-blur-sm border-b-2 border-orange-500"></div>
- )}
- <span className="relative z-10">{mainTab === 'calculator' && '● '}Calculator</span>
- </button>
- <button
- type="button"
- onClick={() => setMainTab('optionsChain')}
- className={`relative flex-1 py-4 px-8 text-base font-bold uppercase tracking-wider transition-all duration-300 ${mainTab === 'optionsChain' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
- >
- {mainTab === 'optionsChain' && (
- <div className="absolute inset-0 bg-gradient-to-br from-orange-600/20 via-yellow-600/10 to-amber-600/20 backdrop-blur-sm border-b-2 border-orange-500"></div>
- )}
- <span className="relative z-10">{mainTab === 'optionsChain' && '● '}Options Chain</span>
- </button>
- </div>
-
- {/* Calculator Tab Content */}
- {mainTab === 'calculator' && (
- <div>
  {/* Main Control Panel */}
  <div className="p-6">
  {/* Single Row: All Controls */}
@@ -1238,7 +1205,6 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <option value={25} className="bg-gray-900">±25%</option>
  <option value={30} className="bg-gray-900">±30%</option>
  </select>
- </div>
  </div>
  </div>
  </div>
@@ -2456,18 +2422,6 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  >
  Retry
  </button>
- </div>
- )}
- </div>
- )}
-
- {/* Options Chain Tab Content */}
- {mainTab === 'optionsChain' && (
- <div className="p-6">
- <div className="text-center py-20">
- <h3 className="text-gray-400 text-2xl font-bold mb-2">Options Chain</h3>
- <p className="text-gray-500">Coming Soon</p>
- </div>
  </div>
  )}
 
