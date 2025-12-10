@@ -119,13 +119,17 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  const [selectedExpiration, setSelectedExpiration] = useState('');
  const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
  const [optionType, setOptionType] = useState<'call' | 'put'>('call');
- const [loading, setLoading] = useState(false);
- const [error, setError] = useState<string | null>(null);
- const [realOptionsData, setRealOptionsData] = useState<RealOptionsData>({});
- const [impliedVolatility, setImpliedVolatility] = useState(0.25);
-
- const [otmPercentage, setOtmPercentage] = useState(10); // Default 10% OTM range
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [realOptionsData, setRealOptionsData] = useState<RealOptionsData>({});
+  const [impliedVolatility, setImpliedVolatility] = useState(0); const [otmPercentage, setOtmPercentage] = useState(10); // Default 10% OTM range
  const [customPremium, setCustomPremium] = useState<number | null>(null); // User-editable premium price
+ const [viewMode, setViewMode] = useState<'table' | 'line'>('table'); // Toggle between Table P/L and Line P/L
+ const [mainTab, setMainTab] = useState<'calculator' | 'optionsChain'>('calculator'); // Main tab toggle
+ const [hoveredPrice, setHoveredPrice] = useState<number | null>(null);
+ const [isHoveringChart, setIsHoveringChart] = useState(false);
+ const [isEditingPrice, setIsEditingPrice] = useState(false);
+ const [priceInputValue, setPriceInputValue] = useState('');
  
  // Multi-leg options state
  const [additionalLegs, setAdditionalLegs] = useState<Array<{
@@ -149,6 +153,16 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  }
  }, [initialSymbol]); // Only trigger when chart symbol changes, not when manual symbol changes
 
+ // Force re-render when switching option type, expiration, or strike
+ useEffect(() => {
+ console.log('?? Chart parameters changed:', { optionType, selectedExpiration, selectedStrike });
+ // Reset hover state to ensure clean render
+ setIsHoveringChart(false);
+ setHoveredPrice(null);
+ // Reset custom premium to force using fresh data
+ setCustomPremium(null);
+ }, [optionType, selectedExpiration, selectedStrike]);
+
  // Dynamic expiration dates fetched from real options data
  const [availableExpirations, setAvailableExpirations] = useState<{date: string; days: number}[]>([]);
 
@@ -161,22 +175,30 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  
  const allStrikes = new Set<number>();
  
- // If specific expiration is selected, show strikes for that expiration
+ // If specific expiration is selected, show strikes for that expiration and option type
  if (selectedExpiration) {
- console.log(`?? Getting strikes for selected expiration: ${selectedExpiration}`);
+ console.log(`?? Getting strikes for selected expiration: ${selectedExpiration} and type: ${optionType}`);
  Object.values(realOptionsData).forEach(option => {
- if (option.expiration === selectedExpiration) {
+ if (option.expiration === selectedExpiration && option.type === optionType) {
  allStrikes.add(option.strike);
- console.log(`?? Added strike: $${option.strike} for ${selectedExpiration}`);
+ console.log(`?? Added strike: $${option.strike} for ${selectedExpiration} ${optionType}`);
  }
  });
+ console.log(`?? Found ${allStrikes.size} strikes for ${optionType} at expiration ${selectedExpiration}`);
  } else {
- // No expiration selected - show ALL strikes from ALL expirations
- console.log(`?? Getting ALL available strikes from all expirations`);
+ // No expiration selected - show ALL strikes from ALL expirations for current option type
+ console.log(`?? Getting ALL available strikes from all expirations for ${optionType}`);
  Object.values(realOptionsData).forEach(option => {
+ if (option.type === optionType) {
  allStrikes.add(option.strike);
- });
  }
+ });
+ console.log(`?? Found ${allStrikes.size} total strikes for ${optionType}`);
+ }
+ 
+ // Debug: Show some sample options to verify types
+ const sampleOptions = Object.entries(realOptionsData).slice(0, 5);
+ console.log(`?? Sample options data:`, sampleOptions.map(([key, opt]) => ({ key, type: opt.type, strike: opt.strike })));
  
  // Simple sort: high to low (natural dropdown order with ATM in center)
  const sortedStrikes = Array.from(allStrikes).sort((a, b) => b - a);
@@ -185,12 +207,13 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  totalStrikes: sortedStrikes.length,
  firstFew: sortedStrikes.slice(0, 5),
  lastFew: sortedStrikes.slice(-5),
- range: `$${Math.min(...sortedStrikes)} - $${Math.max(...sortedStrikes)}`,
- currentPrice: currentPrice
+ range: sortedStrikes.length > 0 ? `$${Math.min(...sortedStrikes)} - $${Math.max(...sortedStrikes)}` : 'N/A',
+ currentPrice: currentPrice,
+ optionType: optionType
  });
  
  return sortedStrikes;
- }, [selectedExpiration, realOptionsData, currentPrice]);
+ }, [selectedExpiration, realOptionsData, currentPrice, optionType]);
 
  // Filter strikes for heat map based on OTM percentage
  const heatMapStrikes = useMemo(() => {
@@ -538,7 +561,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  lastPrice: 0, // Will be filled by pricing API
  volume: 0, // Will be filled by pricing API
  openInterest: 0, // Will be filled by pricing API
- impliedVolatility: 0.25, // Fallback - will be updated with real pricing
+ impliedVolatility: 0,
  ticker: contractTicker
  };
  
@@ -694,14 +717,20 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  };
 
  console.log('?? ABOUT TO DECLARE USEEFFECT');
- // Load real data only when user enters a symbol (not on mount) - NO INFINITE LOOPS
+ 
+ // Update symbol when initialSymbol prop changes (unless user manually entered a symbol or cleared it)
+ useEffect(() => {
+ if (!userManuallyEnteredSymbol && initialSymbol !== symbol && symbol !== '') {
+ console.log(`?? Updating symbol from prop: ${initialSymbol}`);
+ setSymbol(initialSymbol);
+ }
+ }, [initialSymbol, userManuallyEnteredSymbol, symbol]);
+ 
+ // Load real data only when user presses Enter (not automatically on every keystroke)
  useEffect(() => {
  console.log('?? USEEFFECT TRIGGERED for symbol:', symbol);
- if (symbol && symbol.trim().length > 0) {
- console.log('?? CALLING fetchRealOptionsData for:', symbol);
- fetchRealOptionsData(symbol);
- } else {
- // Clear data when symbol is empty
+ // Only clear data if symbol is empty, don't auto-fetch
+ if (!symbol || symbol.trim().length === 0) {
  setRealOptionsData({});
  setCurrentPrice(0);
  setAvailableExpirations([]);
@@ -711,97 +740,94 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  }
  }, [symbol]); // REMOVED fetchRealOptionsData dependency to prevent infinite loops
 
- // Fetch individual option data for additional legs
- const fetchIndividualOptionData = useCallback(async (strike: number, expiration: string, optionType: 'call' | 'put') => {
- if (!symbol || !strike || !expiration || !optionType) return;
- 
- const key = `${strike}-${expiration}-${optionType}`;
- 
- // Skip if we already have this data
- if (realOptionsData[key]) {
- console.log(`? Already have data for ${key}`);
- return;
- }
- 
- console.log(`?? Fetching individual option data for: ${key}`);
- 
- try {
- const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
- const upperSymbol = symbol.toUpperCase().trim();
- 
- // Construct option ticker (standard format)
- const dateStr = expiration.replace(/-/g, '').substring(2); // Convert 2024-01-19 to 240119
- const strikeStr = (strike * 1000).toString().padStart(8, '0'); // Convert 100 to 00100000
- const typeChar = optionType.toUpperCase().charAt(0); // C or P
- const optionTicker = `O:${upperSymbol}${dateStr}${typeChar}${strikeStr}`;
- 
- console.log(`?? Fetching option ticker: ${optionTicker}`);
- 
- // Get option data from Polygon
- const optionUrl = `https://api.polygon.io/v3/snapshot/options/${upperSymbol}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
- const response = await fetch(optionUrl);
- 
- if (!response.ok) {
- throw new Error(`Failed to fetch option data: ${response.status}`);
- }
- 
- const data = await response.json();
- console.log(`? Individual option response:`, data);
- 
- if (data.status === 'OK' && data.results) {
- const result = data.results;
- 
- // Calculate days to expiration
- const expiry = new Date(expiration);
- const now = new Date();
- const daysToExp = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
- 
- // Store the option data
- const optionData = {
- strike: strike,
- expiration: expiration,
- daysToExpiration: daysToExp,
- type: optionType,
- bid: result.market_status === 'open' ? (result.bid || 0) : 0,
- ask: result.market_status === 'open' ? (result.ask || 0) : 0,
- lastPrice: result.last_quote?.price || result.prev_day?.close || 0,
- volume: result.volume || 0,
- openInterest: result.open_interest || 0,
- impliedVolatility: result.implied_volatility || 0.25,
- ticker: optionTicker,
- delta: result.greeks?.delta || null,
- gamma: result.greeks?.gamma || null,
- theta: result.greeks?.theta || null,
- vega: result.greeks?.vega || null
- };
- 
- // Update realOptionsData with the new option
- setRealOptionsData(prev => ({
- ...prev,
- [key]: optionData
- }));
- 
- console.log(`? Successfully fetched option data for ${key}:`, optionData);
- } else {
- console.warn(`?? No data returned for ${key}`);
- }
- } catch (error) {
- console.error(`? Error fetching option data for ${key}:`, error);
- }
- }, [symbol, realOptionsData]);
+  // Fetch individual option data for additional legs
+  const fetchIndividualOptionData = useCallback(async (strike: number, expiration: string, optionType: 'call' | 'put') => {
+    if (!symbol || !strike || !expiration || !optionType) return;
 
- // Fetch data for additional legs when they are configured
- useEffect(() => {
- additionalLegs.forEach(leg => {
- if (leg.strike && leg.expiration && leg.optionType) {
- const key = `${leg.strike}-${leg.expiration}-${leg.optionType}`;
- if (!realOptionsData[key]) {
- console.log(`?? Fetching missing data for leg ${leg.id}: ${key}`);
- fetchIndividualOptionData(leg.strike, leg.expiration, leg.optionType);
- }
- }
- });
- }, [additionalLegs, fetchIndividualOptionData, realOptionsData]);
+    const key = `${strike}-${expiration}-${optionType}`;
+
+    try {
+      const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+      const upperSymbol = symbol.toUpperCase().trim();
+
+      const expDate = new Date(expiration);
+      const dateStr = expDate.toISOString().substring(2, 10).replace(/-/g, '');
+      const strikeStr = (strike * 1000).toString().padStart(8, '0');
+      const typeChar = optionType.toUpperCase().charAt(0);
+      const optionTicker = `O:${upperSymbol}${dateStr}${typeChar}${strikeStr}`;
+      
+      const optionUrl = `https://api.polygon.io/v3/snapshot/options/${upperSymbol}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+      const response = await fetch(optionUrl);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch option data: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.results) {
+        const result = data.results;
+
+        // Calculate days to expiration
+        const expiry = new Date(expiration);
+        const now = new Date();
+        const daysToExp = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+        // Store the option data
+        const optionData = {
+          strike: strike,
+          expiration: expiration,
+          daysToExpiration: daysToExp,
+          type: optionType,
+          bid: result.market_status === 'open' ? (result.bid || 0) : 0,
+          ask: result.market_status === 'open' ? (result.ask || 0) : 0,
+          lastPrice: result.last_quote?.price || result.prev_day?.close || 0,
+          volume: result.volume || 0,
+          openInterest: result.open_interest || 0,
+          impliedVolatility: result.implied_volatility || 0,
+          ticker: optionTicker,
+          delta: result.greeks?.delta || null,
+          gamma: result.greeks?.gamma || null,
+          theta: result.greeks?.theta || null,
+          vega: result.greeks?.vega || null
+        };
+
+        setRealOptionsData(prev => ({
+          ...prev,
+          [key]: optionData
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching IV:', error);
+    }
+  }, [symbol]);
+
+  // Auto-fetch IV and Greeks when strike/expiration/type changes
+  useEffect(() => {
+    if (selectedStrike && selectedExpiration && optionType) {
+      const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
+      const existing = realOptionsData[key];
+      
+      // Always fetch if we don't have IV data (0 or missing)
+      if (!existing || !existing.impliedVolatility || existing.impliedVolatility === 0) {
+        console.log(`🔄 Auto-fetching IV for ${key} (current IV: ${existing?.impliedVolatility || 'none'})`);
+        fetchIndividualOptionData(selectedStrike, selectedExpiration, optionType);
+      }
+    }
+  }, [selectedStrike, selectedExpiration, optionType, fetchIndividualOptionData, realOptionsData]);
+
+  // Fetch data for additional legs when they are configured
+  useEffect(() => {
+    additionalLegs.forEach(leg => {
+      if (leg.strike && leg.expiration && leg.optionType) {
+        const key = `${leg.strike}-${leg.expiration}-${leg.optionType}`;
+        if (!realOptionsData[key]) {
+          console.log(`?? Fetching missing data for leg ${leg.id}: ${key}`);
+          fetchIndividualOptionData(leg.strike, leg.expiration, leg.optionType);
+        }
+      }
+    });
+  }, [additionalLegs, fetchIndividualOptionData, realOptionsData]);
 
  // Professional Black-Scholes P&L Calculator using REAL Polygon data like OptionsStrat
  const calculateProfessionalPL = (stockPriceAtExpiry: number, daysToExp: number): number => {
@@ -956,20 +982,22 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  const handleSymbolChange = (newSymbol: string) => {
  const upperSymbol = newSymbol.toUpperCase().trim();
  
- // If user clears the input completely, re-enable chart sync
+ // If user clears the input completely, re-enable chart sync and clear all selections
  if (upperSymbol === '') {
  setUserManuallyEnteredSymbol(false);
- console.log(`?? Input cleared - chart sync re-enabled`);
- } else {
- // Set manual flag first, then update symbol to prevent override
- setUserManuallyEnteredSymbol(true);
- console.log(`?? MANUAL SYMBOL CHANGE: ${upperSymbol} (chart sync disabled)`);
- }
- 
- setSymbol(upperSymbol);
+ setSymbol('');
  setSelectedStrike(null);
  setSelectedExpiration('');
+ setCustomPremium(null);
  setError(null);
+ console.log(`?? Input cleared - chart sync re-enabled, all selections cleared`);
+ return;
+ }
+ 
+ // Set manual flag first, then update symbol to prevent override
+ setUserManuallyEnteredSymbol(true);
+ setSymbol(upperSymbol);
+ console.log(`?? MANUAL SYMBOL CHANGE: ${upperSymbol} (chart sync disabled)`);
  };
 
  // Handle Enter key press for manual search trigger
@@ -990,133 +1018,170 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <div className="p-4">
 
  {/* BLOOMBERG PROFESSIONAL TERMINAL INTERFACE */}
- <div className="relative bg-gradient-to-br from-gray-950 via-black to-gray-900 border-4 border-orange-500 shadow-2xl overflow-hidden mb-6">
+ <div className="relative bg-gradient-to-br from-gray-950 via-black to-gray-900 border-4 border-gray-600 shadow-2xl overflow-hidden mb-6">
  {/* Animated Background Pattern */}
- <div className="absolute inset-0 opacity-5">
+ <div className="absolute inset-0 opacity-5 pointer-events-none">
  <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-orange-600/10 to-transparent animate-pulse"></div>
  <div className="absolute -top-4 -left-4 w-8 h-8 border border-orange-400/20 rotate-45 animate-spin" style={{animationDuration: '8s'}}></div>
  <div className="absolute -bottom-4 -right-4 w-6 h-6 border border-orange-400/20 rotate-45 animate-spin" style={{animationDuration: '6s', animationDelay: '2s'}}></div>
  </div>
 
+ {/* Main Tabs */}
+ <div className="flex border-b-2 border-gray-800 bg-black relative overflow-hidden">
+ <div className="absolute inset-0 opacity-20">
+ <div className="absolute top-0 left-1/4 w-32 h-32 bg-orange-500 rounded-full blur-3xl"></div>
+ <div className="absolute bottom-0 right-1/4 w-24 h-24 bg-yellow-500 rounded-full blur-3xl"></div>
+ <div className="absolute top-1/2 left-1/2 w-20 h-20 bg-amber-500 rounded-full blur-2xl"></div>
+ </div>
+ <button
+ type="button"
+ onClick={() => setMainTab('calculator')}
+ className={`relative flex-1 py-4 px-8 text-base font-bold uppercase tracking-wider transition-all duration-300 ${mainTab === 'calculator' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
+ >
+ {mainTab === 'calculator' && (
+ <div className="absolute inset-0 bg-gradient-to-br from-orange-600/20 via-yellow-600/10 to-amber-600/20 backdrop-blur-sm border-b-2 border-orange-500"></div>
+ )}
+ <span className="relative z-10">{mainTab === 'calculator' && '● '}Calculator</span>
+ </button>
+ <button
+ type="button"
+ onClick={() => setMainTab('optionsChain')}
+ className={`relative flex-1 py-4 px-8 text-base font-bold uppercase tracking-wider transition-all duration-300 ${mainTab === 'optionsChain' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
+ >
+ {mainTab === 'optionsChain' && (
+ <div className="absolute inset-0 bg-gradient-to-br from-orange-600/20 via-yellow-600/10 to-amber-600/20 backdrop-blur-sm border-b-2 border-orange-500"></div>
+ )}
+ <span className="relative z-10">{mainTab === 'optionsChain' && '● '}Options Chain</span>
+ </button>
+ </div>
+
+ {/* Calculator Tab Content */}
+ {mainTab === 'calculator' && (
+ <div>
  {/* Main Control Panel */}
  <div className="p-6">
- {/* First Row: Stock Symbol, Option Type, Expiration Date */}
- <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+ {/* Single Row: All Controls */}
+ <div className="grid grid-cols-12 gap-2 mb-4">
  
- {/* STOCK SYMBOL - Terminal Style */}
- <div className="relative group">
- <div className="absolute inset-0 bg-gradient-to-r from-orange-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
- <div className="relative bg-black border-2 border-gray-700 hover:border-orange-500 transition-all duration-300 shadow-inner">
- <div className="bg-gradient-to-r from-orange-900/30 to-transparent p-2 border-b border-gray-700">
- <div className="flex items-center justify-between">
- <label className="text-white text-xs font-bold uppercase tracking-widest">STOCK SYMBOL</label>
- <div className="flex items-center space-x-2">
- <span className={`text-xs ${userManuallyEnteredSymbol ? 'text-orange-400' : 'text-green-400'}`}>
- {userManuallyEnteredSymbol ? '? Manual override' : '?? Syncs with chart'}
- </span>
- {userManuallyEnteredSymbol && (
- <button
- onClick={() => {
- setUserManuallyEnteredSymbol(false);
- setSymbol(initialSymbol);
- console.log('?? Re-synced with chart:', initialSymbol);
- }}
- className="text-xs bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded transition-colors"
- title="Sync with chart"
- >
- ??
- </button>
- )}
+ {/* STOCK SYMBOL */}
+ <div className="col-span-2">
+ <div className="bg-black border border-gray-700 shadow-lg">
+ <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+ <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">SYMBOL</label>
  </div>
- </div>
- </div>
- <div className="p-4">
- <div className="relative">
+ <div className="p-2 bg-black">
  <input
  type="text"
  value={symbol}
  onChange={(e) => handleSymbolChange(e.target.value)}
  onKeyPress={handleKeyPress}
  placeholder="SPY"
- className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-xl font-bold uppercase tracking-wider focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300"
+ className="w-full bg-black border border-gray-700 px-2 py-1 text-white text-base font-bold uppercase focus:outline-none focus:border-gray-600 focus:shadow-lg focus:shadow-white/10"
  />
- <button 
- onClick={() => fetchRealOptionsData(symbol)}
- disabled={loading}
- className="absolute right-1 top-1 bottom-1 px-4 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 text-white text-sm font-bold transition-all duration-200 hover:shadow-lg hover:shadow-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
- >
- {loading ? (
- <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
- ) : '?'}
- </button>
- </div>
- 
- {/* Live Price Display */}
- <div className="mt-3 bg-gradient-to-r from-green-900/50 to-black border-l-4 border-green-500 p-3">
- <div className="flex items-center justify-between">
- <span className="text-green-300 text-xs font-medium uppercase tracking-wide">LIVE PRICE</span>
- <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
- </div>
- <div className="text-green-400 text-2xl font-bold tabular-nums">${currentPrice.toFixed(2)}</div>
- </div>
  </div>
  </div>
  </div>
 
- {/* OPTION TYPE - Terminal Style */}
- <div className="relative group">
- <div className="absolute inset-0 bg-gradient-to-r from-green-600/20 to-red-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
- <div className="relative bg-black border-2 border-gray-700 hover:border-orange-500 transition-all duration-300 shadow-inner">
- <div className="bg-gradient-to-r from-orange-900/30 to-transparent p-2 border-b border-gray-700">
- <label className="text-white text-xs font-bold uppercase tracking-widest">OPTION TYPE</label>
+ {/* STRIKE PRICE */}
+ <div className="col-span-2">
+ <div className="bg-black border border-gray-700 shadow-lg">
+ <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+ <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">STRIKE</label>
  </div>
- <div className="p-4">
- <div className="grid grid-cols-2 gap-2">
+ <div className="p-2 bg-black">
+ <select
+ value={selectedStrike || ''}
+ onChange={(e) => {
+ const newStrike = e.target.value ? Number(e.target.value) : null;
+ setSelectedStrike(newStrike);
+ setCustomPremium(null);
+ if (newStrike && selectedExpiration) {
+ fetchIndividualOptionData(newStrike, selectedExpiration, optionType);
+ }
+ }}
+ className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-sm font-bold focus:outline-none focus:border-gray-600 focus:shadow-lg focus:shadow-white/10"
+ >
+ <option value="" className="bg-gray-900">Select Strike</option>
+ {strikes.map((strike) => (
+ <option key={strike} value={strike} className="bg-gray-900">
+ ${strike}
+ </option>
+ ))}
+ </select>
+ </div>
+ </div>
+ </div>
+
+ {/* OPTION TYPE */}
+ <div className="col-span-2">
+ <div className="bg-black border border-gray-700 shadow-lg relative z-10">
+ <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+ <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">TYPE</label>
+ </div>
+ <div className="p-2 flex gap-1 bg-black relative z-20">
  <button
- onClick={() => setOptionType('call')}
- className={`relative overflow-hidden py-3 px-4 font-bold text-sm uppercase tracking-wider transition-all duration-300 border-2 ${
+ type="button"
+ onClick={(e) => {
+ e.preventDefault();
+ e.stopPropagation();
+ console.log('CALL button clicked');
+ setOptionType('call');
+ setSelectedStrike(null);
+ setCustomPremium(null);
+ }}
+ className={`flex-1 py-1 px-2 text-[18px] font-bold uppercase border cursor-pointer transition-all duration-200 relative z-30 ${
  optionType === 'call'
- ? 'bg-gradient-to-r from-green-700 to-green-600 border-green-400 text-white shadow-lg shadow-green-500/30'
- : 'bg-gray-900 border-gray-600 text-gray-300 hover:border-green-400 hover:text-green-300'
+ ? 'bg-gradient-to-r from-gray-800 to-gray-700 border-gray-500 text-green-500 shadow-lg shadow-white/10'
+ : 'bg-black border-gray-700 text-gray-400 hover:border-gray-500 hover:shadow-md hover:shadow-white/5'
  }`}
  >
- <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200"></div>
- <span className="relative">CALLS</span>
+ CALL
  </button>
  <button
- onClick={() => setOptionType('put')}
- className={`relative overflow-hidden py-3 px-4 font-bold text-sm uppercase tracking-wider transition-all duration-300 border-2 ${
+ type="button"
+ onClick={(e) => {
+ e.preventDefault();
+ e.stopPropagation();
+ console.log('PUT button clicked');
+ setOptionType('put');
+ setSelectedStrike(null);
+ setCustomPremium(null);
+ }}
+ className={`flex-1 py-1 px-2 text-[18px] font-bold uppercase border cursor-pointer transition-all duration-200 relative z-30 ${
  optionType === 'put'
- ? 'bg-gradient-to-r from-red-700 to-red-600 border-red-400 text-white shadow-lg shadow-red-500/30'
- : 'bg-gray-900 border-gray-600 text-gray-300 hover:border-red-400 hover:text-red-300'
+ ? 'bg-gradient-to-r from-gray-800 to-gray-700 border-gray-500 text-red-500 shadow-lg shadow-white/10'
+ : 'bg-black border-gray-700 text-gray-400 hover:border-gray-500 hover:shadow-md hover:shadow-white/5'
  }`}
  >
- <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200"></div>
- <span className="relative">PUTS</span>
+ PUT
  </button>
- </div>
  </div>
  </div>
  </div>
 
- {/* EXPIRATION DATE - Terminal Style */}
- <div className="relative group">
- <div className="absolute inset-0 bg-gradient-to-r from-orange-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
- <div className="relative bg-black border-2 border-gray-700 hover:border-orange-500 transition-all duration-300 shadow-inner">
- <div className="bg-gradient-to-r from-orange-900/30 to-transparent p-2 border-b border-gray-700">
- <label className="text-white text-xs font-bold uppercase tracking-widest">EXPIRATION DATE</label>
+ {/* EXPIRATION DATE */}
+ <div className="col-span-2">
+ <div className="bg-black border border-gray-700 shadow-lg">
+ <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+ <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">EXPIRY</label>
  </div>
- <div className="p-4">
+ <div className="p-2 bg-black">
  {availableExpirations.length > 0 ? (
  <select 
  value={selectedExpiration}
- onChange={(e) => setSelectedExpiration(e.target.value)}
- className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300 cursor-pointer"
+ onChange={(e) => {
+ const newExp = e.target.value;
+ setSelectedExpiration(newExp);
+ if (selectedStrike && newExp) {
+ fetchIndividualOptionData(selectedStrike, newExp, optionType);
+ }
+ }}
+ className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-[14px] font-semibold focus:outline-none focus:border-gray-600 focus:shadow-lg focus:shadow-white/10"
  >
- <option value="" className="bg-gray-900">Select Expiration Date</option>
+ <option value="" className="bg-gray-900">Select</option>
  {availableExpirations.map((exp) => (
  <option key={exp.date} value={exp.date} className="bg-gray-900">
- {exp.date} ({exp.days}d)
+ {exp.date}
  </option>
  ))}
  </select>
@@ -1126,72 +1191,20 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  value={selectedExpiration}
  onChange={(e) => setSelectedExpiration(e.target.value)}
  min={new Date().toISOString().split('T')[0]}
- className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300"
- placeholder="YYYY-MM-DD"
- />
- )}
- </div>
- </div>
- </div>
- </div>
- 
- {/* Second Row: Strike Price, Premium, OTM Range */}
- <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
- {/* STRIKE PRICE - Terminal Style */}
- <div className="relative group">
- <div className="absolute inset-0 bg-gradient-to-r from-orange-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
- <div className="relative bg-black border-2 border-gray-700 hover:border-orange-500 transition-all duration-300 shadow-inner">
- <div className="bg-gradient-to-r from-orange-900/30 to-transparent p-2 border-b border-gray-700">
- <label className="text-white text-xs font-bold uppercase tracking-widest">STRIKE PRICE</label>
- </div>
- <div className="p-4">
- {strikes.length > 0 ? (
- <select 
- value={selectedStrike || ''}
- onChange={(e) => {
- const newStrike = e.target.value ? Number(e.target.value) : null;
- console.log(`?? Strike dropdown changed: ${selectedStrike} -> ${newStrike}`);
- setSelectedStrike(newStrike);
- // Clear custom premium to use real market data for the new strike
- setCustomPremium(null);
- }}
- className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300 cursor-pointer"
- >
- <option value="" className="bg-gray-900">Select Strike Price</option>
- {strikes.map((strike) => (
- <option key={strike} value={strike} className="bg-gray-900">
- ${strike}
- </option>
- ))}
- </select>
- ) : (
- <input
- type="number"
- value={selectedStrike || ''}
- onChange={(e) => {
- const newStrike = e.target.value ? Number(e.target.value) : null;
- console.log(`?? Strike manual entry: ${selectedStrike} -> ${newStrike}`);
- setSelectedStrike(newStrike);
- setCustomPremium(null);
- }}
- step="0.5"
- min="0"
- placeholder="Enter strike price"
- className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-lg font-bold tabular-nums focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300"
+ className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-[11px] focus:outline-none focus:border-gray-600 focus:shadow-lg focus:shadow-white/10"
  />
  )}
  </div>
  </div>
  </div>
 
- {/* PREMIUM - Terminal Style */}
- <div className="relative group">
- <div className="absolute inset-0 bg-gradient-to-r from-orange-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
- <div className="relative bg-black border-2 border-gray-700 hover:border-orange-500 transition-all duration-300 shadow-inner">
- <div className="bg-gradient-to-r from-orange-900/30 to-transparent p-2 border-b border-gray-700">
- <label className="text-white text-xs font-bold uppercase tracking-widest">PREMIUM</label>
+ {/* PREMIUM */}
+ <div className="col-span-2">
+ <div className="bg-black border border-gray-700 shadow-lg">
+ <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+ <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">PREMIUM</label>
  </div>
- <div className="p-4">
+ <div className="p-2 bg-black">
  <input
  type="number"
  value={customPremium || ''}
@@ -1199,60 +1212,33 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  placeholder="6.9"
  step="0.01"
  min="0"
- className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-lg font-bold tabular-nums focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300"
+ className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-base font-bold focus:outline-none focus:border-gray-600 focus:shadow-lg focus:shadow-white/10"
  />
- 
- {/* Real Market Data */}
- {selectedStrike && selectedExpiration && (
- <div className="mt-3 bg-gradient-to-r from-gray-900/50 to-black border-l-4 border-cyan-500 p-3">
- <div className="text-white text-xs font-medium uppercase tracking-wide">
- {(() => {
- const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
- const realOption = realOptionsData[key];
- if (realOption) {
- const askPrice = realOption.ask > 0 ? realOption.ask : null;
- const lastPrice = realOption.lastPrice > 0 ? realOption.lastPrice : null;
- const bidPrice = realOption.bid > 0 ? realOption.bid : null;
- const iv = realOption.impliedVolatility > 0 ? (realOption.impliedVolatility * 100).toFixed(1) : null;
- 
- if (!askPrice && !lastPrice && !bidPrice) {
- return `?? NO MARKET DATA - Strike $${selectedStrike} ${optionType.toUpperCase()} ${selectedExpiration}`;
- }
- 
- return `Ask $${askPrice?.toFixed(2) || 'N/A'} | Last $${lastPrice?.toFixed(2) || 'N/A'} | Bid $${bidPrice?.toFixed(2) || 'N/A'}`;
- }
- return `?? NO OPTION DATA - Strike $${selectedStrike} ${optionType.toUpperCase()} ${selectedExpiration}`;
- })()}
- </div>
- </div>
- )}
  </div>
  </div>
  </div>
 
- {/* OTM RANGE - Terminal Style */}
- <div className="relative group">
- <div className="absolute inset-0 bg-gradient-to-r from-orange-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
- <div className="relative bg-black border-2 border-gray-700 hover:border-orange-500 transition-all duration-300 shadow-inner">
- <div className="bg-gradient-to-r from-orange-900/30 to-transparent p-2 border-b border-gray-700">
- <label className="text-white text-xs font-bold uppercase tracking-widest">OTM RANGE</label>
+ {/* OTM RANGE */}
+ <div className="col-span-2">
+ <div className="bg-black border border-gray-700 shadow-lg">
+ <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
+ <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">OTM</label>
  </div>
- <div className="p-4">
+ <div className="p-2 bg-black">
  <select 
  value={otmPercentage}
  onChange={(e) => setOtmPercentage(Number(e.target.value))}
- className="w-full bg-gray-950 border border-gray-600 px-4 py-3 text-white text-sm font-semibold focus:outline-none focus:border-orange-500 focus:shadow-lg focus:shadow-orange-500/20 transition-all duration-300 cursor-pointer"
+ className="w-full bg-black border border-gray-600 px-2 py-1 text-white text-[14px] font-semibold focus:outline-none focus:border-gray-600 focus:shadow-lg focus:shadow-white/10"
  >
- <option value={2} className="bg-gray-900">�2% OTM</option>
- <option value={5} className="bg-gray-900">�5% OTM</option>
- <option value={10} className="bg-gray-900">�10% OTM</option>
- <option value={15} className="bg-gray-900">�15% OTM</option>
- <option value={20} className="bg-gray-900">�20% OTM</option>
- <option value={25} className="bg-gray-900">�25% OTM</option>
- <option value={30} className="bg-gray-900">�30% OTM</option>
- <option value={40} className="bg-gray-900">�40% OTM</option>
- <option value={50} className="bg-gray-900">�50% OTM</option>
+ <option value={2} className="bg-gray-900">±2%</option>
+ <option value={5} className="bg-gray-900">±5%</option>
+ <option value={10} className="bg-gray-900">±10%</option>
+ <option value={15} className="bg-gray-900">±15%</option>
+ <option value={20} className="bg-gray-900">±20%</option>
+ <option value={25} className="bg-gray-900">±25%</option>
+ <option value={30} className="bg-gray-900">±30%</option>
  </select>
+ </div>
  </div>
  </div>
  </div>
@@ -1503,25 +1489,6 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  ))}
 
  {/* Real Data Status Warnings */}
- {availableExpirations.length === 0 && !loading && (
- <div className="bg-red-900 border border-red-600 rounded-xl p-6 mb-8">
- <h3 className="text-red-300 font-bold mb-2">?? No Real Options Data Available</h3>
- <p className="text-red-200 text-sm">
- This calculator only works with real-time market data from Polygon API. 
- No options chain data was found for "{symbol}". Please try a different symbol with active options trading.
- </p>
- </div>
- )}
-
- {Object.keys(realOptionsData).length === 0 && availableExpirations.length > 0 && !loading && (
- <div className="bg-yellow-900 border border-yellow-600 rounded-xl p-6 mb-8">
- <h3 className="text-yellow-300 font-bold mb-2">?? Stock Price Only</h3>
- <p className="text-yellow-200 text-sm">
- Stock price loaded successfully, but no real options data is available for "{symbol}". 
- Only symbols with active options trading are supported.
- </p>
- </div>
- )}
 
  {/* Selection Progress Guide - Show when we have options data but selections are incomplete */}
 
@@ -1551,24 +1518,38 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  const realOption = realOptionsData[key];
  
  return (
- <div className="mb-4 bg-gradient-to-r from-gray-900 to-black rounded-xl p-3 border border-orange-500 shadow-lg">
- <div className="grid grid-cols-3 gap-3">
- <div className="bg-black rounded-md p-2 border-l-2 border-purple-500">
- <div className="text-purple-300 text-xs font-medium mb-1">Delta:</div>
- <div className="text-purple-400 text-lg font-bold">
- {greeks.delta !== null ? greeks.delta.toFixed(3) : '--'}
+ <div className="mb-4 bg-gradient-to-r from-gray-900 to-black rounded-xl p-4 border border-gray-600 shadow-lg">
+ <div className="grid grid-cols-4 gap-4">
+ <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-3 border border-gray-700 shadow-xl">
+ <div className="flex items-center justify-between">
+ <span className="text-green-500 text-sm font-bold uppercase tracking-wider">Delta</span>
+ <span className="text-green-500 text-xl font-bold">
+ {realOption?.delta !== null && realOption?.delta !== undefined ? realOption.delta.toFixed(3) : '--'}
+ </span>
  </div>
  </div>
- <div className="bg-black rounded-md p-2 border-l-2 border-orange-500">
- <div className="text-orange-300 text-xs font-medium mb-1">Gamma:</div>
- <div className="text-orange-400 text-lg font-bold">
- {greeks.gamma !== null ? greeks.gamma.toFixed(4) : '--'}
+ <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-3 border border-gray-700 shadow-xl">
+ <div className="flex items-center justify-between">
+ <span className="text-yellow-500 text-sm font-bold uppercase tracking-wider">Gamma</span>
+ <span className="text-yellow-500 text-xl font-bold">
+ {realOption?.gamma !== null && realOption?.gamma !== undefined ? realOption.gamma.toFixed(4) : '--'}
+ </span>
  </div>
  </div>
- <div className="bg-black rounded-md p-2 border-l-2 border-red-500">
- <div className="text-red-300 text-xs font-medium mb-1">Theta:</div>
- <div className="text-red-400 text-lg font-bold">
- {greeks.theta !== null ? greeks.theta.toFixed(2) : '--'}
+ <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-3 border border-gray-700 shadow-xl">
+ <div className="flex items-center justify-between">
+ <span className="text-red-500 text-sm font-bold uppercase tracking-wider">Theta</span>
+ <span className="text-red-500 text-xl font-bold">
+ {realOption?.theta !== null && realOption?.theta !== undefined ? realOption.theta.toFixed(2) : '--'}
+ </span>
+ </div>
+ </div>
+ <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-3 border border-gray-700 shadow-xl">
+ <div className="flex items-center justify-between">
+ <span className="text-blue-500 text-sm font-bold uppercase tracking-wider">IV</span>
+ <span className="text-blue-500 text-xl font-bold">
+ {realOption?.impliedVolatility && realOption.impliedVolatility > 0 ? `${(realOption.impliedVolatility * 100).toFixed(1)}%` : '--'}
+ </span>
  </div>
  </div>
  </div>
@@ -1577,10 +1558,50 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  })()}
 
  {/* ENHANCED PROFIT & LOSS HEAT MAP - Show when selections are made and we have data or custom premium */}
- <div className="bg-black rounded-2xl p-8 border-2 border-gray-700 shadow-2xl">
- {/* Professional Heat Map Container */}
+ <div className="bg-black rounded-2xl p-8 border-2 border-gray-700 shadow-2xl"> {/* Professional Heat Map Container */}
  <div className="overflow-x-auto rounded-xl border-2 border-gray-700">
  <div className="min-w-max bg-black">
+ {/* Tabs - Table P/L and Line P/L */}
+ <div className="flex border-b border-gray-800 bg-black relative overflow-hidden">
+ {/* Abstract background pattern */}
+ <div className="absolute inset-0 opacity-20">
+ <div className="absolute top-0 left-1/4 w-32 h-32 bg-blue-500 rounded-full blur-3xl"></div>
+ <div className="absolute bottom-0 right-1/4 w-24 h-24 bg-purple-500 rounded-full blur-3xl"></div>
+ <div className="absolute top-1/2 left-1/2 w-20 h-20 bg-cyan-500 rounded-full blur-2xl"></div>
+ </div>
+ <button
+ type="button"
+ onClick={() => setViewMode('table')}
+ className={`relative flex-1 py-4 px-8 text-base font-bold uppercase tracking-wider transition-all duration-300 ${
+ viewMode === 'table'
+ ? 'text-white'
+ : 'text-gray-500 hover:text-gray-300'
+ }`}
+ >
+ {viewMode === 'table' && (
+ <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 via-purple-600/10 to-cyan-600/20 backdrop-blur-sm border-b-2 border-blue-500"></div>
+ )}
+ <span className="relative z-10">{viewMode === 'table' && '● '}Table P/L</span>
+ </button>
+ <button
+ type="button"
+ onClick={() => setViewMode('line')}
+ className={`relative flex-1 py-4 px-8 text-base font-bold uppercase tracking-wider transition-all duration-300 ${
+ viewMode === 'line'
+ ? 'text-white'
+ : 'text-gray-500 hover:text-gray-300'
+ }`}
+ >
+ {viewMode === 'line' && (
+ <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 via-purple-600/10 to-cyan-600/20 backdrop-blur-sm border-b-2 border-blue-500"></div>
+ )}
+ <span className="relative z-10">{viewMode === 'line' && '● '}Line P/L</span>
+ </button>
+ </div>
+ 
+ {/* Table P/L View */}
+ {viewMode === 'table' && (
+ <>
  {/* Enhanced X-Axis Label */}
  <div className="text-center py-4 bg-black border-b border-gray-600">
  <span className="text-lg font-bold text-blue-300 uppercase tracking-wider">Time Till Expiration (Days)</span>
@@ -1619,7 +1640,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  return (
  <tr key={strike} className={isATM ? 'ring-2 ring-yellow-400' : ''}>
  {/* Y-axis: Simulated Stock Price Level */}
- <td className={`h-12 border border-gray-600 text-center font-medium text-sm ${
+ <td className={`h-12 border border-gray-600 text-center font-medium text-lg ${
  isATM 
  ? 'bg-yellow-900 text-yellow-300 font-bold ring-1 ring-yellow-400' 
  : 'bg-black text-white'
@@ -1758,10 +1779,647 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  </tbody>
  </table>
  </div>
+ </>
+ )}
+ 
+ {/* ROBINHOOD-STYLE P&L LINE CHART */}
+ {viewMode === 'line' && (() => {
+   if (!selectedStrike) return null;
+   
+   // Calculate P&L line data across time periods
+   const expDate = new Date(selectedExpiration);
+   const today = new Date();
+   const maxDTE = Math.max(0, Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+   
+   const key = `${selectedStrike}-${selectedExpiration}-${optionType}`;
+   const realOption = realOptionsData[key];
+   
+   if (!realOption?.impliedVolatility || realOption.impliedVolatility <= 0) {
+     return null;
+   }
+   
+   const impliedVol = realOption.impliedVolatility;
+   const strikePrice = selectedStrike;
+   
+   // Get purchase price (same logic as table)
+   let purchasePrice = 0;
+   if (customPremium && customPremium > 0) {
+     purchasePrice = customPremium;
+   } else if (realOption?.ask > 0) {
+     purchasePrice = realOption.ask;
+   } else if (realOption?.lastPrice > 0) {
+     purchasePrice = realOption.lastPrice;
+   } else if (realOption?.bid > 0) {
+     purchasePrice = realOption.bid;
+   } else {
+     return null;
+   }
+   
+   // Generate data points across time
+   const numTimePoints = 50;
+   let chartData: Array<{ daysToExp: number; pnl: number; pnlPercent: number }> = [];
+   let maxPnL = -Infinity;
+   let minPnL = Infinity;
+   
+   for (let i = 0; i <= numTimePoints; i++) {
+     const daysToExp = maxDTE - (i * maxDTE / numTimePoints);
+     const timeToExpiry = Math.max(0, daysToExp / 365);
+     
+     const priceAtThisPoint = isHoveringChart && hoveredPrice !== null ? hoveredPrice : currentPrice;
+     
+     const theoreticalValue = calculateBSPrice(
+       priceAtThisPoint,
+       strikePrice,
+       timeToExpiry,
+       0.045,
+       impliedVol,
+       0,
+       optionType === 'call'
+     );
+     
+     const dollarPnL = theoreticalValue - purchasePrice;
+     let percentPnL = purchasePrice > 0 ? ((theoreticalValue - purchasePrice) / purchasePrice) * 100 : 0;
+     percentPnL = Math.max(percentPnL, -100);
+     
+     chartData.push({ daysToExp, pnl: dollarPnL, pnlPercent: percentPnL });
+     maxPnL = Math.max(maxPnL, percentPnL);
+     minPnL = Math.min(minPnL, percentPnL);
+   }
+   
+   const simulatedStockPrice = isHoveringChart && hoveredPrice !== null ? hoveredPrice : currentPrice;
+   
+   const pnlRange = maxPnL - minPnL;
+   const paddedMaxPnL = maxPnL + (pnlRange * 0.1);
+   const paddedMinPnL = minPnL - (pnlRange * 0.1);
+   
+   const chartWidth = 1200;
+   const chartHeight = 1225;
+   const padding = { top: 40, right: 80, bottom: 100, left: 80 };
+   const plotWidth = chartWidth - padding.left - padding.right;
+   const plotHeight = chartHeight - padding.top - padding.bottom;
+   
+   const xScale = (days: number) => {
+     return padding.left + ((maxDTE - days) / maxDTE) * plotWidth;
+   };
+   
+   const yScale = (pnlPercent: number) => {
+     return padding.top + plotHeight - ((pnlPercent - paddedMinPnL) / (paddedMaxPnL - paddedMinPnL)) * plotHeight;
+   };
+   
+   const linePath = chartData.map((d, i) => {
+     const x = xScale(d.daysToExp);
+     const y = yScale(d.pnlPercent);
+     return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+   }).join(' ');
+   
+   const currentDayData = chartData.find(d => Math.abs(d.daysToExp - maxDTE) < 1) || chartData[0];
+   const currentX = xScale(maxDTE);
+   const currentY = yScale(currentDayData.pnlPercent);
+   
+   return (
+     <div className="mb-6 bg-gradient-to-br from-gray-950 via-black to-gray-900 rounded-xl p-6 border-2 border-orange-500/50">
+       <div className="relative bg-black rounded-lg border border-gray-700 overflow-hidden">
+         <svg 
+           width={chartWidth} 
+           height={chartHeight} 
+           className="w-full h-auto"
+           style={{ 
+             shapeRendering: 'crispEdges',
+             imageRendering: 'crisp-edges'
+           }}
+           preserveAspectRatio="xMidYMid meet"
+           onMouseDown={(e) => {
+             const svg = e.currentTarget;
+             const rect = svg.getBoundingClientRect();
+             const mouseX = e.clientX - rect.left;
+             const relativeX = mouseX - padding.left;
+             const sliderY = chartHeight - padding.bottom + 40;
+             const mouseY = e.clientY - rect.top;
+             const priceMin = Math.floor(currentPrice * 0.85);
+             const priceMax = Math.ceil(currentPrice * 1.15);
+             const priceRange = priceMax - priceMin;
+             
+             if (relativeX >= 0 && relativeX <= plotWidth && Math.abs(mouseY - sliderY) < 30) {
+               const priceAtMouse = priceMin + (relativeX / plotWidth) * priceRange;
+               setHoveredPrice(priceAtMouse);
+               setIsHoveringChart(true);
+               
+               const handleMouseMove = (e: MouseEvent) => {
+                 const mouseX = e.clientX - rect.left;
+                 const relativeX = Math.max(0, Math.min(plotWidth, mouseX - padding.left));
+                 const priceAtMouse = priceMin + (relativeX / plotWidth) * priceRange;
+                 setHoveredPrice(priceAtMouse);
+               };
+               
+               const handleMouseUp = () => {
+                 document.removeEventListener('mousemove', handleMouseMove);
+                 document.removeEventListener('mouseup', handleMouseUp);
+               };
+               
+               document.addEventListener('mousemove', handleMouseMove);
+               document.addEventListener('mouseup', handleMouseUp);
+             }
+           }}
+           onTouchStart={(e) => {
+             const svg = e.currentTarget;
+             const rect = svg.getBoundingClientRect();
+             const touch = e.touches[0];
+             const touchX = touch.clientX - rect.left;
+             const relativeX = touchX - padding.left;
+             const sliderY = chartHeight - padding.bottom + 40;
+             const touchY = touch.clientY - rect.top;
+             const priceMin = Math.floor(currentPrice * 0.85);
+             const priceMax = Math.ceil(currentPrice * 1.15);
+             const priceRange = priceMax - priceMin;
+             
+             if (relativeX >= 0 && relativeX <= plotWidth && Math.abs(touchY - sliderY) < 30) {
+               const priceAtTouch = priceMin + (relativeX / plotWidth) * priceRange;
+               setHoveredPrice(priceAtTouch);
+               setIsHoveringChart(true);
+               
+               const handleTouchMove = (e: TouchEvent) => {
+                 const touch = e.touches[0];
+                 const touchX = touch.clientX - rect.left;
+                 const relativeX = Math.max(0, Math.min(plotWidth, touchX - padding.left));
+                 const priceAtTouch = priceMin + (relativeX / plotWidth) * priceRange;
+                 setHoveredPrice(priceAtTouch);
+               };
+               
+               const handleTouchEnd = () => {
+                 document.removeEventListener('touchmove', handleTouchMove);
+                 document.removeEventListener('touchend', handleTouchEnd);
+               };
+               
+               document.addEventListener('touchmove', handleTouchMove);
+               document.addEventListener('touchend', handleTouchEnd);
+             }
+           }}
+         >
+           <defs>
+             <linearGradient id="profitGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+               <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
+               <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+             </linearGradient>
+             <linearGradient id="lossGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+               <stop offset="0%" stopColor="#ef4444" stopOpacity="0.0" />
+               <stop offset="100%" stopColor="#ef4444" stopOpacity="0.3" />
+             </linearGradient>
+           </defs>
+           
+           <g className="grid">
+             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+               const y = padding.top + plotHeight * ratio;
+               return (
+                 <line
+                   key={`h-${ratio}`}
+                   x1={padding.left}
+                   y1={y}
+                   x2={chartWidth - padding.right}
+                   y2={y}
+                   stroke="#2a2a2a"
+                   strokeWidth="1"
+                   shapeRendering="crispEdges"
+                 />
+               );
+             })}
+             
+             <line
+               x1={padding.left}
+               y1={yScale(0)}
+               x2={chartWidth - padding.right}
+               y2={yScale(0)}
+               stroke="#666"
+               strokeWidth="2"
+               shapeRendering="crispEdges"
+             />
+             
+             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+               const x = padding.left + plotWidth * ratio;
+               return (
+                 <line
+                   key={`v-${ratio}`}
+                   x1={x}
+                   y1={padding.top}
+                   x2={x}
+                   y2={chartHeight - padding.bottom}
+                   stroke="#2a2a2a"
+                   strokeWidth="1"
+                   shapeRendering="crispEdges"
+                 />
+               );
+             })}
+           </g>
+           
+           {chartData.map((d, i) => {
+             if (i === 0) return null;
+             const prevD = chartData[i - 1];
+             const x1 = xScale(prevD.daysToExp);
+             const y1 = yScale(prevD.pnlPercent);
+             const x2 = xScale(d.daysToExp);
+             const y2 = yScale(d.pnlPercent);
+             const zeroY = yScale(0);
+             
+             const isProfit = d.pnlPercent >= 0 && prevD.pnlPercent >= 0;
+             const isLoss = d.pnlPercent <= 0 && prevD.pnlPercent <= 0;
+             
+             if (isProfit) {
+               return (
+                 <path
+                   key={`fill-${i}`}
+                   d={`M ${x1} ${y1} L ${x2} ${y2} L ${x2} ${zeroY} L ${x1} ${zeroY} Z`}
+                   fill="url(#profitGradient)"
+                 />
+               );
+             } else if (isLoss) {
+               return (
+                 <path
+                   key={`fill-${i}`}
+                   d={`M ${x1} ${y1} L ${x2} ${y2} L ${x2} ${zeroY} L ${x1} ${zeroY} Z`}
+                   fill="url(#lossGradient)"
+                 />
+               );
+             }
+             return null;
+           })}
+           
+           <path
+             d={linePath}
+             fill="none"
+             stroke={currentDayData.pnlPercent >= 0 ? "#10b981" : "#ef4444"}
+             strokeWidth="4"
+             strokeLinecap="round"
+             strokeLinejoin="round"
+             vectorEffect="non-scaling-stroke"
+             style={{ paintOrder: 'stroke' }}
+           />
+           
+           <line
+             x1={currentX}
+             y1={padding.top}
+             x2={currentX}
+             y2={chartHeight - padding.bottom}
+             stroke="#3b82f6"
+             strokeWidth="2"
+             shapeRendering="crispEdges"
+           />
+           
+           <circle
+             cx={currentX}
+             cy={currentY}
+             r="6"
+             fill={currentDayData.pnl >= 0 ? "#10b981" : "#ef4444"}
+             stroke="#fff"
+             strokeWidth="2"
+           />
+           
+           <g className="x-axis-labels">
+             {(() => {
+               // For ODTE (0 days) or 1DTE, show intraday times (market hours 9:30 AM - 4:00 PM)
+               const isODTEor1DTE = maxDTE <= 1;
+               
+               if (isODTEor1DTE) {
+                 // Show intraday times for ODTE/1DTE
+                 const marketOpen = 9.5; // 9:30 AM
+                 const marketClose = 16; // 4:00 PM
+                 const totalMarketHours = marketClose - marketOpen; // 6.5 hours
+                 
+                 return [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                   const x = padding.left + plotWidth * ratio;
+                   
+                   if (ratio === 1) {
+                     // Expiration
+                     return (
+                       <text
+                         key={`x-${ratio}`}
+                         x={x}
+                         y={chartHeight - padding.bottom + 20}
+                         fill="#ffffff"
+                         fillOpacity="1"
+                         fontSize="16"
+                         textAnchor="middle"
+                         fontWeight="600"
+                       >
+                         EXP
+                       </text>
+                     );
+                   } else {
+                     // Calculate time during market hours
+                     const hoursFromOpen = ratio * totalMarketHours;
+                     const currentHour = marketOpen + hoursFromOpen;
+                     const hour24 = Math.floor(currentHour);
+                     const minutes = Math.round((currentHour - hour24) * 60);
+                     
+                     // Convert to 12-hour format
+                     const hour12 = hour24 > 12 ? hour24 - 12 : hour24;
+                     const ampm = hour24 >= 12 ? 'PM' : 'AM';
+                     const timeLabel = `${hour12}:${minutes.toString().padStart(2, '0')}${ampm}`;
+                     
+                     return (
+                       <text
+                         key={`x-${ratio}`}
+                         x={x}
+                         y={chartHeight - padding.bottom + 20}
+                         fill="#ffffff"
+                         fillOpacity="1"
+                         fontSize="14"
+                         textAnchor="middle"
+                         fontWeight="600"
+                       >
+                         {timeLabel}
+                       </text>
+                     );
+                   }
+                 });
+               } else {
+                 // Show dates for multi-day options
+                 return [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                   const days = Math.round(maxDTE * (1 - ratio));
+                   const x = padding.left + plotWidth * ratio;
+                   const date = new Date(today);
+                   date.setDate(date.getDate() + (maxDTE - days));
+                   const dateLabel = ratio === 1 ? 'EXP' : `${date.getMonth() + 1}/${date.getDate()}`;
+                   
+                   return (
+                     <text
+                       key={`x-${ratio}`}
+                       x={x}
+                       y={chartHeight - padding.bottom + 20}
+                       fill="#ffffff"
+                       fillOpacity="1"
+                       fontSize="16"
+                       textAnchor="middle"
+                       fontWeight="600"
+                     >
+                       {dateLabel}
+                     </text>
+                   );
+                 });
+               }
+             })()}
+           </g>
+           
+           <g className="stock-price-ticks">
+             {(() => {
+               const priceMin = Math.floor(currentPrice * 0.85);
+               const priceMax = Math.ceil(currentPrice * 1.15);
+               const priceRange = priceMax - priceMin;
+               const tickInterval = priceRange > 50 ? 2 : 1;
+               const ticks = [];
+               
+               for (let price = priceMin; price <= priceMax; price += tickInterval) {
+                 const x = padding.left + ((price - priceMin) / priceRange) * plotWidth;
+                 const showLabel = (price - priceMin) % (tickInterval * 5) === 0;
+                 
+                 ticks.push(
+                   <g key={`tick-${price}`}>
+                     <line
+                       x1={x}
+                       y1={chartHeight - padding.bottom + 35}
+                       x2={x}
+                       y2={chartHeight - padding.bottom + 45}
+                       stroke="#666"
+                       strokeWidth="1"
+                     />
+                     {showLabel && (
+                       <text
+                         x={x}
+                         y={chartHeight - padding.bottom + 58}
+                         fill="#ffffff"
+                         fillOpacity="1"
+                         fontSize="16"
+                         textAnchor="middle"
+                         fontWeight="600"
+                       >
+                         {price}
+                       </text>
+                     )}
+                   </g>
+                 );
+               }
+               return ticks;
+             })()}
+             
+             <line
+               x1={padding.left}
+               y1={chartHeight - padding.bottom + 40}
+               x2={padding.left + plotWidth}
+               y2={chartHeight - padding.bottom + 40}
+               stroke="#666"
+               strokeWidth="2"
+             />
+             
+             <g>
+               <circle
+                 cx={padding.left + ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) / (Math.ceil(currentPrice * 1.15) - Math.floor(currentPrice * 0.85))) * plotWidth}
+                 cy={chartHeight - padding.bottom + 40}
+                 r="8"
+                 fill="#3b82f6"
+                 stroke="#fff"
+                 strokeWidth="2"
+                 style={{ cursor: 'pointer' }}
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   setIsEditingPrice(true);
+                   setPriceInputValue(simulatedStockPrice.toFixed(2));
+                 }}
+               />
+               
+               <rect
+                 x={padding.left + ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) / (Math.ceil(currentPrice * 1.15) - Math.floor(currentPrice * 0.85))) * plotWidth - 35}
+                 y={chartHeight - padding.bottom + 65}
+                 width="70"
+                 height="22"
+                 fill="#3b82f6"
+                 rx="4"
+                 style={{ cursor: 'pointer' }}
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   setIsEditingPrice(true);
+                   setPriceInputValue(simulatedStockPrice.toFixed(2));
+                 }}
+               />
+               <text
+                 x={padding.left + ((simulatedStockPrice - Math.floor(currentPrice * 0.85)) / (Math.ceil(currentPrice * 1.15) - Math.floor(currentPrice * 0.85))) * plotWidth}
+                 y={chartHeight - padding.bottom + 79}
+                 fill="white"
+                 fillOpacity="1"
+                 fontSize="12"
+                 textAnchor="middle"
+                 fontWeight="bold"
+                 style={{ cursor: 'pointer' }}
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   setIsEditingPrice(true);
+                   setPriceInputValue(simulatedStockPrice.toFixed(2));
+                 }}
+               >
+                 ${simulatedStockPrice.toFixed(2)}
+               </text>
+             </g>
+             
+             <g>
+               <line
+                 x1={padding.left + ((strikePrice - Math.floor(currentPrice * 0.85)) / (Math.ceil(currentPrice * 1.15) - Math.floor(currentPrice * 0.85))) * plotWidth}
+                 y1={chartHeight - padding.bottom + 35}
+                 x2={padding.left + ((strikePrice - Math.floor(currentPrice * 0.85)) / (Math.ceil(currentPrice * 1.15) - Math.floor(currentPrice * 0.85))) * plotWidth}
+                 y2={chartHeight - padding.bottom + 45}
+                 stroke="#fbbf24"
+                 strokeWidth="3"
+               />
+               <text
+                 x={padding.left + ((strikePrice - Math.floor(currentPrice * 0.85)) / (Math.ceil(currentPrice * 1.15) - Math.floor(currentPrice * 0.85))) * plotWidth}
+                 y={chartHeight - padding.bottom + 30}
+                 fill="#fbbf24"
+                 fillOpacity="1"
+                 fontSize="11"
+                 textAnchor="middle"
+                 fontWeight="bold"
+               >
+                 Strike
+               </text>
+             </g>
+             
+             <text
+               x={padding.left}
+               y={chartHeight - padding.bottom + 100}
+               fill="#ffffff"
+               fillOpacity="1"
+               fontSize="12"
+               textAnchor="start"
+               fontWeight="bold"
+             >
+               ${Math.floor(currentPrice * 0.85)}
+             </text>
+             <text
+               x={padding.left + plotWidth}
+               y={chartHeight - padding.bottom + 100}
+               fill="#ffffff"
+               fillOpacity="1"
+               fontSize="12"
+               textAnchor="end"
+               fontWeight="bold"
+             >
+               ${Math.ceil(currentPrice * 1.15)}
+             </text>
+           </g>
+           
+           <g className="y-axis-labels">
+             {[0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio) => {
+               const pnl = minPnL + (maxPnL - minPnL) * (1 - ratio);
+               const y = padding.top + plotHeight * ratio;
+               const pnlPercent = pnl;
+               return (
+                 <text
+                   key={`y-${ratio}`}
+                   x={chartWidth - padding.right + 10}
+                   y={y + 4}
+                   fill={pnl >= 0 ? "#10b981" : "#ef4444"}
+                   fillOpacity="1"
+                   fontSize="12"
+                   textAnchor="start"
+                   fontWeight="bold"
+                 >
+                   {pnl >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%
+                 </text>
+               );
+             })}
+           </g>
+           
+           <text
+             x={currentX}
+             y={padding.top - 5}
+             fill="#3b82f6"
+             fontSize="11"
+             textAnchor="middle"
+             fontWeight="bold"
+           >
+             Now
+           </text>
+           
+           <text
+             x={padding.left + plotWidth + 5}
+             y={yScale(minPnL)}
+             fill="#ef4444"
+             fontSize="10"
+             fontWeight="bold"
+             textAnchor="start"
+           >
+             MAX LOSS
+           </text>
+         </svg>
+         
+         <div className="absolute top-2 right-2 bg-black/80 rounded-lg px-3 py-2 border border-gray-700">
+           <div className="text-xs text-gray-400">Now</div>
+           <div className={`text-lg font-bold ${currentDayData.pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+             {currentDayData.pnlPercent >= 0 ? '+' : ''}{currentDayData.pnlPercent.toFixed(2)}%
+           </div>
+           <div className="text-xs text-gray-400 mt-1">
+             ${currentDayData.pnl >= 0 ? '+' : ''}{currentDayData.pnl.toFixed(2)}
+           </div>
+         </div>
+       </div>
+       
+       {isEditingPrice && (
+         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setIsEditingPrice(false)}>
+           <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+             <h3 className="text-white font-bold text-lg mb-4">Enter Stock Price</h3>
+             <input
+               type="number"
+               value={priceInputValue}
+               onChange={(e) => setPriceInputValue(e.target.value)}
+               onKeyPress={(e) => {
+                 if (e.key === 'Enter') {
+                   const newPrice = parseFloat(priceInputValue);
+                   if (!isNaN(newPrice) && newPrice > 0) {
+                     setHoveredPrice(newPrice);
+                     setIsHoveringChart(true);
+                     setTimeout(() => {
+                       setIsHoveringChart(false);
+                       setHoveredPrice(null);
+                     }, 100);
+                   }
+                   setIsEditingPrice(false);
+                 }
+               }}
+               className="w-full px-4 py-2 bg-black border border-gray-600 rounded text-white text-lg font-bold focus:outline-none focus:border-blue-500"
+               placeholder="Enter price..."
+               autoFocus
+             />
+             <div className="flex gap-2 mt-4">
+               <button
+                 onClick={() => {
+                   const newPrice = parseFloat(priceInputValue);
+                   if (!isNaN(newPrice) && newPrice > 0) {
+                     setHoveredPrice(newPrice);
+                     setIsHoveringChart(true);
+                     setTimeout(() => {
+                       setIsHoveringChart(false);
+                       setHoveredPrice(null);
+                     }, 100);
+                   }
+                   setIsEditingPrice(false);
+                 }}
+                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors"
+               >
+                 Apply
+               </button>
+               <button
+                 onClick={() => setIsEditingPrice(false)}
+                 className="flex-1 px-4 py-2 bg-gray-700 text-white rounded font-medium hover:bg-gray-600 transition-colors"
+               >
+                 Cancel
+               </button>
+             </div>
+           </div>
+         </div>
+       )}
+     </div>
+   );
+ })()}
+ </div>
  </div>
  </div>
 
- </div>
  </>
  )}
 
@@ -1781,8 +2439,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  {/* Professional Error State */}
  {error && (
  <div className="mt-6 bg-black rounded-2xl p-6 border-2 border-red-600">
- <div className="flex items-center justify-between">
- <div className="flex items-center space-x-3">
+ <div className="flex items-center space-x-3 mb-4">
  <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -1799,6 +2456,17 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  >
  Retry
  </button>
+ </div>
+ )}
+ </div>
+ )}
+
+ {/* Options Chain Tab Content */}
+ {mainTab === 'optionsChain' && (
+ <div className="p-6">
+ <div className="text-center py-20">
+ <h3 className="text-gray-400 text-2xl font-bold mb-2">Options Chain</h3>
+ <p className="text-gray-500">Coming Soon</p>
  </div>
  </div>
  )}

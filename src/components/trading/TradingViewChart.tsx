@@ -11243,7 +11243,7 @@ export default function TradingViewChart({
 
  {/* Sidebar Panels */}
  {activeSidebarPanel && (
- <div className="fixed top-32 bottom-4 left-16 w-[calc(100vw-5rem)] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden">
+ <div className={`fixed top-32 bottom-4 left-16 ${activeSidebarPanel === 'liquid' ? 'w-[calc(100vw-5rem)]' : 'w-[1200px]'} bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}>
 {/* Sidebar panel debugging */}
  {/* Panel Header */}
  <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
