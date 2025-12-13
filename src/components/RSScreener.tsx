@@ -273,11 +273,6 @@ const RSScreener: React.FC = () => {
  }
  }, [lookbackYears]); // Include lookbackYears as dependency since it affects the calculation
 
- // Auto-run scan when component mounts
- useEffect(() => {
- runScreener();
- }, [runScreener]);
-
  const formatPrice = (price: number) => {
  return new Intl.NumberFormat('en-US', {
  style: 'currency',

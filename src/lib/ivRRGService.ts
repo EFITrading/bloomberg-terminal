@@ -221,7 +221,17 @@ class IVRRGService {
       const benchmarkIVData = await this.getHistoricalIV(benchmark, lookbackDays);
       
       if (benchmarkIVData.length === 0) {
-        throw new Error(`No IV data available for benchmark ${benchmark}`);
+        console.error(`❌ No IV data available for benchmark ${benchmark}`);
+        console.error(`   This could be due to:`);
+        console.error(`   1. POLYGON_API_KEY not set in environment variables`);
+        console.error(`   2. ${benchmark} options data not available through Polygon API`);
+        console.error(`   3. Insufficient historical data available`);
+        throw new Error(
+          `Unable to fetch IV data for benchmark ${benchmark}. ` +
+          `Please check: (1) POLYGON_API_KEY is configured, ` +
+          `(2) ${benchmark} has options data available, ` +
+          `(3) API has sufficient historical data access.`
+        );
       }
 
       console.log(`✅ Benchmark has ${benchmarkIVData.length} IV data points`);
@@ -263,14 +273,22 @@ class IVRRGService {
           // Get current position (latest data point)
           const latest = ivMomentumData[ivMomentumData.length - 1];
           
+          console.log(`📊 ${symbol}: ivMomentumData has ${ivMomentumData.length} points, requesting ${tailLength} tail points`);
+          
           // Create tail (last N points for visualization)
+          // Use Math.min to ensure we don't request more tail points than available
+          const availableTailPoints = Math.max(0, ivMomentumData.length - 1);
+          const actualTailLength = Math.min(tailLength, availableTailPoints);
+          
           const tail = ivMomentumData
-            .slice(-tailLength - 1, -1) // Exclude the current point
+            .slice(-actualTailLength - 1, -1) // Exclude the current point
             .map(point => ({
               ivRatio: point.normalizedIV,
               ivMomentum: point.ivMomentum,
               date: point.date
             }));
+          
+          console.log(`📊 ${symbol}: Created tail with ${tail.length} points (requested: ${actualTailLength})`);
 
           // Calculate IV metrics (rank and percentile)
           const ivMetrics = this.calculateIVMetrics(symbolIVData);
@@ -311,10 +329,10 @@ class IVRRGService {
     momentumPeriod: number = 14,
     tailLength: number = 10
   ): Promise<IVRRGCalculationResult[]> {
-    // Sector ETF symbols
-    const sectorSymbols = ['XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLU', 'XLRE', 'XLB', 'XLC', 'XLI'];
+    // Default symbols
+    const symbols = ['AAPL', 'TSLA'];
     return this.calculateIVBasedRRG(
-      sectorSymbols,
+      symbols,
       'SPY',
       lookbackDays,
       ivRatioPeriod,

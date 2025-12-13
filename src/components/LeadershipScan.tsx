@@ -386,11 +386,6 @@ export default function LeadershipScan() {
  }
  }, [timeframe, minDaysBelow]); // Include dependencies that affect the calculation
 
- // Auto-run leadership scan when component mounts
- useEffect(() => {
- runLeadershipScan();
- }, [runLeadershipScan]);
-
  const formatPrice = (price: number) => {
  return new Intl.NumberFormat('en-US', {
  style: 'currency',

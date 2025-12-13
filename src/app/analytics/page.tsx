@@ -10,6 +10,7 @@ import HVScreener from '@/components/HVScreener';
 import LeadershipScan from '@/components/LeadershipScan';
 import PerformanceDashboard from '@/components/charts/PerformanceDashboard';
 import MarketHeatmap from '@/components/analytics/MarketHeatmap';
+import IVRRGAnalytics from '@/components/analytics/IVRRGAnalytics';
 
 export default function Analytics() {
  const [activeTab, setActiveTab] = useState('rrg');
@@ -290,6 +291,52 @@ export default function Analytics() {
  >
  MARKET HEATMAP
  </button>
+
+ <button
+ className="analytics-tab-button"
+ onClick={() => setActiveTab('iv-rrg')}
+ style={{
+ background: activeTab === 'iv-rrg' 
+ ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
+ : 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
+ color: activeTab === 'iv-rrg' ? '#ff8500' : '#ffffff',
+ border: activeTab === 'iv-rrg' ? '1px solid rgba(255, 133, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+ borderRadius: '12px',
+ margin: '8px',
+ padding: '16px 32px',
+ fontFamily: '"Bloomberg Terminal", "Consolas", "Monaco", monospace',
+ fontSize: '13px',
+ fontWeight: '700',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ cursor: 'pointer',
+ transition: 'all 0.3s ease',
+ position: 'relative',
+ flex: '1',
+ textAlign: 'center',
+ boxShadow: activeTab === 'iv-rrg' 
+ ? 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 133, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.5)'
+ : 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)'
+ }}
+ onMouseEnter={(e) => {
+ if (activeTab !== 'iv-rrg') {
+ e.currentTarget.style.color = '#ff8500';
+ e.currentTarget.style.transform = 'translateY(-2px)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 16px rgba(255, 133, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.6)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (activeTab !== 'iv-rrg') {
+ e.currentTarget.style.color = '#ffffff';
+ e.currentTarget.style.transform = 'translateY(0)';
+ e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4)';
+ }
+ }}
+ >
+ IV RRG
+ </button>
+
+
  </div>
 
  <div className="terminal-content" style={{ padding: 0 }}>
@@ -336,9 +383,17 @@ export default function Analytics() {
  <MarketHeatmap />
  </div>
  )}
- </div>
- </div>
- <Footer />
- </>
- );
+
+ {/* IV RRG - Only render when active */}
+ {activeTab === 'iv-rrg' && (
+ <IVRRGAnalytics 
+             defaultTimeframe="60 days"
+             defaultBenchmark="SPY"
+           />
+         )}
+       </div>
+     </div>
+     <Footer />
+     </>
+   );
 }

@@ -5970,16 +5970,6 @@ const DealerAttraction = () => {
                           >
                             Max Pain
                           </button>
-                          <button 
-                            onClick={() => setActiveWorkbenchTab('OIGEX')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
-                              activeWorkbenchTab === 'OIGEX' 
-                                ? 'bg-orange-600 text-white border-2 border-orange-500 shadow-[0_0_15px_rgba(255,102,0,0.4)]' 
-                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-orange-400 hover:text-white border-2 border-gray-800 hover:border-orange-500 hover:bg-orange-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                            }`}
-                          >
-                            OI/GEX Charts
-                          </button>
                         </div>
                         
                         <button

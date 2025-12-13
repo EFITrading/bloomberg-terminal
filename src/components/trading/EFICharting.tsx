@@ -2274,7 +2274,8 @@ export default function TradingViewChart({
   // Dropdown button refs for positioning
   const drawingsButtonRef = useRef<HTMLButtonElement>(null);
   const expectedRangeButtonRef = useRef<HTMLButtonElement>(null);
-  const gexButtonRef = useRef<HTMLButtonElement>(null); // Chart state
+  const gexButtonRef = useRef<HTMLButtonElement>(null);
+  const rrgButtonRef = useRef<HTMLButtonElement>(null); // Chart state
  const [config, setConfig] = useState<ChartConfig>({
  symbol,
  timeframe: initialTimeframe,
@@ -2775,6 +2776,241 @@ export default function TradingViewChart({
       };
     } catch (error) {
       console.error('❌ Error starting FlowMoves scan:', error);
+    }
+  };
+
+  // RRG Candle handler - Calculate RRG quadrant for each candle
+  const handleRRGCandleClick = async (period: number = 31, mode: 'price' | 'iv' | 'ivspy' = 'price') => {
+    const currentSymbol = symbol; // Capture current symbol to avoid stale closure
+    console.log(`🎨 Starting RRG Candle coloring with ${period}-day lookback, ${mode} mode for ${currentSymbol}`);
+    
+    try {
+      const colorMap = new Map<number, string>();
+      
+      if (mode === 'iv' || mode === 'ivspy') {
+        // IV-BASED RRG LOGIC (two variants: self-comparison or SPY comparison)
+        // To color full period, we need to fetch period + lookback days
+        // Then start coloring from day [lookback] onwards
+        
+        // Determine lookback period based on selection
+        let actualLookback: number;
+        if (period === 30) actualLookback = 14;       // 1mo uses 14 days lookback
+        else if (period === 120) actualLookback = 36; // 4mo uses 36 days lookback
+        else if (period === 365) actualLookback = 90; // 1yr uses 90 days lookback
+        else actualLookback = Math.floor(period / 3); // fallback
+        
+        // Fetch period + lookback to have enough data
+        const daysToFetch = period + actualLookback;
+        
+        const response = await fetch(`/api/calculate-historical-iv?ticker=${currentSymbol}&days=${daysToFetch}`);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch IV data: ${response.status}`);
+        }
+
+        const ivData = await response.json();
+        
+        if (!ivData.success || !ivData.data || !ivData.data.history) {
+          console.warn('⚠️ No IV history data available for RRG Candle');
+          return;
+        }
+
+        const history = ivData.data.history;
+        
+        let benchmarkHistory = null;
+        
+        // Only fetch SPY benchmark if using IV/SPY mode
+        if (mode === 'ivspy') {
+          const benchmarkResponse = await fetch(`/api/calculate-historical-iv?ticker=SPY&days=${daysToFetch}`);
+          const benchmarkData = await benchmarkResponse.json();
+          
+          if (!benchmarkData.success || !benchmarkData.data.history) {
+            console.warn('⚠️ No benchmark data available');
+            return;
+          }
+          
+          benchmarkHistory = benchmarkData.data.history;
+        }
+        
+        let firstColoredTimestamp: number | null = null;
+        
+        // Calculate RS-Ratio and RS-Momentum for each data point
+        // Start from actualLookback (already calculated above) to have lookback data
+        for (let i = actualLookback; i < history.length; i++) {
+          const currentIV = (history[i].callIV + history[i].putIV) / 2;
+          const pastIV = (history[i - actualLookback].callIV + history[i - actualLookback].putIV) / 2;
+          
+          let rsRatio: number;
+          let rsMomentum: number;
+          
+          if (mode === 'iv') {
+            // IV MODE: Compare current IV to past IV (self-comparison, no SPY)
+            // RS-Ratio = (current IV / past IV) × 100
+            rsRatio = (currentIV / pastIV) * 100;
+            
+            // RS-Momentum: Compare current RS-Ratio to midpoint RS-Ratio
+            const midPoint = Math.floor(actualLookback / 2);
+            const midIV = (history[i - midPoint].callIV + history[i - midPoint].putIV) / 2;
+            const midRsRatio = (midIV / pastIV) * 100;
+            rsMomentum = rsRatio - midRsRatio;
+            
+          } else {
+            // IV/SPY MODE: Compare to SPY benchmark
+            const benchmarkIV = (benchmarkHistory![i]?.callIV + benchmarkHistory![i]?.putIV) / 2 || 1;
+            const benchmarkPastIV = (benchmarkHistory![i - actualLookback]?.callIV + benchmarkHistory![i - actualLookback]?.putIV) / 2 || 1;
+            
+            // RS-Ratio: (Current IV / Benchmark IV)
+            rsRatio = (currentIV / benchmarkIV) * 100;
+            
+            // RS-Momentum: (RS now - RS past)
+            const rsPast = (pastIV / benchmarkPastIV) * 100;
+            rsMomentum = rsRatio - rsPast;
+          }
+          
+          // Determine RRG quadrant with VIVID colors
+          let color: string;
+          if (rsRatio >= 100 && rsMomentum >= 0) {
+            color = '#00ff00'; // Bright Green - Leading (outperforming & accelerating)
+          } else if (rsRatio < 100 && rsMomentum >= 0) {
+            color = '#0088ff'; // Bright Blue - Improving (underperforming but accelerating)
+          } else if (rsRatio < 100 && rsMomentum < 0) {
+            color = '#ff0000'; // Bright Red - Lagging (underperforming & decelerating)
+          } else {
+            color = '#ffff00'; // Bright Yellow - Weakening (outperforming but decelerating)
+          }
+          
+          // Match candles by date (YYYY-MM-DD) instead of exact timestamp
+          const dateStr = history[i].date; // "2025-01-30"
+          const matchingCandles = data.filter(candle => {
+            const candleDate = new Date(candle.timestamp).toISOString().split('T')[0];
+            return candleDate === dateStr;
+          });
+          
+          // Apply color to all candles on this date
+          matchingCandles.forEach(candle => {
+            colorMap.set(candle.timestamp, color);
+            // Track first colored timestamp
+            if (firstColoredTimestamp === null || candle.timestamp < firstColoredTimestamp) {
+              firstColoredTimestamp = candle.timestamp;
+            }
+          });
+        }
+        
+        console.log(`✅ IV Mode: Total colors=${colorMap.size}, Sample timestamps -`, Array.from(colorMap.keys()).slice(0, 3));
+        
+        // Store the first colored timestamp for drawing the indicator line
+        setRrgIvStartTimestamp(firstColoredTimestamp);
+      } else {
+        // PRICE-BASED RRG LOGIC (NORMAL RRG)
+        // Use the existing chart data instead of fetching new data
+        const symbolPrices = data;
+        
+        console.log(`🔍 PRICE MODE DEBUG: symbolPrices length=${symbolPrices?.length || 0}, period=${period}, symbol=${currentSymbol}, timeframe=${config.timeframe}`);
+        
+        if (!symbolPrices || symbolPrices.length < period) {
+          console.warn(`⚠️ Not enough chart data for RRG calculation: have ${symbolPrices?.length || 0} candles, need ${period}`);
+          return;
+        }
+        
+        // Determine benchmark: SPY uses QQQ, everything else uses SPY
+        const benchmarkSymbol = currentSymbol.toUpperCase() === 'SPY' ? 'QQQ' : 'SPY';
+        
+        // Get the date range from the symbol data
+        const firstTimestamp = symbolPrices[0].timestamp;
+        const lastTimestamp = symbolPrices[symbolPrices.length - 1].timestamp;
+        const daysDiff = Math.ceil((lastTimestamp - firstTimestamp) / (1000 * 60 * 60 * 24));
+        
+        // Fetch benchmark data with same timeframe and extended date range
+        const daysToFetch = Math.max(daysDiff + 30, period * 3, 100);
+        const benchmarkResponse = await fetch(`/api/stock-data?symbol=${benchmarkSymbol}&lookbackDays=${daysToFetch}&timeframe=${config.timeframe}`);
+        
+        if (!benchmarkResponse.ok) {
+          return;
+        }
+
+        const benchmarkData = await benchmarkResponse.json();
+        
+        // Handle different API response formats
+        const benchmarkPrices = benchmarkData.results || benchmarkData.data;
+        
+        if (!benchmarkPrices || benchmarkPrices.length === 0) {
+          return;
+        }
+        
+        // Create a timestamp-indexed benchmark map for quick lookup
+        const benchmarkMap = new Map<number, number>();
+        benchmarkPrices.forEach((bar: any) => {
+          const timestamp = bar.t || bar.timestamp;
+          const closePrice = bar.c || bar.close;
+          if (timestamp && closePrice) {
+            benchmarkMap.set(timestamp, closePrice);
+          }
+        });
+        
+        // Calculate RS-Ratio and RS-Momentum for each candle
+        for (let i = period; i < symbolPrices.length; i++) {
+          const currentPrice = symbolPrices[i].close;
+          const pastPrice = symbolPrices[i - period].close;
+          const timestamp = symbolPrices[i].timestamp;
+          
+          // Find matching benchmark prices
+          const benchmarkCurrent = benchmarkMap.get(timestamp);
+          const benchmarkPast = benchmarkMap.get(symbolPrices[i - period].timestamp);
+          
+          if (!benchmarkCurrent || !benchmarkPast) {
+            continue;
+          }
+          
+          // Price performance
+          const symbolPerf = (currentPrice / pastPrice - 1) * 100;
+          const benchmarkPerf = (benchmarkCurrent / benchmarkPast - 1) * 100;
+          
+          // RS-Ratio: Symbol performance relative to benchmark
+          const rsRatio = 100 + (symbolPerf - benchmarkPerf);
+          
+          // RS-Momentum: Rate of change of RS-Ratio
+          const midPoint = Math.floor(period / 2);
+          const midPrice = symbolPrices[i - midPoint].close;
+          const midBenchmark = benchmarkMap.get(symbolPrices[i - midPoint].timestamp);
+          
+          if (!midBenchmark) {
+            continue;
+          }
+          
+          const midSymbolPerf = (midPrice / pastPrice - 1) * 100;
+          const midBenchmarkPerf = (midBenchmark / benchmarkPast - 1) * 100;
+          const midRsRatio = 100 + (midSymbolPerf - midBenchmarkPerf);
+          
+          const rsMomentum = rsRatio - midRsRatio;
+          
+          // Determine RRG quadrant with VIVID colors
+          let color: string;
+          if (rsRatio >= 100 && rsMomentum >= 0) {
+            color = '#00ff00'; // Bright Green - Leading (outperforming & accelerating)
+          } else if (rsRatio < 100 && rsMomentum >= 0) {
+            color = '#0088ff'; // Bright Blue - Improving (underperforming but accelerating)
+          } else if (rsRatio < 100 && rsMomentum < 0) {
+            color = '#ff0000'; // Bright Red - Lagging (underperforming & decelerating)
+          } else {
+            color = '#ffff00'; // Bright Yellow - Weakening (outperforming but decelerating)
+          }
+          
+          colorMap.set(timestamp, color);
+        }
+      }
+      
+      setRrgCandleColors(colorMap);
+      setRrgLookbackPeriod(period);
+      setRrgMode(mode);
+      setIsRRGCandleActive(true);
+      
+      // Clear IV start timestamp if not in IV mode
+      if (mode !== 'iv' && mode !== 'ivspy') {
+        setRrgIvStartTimestamp(null);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error calculating RRG Candle colors:', error);
     }
   };
 
@@ -3762,6 +3998,15 @@ export default function TradingViewChart({
     netFlow: number;
   }>>([]);
 
+  // RRG Candle state - Color code candles based on RRG quadrants
+  const [isRRGCandleActive, setIsRRGCandleActive] = useState(false);
+  const [rrgLookbackPeriod, setRrgLookbackPeriod] = useState<10 | 31 | 87>(31); // For Price mode
+  const [rrgIvLookbackPeriod, setRrgIvLookbackPeriod] = useState<30 | 120 | 365>(120); // For IV mode (1mo, 4mo, 1yr)
+  const [rrgCandleColors, setRrgCandleColors] = useState<Map<number, string>>(new Map());
+  const [rrgMode, setRrgMode] = useState<'price' | 'iv' | 'ivspy'>('price'); // Price, IV (self), or IV/SPY
+  const [rrgIvStartTimestamp, setRrgIvStartTimestamp] = useState<number | null>(null); // First candle with IV color
+  const [isRrgDropdownOpen, setIsRrgDropdownOpen] = useState(false);
+
   // Flow chart resize handlers
   const handleFlowChartDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -4282,6 +4527,28 @@ export default function TradingViewChart({
  return () => document.removeEventListener('mousedown', handleClickOutside);
  }, [showEmojiPicker]);
 
+ // Close RRG dropdown when clicking outside
+ useEffect(() => {
+ const handleClickOutside = (event: MouseEvent) => {
+ if (isRrgDropdownOpen) {
+ const target = event.target as Element;
+ const dropdown = document.querySelector('[data-rrg-dropdown]');
+ const button = rrgButtonRef.current;
+ 
+ if (dropdown && !dropdown.contains(target) && button && !button.contains(target)) {
+ setIsRrgDropdownOpen(false);
+ }
+ }
+ };
+
+ document.addEventListener('mousedown', handleClickOutside);
+ return () => document.removeEventListener('mousedown', handleClickOutside);
+ }, [isRrgDropdownOpen]);
+
+ useEffect(() => {
+   // RRG state changes trigger natural re-render
+ }, [isRRGCandleActive, rrgCandleColors, rrgMode, rrgLookbackPeriod]);
+
  // Expected Range data loading - reset when symbol changes
  useEffect(() => {
  // Reset Expected Range levels when symbol changes
@@ -4536,7 +4803,6 @@ export default function TradingViewChart({
  // Chart interaction state
  const [isDragging, _setIsDragging] = useState(false);
  const setIsDragging = useCallback((value: boolean) => {
-   console.log('🔴 setIsDragging:', value, 'Stack:', new Error().stack?.split('\n')[2]);
    _setIsDragging(value);
  }, []);
  
@@ -4548,7 +4814,6 @@ export default function TradingViewChart({
  const [manualPriceRange, setManualPriceRange] = useState<{ min: number; max: number } | null>(null);
  const [isDraggingYAxis, _setIsDraggingYAxis] = useState(false);
  const setIsDraggingYAxis = useCallback((value: boolean) => {
-   console.log('🟡 setIsDraggingYAxis:', value, 'Stack:', new Error().stack?.split('\n')[2]);
    _setIsDraggingYAxis(value);
  }, []);
  const [yAxisDragStart, setYAxisDragStart] = useState<{ y: number; priceRange: { min: number; max: number } } | null>(null);
@@ -4910,30 +5175,9 @@ export default function TradingViewChart({
  
  const result = await response.json();
  
- // Debug: Check what data we're actually getting from API in main fetch
- console.log('?? MAIN API DATA DEBUG:', {
- symbol: sym,
- timeframe,
- totalResults: result.results?.length || 0,
- firstResult: result.results?.[0],
- firstResultKeys: Object.keys(result.results?.[0] || {}),
- hasVolumeField: result.results?.[0]?.v !== undefined,
- volumeValue: result.results?.[0]?.v,
- volumeType: typeof result.results?.[0]?.v,
- allVolumeValues: result.results?.slice(0, 10).map((item: any, i: number) => ({ index: i, v: item.v, type: typeof item.v })) || []
- });
- 
  // Check if ALL volume values are 0 or undefined
  const allVolumes = result.results?.map((item: any) => item.v).filter((v: any) => v !== undefined && v !== null) || [];
  const nonZeroVolumes = allVolumes.filter((v: any) => v > 0);
- console.log('?? VOLUME ANALYSIS:', {
- totalItems: result.results?.length || 0,
- itemsWithVolumeField: allVolumes.length,
- itemsWithNonZeroVolume: nonZeroVolumes.length,
- maxVolume: nonZeroVolumes.length > 0 ? Math.max(...nonZeroVolumes) : 'NONE',
- minVolume: nonZeroVolumes.length > 0 ? Math.min(...nonZeroVolumes) : 'NONE',
- avgVolume: nonZeroVolumes.length > 0 ? (nonZeroVolumes.reduce((a: any, b: any) => a + b, 0) / nonZeroVolumes.length).toFixed(0) : 'NONE'
- });
  
  if (!result?.results?.length) {
  throw new Error(`No data available for ${sym}`);
@@ -4960,15 +5204,6 @@ export default function TradingViewChart({
  hour12: false 
  })
  };
- 
- // Debug first few items
- if (i < 3) {
- console.log(`?? MAIN MAPPING ITEM ${i}:`, {
- rawVolume: item.v,
- mappedVolume: transformedData[i].volume,
- mappedKeys: Object.keys(transformedData[i])
- });
- }
  }
  
  return transformedData;
@@ -5050,18 +5285,6 @@ export default function TradingViewChart({
  const result = await response.json();
  if (!result?.results?.length) throw new Error(`No data for ${symbol}`);
  
- // Debug: Check what data we're actually getting from API
- console.log('?? API DATA DEBUG:', {
- symbol,
- timeframe,
- totalResults: result.results.length,
- firstResult: result.results[0],
- firstResultKeys: Object.keys(result.results[0] || {}),
- hasVolumeField: result.results[0]?.v !== undefined,
- volumeValue: result.results[0]?.v,
- allVolumeValues: result.results.slice(0, 5).map((item: any) => item.v)
- });
- 
  const mappedData = result.results.map((item: any, index: number) => {
  const mapped = {
  timestamp: item.t,
@@ -5075,17 +5298,6 @@ export default function TradingViewChart({
  hour: '2-digit', minute: '2-digit', hour12: false 
  })
  };
- 
- // Debug first few items
- if (index < 3) {
- console.log(`?? MAPPING ITEM ${index}:`, {
- rawItem: item,
- rawKeys: Object.keys(item),
- rawVolume: item.v,
- mappedVolume: mapped.volume,
- mappedKeys: Object.keys(mapped)
- });
- }
  
  return mapped;
  });
@@ -5961,6 +6173,30 @@ export default function TradingViewChart({
 
  // Draw price scale on the right for price chart area
  drawPriceScale(ctx, width, priceChartHeight, adjustedMin, adjustedMax);
+
+ // Draw IV RRG start indicator line (dashed vertical line at first colored candle)
+ if (isRRGCandleActive && (rrgMode === 'iv' || rrgMode === 'ivspy') && rrgIvStartTimestamp) {
+   const startIndex = visibleData.findIndex(candle => candle.timestamp === rrgIvStartTimestamp);
+   if (startIndex !== -1) {
+     const lineX = Math.round(40 + (startIndex * candleSpacing) + candleSpacing / 2);
+     ctx.save();
+     ctx.strokeStyle = '#FFD700'; // Gold color
+     ctx.lineWidth = 2;
+     ctx.setLineDash([5, 5]); // Dashed line
+     ctx.beginPath();
+     ctx.moveTo(lineX, 0);
+     ctx.lineTo(lineX, priceChartHeight);
+     ctx.stroke();
+     ctx.setLineDash([]); // Reset dash
+     
+     // Add label at top
+     ctx.fillStyle = '#FFD700';
+     ctx.font = 'bold 11px Arial';
+     ctx.textAlign = 'center';
+     ctx.fillText('IV Start', lineX, 12);
+     ctx.restore();
+   }
+ }
 
  // Draw Expected Range lines on top of candlesticks (standalone button)
  if (isExpectedRangeActive && expectedRangeLevels) {
@@ -7358,8 +7594,17 @@ export default function TradingViewChart({
  const { open, high, low, close } = candle;
  const isGreen = close > open;
  
- // Get custom colors
- const candleColors = isGreen ? config.colors.bullish : config.colors.bearish;
+ // Check if RRG Candle is active and get custom color
+ let candleColor: string | null = null;
+ if (isRRGCandleActive && rrgCandleColors.size > 0) {
+   const timestamp = candle.timestamp;
+   candleColor = rrgCandleColors.get(timestamp) || null;
+ }
+ 
+ // Get custom colors - use RRG color if available, otherwise use default
+ const candleColors = candleColor 
+   ? { body: candleColor, wick: candleColor, border: candleColor }
+   : (isGreen ? config.colors.bullish : config.colors.bearish);
  
  // Convert prices to canvas coordinates
  const priceToY = (price: number) => {
@@ -7417,18 +7662,10 @@ export default function TradingViewChart({
  const chartArea = height - 25; // Reserve 25px at bottom for time labels
  const steps = 10;
  
- // DEBUG LOG
- console.log(`?? Y-AXIS DEBUG: chartArea=${chartArea}, minPrice=${minPrice.toFixed(2)}, maxPrice=${maxPrice.toFixed(2)}`);
- 
  for (let i = 0; i <= steps; i++) {
  const ratio = i / steps;
  const price = minPrice + (maxPrice - minPrice) * (1 - ratio);
  const y = 20 + ((chartArea - 40) / steps) * i;
- 
- // DEBUG LOG for first few
- if (i <= 2 || i >= 8) {
- console.log(`?? Y-AXIS step ${i}: ratio=${ratio.toFixed(3)}, price=$${price.toFixed(2)}, y=${y}`);
- }
  
  // Draw price label
  ctx.fillText(`$${price.toFixed(2)}`, width - 70, y + 4);
@@ -8456,7 +8693,7 @@ export default function TradingViewChart({
  setCurrentBrushStroke([]); // Start with empty stroke
  setLastBrushTime(Date.now());
  
- console.log('??? Brush prepared for drawing - mouse button pressed, waiting for movement');
+
  console.log('??? Current saved brushes count:', drawingBrushes.length);
  console.log('??? Current saved brushes:', drawingBrushes.map(b => b.label));
  return;
@@ -8881,13 +9118,6 @@ export default function TradingViewChart({
  const now = Date.now();
  setLastMouseTimestamp(now);
  
- console.log('🟡 MOUSE DOWN - Starting new drag:', {
- position: { x, y },
- currentManualPriceRange: manualPriceRange,
- scrollOffset,
- visibleCandleCount
- });
- 
  // Start full chart panning (both X and Y axes) - TradingView style
  setIsDragging(true);
  setIsDraggingYAxis(true);
@@ -9170,12 +9400,12 @@ export default function TradingViewChart({
  if (isFirstDragFrame) {
  console.log('🔴 FIRST DRAG FRAME - Skipping deltas. Position:', { x, y });
  console.log('🔴 Current manualPriceRange:', manualPriceRange);
- console.log('🔴 lastMousePosition BEFORE update:', lastMousePosition);
+
  setIsFirstDragFrame(false);
  setLastMouseX(x);
  setLastMousePosition({ x, y });
  setLastMouseTimestamp(Date.now());
- console.log('🔴 Updated lastMousePosition to:', { x, y });
+
  return;
  }
  
@@ -9269,7 +9499,7 @@ export default function TradingViewChart({
  }
  
  // Update last positions for next frame - CRITICAL for continuous dragging
- console.log('🔄 Updating lastMousePosition:', { from: lastMousePosition, to: { x, y } });
+
  setLastMouseX(x);
  setLastMousePosition({ x, y });
  return;
@@ -9277,12 +9507,6 @@ export default function TradingViewChart({
  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame]);
 
  const handleMouseUp = useCallback(() => {
- console.log('🟠 MOUSE UP - Ending drag:', {
- finalManualPriceRange: manualPriceRange,
- finalScrollOffset: scrollOffset,
- wasDragging: isDragging,
- wasDraggingYAxis: isDraggingYAxis
- });
  
  // Handle box zoom completion
  if (isBoxZooming && boxZoomStart && boxZoomEnd) {
@@ -9344,7 +9568,7 @@ export default function TradingViewChart({
  }
  }
  
- console.log('🔴 MOUSE UP - Resetting drag states');
+
  setIsDragging(false);
  setIsDraggingDrawing(false);
  setIsDraggingYAxis(false);
@@ -9357,7 +9581,7 @@ export default function TradingViewChart({
  setIsResizingYAxis(false);
  setYAxisResizeStart(null);
  
- console.log('✅ MOUSE UP - All drag states cleared');
+
  
  // Handle drawing brush stroke completion - CLICK AND HOLD behavior
  if (isBrushing && currentBrushStroke.length > 0) {
@@ -9639,13 +9863,13 @@ export default function TradingViewChart({
 
  // Enhanced Canvas Drawing Interaction Handlers
  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
- console.log('?? handleCanvasMouseDown called');
+
  const canvas = e.currentTarget;
  const rect = canvas.getBoundingClientRect();
  const x = e.clientX - rect.left;
  const y = e.clientY - rect.top;
 
- console.log('??? Mouse down at:', { x, y });
+
 
  // Handle horizontal ray mode
  if (isHorizontalRayMode) {
@@ -13142,6 +13366,235 @@ export default function TradingViewChart({
                   <span>Live FlowMoves</span>
                   {isFlowChartActive && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>}
                 </button>
+              </div>
+
+              {/* RRG Candle Button with Dropdown */}
+              <div className="ml-4 relative">
+                <button
+                  ref={rrgButtonRef}
+                  onClick={() => setIsRrgDropdownOpen(!isRrgDropdownOpen)}
+                  className="btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white"
+                  style={{
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                    outline: `2px solid ${isRRGCandleActive ? '#22c55e' : '#ff8500'}`,
+                    outlineOffset: '-2px'
+                  }}
+                  title="RRG Candle - Color code candles by RRG quadrants"
+                >
+                  <span>RRG Candle {isRRGCandleActive ? `(${rrgMode.toUpperCase()} ${rrgLookbackPeriod}d)` : ''}</span>
+                  {isRRGCandleActive && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>}
+                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                
+                {/* RRG Dropdown Menu - Using Portal */}
+                {isRrgDropdownOpen && createPortal(
+                  <div 
+                    data-rrg-dropdown
+                    style={{
+                    position: 'fixed',
+                    top: rrgButtonRef.current ? rrgButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+                    left: rrgButtonRef.current ? rrgButtonRef.current.getBoundingClientRect().left : 0,
+                    zIndex: 100000,
+                    background: '#000000',
+                    border: '2px solid rgba(255, 133, 0, 0.3)',
+                    borderRadius: '8px',
+                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                    padding: '12px',
+                    minWidth: '200px'
+                  }}>
+                    {/* Mode Selection */}
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={{ 
+                        fontSize: '11px', 
+                        color: '#ffffff', 
+                        marginBottom: '6px',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        textAlign: 'center'
+                      }}>
+                        Mode
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => {
+                            setRrgMode('price');
+                            if (isRRGCandleActive) handleRRGCandleClick(rrgLookbackPeriod, 'price');
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            borderRadius: '4px',
+                            border: `2px solid ${rrgMode === 'price' ? '#ffffff' : '#444'}`,
+                            background: 'transparent',
+                            color: rrgMode === 'price' ? '#ffffff' : '#ffffff',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Price
+                        </button>
+                        <button
+                          onClick={() => {
+                            setRrgMode('iv');
+                            if (isRRGCandleActive) handleRRGCandleClick(rrgIvLookbackPeriod, 'iv');
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            borderRadius: '4px',
+                            border: `2px solid ${rrgMode === 'iv' ? '#a855f7' : '#444'}`,
+                            background: 'transparent',
+                            color: rrgMode === 'iv' ? '#a855f7' : '#ffffff',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          IV
+                        </button>
+                        <button
+                          onClick={() => {
+                            setRrgMode('ivspy');
+                            if (isRRGCandleActive) handleRRGCandleClick(rrgIvLookbackPeriod, 'ivspy');
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            borderRadius: '4px',
+                            border: `2px solid ${rrgMode === 'ivspy' ? '#ff8500' : '#444'}`,
+                            background: 'transparent',
+                            color: rrgMode === 'ivspy' ? '#ff8500' : '#ffffff',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          IV/SPY
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Period Selection */}
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={{ 
+                        fontSize: '11px', 
+                        color: '#ffffff', 
+                        marginBottom: '6px',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Lookback Period
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {rrgMode === 'price' ? (
+                          // Price mode: 10d, 31d, 87d
+                          [
+                            { value: 10, label: '10d' },
+                            { value: 31, label: '31d' },
+                            { value: 87, label: '87d' }
+                          ].map(({ value, label }) => (
+                            <button
+                              key={value}
+                              onClick={() => {
+                                setRrgLookbackPeriod(value as 10 | 31 | 87);
+                                if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode);
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: '8px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                borderRadius: '4px',
+                                border: `2px solid ${rrgLookbackPeriod === value ? '#ff8500' : '#444'}`,
+                                background: 'transparent',
+                                color: rrgLookbackPeriod === value ? '#ff8500' : '#ffffff',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))
+                        ) : (
+                          // IV mode: 1mo, 4mo, 1yr
+                          [
+                            { value: 30, label: '1mo' },
+                            { value: 120, label: '4mo' },
+                            { value: 365, label: '1yr' }
+                          ].map(({ value, label }) => (
+                            <button
+                              key={value}
+                              onClick={() => {
+                                setRrgIvLookbackPeriod(value as 30 | 120 | 365);
+                                if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode);
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: '8px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                borderRadius: '4px',
+                                border: `2px solid ${rrgIvLookbackPeriod === value ? '#ff8500' : '#444'}`,
+                                background: 'transparent',
+                                color: rrgIvLookbackPeriod === value ? '#ff8500' : '#ffffff',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Apply/Toggle Button */}
+                    <button
+                      onClick={() => {
+                        if (!isRRGCandleActive) {
+                          const period = (rrgMode === 'iv' || rrgMode === 'ivspy') ? rrgIvLookbackPeriod : rrgLookbackPeriod;
+                          handleRRGCandleClick(period, rrgMode);
+                        } else {
+                          console.log('🔴 Turning OFF RRG Candle mode');
+                          setRrgCandleColors(new Map());
+                          setIsRRGCandleActive(false);
+                          setRrgIvStartTimestamp(null);
+                          // Force immediate re-render
+                          setTimeout(() => {
+                            if (chartCanvasRef.current) {
+                              renderChart();
+                            }
+                          }, 10);
+                        }
+                        setIsRrgDropdownOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        borderRadius: '4px',
+                        border: 'none',
+                        background: isRRGCandleActive 
+                          ? 'linear-gradient(145deg, #ef4444 0%, #dc2626 100%)'
+                          : 'linear-gradient(145deg, #ff8500 0%, #ff6500 100%)',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}
+                    >
+                      {isRRGCandleActive ? 'Turn Off' : 'Apply'}
+                    </button>
+                  </div>,
+                  document.body
+                )}
               </div>
 
  {/* Spacer to push remaining items to the right */}

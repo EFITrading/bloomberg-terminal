@@ -335,11 +335,6 @@ const HVScreener: React.FC = () => {
  }
  }, []);
 
- // Auto-run scan when component mounts
- useEffect(() => {
- runScreener();
- }, [runScreener]);
-
  const formatPrice = (price: number) => {
  return new Intl.NumberFormat('en-US', {
  style: 'currency',

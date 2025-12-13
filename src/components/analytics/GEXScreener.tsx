@@ -87,19 +87,6 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
  return () => window.removeEventListener('resize', checkMobile);
  }, []);
 
- // Auto-scan on mount for both tabs
- useEffect(() => {
- // Delay initial scan slightly to ensure component is fully mounted
- const timer = setTimeout(() => {
- // Scan GEX data (Attraction Zones)
- fetchGEXData();
- // Scan OTM Premiums
- scanOTMPremiums();
- }, 500);
- 
- return () => clearTimeout(timer);
- }, []); // Empty dependency array means this runs once on mount
- 
  // Responsive items per page: 10 for mobile, 20 for desktop
  const itemsPerPage = isMobile ? 10 : 20;
 
@@ -385,12 +372,6 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
  <div className="flex items-center gap-2 md:gap-4">
  <div className="space-y-1">
  <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
- <h1 
- className="font-semibold tracking-tight text-[#ff9900] leading-tight"
- style={{ fontSize: compactMode ? '10px' : '16px' }}
- >
- GEX SCREENER
- </h1>
  <div className="flex items-center gap-2 flex-wrap">
  {expirationFilter !== 'Default' && (
  <div className="px-2 md:px-3 py-1 rounded-full bg-purple-500/20 border border-purple-500/40">
@@ -444,13 +425,6 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
  <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${loading ? 'animate-spin' : ''}`} />
  {loading ? 'SCANNING...' : 'SCAN NOW'}
  </button>
- 
- {gexData.length > 0 && (
- <div className="px-3 md:px-4 py-2 md:py-3 bg-gray-900/50 border border-gray-700 rounded-xl">
- <span className="text-gray-300 font-medium text-xs md:text-sm mr-2">Results:</span>
- <span className="text-white font-bold text-sm md:text-base">{gexData.length}</span>
- </div>
- )}
  </div>
  )}
  </div>
@@ -574,25 +548,25 @@ export default function GEXScreener({ compactMode = false }: GEXScreenerProps) {
  <div className="flex items-center gap-8">
  {/* Symbol Header */}
  <div className="w-24 flex-shrink-0">
- <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Symbol</div>
+ <div className="text-2xl font-bold text-orange-400 uppercase tracking-wider">Symbol</div>
  </div>
 
  {/* Main Data Headers */}
  <div className="flex-1 grid grid-cols-5 gap-8">
  <div className="border-l border-gray-700/50 pl-4">
- <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Current Price</div>
+ <div className="text-2xl font-bold text-orange-400 uppercase tracking-wider">Current Price</div>
  </div>
  <div className="border-l border-gray-700/50 pl-4">
- <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Target Level</div>
+ <div className="text-2xl font-bold text-orange-400 uppercase tracking-wider">Target Level</div>
  </div>
  <div className="border-l border-gray-700/50 pl-4">
- <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Value</div>
+ <div className="text-2xl font-bold text-orange-400 uppercase tracking-wider">Value</div>
  </div>
  <div className="border-l border-gray-700/50 pl-4">
- <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Wall Level</div>
+ <div className="text-2xl font-bold text-orange-400 uppercase tracking-wider">Wall Level</div>
  </div>
  <div className="border-l border-gray-700/50 pl-4">
- <div className="text-xs font-bold text-orange-400 uppercase tracking-wider">Wall Value</div>
+ <div className="text-2xl font-bold text-orange-400 uppercase tracking-wider">Wall Value</div>
  </div>
  </div>
  </div>

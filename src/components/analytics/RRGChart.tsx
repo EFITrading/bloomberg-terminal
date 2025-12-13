@@ -47,7 +47,10 @@ interface RRGChartProps {
  onBenchmarkChange?: (benchmark: string) => void;
  onTimeframeChange?: (timeframe: string) => void;
  loading?: boolean;
- chartMode?: 'RS' | 'IV'; // New prop for chart mode
+ isIVMode?: boolean; // Flag to determine if this is IV RRG or regular RRG
+ // IV RRG specific props
+ symbolMode?: 'custom' | 'mag7' | 'highBeta' | 'lowBeta';
+ onSymbolModeChange?: (mode: 'custom' | 'mag7' | 'highBeta' | 'lowBeta') => void;
 }
 
 const RRGChart: React.FC<RRGChartProps> = ({
@@ -78,7 +81,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
  onBenchmarkChange,
  onTimeframeChange,
  loading = false,
- chartMode = 'RS' // Default to RS mode
+ isIVMode = false,
+ symbolMode = 'custom',
+ onSymbolModeChange
 }) => {
  const svgRef = useRef<SVGSVGElement>(null);
  const [selectedPoint, setSelectedPoint] = useState<RRGDataPoint | null>(null);
@@ -340,11 +345,11 @@ const RRGChart: React.FC<RRGChartProps> = ({
  }, [currentData.map(d => d.symbol).join(',')]);
 
  const quadrantColors = {
- leading: '#228B22', // TREE GREEN - Leading (top-right)
- weakening: '#FFD700', // GOLDEN YELLOW - Weakening (bottom-right) 
- lagging: '#FF0000', // SOLID RED - Lagging (bottom-left)
- improving: '#0000FF' // SOLID BLUE - Improving (top-left)
- };
+    leading: '#228B22', // GREEN - Leading (top-right)
+    weakening: '#FFD700', // YELLOW - Weakening (bottom-right)
+    lagging: '#FF0000', // RED - Lagging (bottom-left)
+    improving: '#0000FF' // BLUE - Improving (top-left)
+  };
 
  const getQuadrant = (rsRatio: number, rsMomentum: number): keyof typeof quadrantColors => {
  if (rsRatio >= 100 && rsMomentum >= 100) return 'leading';
@@ -354,7 +359,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
  };
 
  useEffect(() => {
- if (!svgRef.current || !currentData.length) return;
+ if (!svgRef.current) return;
 
  const svg = d3.select(svgRef.current);
  svg.selectAll('*').remove();
@@ -694,7 +699,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('fill', 'white')
  .attr('text-anchor', 'middle')
  .attr('font-size', '14px')
- .text(chartMode === 'IV' ? 'IV-Ratio (Implied Volatility Relative Strength)' : 'RS-Ratio (Relative Strength)');
+ .text('RS-Ratio (Relative Strength)');
 
  axesGroup.append('g')
  .attr('class', 'y-axis')
@@ -706,10 +711,53 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('fill', 'white')
  .attr('text-anchor', 'middle')
  .attr('font-size', '14px')
- .text(chartMode === 'IV' ? 'IV-Momentum (Rate of Change)' : 'RS-Momentum (Rate of Change)');
+ .text('RS-Momentum (Rate of Change)');
 
  // Add quadrant labels directly on the chart
- // Lagging label (bottom-left, on X-axis)
+ if (isIVMode) {
+ // IV RRG labels
+ // Bottom-left label
+ axesGroup.append('text')
+ .attr('x', center100X / 2)
+ .attr('y', chartHeight - 10)
+ .attr('fill', '#00CED1')
+ .attr('text-anchor', 'middle')
+ .attr('font-size', '16px')
+ .attr('font-weight', 'bold')
+ .text('Cheap Vol Getting Cheaper');
+
+ // Bottom-right label
+ axesGroup.append('text')
+ .attr('x', center100X + (chartWidth - center100X) / 2)
+ .attr('y', chartHeight - 10)
+ .attr('fill', '#DA70D6')
+ .attr('text-anchor', 'middle')
+ .attr('font-size', '16px')
+ .attr('font-weight', 'bold')
+ .text('Expensive Vol Cooling Off');
+
+ // Top-left label
+ axesGroup.append('text')
+ .attr('x', center100X / 2)
+ .attr('y', 20)
+ .attr('fill', '#00CED1')
+ .attr('text-anchor', 'middle')
+ .attr('font-size', '16px')
+ .attr('font-weight', 'bold')
+ .text('Cheap Vol Heating Up');
+
+ // Top-right label
+ axesGroup.append('text')
+ .attr('x', center100X + (chartWidth - center100X) / 2)
+ .attr('y', 20)
+ .attr('fill', '#DA70D6')
+ .attr('text-anchor', 'middle')
+ .attr('font-size', '16px')
+ .attr('font-weight', 'bold')
+ .text('Expensive Vol Getting More Expensive');
+ } else {
+ // Regular RRG labels
+ // Bottom-left label
  axesGroup.append('text')
  .attr('x', center100X / 2)
  .attr('y', chartHeight - 10)
@@ -717,9 +765,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('text-anchor', 'middle')
  .attr('font-size', '16px')
  .attr('font-weight', 'bold')
- .text(chartMode === 'IV' ? 'Low IV / Decreasing' : 'Lagging');
+ .text('Lagging');
 
- // Weakening label (bottom-right, on X-axis)
+ // Bottom-right label
  axesGroup.append('text')
  .attr('x', center100X + (chartWidth - center100X) / 2)
  .attr('y', chartHeight - 10)
@@ -727,9 +775,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('text-anchor', 'middle')
  .attr('font-size', '16px')
  .attr('font-weight', 'bold')
- .text(chartMode === 'IV' ? 'High IV / Decreasing' : 'Weakening');
+ .text('Weakening');
 
- // Improving label (top-left, above blue quadrant)
+ // Top-left label
  axesGroup.append('text')
  .attr('x', center100X / 2)
  .attr('y', 20)
@@ -737,9 +785,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('text-anchor', 'middle')
  .attr('font-size', '16px')
  .attr('font-weight', 'bold')
- .text(chartMode === 'IV' ? 'Low IV / Increasing' : 'Improving');
+ .text('Improving');
 
- // Leading label (top-right, above green quadrant)
+ // Top-right label
  axesGroup.append('text')
  .attr('x', center100X + (chartWidth - center100X) / 2)
  .attr('y', 20)
@@ -747,7 +795,8 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('text-anchor', 'middle')
  .attr('font-size', '16px')
  .attr('font-weight', 'bold')
- .text(chartMode === 'IV' ? 'High IV / Increasing' : 'Leading');
+ .text('Leading');
+ }
 
  // Draw tails if enabled
  if (showTails) {
@@ -756,24 +805,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
  // Limit tail points based on tailLength parameter
  const limitedTailPoints = point.tail.slice(-tailLength);
  
- // More aggressive filtering - strict boundaries with pixel-level checking
- const visibleTailPoints = limitedTailPoints.filter(tailPoint => {
- const x = xScale(tailPoint.rsRatio);
- const y = yScale(tailPoint.rsMomentum);
- return x >= 0 && x <= chartWidth && y >= 0 && y <= chartHeight &&
- tailPoint.rsRatio >= currentXDomain[0] &&
- tailPoint.rsRatio <= currentXDomain[1] &&
- tailPoint.rsMomentum >= currentYDomain[0] &&
- tailPoint.rsMomentum <= currentYDomain[1];
- });
-
- // ALWAYS include the current position to ensure tail connects completely
- const currentPoint = { rsRatio: point.rsRatio, rsMomentum: point.rsMomentum };
- 
- // Force tail to always end at current position, regardless of zoom/pan
- const tailData = visibleTailPoints.length > 0 
- ? [...visibleTailPoints, currentPoint] 
- : [currentPoint]; // At least show current point
+ // Don't filter tail points - show full tail and let SVG clipping handle visibility
+ // This prevents tails from jumping when zooming (StockCharts behavior)
+ const tailData = [...limitedTailPoints, { rsRatio: point.rsRatio, rsMomentum: point.rsMomentum }];
  
  if (tailData.length > 1) {
  // Get persistent color for this ticker
@@ -898,6 +932,11 @@ const RRGChart: React.FC<RRGChartProps> = ({
  // Add chart-level dimming class
  d3.select(svgRef.current).classed('chart-dimmed', true);
  
+ // Stop all ongoing transitions first
+ chartGroup.selectAll('.ticker-element').interrupt();
+ chartGroup.selectAll('[class*="tail-path-"]').interrupt();
+ chartGroup.selectAll('.tail-arrow').interrupt();
+ 
  // Gray out all other elements
  chartGroup.selectAll('.ticker-element')
  .classed('dimmed', true)
@@ -932,27 +971,32 @@ const RRGChart: React.FC<RRGChartProps> = ({
  // Remove chart-level dimming class
  d3.select(svgRef.current).classed('chart-dimmed', false);
  
- // Restore all elements with stable timing
+ // Stop all ongoing transitions first
+ chartGroup.selectAll('.ticker-element').interrupt();
+ chartGroup.selectAll('[class*="tail-path-"]').interrupt();
+ chartGroup.selectAll('.tail-arrow').interrupt();
+ 
+ // Restore all elements with stable timing - explicitly remove grayscale
  chartGroup.selectAll('.ticker-element')
  .classed('highlighted', false)
  .classed('dimmed', false)
  .transition()
  .duration(250) // Slightly faster restore
- .style('opacity', null)
- .style('filter', null); // Simplified - just clear all filters
+ .style('opacity', 1)
+ .style('filter', 'none'); // Use 'none' instead of null to force clear
  
  // Restore tail thickness
  chartGroup.selectAll('[class*="tail-path-"]')
  .transition()
  .duration(250)
  .attr('stroke-width', 2.5)
- .style('filter', null);
+ .style('filter', 'none');
  
  // Restore arrow styling
  chartGroup.selectAll('.tail-arrow')
  .transition()
  .duration(250)
- .style('filter', null); // Clear all filters to prevent conflicts
+ .style('filter', 'none'); // Use 'none' to force clear
  });
 
  points.append('circle')
@@ -1008,6 +1052,49 @@ const RRGChart: React.FC<RRGChartProps> = ({
  <div className="rrg-controls">
  {/* Left side - Analysis controls */}
  <div className="left-controls">
+ {isIVMode ? (
+ // IV RRG Mode - Custom symbol selection only
+ <>
+ <div className="control-group">
+ <label>Symbol Group:</label>
+ <select 
+ value={symbolMode}
+ onChange={(e) => {
+ const value = e.target.value as 'custom' | 'mag7' | 'highBeta' | 'lowBeta';
+ onSymbolModeChange?.(value);
+ }}
+ disabled={loading}
+ className="analysis-select"
+ >
+ <option value="custom">CUSTOM</option>
+ <option value="mag7">MAG 7</option>
+ <option value="highBeta">HIGH BETA</option>
+ <option value="lowBeta">LOW BETA</option>
+ </select>
+ </div>
+
+ {symbolMode === 'custom' && (
+ <div className="control-group" style={{ gridColumn: '1 / -1' }}>
+ <label>Custom Symbols (comma-separated):</label>
+ <input
+ type="text"
+ value={customSymbols}
+ onChange={(e) => onCustomSymbolsChange?.(e.target.value)}
+ onKeyPress={(e) => {
+ if (e.key === 'Enter' && customSymbols.trim()) {
+ onRefresh?.();
+ }
+ }}
+ placeholder="e.g., AAPL,MSFT,GOOGL (Press Enter to load)"
+ disabled={loading}
+ className="custom-symbols-input"
+ />
+ </div>
+ )}
+ </>
+ ) : (
+ // Regular RRG Mode - Keep existing sector/industry controls
+ <>
  <div className="control-group">
  <label>Analysis Mode:</label>
  <select 
@@ -1075,6 +1162,8 @@ const RRGChart: React.FC<RRGChartProps> = ({
  }}
  />
  </div>
+ )}
+ </>
  )}
 
  <div className="control-group">
@@ -1419,109 +1508,6 @@ const RRGChart: React.FC<RRGChartProps> = ({
  Showing {visibleTickers.size} of {Object.keys(tickerColors).length} tickers
  </div>
  </div>
-
- {/* IV Data Table - Only show in IV mode */}
- {chartMode === 'IV' && data.length > 0 && (
- <div style={{
- background: 'rgba(20, 20, 20, 0.95)',
- border: '1px solid rgba(0, 255, 255, 0.3)',
- borderRadius: '8px',
- padding: '12px',
- marginTop: '16px'
- }}>
- <h4 style={{ color: 'white', margin: '0 0 10px 0', fontSize: '16px' }}>IV Metrics vs {benchmark}</h4>
- <div style={{ 
- maxHeight: '300px', 
- overflowY: 'auto',
- overflowX: 'auto'
- }}>
- <table style={{
- width: '100%',
- borderCollapse: 'collapse',
- fontSize: '0.75rem',
- color: '#ddd'
- }}>
- <thead>
- <tr style={{ 
- borderBottom: '1px solid rgba(0, 255, 255, 0.3)',
- position: 'sticky',
- top: 0,
- background: 'rgba(20, 20, 20, 0.98)'
- }}>
- <th style={{ padding: '6px 8px', textAlign: 'left', color: '#0ff' }}>Ticker</th>
- <th style={{ padding: '6px 8px', textAlign: 'right', color: '#0ff' }}>Current IV</th>
- <th style={{ padding: '6px 8px', textAlign: 'right', color: '#0ff' }}>IV Ratio</th>
- <th style={{ padding: '6px 8px', textAlign: 'right', color: '#0ff' }}>IV Momentum</th>
- <th style={{ padding: '6px 8px', textAlign: 'right', color: '#0ff' }}>IV Rank</th>
- <th style={{ padding: '6px 8px', textAlign: 'right', color: '#0ff' }}>IV %ile</th>
- <th style={{ padding: '6px 8px', textAlign: 'center', color: '#0ff' }}>Quadrant</th>
- </tr>
- </thead>
- <tbody>
- {data.map((point) => {
- const quadrant = getQuadrant(point.rsRatio, point.rsMomentum);
- const quadrantColor = quadrantColors[quadrant];
- return (
- <tr key={point.symbol} style={{ 
- borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
- background: visibleTickers.has(point.symbol) ? 'transparent' : 'rgba(100, 100, 100, 0.2)'
- }}>
- <td style={{ 
- padding: '6px 8px', 
- color: tickerColors[point.symbol],
- fontWeight: 'bold',
- textDecoration: visibleTickers.has(point.symbol) ? 'none' : 'line-through',
- opacity: visibleTickers.has(point.symbol) ? 1 : 0.5
- }}>
- {point.symbol}
- </td>
- <td style={{ padding: '6px 8px', textAlign: 'right' }}>
- {point.currentIV ? `${point.currentIV.toFixed(2)}%` : 'N/A'}
- </td>
- <td style={{ 
- padding: '6px 8px', 
- textAlign: 'right',
- color: point.rsRatio >= 100 ? '#4ade80' : '#f87171'
- }}>
- {point.rsRatio.toFixed(2)}
- </td>
- <td style={{ 
- padding: '6px 8px', 
- textAlign: 'right',
- color: point.rsMomentum >= 100 ? '#4ade80' : '#f87171'
- }}>
- {point.rsMomentum.toFixed(2)}
- </td>
- <td style={{ padding: '6px 8px', textAlign: 'right' }}>
- {point.ivRank !== undefined ? `${point.ivRank.toFixed(0)}%` : 'N/A'}
- </td>
- <td style={{ padding: '6px 8px', textAlign: 'right' }}>
- {point.ivPercentile !== undefined ? `${point.ivPercentile.toFixed(0)}%` : 'N/A'}
- </td>
- <td style={{ 
- padding: '6px 8px', 
- textAlign: 'center',
- color: quadrantColor,
- fontWeight: 'bold'
- }}>
- {quadrant === 'leading' ? 'High/Inc' : 
- quadrant === 'weakening' ? 'High/Dec' :
- quadrant === 'lagging' ? 'Low/Dec' : 'Low/Inc'}
- </td>
- </tr>
- );
- })}
- </tbody>
- </table>
- </div>
- <div style={{ marginTop: '8px', fontSize: '0.7rem', color: '#888', fontStyle: 'italic' }}>
- IV Ratio: Current IV relative to {benchmark} (normalized to 100) | 
- IV Momentum: Rate of change in IV Ratio | 
- IV Rank: Position in historical IV range | 
- IV %ile: Percentile of current IV
- </div>
- </div>
- )}
  </div>
  </div>
  </div>
