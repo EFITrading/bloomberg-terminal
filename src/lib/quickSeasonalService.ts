@@ -1,4 +1,3 @@
-// Quick seasonal data utility for chatbot
 import PolygonService from './polygonService';
 import GlobalDataCache from './GlobalDataCache';
 
@@ -128,10 +127,9 @@ class QuickSeasonalService {
  async getQuickSeasonalData(symbol: string, yearsBack: number = 15): Promise<QuickSeasonalData | null> {
  try {
  console.log(` QuickSeasonalService: Starting FAST analysis for ${symbol} with ${yearsBack} years`);
- const cache = GlobalDataCache.getInstance();
+ const cache = new GlobalDataCache();
  
- // Reduce years for performance (5 years is usually enough for seasonal patterns)
- const yearsToFetch = Math.min(yearsBack, 5);
+ const yearsToFetch = yearsBack;
  const endDate = new Date();
  const startDate = new Date();
  startDate.setFullYear(endDate.getFullYear() - yearsToFetch);

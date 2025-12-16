@@ -104,9 +104,11 @@ interface SeasonalityChartProps {
  autoStart?: boolean;
  initialSymbol?: string;
  onClose?: () => void;
+ hideControls?: boolean;
+ onSymbolChange?: (symbol: string) => void;
 }
 
-const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, initialSymbol, onClose }) => {
+const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, initialSymbol, onClose, hideControls = false, onSymbolChange }) => {
  const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || 'SPY');
  const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null);
  const [electionData, setElectionData] = useState<ElectionCycleData | null>(null);
@@ -257,16 +259,17 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  }
  }
  } else {
- spyResponse = null;
+ // For SPY itself, use the cached SPY data as both ticker and comparison
+ spyResponse = cachedHistorical;
  }
  } else {
  console.log(` Fetching new data for ${symbol}...`);
  
  // Fetch historical data - if symbol is SPY, only fetch SPY data once
  if (symbol.toUpperCase() === 'SPY') {
- // For SPY, just fetch once and use for both
+ // For SPY, fetch once and use it as both the ticker and comparison
  historicalResponse = await polygonService.getHistoricalData(symbol, startDateStr, endDateStr);
- spyResponse = null; // Don't need separate SPY data when analyzing SPY itself
+ spyResponse = historicalResponse; // Use same data for SPY comparison calculations
  } else {
  // For other symbols, fetch both symbol and SPY for comparison
  [historicalResponse, spyResponse] = await Promise.all([
@@ -343,8 +346,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  
  let finalReturn = stockReturn;
  
- // If we have SPY data, calculate relative performance vs SPY
- if (spyData && spyData.length > 0) {
+ // If we have SPY data and we're NOT analyzing SPY itself, calculate relative performance vs SPY
+ if (spyData && spyData.length > 0 && symbol.toUpperCase() !== 'SPY') {
  const currentSpy = spyLookup[currentItem.t];
  const previousSpy = spyLookup[previousItem.t];
  
@@ -356,7 +359,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  continue;
  }
  }
- // If no SPY data (i.e., analyzing SPY itself), use absolute returns
+ // If no SPY data OR analyzing SPY itself, use absolute returns
  
  if (!dailyGroups[dayOfYear]) {
  dailyGroups[dayOfYear] = [];
@@ -496,7 +499,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  data.spyReturns.reduce((sum, ret) => sum + ret, 0) / data.spyReturns.length : 0;
  
  // Calculate outperformance as ticker average minus SPY average
- const outperformance = avgTickerReturn - avgSpyReturn;
+ // For SPY itself, just show the actual returns instead of comparing to itself
+ const outperformance = symbol.toUpperCase() === 'SPY' ? avgTickerReturn : avgTickerReturn - avgSpyReturn;
  
  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
  return {
@@ -663,9 +667,11 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  setSelectedSymbol(symbol);
  setIsElectionMode(false); // Reset to normal seasonal mode when symbol changes
  setElectionData(null);
+  if (onSymbolChange) {
+   onSymbolChange(symbol);
+  }
  };
 
- // Analyze 50-90 day periods for Sweet Spot and Pain Point functionality
  const analyzeLongTermPatterns = (dailyData: DailySeasonalData[]) => {
  let bestSweetSpot = { startDay: 1, endDay: 50, avgReturn: -999, period: '', totalReturn: 0 };
  let worstPainPoint = { startDay: 1, endDay: 50, avgReturn: 999, period: '', totalReturn: 0 };
@@ -675,15 +681,15 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  // Slide through the year
  for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
  const endDay = startDay + windowSize - 1;
- const windowData = dailyData.filter(d => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
+ const windowData = dailyData.filter((d: DailySeasonalData) => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
  
  if (windowData.length >= Math.floor(windowSize * 0.8)) { // Ensure we have at least 80% of data points
  // Calculate cumulative return for the period
- const sortedWindowData = windowData.sort((a, b) => a.dayOfYear - b.dayOfYear);
+ const sortedWindowData = windowData.sort((a: DailySeasonalData, b: DailySeasonalData) => a.dayOfYear - b.dayOfYear);
  let cumulativeReturn = 0;
  let avgReturn = 0;
  
- sortedWindowData.forEach(d => {
+ sortedWindowData.forEach((d: DailySeasonalData) => {
  cumulativeReturn += d.avgReturn;
  avgReturn += d.avgReturn;
  });
@@ -692,8 +698,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  
  // Check for best sweet spot
  if (cumulativeReturn > bestSweetSpot.totalReturn) {
- const startDataPoint = dailyData.find(d => d.dayOfYear === startDay);
- const endDataPoint = dailyData.find(d => d.dayOfYear === endDay);
+ const startDataPoint = dailyData.find((d: DailySeasonalData) => d.dayOfYear === startDay);
+ const endDataPoint = dailyData.find((d: DailySeasonalData) => d.dayOfYear === endDay);
  
  if (startDataPoint && endDataPoint) {
  bestSweetSpot = {
@@ -708,8 +714,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  
  // Check for worst pain point
  if (cumulativeReturn < worstPainPoint.totalReturn) {
- const startDataPoint = dailyData.find(d => d.dayOfYear === startDay);
- const endDataPoint = dailyData.find(d => d.dayOfYear === endDay);
+ const startDataPoint = dailyData.find((d: DailySeasonalData) => d.dayOfYear === startDay);
+ const endDataPoint = dailyData.find((d: DailySeasonalData) => d.dayOfYear === endDay);
  
  if (startDataPoint && endDataPoint) {
  worstPainPoint = {
@@ -988,79 +994,96 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  };
 
  return (
- <div className="seasonax-container">
- {/* Header with symbol search, monthly returns, and controls */}
- <div className="seasonax-header">
- <SeasonaxSymbolSearch 
- onSymbolSelect={handleSymbolChange} 
- initialSymbol={selectedSymbol}
- onElectionPeriodSelect={handleElectionPeriodSelect}
- onElectionModeToggle={handleElectionModeToggle}
- />
- {/* Sweet Spot / Pain Point Buttons */}
- <div className="sweet-pain-buttons">
- <button className="sweet-spot-btn compare-btn" onClick={handleSweetSpotClick}>Sweet Spot</button>
- <button className="pain-point-btn compare-btn" onClick={handlePainPointClick}>Pain Point</button>
- </div>
- 
- {/* Show monthly returns based on current mode */}
- {(isElectionMode ? electionData?.spyComparison?.monthlyData : seasonalData?.spyComparison?.monthlyData) && (
- <HorizontalMonthlyReturns 
- monthlyData={isElectionMode ? electionData!.spyComparison!.monthlyData : seasonalData!.spyComparison!.monthlyData}
- best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
- worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
- />
- )}
- <SeasonaxControls 
- settings={chartSettings}
- onSettingsChange={handleSettingsChange}
- onRefresh={handleRefresh}
- />
- </div>
+  <div className="seasonax-container">
+   {/* Header with symbol search, monthly returns, and controls */}
+   {!hideControls && (
+   <div className="seasonax-header">
+    <SeasonaxSymbolSearch 
+     onSymbolSelect={handleSymbolChange} 
+     initialSymbol={selectedSymbol}
+     onElectionPeriodSelect={handleElectionPeriodSelect}
+     onElectionModeToggle={handleElectionModeToggle}
+    />
+    {/* Sweet Spot / Pain Point Buttons */}
+    <div className="sweet-pain-buttons">
+     <button className="sweet-spot-btn compare-btn" onClick={handleSweetSpotClick}>Sweet Spot</button>
+     <button className="pain-point-btn compare-btn" onClick={handlePainPointClick}>Pain Point</button>
+    </div>
+    
+    {/* Show monthly returns based on current mode */}
+    {(isElectionMode ? electionData?.spyComparison?.monthlyData : seasonalData?.spyComparison?.monthlyData) && (
+     <HorizontalMonthlyReturns 
+      monthlyData={isElectionMode ? electionData!.spyComparison!.monthlyData : seasonalData!.spyComparison!.monthlyData}
+      best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
+      worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
+     />
+    )}
+    <SeasonaxControls 
+     settings={chartSettings}
+     onSettingsChange={handleSettingsChange}
+     onRefresh={handleRefresh}
+    />
+   </div>
+   )}
 
- {error && (
- <div className="seasonax-error">
- <div className="error-content">
- <h3>Error Loading Data</h3>
- <p>{error}</p>
- <button 
- onClick={() => {
- if (isElectionMode) {
- loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
- } else {
- loadSeasonalAnalysis(selectedSymbol);
- }
- }}
- className="retry-button"
- >
- Retry
- </button>
- </div>
- </div>
- )}
+   {/* Show only monthly returns when hideControls is true */}
+   {hideControls && (isElectionMode ? electionData?.spyComparison?.monthlyData : seasonalData?.spyComparison?.monthlyData) && (
+    <HorizontalMonthlyReturns 
+     monthlyData={isElectionMode ? electionData!.spyComparison!.monthlyData : seasonalData!.spyComparison!.monthlyData}
+     best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
+     worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
+     yearsOfData={chartSettings.yearsOfData}
+     onYearsChange={(years) => handleSettingsChange({ yearsOfData: years })}
+     selectedElectionPeriod={displayElectionPeriod}
+     onElectionPeriodChange={handleElectionPeriodSelect}
+     onSweetSpotClick={handleSweetSpotClick}
+     onPainPointClick={handlePainPointClick}
+    />
+   )}
 
- {loading && (
- <div className="seasonax-loading">
- <div className="loading-spinner"></div>
- <p>Loading {isElectionMode ? 'election cycle' : 'seasonal'} analysis for {selectedSymbol}...</p>
- </div>
- )}
+   {error && (
+    <div className="seasonax-error">
+     <div className="error-content">
+      <h3>Error Loading Data</h3>
+      <p>{error}</p>
+      <button 
+       onClick={() => {
+        if (isElectionMode) {
+         loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
+        } else {
+         loadSeasonalAnalysis(selectedSymbol);
+        }
+       }}
+       className="retry-button"
+      >
+       Retry
+      </button>
+     </div>
+    </div>
+   )}
 
- {/* Show data based on current mode */}
- {((isElectionMode && electionData) || (!isElectionMode && seasonalData)) && !loading && (
- <div className="seasonax-content full-width">
- {/* Main Chart Area - Full Width */}
- <div className="seasonax-charts full-width">
- <SeasonaxMainChart
- data={(isElectionMode ? electionData : seasonalData) as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
- settings={chartSettings}
- sweetSpotPeriod={sweetSpotPeriod}
- painPointPeriod={painPointPeriod}
- />
- </div>
- </div>
- )}
- </div>
+   {loading && (
+    <div className="seasonax-loading">
+     <div className="loading-spinner"></div>
+     <p>Loading {isElectionMode ? 'election cycle' : 'seasonal'} analysis for {selectedSymbol}...</p>
+    </div>
+   )}
+
+   {/* Show data based on current mode */}
+   {((isElectionMode && electionData) || (!isElectionMode && seasonalData)) && !loading && (
+    <div className="seasonax-content full-width">
+     {/* Main Chart Area - Full Width */}
+     <div className="seasonax-charts full-width">
+      <SeasonaxMainChart
+       data={(isElectionMode ? electionData : seasonalData) as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
+       settings={chartSettings}
+       sweetSpotPeriod={sweetSpotPeriod}
+       painPointPeriod={painPointPeriod}
+      />
+     </div>
+    </div>
+   )}
+  </div>
  );
 };
 

@@ -387,7 +387,7 @@ export default function Analytics() {
  {/* IV RRG - Only render when active */}
  {activeTab === 'iv-rrg' && (
  <IVRRGAnalytics 
-             defaultTimeframe="60 days"
+             defaultTimeframe="120 days"
              defaultBenchmark="SPY"
            />
          )}

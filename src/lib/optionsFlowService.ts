@@ -1388,6 +1388,10 @@ export class OptionsFlowService {
     console.log(`🔧 ALL-EXPIRATION SNAPSHOT: Fetching ${ticker} with 5% ITM filter`);
     
     try {
+      // Get smart date range for proper historical data
+      const { currentDate, isLive } = getSmartDateRange();
+      const targetDate = new Date(currentDate);
+      
       // Get current spot price
       const spotPrice = await this.getCurrentStockPrice(ticker);
       if (spotPrice <= 0) {
@@ -1436,11 +1440,10 @@ export class OptionsFlowService {
         
         const tradeTimestamp = contract.last_trade.sip_timestamp / 1000000;
         const tradeDate = new Date(tradeTimestamp);
-        const today = new Date();
         
-        // FILTER: Only include trades from today (not 2024 data!)
-        if (tradeDate.toDateString() !== today.toDateString()) {
-          continue; // Skip old trades
+        // FILTER: Only include trades from the target date (currentDate from smart date range)
+        if (tradeDate.toDateString() !== targetDate.toDateString()) {
+          continue; // Skip trades not from target date
         }
         
         // Market hours filter

@@ -1964,7 +1964,6 @@ interface TradingViewChartProps {
  height?: number;
  onSymbolChange?: (symbol: string) => void;
  onTimeframeChange?: (timeframe: string) => void;
- onAIButtonClick?: () => void;
 }
 
 export default function TradingViewChart({
@@ -1972,8 +1971,7 @@ export default function TradingViewChart({
  initialTimeframe = '1d',
  height = 600,
  onSymbolChange,
- onTimeframeChange,
- onAIButtonClick
+ onTimeframeChange
 }: TradingViewChartProps) {
  // Canvas refs
  const containerRef = useRef<HTMLDivElement>(null);
@@ -10513,93 +10511,6 @@ export default function TradingViewChart({
 
  {/* Enhanced Action Buttons */}
  <div className="flex items-center space-x-4">
-
- {/* AI Button - Futuristic Silver/Chrome Design */}
- <button 
- className="relative group overflow-hidden"
- onClick={() => {
- console.log('AI button clicked in TradingViewChart!');
- console.log('onAIButtonClick prop:', onAIButtonClick);
- if (onAIButtonClick) {
- onAIButtonClick();
- } else {
- console.log('onAIButtonClick prop is undefined!');
- }
- }}
- style={{
- padding: '12px 20px',
- borderRadius: '10px',
- background: 'linear-gradient(145deg, #1a1a1a 0%, #000000 30%, #1a1a1a 70%, #2a2a2a 100%)',
- border: '2px solid transparent',
- backgroundImage: 'linear-gradient(145deg, #1a1a1a 0%, #000000 30%, #1a1a1a 70%, #2a2a2a 100%), linear-gradient(90deg, #C0C0C0, #E8E8E8, #C0C0C0)',
- backgroundOrigin: 'border-box',
- backgroundClip: 'padding-box, border-box',
- color: '#E8E8E8',
- fontWeight: '800',
- fontSize: '13px',
- letterSpacing: '1.2px',
- textShadow: `
- 0 0 5px rgba(232, 232, 232, 0.8),
- 0 2px 4px rgba(0, 0, 0, 0.9),
- 0 0 10px rgba(192, 192, 192, 0.4),
- 2px 2px 0px rgba(0, 0, 0, 0.8)
- `,
- boxShadow: `
- inset 0 3px 6px rgba(0, 0, 0, 0.4),
- inset 0 -3px 6px rgba(232, 232, 232, 0.1),
- 0 6px 20px rgba(0, 0, 0, 0.6),
- 0 2px 8px rgba(192, 192, 192, 0.2),
- 0 0 25px rgba(192, 192, 192, 0.1)
- `,
- transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
- position: 'relative'
- }}
- onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
- e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
- e.currentTarget.style.color = '#FFFFFF';
- e.currentTarget.style.textShadow = `
- 0 0 8px rgba(255, 255, 255, 1),
- 0 2px 4px rgba(0, 0, 0, 0.9),
- 0 0 15px rgba(232, 232, 232, 0.6),
- 2px 2px 0px rgba(0, 0, 0, 0.8)
- `;
- e.currentTarget.style.boxShadow = `
- inset 0 4px 8px rgba(0, 0, 0, 0.5),
- inset 0 -4px 8px rgba(232, 232, 232, 0.15),
- 0 8px 25px rgba(0, 0, 0, 0.7),
- 0 4px 12px rgba(192, 192, 192, 0.3),
- 0 0 35px rgba(192, 192, 192, 0.2)
- `;
- }}
- onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
- e.currentTarget.style.transform = 'translateY(0) scale(1)';
- e.currentTarget.style.color = '#E8E8E8';
- e.currentTarget.style.textShadow = `
- 0 0 5px rgba(232, 232, 232, 0.8),
- 0 2px 4px rgba(0, 0, 0, 0.9),
- 0 0 10px rgba(192, 192, 192, 0.4),
- 2px 2px 0px rgba(0, 0, 0, 0.8)
- `;
- e.currentTarget.style.boxShadow = `
- inset 0 3px 6px rgba(0, 0, 0, 0.4),
- inset 0 -3px 6px rgba(232, 232, 232, 0.1),
- 0 6px 20px rgba(0, 0, 0, 0.6),
- 0 2px 8px rgba(192, 192, 192, 0.2),
- 0 0 25px rgba(192, 192, 192, 0.1)
- `;
- }}
- >
- {/* Chrome shine effect */}
- <div 
- className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
- style={{
- background: 'linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%)',
- animation: 'shimmer 1.5s infinite',
- borderRadius: '8px'
- }}
- ></div>
- <span className="relative z-10">AI</span>
- </button>
 
  </div>
 

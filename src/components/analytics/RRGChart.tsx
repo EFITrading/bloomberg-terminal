@@ -275,17 +275,19 @@ const RRGChart: React.FC<RRGChartProps> = ({
  // Persistent color palette for tickers - each ticker gets a unique color that never changes
  const generateTickerColor = (symbol: string, index: number): string => {
  const colors = [
- '#FF0000', // RED
- '#00FF00', // GREEN
- '#0000FF', // BLUE
- '#FFFF00', // YELLOW
- '#800080', // PURPLE
- '#FFC0CB', // PINK
+ '#FF0000', // BRIGHT RED
+ '#00FF00', // BRIGHT GREEN
+ '#0000FF', // BRIGHT BLUE
+ '#FFFF00', // BRIGHT YELLOW
+ '#FF00FF', // BRIGHT MAGENTA
+ '#00FFFF', // BRIGHT CYAN
+ '#FF8000', // BRIGHT ORANGE
+ '#8000FF', // BRIGHT PURPLE
+ '#FF0080', // BRIGHT PINK
+ '#00FF80', // BRIGHT SPRING GREEN
  '#FFFFFF', // WHITE
- '#32CD32', // LIME GREEN
- '#87CEEB', // BABY BLUE
  '#FF4500', // RED ORANGE
- '#00FF7F', // SPRING GREEN
+ '#32CD32', // LIME GREEN
  '#1E90FF', // DODGE BLUE
  '#FFD700', // GOLD
  '#9932CC', // DARK ORCHID
@@ -344,12 +346,24 @@ const RRGChart: React.FC<RRGChartProps> = ({
  return colorMap;
  }, [currentData.map(d => d.symbol).join(',')]);
 
- const quadrantColors = {
+ // Bloomberg Terminal Color Scheme for IV RRG
+ const ivQuadrantColors = {
+    leading: '#30D158', // GREEN - Leading Negative (top-right)
+    weakening: '#FF3B30', // RED - Lagging Positive (bottom-right)
+    lagging: '#FF9500', // ORANGE - Lagging Negative (bottom-left)
+    improving: '#00D4FF' // BLUE/CYAN - Leading Positive (top-left)
+  };
+
+ // Standard RRG Color Scheme
+ const standardQuadrantColors = {
     leading: '#228B22', // GREEN - Leading (top-right)
     weakening: '#FFD700', // YELLOW - Weakening (bottom-right)
     lagging: '#FF0000', // RED - Lagging (bottom-left)
     improving: '#0000FF' // BLUE - Improving (top-left)
   };
+
+ // Use IV colors when in IV mode, otherwise use standard colors
+ const quadrantColors = isIVMode ? ivQuadrantColors : standardQuadrantColors;
 
  const getQuadrant = (rsRatio: number, rsMomentum: number): keyof typeof quadrantColors => {
  if (rsRatio >= 100 && rsMomentum >= 100) return 'leading';
@@ -471,7 +485,11 @@ const RRGChart: React.FC<RRGChartProps> = ({
  // Expand scales to ensure 100,100 is centered or use auto-fit
  let xDomain, yDomain;
  
- if (autoFit && rsRatioExtent && rsMomentumExtent) {
+ // If no data, use default centered domain to show empty quadrants
+ if (currentData.length === 0 || !rsRatioExtent[0] || !rsMomentumExtent[0]) {
+ xDomain = [80, 120];
+ yDomain = [80, 120];
+ } else if (autoFit && rsRatioExtent && rsMomentumExtent) {
  const rsRatioPadding = (rsRatioExtent[1] - rsRatioExtent[0]) * 0.1;
  const rsMomentumPadding = (rsMomentumExtent[1] - rsMomentumExtent[0]) * 0.1;
  
@@ -642,45 +660,171 @@ const RRGChart: React.FC<RRGChartProps> = ({
  const domainMinY = yScale.domain()[0];
  const domainMaxY = yScale.domain()[1];
  
- // Leading quadrant (top-right) - RS Ratio >= 100, RS Momentum >= 100
- chartGroup.append('rect')
- .attr('class', 'quadrant-bg leading')
- .attr('x', xScale(100))
- .attr('y', yScale(domainMaxY))
- .attr('width', xScale(domainMaxX) - xScale(100))
- .attr('height', yScale(100) - yScale(domainMaxY))
- .attr('fill', quadrantColors.leading)
- .attr('opacity', 0.4);
+ if (isIVMode) {
+   // Bloomberg Terminal style gradients for IV RRG - More vibrant and visible
+   const defs = svg.append('defs');
+   
+   // Leading gradient (top-right - Green)
+   const leadingGradient = defs.append('linearGradient')
+     .attr('id', 'leading-gradient')
+     .attr('x1', '0%')
+     .attr('y1', '0%')
+     .attr('x2', '100%')
+     .attr('y2', '100%');
+   leadingGradient.append('stop')
+     .attr('offset', '0%')
+     .attr('stop-color', '#000000')
+     .attr('stop-opacity', 1);
+   leadingGradient.append('stop')
+     .attr('offset', '50%')
+     .attr('stop-color', '#00b300')
+     .attr('stop-opacity', 1);
+   leadingGradient.append('stop')
+     .attr('offset', '100%')
+     .attr('stop-color', '#000000')
+     .attr('stop-opacity', 1);
+   
+   // Weakening gradient (bottom-right - Red)
+   const weakeningGradient = defs.append('linearGradient')
+     .attr('id', 'weakening-gradient')
+     .attr('x1', '0%')
+     .attr('y1', '0%')
+     .attr('x2', '100%')
+     .attr('y2', '100%');
+   weakeningGradient.append('stop')
+     .attr('offset', '0%')
+     .attr('stop-color', '#000000')
+     .attr('stop-opacity', 1);
+   weakeningGradient.append('stop')
+     .attr('offset', '50%')
+     .attr('stop-color', '#b30000')
+     .attr('stop-opacity', 1);
+   weakeningGradient.append('stop')
+     .attr('offset', '100%')
+     .attr('stop-color', '#000000')
+     .attr('stop-opacity', 1);
+   
+   // Lagging gradient (bottom-left - Orange)
+   const laggingGradient = defs.append('linearGradient')
+     .attr('id', 'lagging-gradient')
+     .attr('x1', '0%')
+     .attr('y1', '0%')
+     .attr('x2', '100%')
+     .attr('y2', '100%');
+   laggingGradient.append('stop')
+     .attr('offset', '0%')
+     .attr('stop-color', '#000000')
+     .attr('stop-opacity', 1);
+   laggingGradient.append('stop')
+     .attr('offset', '50%')
+     .attr('stop-color', '#b35900')
+     .attr('stop-opacity', 1);
+   laggingGradient.append('stop')
+     .attr('offset', '100%')
+     .attr('stop-color', '#000000')
+     .attr('stop-opacity', 1);
+   
+   // Improving gradient (top-left - Blue/Cyan)
+   const improvingGradient = defs.append('linearGradient')
+     .attr('id', 'improving-gradient')
+     .attr('x1', '0%')
+     .attr('y1', '0%')
+     .attr('x2', '100%')
+     .attr('y2', '100%');
+   improvingGradient.append('stop')
+     .attr('offset', '0%')
+     .attr('stop-color', '#000000')
+     .attr('stop-opacity', 1);
+   improvingGradient.append('stop')
+     .attr('offset', '50%')
+     .attr('stop-color', '#00b3b3')
+     .attr('stop-opacity', 1);
+   improvingGradient.append('stop')
+     .attr('offset', '100%')
+     .attr('stop-color', '#000000')
+     .attr('stop-opacity', 1);
+   
+   // Leading quadrant (top-right) - RS Ratio >= 100, RS Momentum >= 100
+   chartGroup.append('rect')
+     .attr('class', 'quadrant-bg leading')
+     .attr('x', xScale(100))
+     .attr('y', yScale(domainMaxY))
+     .attr('width', xScale(domainMaxX) - xScale(100))
+     .attr('height', yScale(100) - yScale(domainMaxY))
+     .attr('fill', 'url(#leading-gradient)')
+     .attr('opacity', 1);
 
- // Weakening quadrant (bottom-right) - RS Ratio >= 100, RS Momentum < 100
- chartGroup.append('rect')
- .attr('class', 'quadrant-bg weakening')
- .attr('x', xScale(100))
- .attr('y', yScale(100))
- .attr('width', xScale(domainMaxX) - xScale(100))
- .attr('height', yScale(domainMinY) - yScale(100))
- .attr('fill', quadrantColors.weakening)
- .attr('opacity', 0.4);
+   // Weakening quadrant (bottom-right) - RS Ratio >= 100, RS Momentum < 100
+   chartGroup.append('rect')
+     .attr('class', 'quadrant-bg weakening')
+     .attr('x', xScale(100))
+     .attr('y', yScale(100))
+     .attr('width', xScale(domainMaxX) - xScale(100))
+     .attr('height', yScale(domainMinY) - yScale(100))
+     .attr('fill', 'url(#weakening-gradient)')
+     .attr('opacity', 1);
 
- // Lagging quadrant (bottom-left) - RS Ratio < 100, RS Momentum < 100
- chartGroup.append('rect')
- .attr('class', 'quadrant-bg lagging')
- .attr('x', xScale(domainMinX))
- .attr('y', yScale(100))
- .attr('width', xScale(100) - xScale(domainMinX))
- .attr('height', yScale(domainMinY) - yScale(100))
- .attr('fill', quadrantColors.lagging)
- .attr('opacity', 0.4);
+   // Lagging quadrant (bottom-left) - RS Ratio < 100, RS Momentum < 100
+   chartGroup.append('rect')
+     .attr('class', 'quadrant-bg lagging')
+     .attr('x', xScale(domainMinX))
+     .attr('y', yScale(100))
+     .attr('width', xScale(100) - xScale(domainMinX))
+     .attr('height', yScale(domainMinY) - yScale(100))
+     .attr('fill', 'url(#lagging-gradient)')
+     .attr('opacity', 1);
 
- // Improving quadrant (top-left) - RS Ratio < 100, RS Momentum >= 100
- chartGroup.append('rect')
- .attr('class', 'quadrant-bg improving')
- .attr('x', xScale(domainMinX))
- .attr('y', yScale(domainMaxY))
- .attr('width', xScale(100) - xScale(domainMinX))
- .attr('height', yScale(100) - yScale(domainMaxY))
- .attr('fill', quadrantColors.improving)
- .attr('opacity', 0.4);
+   // Improving quadrant (top-left) - RS Ratio < 100, RS Momentum >= 100
+   chartGroup.append('rect')
+     .attr('class', 'quadrant-bg improving')
+     .attr('x', xScale(domainMinX))
+     .attr('y', yScale(domainMaxY))
+     .attr('width', xScale(100) - xScale(domainMinX))
+     .attr('height', yScale(100) - yScale(domainMaxY))
+     .attr('fill', 'url(#improving-gradient)')
+     .attr('opacity', 1);
+ } else {
+   // Standard solid colors for regular RRG
+   // Leading quadrant (top-right) - RS Ratio >= 100, RS Momentum >= 100
+   chartGroup.append('rect')
+     .attr('class', 'quadrant-bg leading')
+     .attr('x', xScale(100))
+     .attr('y', yScale(domainMaxY))
+     .attr('width', xScale(domainMaxX) - xScale(100))
+     .attr('height', yScale(100) - yScale(domainMaxY))
+     .attr('fill', quadrantColors.leading)
+     .attr('opacity', 0.4);
+
+   // Weakening quadrant (bottom-right) - RS Ratio >= 100, RS Momentum < 100
+   chartGroup.append('rect')
+     .attr('class', 'quadrant-bg weakening')
+     .attr('x', xScale(100))
+     .attr('y', yScale(100))
+     .attr('width', xScale(domainMaxX) - xScale(100))
+     .attr('height', yScale(domainMinY) - yScale(100))
+     .attr('fill', quadrantColors.weakening)
+     .attr('opacity', 0.4);
+
+   // Lagging quadrant (bottom-left) - RS Ratio < 100, RS Momentum < 100
+   chartGroup.append('rect')
+     .attr('class', 'quadrant-bg lagging')
+     .attr('x', xScale(domainMinX))
+     .attr('y', yScale(100))
+     .attr('width', xScale(100) - xScale(domainMinX))
+     .attr('height', yScale(domainMinY) - yScale(100))
+     .attr('fill', quadrantColors.lagging)
+     .attr('opacity', 0.4);
+
+   // Improving quadrant (top-left) - RS Ratio < 100, RS Momentum >= 100
+   chartGroup.append('rect')
+     .attr('class', 'quadrant-bg improving')
+     .attr('x', xScale(domainMinX))
+     .attr('y', yScale(domainMaxY))
+     .attr('width', xScale(100) - xScale(domainMinX))
+     .attr('height', yScale(100) - yScale(domainMaxY))
+     .attr('fill', quadrantColors.improving)
+     .attr('opacity', 0.4);
+ }
 
  // Create axes that stay fixed at chart edges but use updated scales
  const xAxis = d3.axisBottom(xScale)
@@ -716,8 +860,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
  // Add quadrant labels directly on the chart
  if (isIVMode) {
  // IV RRG labels
- // Bottom-left label
- axesGroup.append('text')
+ // Bottom-left label with background
+ const bottomLeftLabel = axesGroup.append('g');
+ const bottomLeftText = bottomLeftLabel.append('text')
  .attr('x', center100X / 2)
  .attr('y', chartHeight - 10)
  .attr('fill', '#00CED1')
@@ -725,9 +870,20 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('font-size', '16px')
  .attr('font-weight', 'bold')
  .text('Cheap Vol Getting Cheaper');
+ const bottomLeftBBox = (bottomLeftText.node() as SVGTextElement).getBBox();
+ bottomLeftLabel.insert('rect', 'text')
+ .attr('x', bottomLeftBBox.x - 8)
+ .attr('y', bottomLeftBBox.y - 4)
+ .attr('width', bottomLeftBBox.width + 16)
+ .attr('height', bottomLeftBBox.height + 8)
+ .attr('fill', '#000000')
+ .attr('stroke', '#00CED1')
+ .attr('stroke-width', 1.5)
+ .attr('rx', 4);
 
- // Bottom-right label
- axesGroup.append('text')
+ // Bottom-right label with background
+ const bottomRightLabel = axesGroup.append('g');
+ const bottomRightText = bottomRightLabel.append('text')
  .attr('x', center100X + (chartWidth - center100X) / 2)
  .attr('y', chartHeight - 10)
  .attr('fill', '#DA70D6')
@@ -735,9 +891,20 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('font-size', '16px')
  .attr('font-weight', 'bold')
  .text('Expensive Vol Cooling Off');
+ const bottomRightBBox = (bottomRightText.node() as SVGTextElement).getBBox();
+ bottomRightLabel.insert('rect', 'text')
+ .attr('x', bottomRightBBox.x - 8)
+ .attr('y', bottomRightBBox.y - 4)
+ .attr('width', bottomRightBBox.width + 16)
+ .attr('height', bottomRightBBox.height + 8)
+ .attr('fill', '#000000')
+ .attr('stroke', '#DA70D6')
+ .attr('stroke-width', 1.5)
+ .attr('rx', 4);
 
- // Top-left label
- axesGroup.append('text')
+ // Top-left label with background
+ const topLeftLabel = axesGroup.append('g');
+ const topLeftText = topLeftLabel.append('text')
  .attr('x', center100X / 2)
  .attr('y', 20)
  .attr('fill', '#00CED1')
@@ -745,9 +912,20 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('font-size', '16px')
  .attr('font-weight', 'bold')
  .text('Cheap Vol Heating Up');
+ const topLeftBBox = (topLeftText.node() as SVGTextElement).getBBox();
+ topLeftLabel.insert('rect', 'text')
+ .attr('x', topLeftBBox.x - 8)
+ .attr('y', topLeftBBox.y - 4)
+ .attr('width', topLeftBBox.width + 16)
+ .attr('height', topLeftBBox.height + 8)
+ .attr('fill', '#000000')
+ .attr('stroke', '#00CED1')
+ .attr('stroke-width', 1.5)
+ .attr('rx', 4);
 
- // Top-right label
- axesGroup.append('text')
+ // Top-right label with background
+ const topRightLabel = axesGroup.append('g');
+ const topRightText = topRightLabel.append('text')
  .attr('x', center100X + (chartWidth - center100X) / 2)
  .attr('y', 20)
  .attr('fill', '#DA70D6')
@@ -755,6 +933,16 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('font-size', '16px')
  .attr('font-weight', 'bold')
  .text('Expensive Vol Getting More Expensive');
+ const topRightBBox = (topRightText.node() as SVGTextElement).getBBox();
+ topRightLabel.insert('rect', 'text')
+ .attr('x', topRightBBox.x - 8)
+ .attr('y', topRightBBox.y - 4)
+ .attr('width', topRightBBox.width + 16)
+ .attr('height', topRightBBox.height + 8)
+ .attr('fill', '#000000')
+ .attr('stroke', '#DA70D6')
+ .attr('stroke-width', 1.5)
+ .attr('rx', 4);
  } else {
  // Regular RRG labels
  // Bottom-left label
@@ -845,18 +1033,18 @@ const RRGChart: React.FC<RRGChartProps> = ({
  // Draw main tail path with FORCED persistent ticker color and specific arrow marker
  chartGroup.append('path')
  .datum(tailData)
- .attr('class', `tail-path-${point.symbol.replace(/[^a-zA-Z0-9]/g, '')} ticker-element ticker-${point.symbol.replace(/[^a-zA-Z0-9]/g, '')}`)
+ .attr('class', `tail-path-${point.symbol.replace(/[^a-zA-Z0-9]/g, '')} ticker-element ticker-${point.symbol.replace(/[^a-zA-Z0-9]/g, '')} ${isIVMode ? 'iv-rrg-tail' : ''}`)
  .attr('fill', 'none')
  .attr('stroke', tickerColor)
- .attr('stroke-width', 2.5)
- .attr('stroke-opacity', 0.8)
+ .attr('stroke-width', 3.5)
+ .attr('stroke-opacity', 1)
  .attr('stroke-linecap', 'round')
  .attr('stroke-linejoin', 'round')
  .attr('d', line)
  .attr('transform', `translate(${offsetX}, ${offsetY})`)
  .attr('marker-end', `url(#${tickerArrowId})`) // Use ticker-specific arrow
- .style('filter', `drop-shadow(0 0 3px ${tickerColor}40)`)
  .style('stroke', tickerColor) // Force stroke color in style to override any CSS
+ .style('opacity', isIVMode ? '1' : null); // Force full opacity for IV RRG only
 
  // Add subtle shadow for depth with same stable offset
  chartGroup.append('path')
@@ -865,7 +1053,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
  .attr('fill', 'none')
  .attr('stroke', '#000')
  .attr('stroke-width', 4)
- .attr('stroke-opacity', 0.3)
+ .attr('stroke-opacity', 0.5)
  .attr('stroke-linecap', 'round')
  .attr('stroke-linejoin', 'round')
  .attr('d', line)
@@ -1047,8 +1235,8 @@ const RRGChart: React.FC<RRGChartProps> = ({
  };
 
  return (
- <div className="rrg-chart-container">
- <div className="rrg-header">
+ <div className={`rrg-chart-container${isIVMode ? ' iv-mode' : ''}`}>
+ <div className={`rrg-header${isIVMode ? ' iv-mode' : ''}`}>
  <div className="rrg-controls">
  {/* Left side - Analysis controls */}
  <div className="left-controls">
@@ -1153,9 +1341,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
  style={{
  width: '100%',
  padding: '8px 12px',
- background: '#1a1a1a',
- border: '1px solid #333',
- color: '#00ff00',
+ background: '#0a0a0a',
+ border: '1px solid #444',
+ color: '#ffffff',
  fontFamily: '"Bloomberg Terminal", monospace',
  fontSize: '13px',
  borderRadius: '4px'
@@ -1417,7 +1605,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
  </button>
  </div>
  </div>
- <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
+ <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
  {Object.entries(tickerColors).slice(0, 20).map(([symbol, color]) => {
  const isVisible = visibleTickers.has(symbol);
  const isLongPressActive = isLongPressing === symbol;
@@ -1434,7 +1622,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
  onTouchCancel={cancelLongPress}
  style={{ 
  padding: '4px 8px', 
- fontSize: '0.8rem',
+ fontSize: '15px',
  cursor: 'pointer',
  opacity: isVisible ? 1 : 0.4,
  background: isLongPressActive 
@@ -1445,7 +1633,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
  transition: 'all 0.2s ease',
  position: 'relative',
  transform: isLongPressActive ? 'scale(1.05)' : 'scale(1)',
- boxShadow: isLongPressActive ? `0 0 15px ${color}60` : 'none'
+ boxShadow: 'none'
  }}
  >
  <div className="legend-color" style={{ 
@@ -1460,7 +1648,9 @@ const RRGChart: React.FC<RRGChartProps> = ({
  <span style={{ 
  fontWeight: 'bold',
  textDecoration: isVisible ? 'none' : 'line-through',
- color: isLongPressActive ? color : 'inherit'
+ color: color,
+ opacity: 1,
+ whiteSpace: 'nowrap'
  }}>{symbol}</span>
  
  {/* Long press progress indicator */}

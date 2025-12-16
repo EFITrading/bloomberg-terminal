@@ -8,6 +8,13 @@
   font-family: 'Bloomberg Terminal', 'Consolas', 'Monaco', monospace;
 }
 
+/* IV RRG candy black premium theme */
+.rrg-chart-container.iv-mode {
+  border: 1px solid #1a1a1a;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: #000000;
+}
+
 .rrg-header {
   display: flex;
   justify-content: center;
@@ -16,6 +23,12 @@
   padding: 12px 20px;
   border-bottom: 2px solid #ff8500;
   background: #000000;
+}
+
+.rrg-header.iv-mode {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #000000;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .rrg-controls {
@@ -60,6 +73,13 @@
   margin-bottom: 2px;
 }
 
+.iv-mode .control-group label {
+  color: #ffffff;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  letter-spacing: 1px;
+}
+
 .analysis-select,
 .benchmark-select,
 .timeframe-select {
@@ -75,6 +95,17 @@
   font-family: 'Bloomberg Terminal', 'Consolas', monospace;
 }
 
+.iv-mode .analysis-select,
+.iv-mode .benchmark-select,
+.iv-mode .timeframe-select {
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-weight: 500;
+}
+
 .analysis-select:hover,
 .benchmark-select:hover,
 .timeframe-select:hover {
@@ -83,12 +114,29 @@
   box-shadow: 0 0 8px rgba(255, 133, 0, 0.3);
 }
 
+.iv-mode .analysis-select:hover,
+.iv-mode .benchmark-select:hover,
+.iv-mode .timeframe-select:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: #000000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
 .analysis-select:focus,
 .benchmark-select:focus,
 .timeframe-select:focus {
   border-color: #ff8500;
   outline: none;
   box-shadow: 0 0 12px rgba(255, 133, 0, 0.5);
+}
+
+.iv-mode .analysis-select:focus,
+.iv-mode .benchmark-select:focus,
+.iv-mode .timeframe-select:focus {
+  border-color: rgba(255, 255, 255, 0.4);
+  outline: none;
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.2), 0 4px 12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .control-btn {
@@ -109,6 +157,17 @@
   overflow: hidden;
 }
 
+.iv-mode .control-btn {
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
 .control-btn:before {
   content: '';
   position: absolute;
@@ -118,6 +177,11 @@
   height: 100%;
   background: linear-gradient(90deg, transparent, rgba(255, 133, 0, 0.2), transparent);
   transition: left 0.5s;
+}
+
+.iv-mode .control-btn:before {
+  background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.15) 50%, transparent 100%);
+  transition: left 0.4s ease;
 }
 
 .control-btn:hover:before {
@@ -132,9 +196,24 @@
   transform: translateY(-1px);
 }
 
+.iv-mode .control-btn:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: #000000;
+  color: #ffffff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.8), inset 0 2px 0 rgba(255, 255, 255, 0.2), inset 0 -2px 0 rgba(0, 0, 0, 0.6), 0 0 20px rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 1);
+}
+
 .control-btn:active {
   transform: translateY(0);
   box-shadow: 0 0 8px rgba(255, 133, 0, 0.6);
+}
+
+.iv-mode .control-btn:active {
+  transform: translateY(0);
+  background: #000000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.9), inset 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .show-tails-control {
@@ -168,6 +247,12 @@
   box-shadow: 0 0 8px rgba(255, 133, 0, 0.4);
 }
 
+.iv-mode .show-tails-control input[type="checkbox"]:checked {
+  background: linear-gradient(145deg, #ffffff 0%, #e8e8e8 100%);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 12px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
 .show-tails-control input[type="checkbox"]:checked:after {
   content: '✓';
   position: absolute;
@@ -189,10 +274,24 @@
   transition: all 0.2s ease;
 }
 
+.iv-mode .tail-length-control {
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
 .tail-length-control:hover {
   background: #111111;
   border-color: #ff8500;
   box-shadow: 0 0 8px rgba(255, 133, 0, 0.3);
+}
+
+.iv-mode .tail-length-control:hover {
+  background: #000000;
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
 }
 
 .tail-length-label {
@@ -208,6 +307,13 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-family: 'Bloomberg Terminal', 'Consolas', monospace;
+}
+
+.iv-mode .tail-length-label {
+  color: #ffffff;
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  letter-spacing: 1.2px;
 }
 
 .tail-length-slider {
@@ -236,9 +342,24 @@
   border: 1px solid #333333;
 }
 
+.iv-mode .tail-length-slider::-webkit-slider-thumb {
+  background: linear-gradient(145deg, #ffffff 0%, #e0e0e0 100%);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 255, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
 .tail-length-slider::-webkit-slider-thumb:hover {
   transform: scale(1.1);
   box-shadow: 0 0 12px rgba(255, 133, 0, 0.8);
+}
+
+.iv-mode .tail-length-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  background: linear-gradient(145deg, #ffffff 0%, #f0f0f0 100%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7), 0 0 20px rgba(255, 255, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 
 .tail-presets {
@@ -261,6 +382,15 @@
   text-align: center;
 }
 
+.iv-mode .preset-btn {
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
 .preset-btn:hover {
   border-color: #ff8500;
   background: #ff8500;
@@ -268,11 +398,28 @@
   box-shadow: 0 0 6px rgba(255, 133, 0, 0.3);
 }
 
+.iv-mode .preset-btn:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: #000000;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0 12px rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
+}
+
 .preset-btn.active {
   background: #ff8500;
   border-color: #ff8500;
   color: #000000;
   box-shadow: 0 0 8px rgba(255, 133, 0, 0.5);
+}
+
+.iv-mode .preset-btn.active {
+  background: linear-gradient(145deg, #ffffff 0%, #e0e0e0 100%);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #000000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7), 0 0 16px rgba(255, 255, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 1), inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+  font-weight: 700;
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
 }
 
 .zoom-indicator {
@@ -286,6 +433,17 @@
   font-family: 'Bloomberg Terminal', 'Consolas', monospace;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.iv-mode .zoom-indicator {
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  letter-spacing: 1px;
 }
 
 /* Quadrant background styles */
@@ -567,6 +725,7 @@
 
 .legend-item {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 12px;
   font-size: 0.9rem;
@@ -822,6 +981,22 @@
 
 .ticker-element.dimmed {
   opacity: 0.15 !important;
+}
+
+/* IV RRG specific - force full brightness and opacity */
+.iv-rrg-tail {
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+.iv-rrg-tail.dimmed {
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+.chart-dimmed .iv-rrg-tail {
+  opacity: 1 !important;
+  filter: none !important;
 }
 
 /* Points with persistent colors and stable hover effects */

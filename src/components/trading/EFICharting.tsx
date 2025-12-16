@@ -45,6 +45,8 @@ import { useGEXData } from '../../hooks/useGEXData';
 import { GEXChartOverlay } from '../GEXChartOverlay';
 import { getExpirationDates, getExpirationDatesFromAPI, getDaysUntilExpiration } from '../../lib/optionsExpirationUtils';
 import { createApiUrl } from '../../lib/apiConfig';
+import GuideChatbot from '../chatbot/GuideChatbot';
+import { useChatStore } from '../../store/chatStore';
 
 // Add custom styles for 3D carved effect and holographic animations
 const carvedTextStyles = `
@@ -354,7 +356,7 @@ const TRADINGVIEW_TIMEFRAMES = [
  { label: '1D', value: '1d', lookback: 5475 }, // 15 years for daily data (like TradingView Pro)
  { label: '1W', value: '1w', lookback: 7300 }, // 20 years for weekly data
  { label: '1M', value: '1mo', lookback: 10950 }, // 30 years for monthly data
- { label: '1M', value: '1mo', lookback: 3650 } // 10 years for monthly data
+ { label: '1Y', value: '1y', lookback: 14600 } // 40 years for yearly data
 ];
 
 // Chart Types
@@ -2255,7 +2257,6 @@ interface TradingViewChartProps {
  height?: number;
  onSymbolChange?: (symbol: string) => void;
  onTimeframeChange?: (timeframe: string) => void;
- onAIButtonClick?: () => void;
 }
 
 export default function TradingViewChart({
@@ -2263,8 +2264,7 @@ export default function TradingViewChart({
  initialTimeframe = '1d',
  height = 600,
  onSymbolChange,
- onTimeframeChange,
- onAIButtonClick
+ onTimeframeChange
 }: TradingViewChartProps) {
  // Canvas refs
  const containerRef = useRef<HTMLDivElement>(null);
@@ -3000,7 +3000,7 @@ export default function TradingViewChart({
       }
       
       setRrgCandleColors(colorMap);
-      setRrgLookbackPeriod(period);
+      setRrgLookbackPeriod(period as 10 | 31 | 87);
       setRrgMode(mode);
       setIsRRGCandleActive(true);
       
@@ -4007,6 +4007,10 @@ export default function TradingViewChart({
   const [rrgIvStartTimestamp, setRrgIvStartTimestamp] = useState<number | null>(null); // First candle with IV color
   const [isRrgDropdownOpen, setIsRrgDropdownOpen] = useState(false);
 
+  // Timeframe dropdown state
+  const [isTimeframeDropdownOpen, setIsTimeframeDropdownOpen] = useState(false);
+  const timeframeButtonRef = useRef<HTMLButtonElement>(null);
+
   // Flow chart resize handlers
   const handleFlowChartDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -4544,6 +4548,24 @@ export default function TradingViewChart({
  document.addEventListener('mousedown', handleClickOutside);
  return () => document.removeEventListener('mousedown', handleClickOutside);
  }, [isRrgDropdownOpen]);
+
+ // Close timeframe dropdown when clicking outside
+ useEffect(() => {
+ const handleClickOutside = (event: MouseEvent) => {
+ if (isTimeframeDropdownOpen) {
+ const target = event.target as Element;
+ const dropdown = document.querySelector('[data-timeframe-dropdown]');
+ const button = timeframeButtonRef.current;
+ 
+ if (dropdown && !dropdown.contains(target) && button && !button.contains(target)) {
+ setIsTimeframeDropdownOpen(false);
+ }
+ }
+ };
+
+ document.addEventListener('mousedown', handleClickOutside);
+ return () => document.removeEventListener('mousedown', handleClickOutside);
+ }, [isTimeframeDropdownOpen]);
 
  useEffect(() => {
    // RRG state changes trigger natural re-render
@@ -6031,10 +6053,10 @@ export default function TradingViewChart({
  ctx.fillRect(0, 0, width, height);
 
  // Calculate chart areas - reserve space for volume and time axis
- const timeAxisHeight = 25;
+ const timeAxisHeight = 30;
  const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0; // Reserve space for flow chart when active
  const actualIVPanelHeight = isAnyIVHVActive ? (activeIVPanelCount * ivPanelHeight) : 0; // Reserve space for IV indicator panels
- const volumeAreaHeight = 80; // Reserve space for volume bars
+ const volumeAreaHeight = 80; // Volume bars area
  // Adjust price chart height based on active indicators
  const totalBottomSpace = actualFlowChartHeight + actualIVPanelHeight + volumeAreaHeight + timeAxisHeight;
  const priceChartHeight = height - totalBottomSpace;
@@ -6460,12 +6482,12 @@ export default function TradingViewChart({
  if (!visibleData.length) return;
 
  // Calculate volume profile area - dedicated space between price chart and time axis
- const volumeStartY = priceChartHeight;
- const volumeEndY = priceChartHeight + volumeAreaHeight;
+ const volumeStartY = priceChartHeight + 20; // Start 20px lower
+ const volumeEndY = priceChartHeight + volumeAreaHeight - 5; // End 5px higher
  
- // Draw subtle volume background area
+ // Draw subtle volume background area (reduced height)
  ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
- ctx.fillRect(40, volumeStartY, chartWidth - 80, volumeAreaHeight);
+ ctx.fillRect(40, volumeStartY, chartWidth - 80, volumeEndY - volumeStartY);
 
  // Find max volume for scaling
  const volumes = visibleData.map(d => d.volume || 0).filter(v => v > 0);
@@ -7656,7 +7678,7 @@ export default function TradingViewChart({
  maxPrice: number
  ) => {
  ctx.fillStyle = config.axisStyle.yAxis.textColor;
- ctx.font = `${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+ ctx.font = `bold ${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
  ctx.textAlign = 'left';
 
  const chartArea = height - 25; // Reserve 25px at bottom for time labels
@@ -7667,21 +7689,21 @@ export default function TradingViewChart({
  const price = minPrice + (maxPrice - minPrice) * (1 - ratio);
  const y = 20 + ((chartArea - 40) / steps) * i;
  
- // Draw price label
- ctx.fillText(`$${price.toFixed(2)}`, width - 70, y + 4);
+ // Draw price label with more left margin
+ ctx.fillText(`$${price.toFixed(2)}`, width - 85, y + 4);
  
  // Draw tick mark
  ctx.strokeStyle = colors.grid;
  ctx.lineWidth = 1;
  ctx.beginPath();
- ctx.moveTo(width - 75, y);
- ctx.lineTo(width - 70, y);
+ ctx.moveTo(width - 90, y);
+ ctx.lineTo(width - 85, y);
  ctx.stroke();
  }
 
  // Reset styles after drawing Y-axis
  ctx.fillStyle = config.axisStyle.yAxis.textColor;
- ctx.font = `${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+ ctx.font = `bold ${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
  ctx.textAlign = 'left';
  };
 
@@ -7699,7 +7721,7 @@ export default function TradingViewChart({
  if (visibleData.length === 0) return;
 
  ctx.fillStyle = config.axisStyle.xAxis.textColor;
- ctx.font = `${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+ ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
  ctx.textAlign = 'center';
 
  // TradingView-style adaptive labeling based on zoom level
@@ -7842,15 +7864,15 @@ export default function TradingViewChart({
  // Set appropriate color
  ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor;
  
- // Draw the label
- ctx.fillText(text, x, height - 5);
+ // Draw the label below volume bars
+ ctx.fillText(text, x, height - 10);
  
  // Draw tick mark
  ctx.strokeStyle = isFuture ? 'rgba(255, 255, 255, 0.3)' : colors.grid;
  ctx.lineWidth = 1;
  ctx.beginPath();
- ctx.moveTo(x, height - 17);
- ctx.lineTo(x, height - 12);
+ ctx.moveTo(x, height - 27);
+ ctx.lineTo(x, height - 22);
  ctx.stroke();
  }
  };
@@ -7882,6 +7904,7 @@ export default function TradingViewChart({
  case '1d': milliseconds = 24 * 60 * 60 * 1000; break;
  case '1w': milliseconds = 7 * 24 * 60 * 60 * 1000; break;
  case '1mo': milliseconds = 30 * 24 * 60 * 60 * 1000; break;
+ case '1y': milliseconds = 365 * 24 * 60 * 60 * 1000; break;
  default: milliseconds = 24 * 60 * 60 * 1000; break;
  }
  
@@ -12102,92 +12125,145 @@ export default function TradingViewChart({
  background: linear-gradient(180deg, #2563eb, #7c3aed);
  }
 
- /* 3D Carved Button Effects */
+ /* Elite Dark Theme Button System - Professional Trading Interface */
  .btn-3d-carved {
- background: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%) !important;
- border: 1px solid rgba(128, 128, 128, 0.2) !important;
+ background: 
+ linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 0%, transparent 50%, rgba(0, 0, 0, 0.3) 100%),
+ #000000 !important;
+ border: 1px solid rgba(50, 50, 50, 0.6) !important;
+ position: relative !important;
  box-shadow: 
- inset 2px 2px 4px rgba(128, 128, 128, 0.05),
- inset -2px -2px 4px rgba(0, 0, 0, 0.8),
- 0 4px 8px rgba(0, 0, 0, 0.6),
- 0 0 0 1px rgba(64, 64, 64, 0.1) !important;
- text-shadow: 
- 1px 1px 0px rgba(0, 0, 0, 0.9),
- -1px -1px 0px rgba(128, 128, 128, 0.1),
- 0 0 5px rgba(128, 128, 128, 0.1) !important;
+ 0 1px 3px rgba(0, 0, 0, 0.8),
+ inset 0 1px 0 rgba(255, 255, 255, 0.05),
+ inset 0 -1px 0 rgba(0, 0, 0, 0.8) !important;
+ color: #ffffff !important;
+ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+ letter-spacing: 0.4px !important;
+ text-transform: uppercase !important;
+ font-size: 14px !important;
+ font-weight: 600 !important;
  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
- border-radius: 2px !important;
+ border-radius: 4px !important;
+ margin: 0 6px !important;
+ opacity: 1 !important;
  }
 
- /* Custom button borders */
- .btn-gex {
- border: 2px solid #a855f7 !important;
- }
-
- .btn-expected-range {
- border: 2px solid transparent !important;
- background-image: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%), linear-gradient(90deg, #22c55e 0%, #ef4444 100%) !important;
- background-origin: border-box !important;
- background-clip: padding-box, border-box !important;
- }
-
- .btn-expansion-liquidation {
- border: 2px solid transparent !important;
- background-image: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%), linear-gradient(90deg, #eab308 0%, #3b82f6 100%) !important;
- background-origin: border-box !important;
- background-clip: padding-box, border-box !important;
- }
-
- .btn-drawings {
- border: 2px solid rgba(255, 255, 255, 0.4) !important;
+ .btn-3d-carved::before {
+ content: '';
+ position: absolute;
+ top: 0;
+ left: 0;
+ right: 0;
+ bottom: 0;
+ border-radius: 4px;
+ background: 
+ radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.03), transparent 70%),
+ repeating-linear-gradient(
+ 0deg,
+ transparent,
+ transparent 2px,
+ rgba(255, 255, 255, 0.005) 2px,
+ rgba(255, 255, 255, 0.005) 4px
+ );
+ pointer-events: none;
  }
  
- /* Active State - Crispy Orange */
+ /* Active State - Elegant Orange */
  .btn-3d-carved.active {
- background: linear-gradient(145deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%) !important;
- border: 1px solid rgba(128, 128, 128, 0.2) !important;
- color: #ff6600 !important;
+ background: 
+ linear-gradient(to bottom, rgba(255, 133, 0, 0.08) 0%, transparent 50%, rgba(0, 0, 0, 0.4) 100%),
+ #000000 !important;
+ border: 1px solid rgba(255, 133, 0, 0.6) !important;
+ color: #ff8500 !important;
  box-shadow: 
- inset 2px 2px 4px rgba(128, 128, 128, 0.05),
- inset -2px -2px 4px rgba(0, 0, 0, 0.8),
- 0 4px 8px rgba(0, 0, 0, 0.6),
- 0 0 0 1px rgba(64, 64, 64, 0.1) !important;
- text-shadow: 
- 1px 1px 0px rgba(0, 0, 0, 0.9),
- -1px -1px 0px rgba(128, 128, 128, 0.1) !important;
+ 0 0 0 1px rgba(255, 133, 0, 0.3),
+ 0 2px 6px rgba(0, 0, 0, 0.8),
+ inset 0 1px 0 rgba(255, 133, 0, 0.1),
+ inset 0 -1px 0 rgba(0, 0, 0, 0.9) !important;
+ }
+
+ .btn-3d-carved.active::before {
+ background: 
+ radial-gradient(circle at 50% 0%, rgba(255, 133, 0, 0.05), transparent 70%),
+ repeating-linear-gradient(
+ 0deg,
+ transparent,
+ transparent 2px,
+ rgba(255, 133, 0, 0.008) 2px,
+ rgba(255, 133, 0, 0.008) 4px
+ );
  }
  
  .btn-3d-carved:hover {
- background: linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%) !important;
+ background: 
+ linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 0%, transparent 50%, rgba(0, 0, 0, 0.4) 100%),
+ #000000 !important;
+ border: 1px solid rgba(80, 80, 80, 0.8) !important;
+ color: #ffffff !important;
  box-shadow: 
- inset 2px 2px 6px rgba(128, 128, 128, 0.1),
- inset -2px -2px 6px rgba(0, 0, 0, 0.9),
- 0 6px 12px rgba(0, 0, 0, 0.7),
- 0 0 0 1px rgba(96, 96, 96, 0.2) !important;
- transform: translateY(-1px) !important;
+ 0 2px 6px rgba(0, 0, 0, 0.9),
+ inset 0 1px 0 rgba(255, 255, 255, 0.08),
+ inset 0 -1px 0 rgba(0, 0, 0, 0.9) !important;
+ transform: translateY(-2px) !important;
  }
  
  .btn-3d-carved.active:hover {
- background: linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%) !important;
- color: #ff6600 !important;
+ background: 
+ linear-gradient(to bottom, rgba(255, 160, 48, 0.1) 0%, transparent 50%, rgba(0, 0, 0, 0.5) 100%),
+ #000000 !important;
+ border: 1px solid rgba(255, 160, 48, 0.7) !important;
+ color: #ffa030 !important;
  box-shadow: 
- inset 2px 2px 6px rgba(128, 128, 128, 0.1),
- inset -2px -2px 6px rgba(0, 0, 0, 0.9),
- 0 6px 12px rgba(0, 0, 0, 0.7),
- 0 0 0 1px rgba(96, 96, 96, 0.2) !important;
- text-shadow: 
- 1px 1px 0px rgba(0, 0, 0, 0.9),
- -1px -1px 0px rgba(128, 128, 128, 0.1) !important;
- transform: translateY(-1px) !important;
+ 0 0 0 1px rgba(255, 160, 48, 0.4),
+ 0 3px 8px rgba(0, 0, 0, 0.9),
+ inset 0 1px 0 rgba(255, 160, 48, 0.15),
+ inset 0 -1px 0 rgba(0, 0, 0, 0.95) !important;
+ transform: translateY(-2px) !important;
  }
  
  .btn-3d-carved:active {
- background: linear-gradient(145deg, #0a0a0a 0%, #000000 50%, #0a0a0a 100%) !important;
+ background: 
+ linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.2)),
+ #000000 !important;
  box-shadow: 
- inset 3px 3px 6px rgba(0, 0, 0, 0.9),
- inset -1px -1px 3px rgba(128, 128, 128, 0.05),
- 0 2px 4px rgba(0, 0, 0, 0.5) !important;
- transform: translateY(1px) !important;
+ inset 0 2px 4px rgba(0, 0, 0, 0.9),
+ inset 0 -1px 0 rgba(255, 255, 255, 0.02),
+ 0 1px 2px rgba(0, 0, 0, 0.7) !important;
+ transform: translateY(0) !important;
+ }
+
+ .btn-3d-carved.active:active {
+ background: 
+ linear-gradient(to bottom, rgba(255, 133, 0, 0.03), rgba(0, 0, 0, 0.3)),
+ #000000 !important;
+ box-shadow: 
+ 0 0 0 1px rgba(255, 133, 0, 0.25),
+ inset 0 2px 4px rgba(0, 0, 0, 0.95),
+ inset 0 -1px 0 rgba(255, 133, 0, 0.02),
+ 0 1px 2px rgba(0, 0, 0, 0.7) !important;
+ }
+
+ /* Button Separator - Visual spacing between button groups */
+ .ml-4 {
+ position: relative;
+ }
+
+ .ml-4::before {
+ content: '';
+ position: absolute;
+ left: -12px;
+ top: 50%;
+ transform: translateY(-50%);
+ width: 1px;
+ height: 60%;
+ background: linear-gradient(
+ to bottom,
+ transparent,
+ rgba(80, 80, 80, 0.3) 20%,
+ rgba(80, 80, 80, 0.3) 80%,
+ transparent
+ );
+ pointer-events: none;
  }
  
  /* Professional Search Bar */
@@ -12365,26 +12441,158 @@ export default function TradingViewChart({
  <div className="hidden md:flex">
  {[
  { label: '5M', value: '5m' },
- { label: '30M', value: '30m' },
  { label: '1H', value: '1h' },
- { label: '4H', value: '4h' },
  { label: 'D', value: '1d' }
  ].map((tf, index) => (
  <button
  key={tf.label}
  onClick={() => handleTimeframeChange(tf.value)}
- className={`btn-3d-carved relative group ${config.timeframe === tf.value ? 'active' : 'text-white'}`}
+ className={`btn-3d-carved relative group ${config.timeframe === tf.value ? 'active' : ''}`}
  style={{
  padding: '10px 20px',
  fontWeight: '700',
  fontSize: '15px',
  letterSpacing: '0.8px',
- borderRadius: '4px'
+ borderRadius: '4px',
+ color: 'white'
  }}
  >
  {tf.label}
  </button>
  ))}
+
+ {/* More Timeframes Dropdown Button */}
+ <div className="relative inline-block">
+ <button
+ ref={timeframeButtonRef}
+ onClick={() => setIsTimeframeDropdownOpen(!isTimeframeDropdownOpen)}
+ className={`btn-3d-carved relative group ${['30m', '4h', '1w', '1mo', '1y'].includes(config.timeframe) ? 'active' : ''}`}
+ style={{
+ padding: '12px 12px',
+ fontWeight: '700',
+ fontSize: '15px',
+ letterSpacing: '0.8px',
+ borderRadius: '4px',
+ display: 'inline-flex',
+ alignItems: 'center',
+ gap: '4px'
+ }}
+ title="More timeframes"
+ >
+ {config.timeframe === '30m' ? <span>30M</span> : config.timeframe === '4h' ? <span>4H</span> : config.timeframe === '1w' ? <span>W</span> : config.timeframe === '1mo' ? <span>M</span> : config.timeframe === '1y' ? <span>1Y</span> : <span></span>}
+ <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ strokeWidth: 3 }}>
+ <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+ </svg>
+ </button>
+
+ {/* Timeframe Dropdown Menu */}
+ {isTimeframeDropdownOpen && createPortal(
+ <div
+ data-timeframe-dropdown
+ style={{
+ position: 'fixed',
+ top: timeframeButtonRef.current ? timeframeButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+ left: timeframeButtonRef.current ? timeframeButtonRef.current.getBoundingClientRect().left : 0,
+ zIndex: 100000,
+ background: '#000000',
+ border: '2px solid rgba(255, 133, 0, 0.3)',
+ borderRadius: '8px',
+ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+ padding: '12px',
+ minWidth: '180px'
+ }}
+ >
+ <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+ <button
+ onClick={() => {
+ handleTimeframeChange('30m');
+ setIsTimeframeDropdownOpen(false);
+ }}
+ className={`btn-3d-carved ${config.timeframe === '30m' ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ 30 Minutes (30M)
+ </button>
+ <button
+ onClick={() => {
+ handleTimeframeChange('4h');
+ setIsTimeframeDropdownOpen(false);
+ }}
+ className={`btn-3d-carved ${config.timeframe === '4h' ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ 4 Hours (4H)
+ </button>
+ <button
+ onClick={() => {
+ handleTimeframeChange('1w');
+ setIsTimeframeDropdownOpen(false);
+ }}
+ className={`btn-3d-carved ${config.timeframe === '1w' ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Weekly (1W)
+ </button>
+ <button
+ onClick={() => {
+ handleTimeframeChange('1mo');
+ setIsTimeframeDropdownOpen(false);
+ }}
+ className={`btn-3d-carved ${config.timeframe === '1mo' ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Monthly (1M)
+ </button>
+ <button
+ onClick={() => {
+ handleTimeframeChange('1y');
+ setIsTimeframeDropdownOpen(false);
+ }}
+ className={`btn-3d-carved ${config.timeframe === '1y' ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Yearly (1Y)
+ </button>
+ </div>
+ </div>,
+ document.body
+ )}
+ </div>
  </div>
  
  {/* Mobile Timeframe Dropdown - Visible only on mobile */}
@@ -12403,6 +12611,9 @@ export default function TradingViewChart({
  <option value="1h">1H</option>
  <option value="4h">4H</option>
  <option value="1d">D</option>
+ <option value="1w">Weekly</option>
+ <option value="1mo">Monthly</option>
+ <option value="1y">Yearly</option>
  </select>
  </div>
  </div>
@@ -12423,12 +12634,13 @@ export default function TradingViewChart({
  <button
  key={type.value}
  onClick={() => handleChartTypeChange(type.value as ChartConfig['chartType'])}
- className={`btn-3d-carved relative group ${config.chartType === type.value ? 'active' : 'text-white'}`}
+ className={`btn-3d-carved relative group ${config.chartType === type.value ? 'active' : ''}`}
  style={{
  padding: '10px 14px',
  fontSize: '16px',
  fontWeight: '700',
- borderRadius: '4px'
+ borderRadius: '4px',
+ color: 'white'
  }}
  title={type.label}
  >
@@ -12493,15 +12705,16 @@ export default function TradingViewChart({
  <button
  ref={expectedRangeButtonRef}
  onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
- className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive ? 'active' : 'text-white'}`}
+ className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive ? 'active' : ''}`}
  style={{
  padding: '10px 14px',
  fontWeight: '700',
  fontSize: '13px',
- borderRadius: '4px'
+ borderRadius: '4px',
+ color: 'white'
  }}
  >
- <span>EXPECTED RANGE</span>
+ <span style={{ color: 'white' }}>EXPECTED RANGE</span>
  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
  </svg>
@@ -12614,17 +12827,12 @@ export default function TradingViewChart({
                 <button
                   ref={seasonalButtonRef}
                   onClick={() => setIsSeasonalDropdownOpen(!isSeasonalDropdownOpen)}
-                  className={`btn-3d-carved btn-seasonal relative group flex items-center space-x-2`}
+                  className={`btn-3d-carved btn-seasonal relative group flex items-center space-x-2 ${isSeasonalActive ? 'active' : ''}`}
                   style={{
                     padding: '10px 14px',
                     fontWeight: '700',
                     fontSize: '13px',
                     borderRadius: '4px',
-                    color: isSeasonalActive ? '#FF8C00' : '#FFFFFF',
-                    border: isSeasonalActive ? '2px solid #1E3A8A' : '2px solid transparent',
-                    outline: isSeasonalActive ? '2px solid #1E3A8A' : 'none',
-                    outlineOffset: '-2px',
-                    boxShadow: isSeasonalActive ? '0 0 0 2px #1E3A8A' : 'none',
                     transition: 'all 0.2s ease'
                   }}
                 >
@@ -12811,7 +13019,7 @@ export default function TradingViewChart({
                   ref={gexButtonRef}
                   onClick={() => setIsGexDropdownOpen(!isGexDropdownOpen)}
                   disabled={isGexLoading}
-                  className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${isGexActive ? 'active' : 'text-white'}`}
+                  className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${isGexActive ? 'active' : ''}`}
                   style={{
                     padding: '10px 14px',
                     fontWeight: '700',
@@ -12915,15 +13123,13 @@ export default function TradingViewChart({
                   ref={ivhvButtonRef}
                   onClick={() => setIsIVHVDropdownOpen(!isIVHVDropdownOpen)}
                   disabled={isIVLoading}
-                  className={`btn-3d-carved btn-ivhv relative group flex items-center space-x-2 ${isAnyIVHVActive ? 'active' : 'text-white'}`}
+                  className={`btn-3d-carved btn-ivhv relative group flex items-center space-x-2 ${isAnyIVHVActive ? 'active' : ''}`}
                   style={{
                     padding: '10px 14px',
                     fontWeight: '700',
                     fontSize: '13px',
                     borderRadius: '4px',
-                    opacity: isIVLoading ? 0.6 : 1,
-                    background: isAnyIVHVActive ? 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)' : undefined,
-                    border: isAnyIVHVActive ? '2px solid #ff8c00' : undefined
+                    opacity: isIVLoading ? 0.6 : 1
                   }}
                 >
                   <span>{isIVLoading ? `LOADING ${ivProgress}%` : 'IV & HV'}</span>
@@ -13216,15 +13422,16 @@ export default function TradingViewChart({
  console.log('?? Expansion/Liquidation indicator deactivated');
  }
  }}
- className={`btn-3d-carved btn-expansion-liquidation relative group flex items-center space-x-2 ${isExpansionLiquidationActive ? 'active' : 'text-white'}`}
+ className={`btn-3d-carved btn-expansion-liquidation relative group flex items-center space-x-2 ${isExpansionLiquidationActive ? 'active' : ''}`}
  style={{
  padding: '10px 14px',
  fontWeight: '700',
  fontSize: '13px',
- borderRadius: '4px'
+ borderRadius: '4px',
+ color: 'white'
  }}
  >
- <span>EXPANSION/LIQUIDATION</span>
+ <span style={{ color: 'white' }}>EXPANSION/LIQUIDATION</span>
  </button>
  </div>
 
@@ -13233,17 +13440,18 @@ export default function TradingViewChart({
  <button
  ref={drawingsButtonRef}
  onClick={() => setIsDrawingsDropdownOpen(!isDrawingsDropdownOpen)}
- className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
+ className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
  style={{
  padding: '10px 14px',
  fontWeight: '700',
  fontSize: '13px',
- borderRadius: '4px'
+ borderRadius: '4px',
+ color: 'white'
  }}
  title="Drawing Tools"
  >
  <TbPencil className="w-5 h-5" />
- <span>DRAWINGS</span>
+ <span style={{ color: 'white' }}>DRAWINGS</span>
  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
  </svg>
@@ -13352,14 +13560,12 @@ export default function TradingViewChart({
                       setFlowChartData([]);
                     }
                   }}
-                  className="btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white"
+                  className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 ${isFlowChartActive ? 'active' : ''}`}
                   style={{
                     padding: '10px 14px',
                     fontWeight: '700',
                     fontSize: '13px',
-                    borderRadius: '4px',
-                    outline: `2px solid ${isFlowChartActive ? '#22c55e' : '#FFD700'}`,
-                    outlineOffset: '-2px'
+                    borderRadius: '4px'
                   }}
                   title="Live FlowMoves"
                 >
@@ -13373,14 +13579,12 @@ export default function TradingViewChart({
                 <button
                   ref={rrgButtonRef}
                   onClick={() => setIsRrgDropdownOpen(!isRrgDropdownOpen)}
-                  className="btn-3d-carved btn-drawings relative group flex items-center space-x-2 text-white"
+                  className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 ${isRRGCandleActive ? 'active' : ''}`}
                   style={{
                     padding: '10px 14px',
                     fontWeight: '700',
                     fontSize: '13px',
-                    borderRadius: '4px',
-                    outline: `2px solid ${isRRGCandleActive ? '#22c55e' : '#ff8500'}`,
-                    outlineOffset: '-2px'
+                    borderRadius: '4px'
                   }}
                   title="RRG Candle - Color code candles by RRG quadrants"
                 >
@@ -13597,6 +13801,26 @@ export default function TradingViewChart({
                 )}
               </div>
 
+              {/* Guide Button */}
+              <div className="ml-4 relative">
+                <button
+                  onClick={() => {
+                    useChatStore.getState().setIsOpen(true);
+                  }}
+                  className={`btn-3d-carved relative group flex items-center space-x-2`}
+                  style={{
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                    color: 'white'
+                  }}
+                  title="Guide"
+                >
+                  <span style={{ color: 'white' }}>GUIDE</span>
+                </button>
+              </div>
+
  {/* Spacer to push remaining items to the right */}
  <div className="flex-1"></div>
 
@@ -13605,93 +13829,6 @@ export default function TradingViewChart({
 
  {/* Enhanced Action Buttons */}
  <div className="flex items-center space-x-4">
-
- {/* AI Button - Futuristic Silver/Chrome Design */}
- <button 
- className="relative group overflow-hidden"
- onClick={() => {
- console.log('AI button clicked in TradingViewChart!');
- console.log('onAIButtonClick prop:', onAIButtonClick);
- if (onAIButtonClick) {
- onAIButtonClick();
- } else {
- console.log('onAIButtonClick prop is undefined!');
- }
- }}
- style={{
- padding: '12px 20px',
- borderRadius: '10px',
- background: 'linear-gradient(145deg, #1a1a1a 0%, #000000 30%, #1a1a1a 70%, #2a2a2a 100%)',
- border: '2px solid transparent',
- backgroundImage: 'linear-gradient(145deg, #1a1a1a 0%, #000000 30%, #1a1a1a 70%, #2a2a2a 100%), linear-gradient(90deg, #C0C0C0, #E8E8E8, #C0C0C0)',
- backgroundOrigin: 'border-box',
- backgroundClip: 'padding-box, border-box',
- color: '#E8E8E8',
- fontWeight: '800',
- fontSize: '13px',
- letterSpacing: '1.2px',
- textShadow: `
- 0 0 5px rgba(232, 232, 232, 0.8),
- 0 2px 4px rgba(0, 0, 0, 0.9),
- 0 0 10px rgba(192, 192, 192, 0.4),
- 2px 2px 0px rgba(0, 0, 0, 0.8)
- `,
- boxShadow: `
- inset 0 3px 6px rgba(0, 0, 0, 0.4),
- inset 0 -3px 6px rgba(232, 232, 232, 0.1),
- 0 6px 20px rgba(0, 0, 0, 0.6),
- 0 2px 8px rgba(192, 192, 192, 0.2),
- 0 0 25px rgba(192, 192, 192, 0.1)
- `,
- transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
- position: 'relative'
- }}
- onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
- e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
- e.currentTarget.style.color = '#FFFFFF';
- e.currentTarget.style.textShadow = `
- 0 0 8px rgba(255, 255, 255, 1),
- 0 2px 4px rgba(0, 0, 0, 0.9),
- 0 0 15px rgba(232, 232, 232, 0.6),
- 2px 2px 0px rgba(0, 0, 0, 0.8)
- `;
- e.currentTarget.style.boxShadow = `
- inset 0 4px 8px rgba(0, 0, 0, 0.5),
- inset 0 -4px 8px rgba(232, 232, 232, 0.15),
- 0 8px 25px rgba(0, 0, 0, 0.7),
- 0 4px 12px rgba(192, 192, 192, 0.3),
- 0 0 35px rgba(192, 192, 192, 0.2)
- `;
- }}
- onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
- e.currentTarget.style.transform = 'translateY(0) scale(1)';
- e.currentTarget.style.color = '#E8E8E8';
- e.currentTarget.style.textShadow = `
- 0 0 5px rgba(232, 232, 232, 0.8),
- 0 2px 4px rgba(0, 0, 0, 0.9),
- 0 0 10px rgba(192, 192, 192, 0.4),
- 2px 2px 0px rgba(0, 0, 0, 0.8)
- `;
- e.currentTarget.style.boxShadow = `
- inset 0 3px 6px rgba(0, 0, 0, 0.4),
- inset 0 -3px 6px rgba(232, 232, 232, 0.1),
- 0 6px 20px rgba(0, 0, 0, 0.6),
- 0 2px 8px rgba(192, 192, 192, 0.2),
- 0 0 25px rgba(192, 192, 192, 0.1)
- `;
- }}
- >
- {/* Chrome shine effect */}
- <div 
- className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
- style={{
- background: 'linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%)',
- animation: 'shimmer 1.5s infinite',
- borderRadius: '8px'
- }}
- ></div>
- <span className="relative z-10">AI</span>
- </button>
 
  </div>
 
@@ -13707,7 +13844,10 @@ export default function TradingViewChart({
  color: '#FFD700'
  }}
  >
- SETTINGS
+ <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+ <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+ <circle cx="12" cy="12" r="3"></circle>
+ </svg>
  </button>
  </div>
  </div>
@@ -13724,25 +13864,6 @@ export default function TradingViewChart({
  >
   
  </button>
- </div>
-
- {/* Grid Toggle */}
- <div className="mb-6 pb-6 border-b border-gray-800">
- <label className="block text-white text-base font-semibold mb-3">Grid Lines</label>
- <div className="flex items-center justify-between group">
- <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
- {config.showGrid ? 'Enabled' : 'Disabled'}
- </span>
- <div className="relative">
- <input
- type="checkbox"
- checked={config.showGrid}
- onChange={() => setConfig(prev => ({ ...prev, showGrid: !prev.showGrid }))}
- className="sr-only peer"
- />
- <div className="w-11 h-6 bg-gray-800 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
- </div>
- </div>
  </div>
 
  {/* Y-Axis Settings */}
@@ -14115,7 +14236,7 @@ export default function TradingViewChart({
  <div 
  ref={containerRef}
  className="relative flex-1"
- style={{ height: height - 150 }} // Reduced height to leave space for X-axis
+ style={{ height: height - 100 }}
  >
  {/* Loading Overlay */}
  {loading && (
@@ -15192,6 +15313,9 @@ export default function TradingViewChart({
  etfName={selectedETF.name}
  />
  )}
+
+ {/* Guide Chatbot */}
+ <GuideChatbot />
  </>
  );
 }

@@ -1,203 +1,352 @@
 import { NextRequest, NextResponse } from 'next/server';
-import SeasonalScreenerService from '@/lib/seasonalScreenerService_fixed';
-import { createErrorResponse, displayError } from '@/lib/errorHandling';
+import ElectionCycleService from '@/lib/electionCycleService';
 
-// Rate limiting store
-const rateLimiter = new Map<string, { count: number; resetTime: number }>();
-
-function checkRateLimit(ip: string): boolean {
- const now = Date.now();
- const windowMs = 60000; // 1 minute
- const maxRequests = 15; // 15 requests per minute for seasonal data
- 
- if (!rateLimiter.has(ip)) {
- rateLimiter.set(ip, { count: 1, resetTime: now + windowMs });
- return true;
- }
- 
- const limit = rateLimiter.get(ip)!;
- if (now > limit.resetTime) {
- rateLimiter.set(ip, { count: 1, resetTime: now + windowMs });
- return true;
- }
- 
- if (limit.count >= maxRequests) {
- return false;
- }
- 
- limit.count++;
- return true;
+interface PolygonDataPoint {
+  v: number;
+  vw: number;
+  o: number;
+  c: number;
+  h: number;
+  l: number;
+  t: number;
+  n: number;
 }
 
-function isDateWithinRange(dateStr: string, daysRange: number = 2): boolean {
- try {
- const today = new Date();
- const targetDate = new Date(dateStr);
- 
- // Set both dates to same year for seasonal comparison
- targetDate.setFullYear(today.getFullYear());
- 
- const diffTime = Math.abs(targetDate.getTime() - today.getTime());
- const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
- 
- return diffDays <= daysRange;
- } catch {
- return false;
- }
+// Direct Polygon API calls for server-side
+async function fetchPolygonHistoricalData(symbol: string, from: string, to: string) {
+  const apiKey = process.env.POLYGON_API_KEY;
+  if (!apiKey) throw new Error('POLYGON_API_KEY not configured');
+  
+  const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${apiKey}`;
+  const response = await fetch(url);
+  
+  if (!response.ok) {
+    throw new Error(`Polygon API error: ${response.status}`);
+  }
+  
+  return response.json();
 }
 
-function formatSeasonalPeriod(startDate: string, endDate: string): string {
- try {
- const start = new Date(startDate);
- const end = new Date(endDate);
- 
- const startMonth = start.toLocaleDateString('en-US', { month: 'short' });
- const startDay = start.getDate();
- const endMonth = end.toLocaleDateString('en-US', { month: 'short' });
- const endDay = end.getDate();
- 
- return `${startMonth} ${startDay} - ${endMonth} ${endDay}`;
- } catch {
- return 'Unknown period';
- }
+async function fetchPolygonTickerDetails(symbol: string) {
+  const apiKey = process.env.POLYGON_API_KEY;
+  if (!apiKey) throw new Error('POLYGON_API_KEY not configured');
+  
+  const url = `https://api.polygon.io/v3/reference/tickers/${symbol}?apiKey=${apiKey}`;
+  const response = await fetch(url);
+  
+  if (!response.ok) {
+    return { results: { name: symbol } }; // Fallback
+  }
+  
+  return response.json();
 }
 
 export async function GET(request: NextRequest) {
- try {
- // Rate limiting
- const clientIP = request.headers.get('x-forwarded-for') || 
- request.headers.get('x-real-ip') || 
- 'unknown';
- 
- if (!checkRateLimit(clientIP)) {
- return NextResponse.json(
- { error: 'Too many requests' },
- { status: 429 }
- );
- }
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const symbol = searchParams.get('symbol');
+    const years = parseInt(searchParams.get('years') || '20');
+    const electionMode = searchParams.get('electionMode');
+    
+    if (!symbol) {
+      return NextResponse.json({ error: 'Symbol is required' }, { status: 400 });
+    }
 
- const { searchParams } = new URL(request.url);
- const symbol = searchParams.get('symbol')?.toUpperCase();
- const sentiment = searchParams.get('sentiment')?.toLowerCase(); // 'bullish', 'bearish', or null for both
- const years = parseInt(searchParams.get('years') || '15'); // FULL years - unlimited API
- const activeOnly = searchParams.get('active') === 'true'; // Filter for patterns starting soon
- const batchSize = parseInt(searchParams.get('batchSize') || '200'); // FULL batch size - unlimited API
+    // If election mode is requested
+    if (electionMode) {
+      const electionService = new ElectionCycleService();
+      const electionType = electionMode as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election';
+      const data = await electionService.analyzeElectionCycleSeasonality(symbol, electionType, 20);
+      return NextResponse.json(data);
+    }
 
- console.log(` Fetching seasonal patterns: symbol=${symbol}, sentiment=${sentiment}, activeOnly=${activeOnly}`);
+    // Regular seasonal analysis
+    const yearsToFetch = Math.min(years, 20);
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setFullYear(endDate.getFullYear() - yearsToFetch);
 
- const screeningService = new SeasonalScreenerService();
- 
- // Get seasonal opportunities
- const opportunities = await screeningService.screenSeasonalOpportunities(years, batchSize);
- 
- let filteredOpportunities = opportunities;
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
 
- // Filter by symbol if specified
- if (symbol) {
- filteredOpportunities = filteredOpportunities.filter(opp => 
- opp.symbol.toUpperCase() === symbol
- );
- }
+    // Fetch data
+    let historicalResponse, spyResponse, tickerDetails;
+    
+    if (symbol.toUpperCase() === 'SPY') {
+      historicalResponse = await fetchPolygonHistoricalData(symbol, startDateStr, endDateStr);
+      spyResponse = historicalResponse;
+    } else {
+      [historicalResponse, spyResponse] = await Promise.all([
+        fetchPolygonHistoricalData(symbol, startDateStr, endDateStr),
+        fetchPolygonHistoricalData('SPY', startDateStr, endDateStr)
+      ]);
+    }
 
- // Filter by sentiment if specified
- if (sentiment) {
- filteredOpportunities = filteredOpportunities.filter(opp => 
- opp.sentiment.toLowerCase() === sentiment
- );
- }
+    tickerDetails = await fetchPolygonTickerDetails(symbol);
 
- // Filter for active patterns (starting within 2 days) if requested
- if (activeOnly) {
- filteredOpportunities = filteredOpportunities.filter(opp => 
- isDateWithinRange(opp.startDate, 2)
- );
- }
+    if (!historicalResponse || !historicalResponse.results) {
+      return NextResponse.json({ error: 'No data available for this symbol' }, { status: 404 });
+    }
 
- // Sort by average return (best opportunities first)
- filteredOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+    // Process into seasonal format
+    const seasonalData = processDailySeasonalData(
+      historicalResponse.results,
+      spyResponse?.results || null,
+      symbol,
+      tickerDetails?.results?.name || symbol,
+      yearsToFetch
+    );
 
- // Format the response data
- const formattedData = filteredOpportunities.map(opp => ({
- symbol: opp.symbol,
- companyName: opp.companyName,
- sentiment: opp.sentiment,
- startDate: opp.startDate,
- endDate: opp.endDate,
- period: formatSeasonalPeriod(opp.startDate, opp.endDate),
- averageReturn: opp.averageReturn,
- winRate: opp.winRate,
- years: opp.years,
- confidence: opp.winRate > 70 ? 'High' : opp.winRate > 60 ? 'Medium' : 'Low',
- isActive: isDateWithinRange(opp.startDate, 2),
- daysUntilStart: Math.ceil((new Date(opp.startDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
- description: `${opp.sentiment} seasonal pattern with ${opp.averageReturn >= 0 ? '+' : ''}${opp.averageReturn.toFixed(1)}% average return over ${opp.years} years`,
- riskLevel: Math.abs(opp.averageReturn) > 15 ? 'High' : Math.abs(opp.averageReturn) > 8 ? 'Medium' : 'Low'
- }));
+    return NextResponse.json(seasonalData);
+  } catch (error) {
+    console.error('Seasonal data error:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to fetch seasonal data' },
+      { status: 500 }
+    );
+  }
+}
 
- // Create summary statistics
- const summary = {
- total: formattedData.length,
- bullish: formattedData.filter(p => p.sentiment.toLowerCase() === 'bullish').length,
- bearish: formattedData.filter(p => p.sentiment.toLowerCase() === 'bearish').length,
- active: formattedData.filter(p => p.isActive).length,
- highConfidence: formattedData.filter(p => p.confidence === 'High').length,
- averageReturn: formattedData.length > 0 ? 
- (formattedData.reduce((sum, p) => sum + p.averageReturn, 0) / formattedData.length).toFixed(2) : 0,
- bestOpportunity: formattedData.length > 0 ? formattedData[0] : null
- };
+function getDayOfYear(date: Date): number {
+  const start = new Date(date.getFullYear(), 0, 0);
+  const diff = date.getTime() - start.getTime();
+  const oneDay = 1000 * 60 * 60 * 24;
+  return Math.floor(diff / oneDay);
+}
 
- // If specific symbol requested, return detailed info
- if (symbol && formattedData.length > 0) {
- const symbolData = formattedData[0];
- return NextResponse.json({
- symbol,
- data: symbolData,
- allPatterns: formattedData,
- summary: {
- patternsFound: formattedData.length,
- bullishPatterns: formattedData.filter(p => p.sentiment.toLowerCase() === 'bullish').length,
- bearishPatterns: formattedData.filter(p => p.sentiment.toLowerCase() === 'bearish').length,
- activePatterns: formattedData.filter(p => p.isActive).length
- },
- parameters: {
- years,
- sentiment,
- activeOnly,
- batchSize
- },
- lastUpdated: new Date().toISOString()
- });
- }
+function processDailySeasonalData(
+  data: PolygonDataPoint[],
+  spyData: PolygonDataPoint[] | null,
+  symbol: string,
+  companyName: string,
+  years: number
+) {
+  const dailyGroups: { [dayOfYear: number]: { date: Date; return: number; year: number }[] } = {};
+  const yearlyReturns: { [year: number]: number } = {};
+  
+  const spyLookup: { [timestamp: number]: PolygonDataPoint } = {};
+  if (spyData) {
+    spyData.forEach(item => {
+      spyLookup[item.t] = item;
+    });
+  }
 
- // Return all filtered data
- return NextResponse.json({
- data: formattedData.slice(0, 20), // Limit to top 20 for performance
- summary,
- filters: {
- symbol,
- sentiment,
- activeOnly,
- years,
- batchSize
- },
- lastUpdated: new Date().toISOString(),
- message: formattedData.length === 0 ? 'No seasonal patterns found with the specified criteria' : 
- `Found ${formattedData.length} seasonal patterns`
- });
+  // Process historical data
+  for (let i = 1; i < data.length; i++) {
+    const currentItem = data[i];
+    const previousItem = data[i - 1];
+    const date = new Date(currentItem.t);
+    const year = date.getFullYear();
+    const dayOfYear = getDayOfYear(date);
+    
+    const stockReturn = ((currentItem.c - previousItem.c) / previousItem.c) * 100;
+    let finalReturn = stockReturn;
+    
+    if (spyData && spyData.length > 0 && symbol.toUpperCase() !== 'SPY') {
+      const currentSpy = spyLookup[currentItem.t];
+      const previousSpy = spyLookup[previousItem.t];
+      
+      if (currentSpy && previousSpy) {
+        const spyReturn = ((currentSpy.c - previousSpy.c) / previousSpy.c) * 100;
+        finalReturn = stockReturn - spyReturn;
+      } else {
+        continue;
+      }
+    }
+    
+    if (!dailyGroups[dayOfYear]) {
+      dailyGroups[dayOfYear] = [];
+    }
+    
+    dailyGroups[dayOfYear].push({ date, return: finalReturn, year });
+    
+    if (!yearlyReturns[year]) {
+      yearlyReturns[year] = 0;
+    }
+    yearlyReturns[year] += finalReturn;
+  }
 
- } catch (error) {
- // Display user-friendly error
- displayError(error instanceof Error ? error : new Error(String(error)), 'Seasonal Patterns API');
- 
- // Create user-friendly error response
- const errorResponse = createErrorResponse(
- error instanceof Error ? error : new Error(String(error)), 
- 'Seasonal Patterns API'
- );
+  // Calculate daily data
+  const dailyData = [];
+  let cumulativeReturn = 0;
+  
+  for (let dayOfYear = 1; dayOfYear <= 365; dayOfYear++) {
+    const dayData = dailyGroups[dayOfYear] || [];
+    if (dayData.length === 0) continue;
+    
+    const returns = dayData.map(d => d.return);
+    const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
+    const positiveReturns = returns.filter(ret => ret > 0).length;
+    
+    cumulativeReturn += avgReturn;
+    
+    const representativeDate = new Date(2024, 0, dayOfYear);
+    const yearlyReturnsByDay: { [year: number]: number } = {};
+    dayData.forEach(d => {
+      yearlyReturnsByDay[d.year] = d.return;
+    });
+    
+    dailyData.push({
+      dayOfYear,
+      month: representativeDate.getMonth() + 1,
+      day: representativeDate.getDate(),
+      monthName: representativeDate.toLocaleDateString('en-US', { month: 'short' }),
+      avgReturn,
+      cumulativeReturn,
+      occurrences: dayData.length,
+      positiveYears: positiveReturns,
+      winningTrades: positiveReturns,
+      pattern: (positiveReturns / dayData.length) * 100,
+      yearlyReturns: yearlyReturnsByDay
+    });
+  }
 
- // Return proper error response without fallback data
- return NextResponse.json(errorResponse, { 
- status: errorResponse.severity === 'error' ? 500 : 503
- });
- }
+  // Calculate monthly returns (for comparison)
+  const monthlyReturns: { [monthYear: string]: { ticker: number[], spy: number[] } } = {};
+  
+  for (let i = 1; i < data.length; i++) {
+    const currentItem = data[i];
+    const previousItem = data[i - 1];
+    const date = new Date(currentItem.t);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const monthYear = `${year}-${month}`;
+    
+    const currentSpy = spyLookup[currentItem.t];
+    const previousSpy = spyLookup[previousItem.t];
+    
+    if (currentSpy && previousSpy) {
+      if (!monthlyReturns[monthYear]) {
+        monthlyReturns[monthYear] = { ticker: [], spy: [] };
+      }
+      
+      const tickerReturn = ((currentItem.c - previousItem.c) / previousItem.c) * 100;
+      const spyReturn = ((currentSpy.c - previousSpy.c) / previousSpy.c) * 100;
+      
+      monthlyReturns[monthYear].ticker.push(tickerReturn);
+      monthlyReturns[monthYear].spy.push(spyReturn);
+    }
+  }
+
+  // Aggregate monthly performance
+  const monthlyAggregates: { [month: number]: { outperformance: number[], count: number } } = {};
+  
+  Object.keys(monthlyReturns).forEach(monthYear => {
+    const [year, month] = monthYear.split('-').map(Number);
+    const monthData = monthlyReturns[monthYear];
+    
+    const tickerMonthReturn = monthData.ticker.reduce((a, b) => a + b, 0);
+    const spyMonthReturn = monthData.spy.reduce((a, b) => a + b, 0);
+    const outperformance = tickerMonthReturn - spyMonthReturn;
+    
+    if (!monthlyAggregates[month]) {
+      monthlyAggregates[month] = { outperformance: [], count: 0 };
+    }
+    
+    monthlyAggregates[month].outperformance.push(outperformance);
+    monthlyAggregates[month].count++;
+  });
+
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthlyData = monthNames.map((name, idx) => {
+    const month = idx + 1;
+    const data = monthlyAggregates[month];
+    const avgOutperformance = data ? data.outperformance.reduce((a, b) => a + b, 0) / data.count : 0;
+    return { month: name, outperformance: avgOutperformance };
+  });
+
+  const sortedMonths = [...monthlyData].sort((a, b) => b.outperformance - a.outperformance);
+  const bestMonths = sortedMonths.slice(0, 3);
+  const worstMonths = sortedMonths.slice(-3).reverse();
+
+  // Calculate 30-day periods
+  const best30Day = find30DayPeriods(dailyData, 'best');
+  const worst30Day = find30DayPeriods(dailyData, 'worst');
+
+  // Statistics
+  const allReturns = Object.values(yearlyReturns);
+  const totalReturn = cumulativeReturn;
+  const annualizedReturn = totalReturn / years;
+  const averageReturn = allReturns.reduce((sum, ret) => sum + ret, 0) / allReturns.length;
+  const winningYears = allReturns.filter(ret => ret > 0).length;
+  const totalTrades = allReturns.length;
+  const winRate = (winningYears / totalTrades) * 100;
+  const positiveReturns = allReturns.filter(ret => ret > 0);
+  const negativeReturns = allReturns.filter(ret => ret < 0);
+  
+  return {
+    symbol,
+    companyName,
+    currency: 'USD',
+    period: `${years}Y`,
+    dailyData,
+    yearsOfData: years,
+    statistics: {
+      totalReturn,
+      annualizedReturn,
+      averageReturn,
+      medianReturn: allReturns.sort((a, b) => a - b)[Math.floor(allReturns.length / 2)],
+      winningTrades: winningYears,
+      totalTrades,
+      winRate,
+      profit: positiveReturns.reduce((sum, ret) => sum + ret, 0),
+      averageProfit: positiveReturns.length > 0 ? positiveReturns.reduce((sum, ret) => sum + ret, 0) / positiveReturns.length : 0,
+      maxProfit: Math.max(...positiveReturns, 0),
+      gains: positiveReturns.length,
+      losses: negativeReturns.length,
+      profitPercentage: (positiveReturns.length / totalTrades) * 100,
+      lossPercentage: (negativeReturns.length / totalTrades) * 100,
+      yearsOfData: years,
+      volatility: 0,
+      sharpeRatio: 0,
+      maxDrawdown: 0,
+      avgWin: positiveReturns.length > 0 ? positiveReturns.reduce((sum, ret) => sum + ret, 0) / positiveReturns.length : 0,
+      avgLoss: negativeReturns.length > 0 ? negativeReturns.reduce((sum, ret) => sum + ret, 0) / negativeReturns.length : 0,
+      bestTrade: Math.max(...allReturns),
+      worstTrade: Math.min(...allReturns)
+    },
+    patternReturns: yearlyReturns,
+    spyComparison: {
+      bestMonths,
+      worstMonths,
+      bestQuarters: [],
+      worstQuarters: [],
+      monthlyData,
+      best30DayPeriod: best30Day,
+      worst30DayPeriod: worst30Day
+    }
+  };
+}
+
+function find30DayPeriods(dailyData: any[], type: 'best' | 'worst') {
+  let extremeReturn = type === 'best' ? -Infinity : Infinity;
+  let extremePeriod = null;
+  const windowSize = 30;
+  
+  for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+    const endDay = startDay + windowSize - 1;
+    const windowData = dailyData.filter((d: any) => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
+    
+    if (windowData.length >= 25) {
+      const windowReturn = windowData.reduce((sum: number, day: any) => sum + day.avgReturn, 0);
+      
+      if ((type === 'best' && windowReturn > extremeReturn) || 
+          (type === 'worst' && windowReturn < extremeReturn)) {
+        extremeReturn = windowReturn;
+        const startDataPoint = dailyData.find((d: any) => d.dayOfYear === startDay);
+        const endDataPoint = dailyData.find((d: any) => d.dayOfYear === endDay);
+        
+        if (startDataPoint && endDataPoint) {
+          extremePeriod = {
+            return: windowReturn,
+            period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day}`,
+            startDate: `${startDataPoint.monthName} ${startDataPoint.day}`,
+            endDate: `${endDataPoint.monthName} ${endDataPoint.day}`
+          };
+        }
+      }
+    }
+  }
+  
+  return extremePeriod;
 }

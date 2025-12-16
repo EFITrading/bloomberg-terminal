@@ -289,7 +289,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  // Clear canvas
  ctx.clearRect(0, 0, containerWidth, containerHeight);
 
- const padding = { top: 40, right: 60, bottom: 60, left: 60 };
+ const padding = { top: 15, right: 60, bottom: 60, left: 60 };
  const chartWidth = containerWidth - padding.left - padding.right;
  const chartHeight = containerHeight - padding.top - padding.bottom;
 
@@ -527,7 +527,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  ctx.fillStyle = '#FF6600';
  ctx.font = 'bold 20px "Roboto Mono", monospace';
  ctx.textAlign = 'center';
- ctx.fillText('TODAY', currentDateX, padding.top - 15);
+ ctx.fillText('TODAY', currentDateX, padding.top + 5);
  }
 
  // Draw Y-axis labels - crispy white with % symbol and 30% smaller
@@ -573,7 +573,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  <div className="seasonax-main-chart" ref={containerRef} style={{ 
  width: '100%', 
  height: '100%', 
- minHeight: '400px',
+ minHeight: '500px',
  minWidth: '300px',
  position: 'relative',
  overflow: 'hidden'

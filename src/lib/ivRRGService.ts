@@ -216,25 +216,33 @@ class IVRRGService {
     console.log(`  Lookback: ${lookbackDays} days`);
 
     try {
-      // Fetch benchmark IV data first
-      console.log(`📊 Fetching benchmark IV for ${benchmark}...`);
-      const benchmarkIVData = await this.getHistoricalIV(benchmark, lookbackDays);
+      // Handle self-benchmark mode
+      const isSelfBenchmark = benchmark === 'SELF';
+      let benchmarkIVData: IVData[] = [];
       
-      if (benchmarkIVData.length === 0) {
-        console.error(`❌ No IV data available for benchmark ${benchmark}`);
-        console.error(`   This could be due to:`);
-        console.error(`   1. POLYGON_API_KEY not set in environment variables`);
-        console.error(`   2. ${benchmark} options data not available through Polygon API`);
-        console.error(`   3. Insufficient historical data available`);
-        throw new Error(
-          `Unable to fetch IV data for benchmark ${benchmark}. ` +
-          `Please check: (1) POLYGON_API_KEY is configured, ` +
-          `(2) ${benchmark} has options data available, ` +
-          `(3) API has sufficient historical data access.`
-        );
-      }
+      if (!isSelfBenchmark) {
+        // Fetch benchmark IV data first
+        console.log(`📊 Fetching benchmark IV for ${benchmark}...`);
+        benchmarkIVData = await this.getHistoricalIV(benchmark, lookbackDays);
+        
+        if (benchmarkIVData.length === 0) {
+          console.error(`❌ No IV data available for benchmark ${benchmark}`);
+          console.error(`   This could be due to:`);
+          console.error(`   1. POLYGON_API_KEY not set in environment variables`);
+          console.error(`   2. ${benchmark} options data not available through Polygon API`);
+          console.error(`   3. Insufficient historical data available`);
+          throw new Error(
+            `Unable to fetch IV data for benchmark ${benchmark}. ` +
+            `Please check: (1) POLYGON_API_KEY is configured, ` +
+            `(2) ${benchmark} has options data available, ` +
+            `(3) API has sufficient historical data access.`
+          );
+        }
 
-      console.log(`✅ Benchmark has ${benchmarkIVData.length} IV data points`);
+        console.log(`✅ Benchmark has ${benchmarkIVData.length} IV data points`);
+      } else {
+        console.log(`📊 Using SELF-BENCHMARK mode - each ticker compared to its own historical average`);
+      }
 
       const results: IVRRGCalculationResult[] = [];
 
@@ -252,7 +260,24 @@ class IVRRGService {
           }
 
           // Calculate IV ratio (like Relative Strength)
-          const ivRatioData = this.calculateIVRatio(symbolIVData, benchmarkIVData);
+          let ivRatioData: Array<{ date: string; ivRatio: number }>;
+          
+          if (isSelfBenchmark) {
+            // Self-benchmark: Each ticker compared to its OWN historical average
+            // This means AAPL compared to AAPL's average, TSLA to TSLA's average, etc.
+            const avgIV = symbolIVData.reduce((sum, d) => sum + d.avgIV, 0) / symbolIVData.length;
+            
+            // Create ratio of current IV / average IV for this specific ticker
+            ivRatioData = symbolIVData.map(d => ({
+              date: d.date,
+              ivRatio: (d.avgIV / avgIV) * 100 // Current IV vs own average
+            }));
+            
+            console.log(`📊 ${symbol}: Self-benchmark - comparing to own avg IV = ${(avgIV * 100).toFixed(2)}%`);
+          } else {
+            // Normal benchmark: Compare ticker's IV to benchmark (e.g., SPY)
+            ivRatioData = this.calculateIVRatio(symbolIVData, benchmarkIVData);
+          }
           
           if (ivRatioData.length < ivRatioPeriod + momentumPeriod) {
             console.warn(`⚠️ Insufficient data for ${symbol}`);

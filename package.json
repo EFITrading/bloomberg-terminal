@@ -23,6 +23,8 @@
     "postinstall": "[ \"$VERCEL\" = \"1\" ] || (command -v husky >/dev/null 2>&1 && husky install || exit 0)"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.56",
+    "@ai-sdk/openai": "^2.0.86",
     "@auth/prisma-adapter": "^2.10.0",
     "@auth0/nextjs-auth0": "^4.9.0",
     "@aws-sdk/client-secrets-manager": "^3.879.0",
@@ -97,6 +99,7 @@
     "@tanstack/react-virtual": "^3.13.12",
     "@tensorflow/tfjs": "^4.22.0",
     "@types/d3": "^7.4.3",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.18.1",
     "@uiw/react-codemirror": "^4.25.1",
@@ -112,6 +115,7 @@
     "ag-grid-enterprise": "^34.1.2",
     "ag-grid-react": "^34.1.2",
     "ahooks": "^3.9.4",
+    "ai": "^5.0.113",
     "aws-sdk": "^2.1692.0",
     "axios": "^1.12.2",
     "axios-retry": "^4.5.0",
@@ -267,7 +271,9 @@
     "react-resize-detector": "^12.3.0",
     "react-select": "^5.10.2",
     "react-sizeme": "^3.0.2",
+    "react-syntax-highlighter": "^16.1.0",
     "react-text-mask": "^5.5.0",
+    "react-textarea-autosize": "^8.5.9",
     "react-tilt": "^1.0.2",
     "react-toastify": "^11.0.5",
     "react-use": "^17.6.0",
@@ -281,7 +287,10 @@
     "redis": "^5.8.2",
     "regression": "^2.0.1",
     "rehype-highlight": "^7.0.2",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "runtypes": "^7.0.4",
     "sass": "^1.91.0",
     "secure-json-parse": "^4.0.0",
@@ -321,7 +330,7 @@
     "xss": "^1.0.15",
     "yup": "^1.7.0",
     "zod": "^4.1.5",
-    "zustand": "^5.0.8"
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",

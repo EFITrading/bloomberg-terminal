@@ -121,7 +121,8 @@ export async function GET(request: NextRequest) {
  '4h': { multiplier: 4, timespan: 'hour' },
  '1d': { multiplier: 1, timespan: 'day' },
  '1w': { multiplier: 1, timespan: 'week' },
- '1mo': { multiplier: 1, timespan: 'month' }
+ '1mo': { multiplier: 1, timespan: 'month' },
+ '1y': { multiplier: 1, timespan: 'year' }
  };
 
  const timeframeConfig = timeframeMap[timeframe] || { multiplier: 1, timespan: 'day' };

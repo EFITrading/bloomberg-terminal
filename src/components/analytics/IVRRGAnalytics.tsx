@@ -12,7 +12,7 @@ interface IVRRGAnalyticsProps {
 }
 
 const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
-  defaultTimeframe = '30 days',
+  defaultTimeframe = '120 days',
   defaultBenchmark = 'SPY'
 }) => {
   const [rrgData, setRrgData] = useState<any[]>([]);
@@ -115,20 +115,14 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
 
   const timeframeOptions = [
     { label: '30 days', value: '30 days', weeks: 5, rsPeriod: 4, momentumPeriod: 4 },
-    { label: '60 days', value: '60 days', weeks: 9, rsPeriod: 8, momentumPeriod: 8 },
-    { label: '90 days', value: '90 days', weeks: 13, rsPeriod: 12, momentumPeriod: 12 },
     { label: '120 days', value: '120 days', weeks: 18, rsPeriod: 16, momentumPeriod: 16 },
-    { label: '1Y', value: '1Y', weeks: 56, rsPeriod: 52, momentumPeriod: 52 },
-    { label: '2Y', value: '2Y', weeks: 108, rsPeriod: 104, momentumPeriod: 104 },
-    { label: '4Y', value: '4Y', weeks: 212, rsPeriod: 208, momentumPeriod: 208 }
+    { label: '365 days', value: '365 days', weeks: 52, rsPeriod: 48, momentumPeriod: 48 }
   ];
 
+  // IV RRG specific benchmark options
   const benchmarkOptions = [
-    { label: 'S&P 500 (SPY)', value: 'SPY' },
-    { label: 'NASDAQ 100 (QQQ)', value: 'QQQ' },
-    { label: 'Russell 2000 (IWM)', value: 'IWM' },
-    { label: 'Total Stock Market (VTI)', value: 'VTI' },
-    { label: 'World Stock Index (VT)', value: 'VT' }
+    { label: 'Benchmark by SPY', value: 'SPY' },
+    { label: 'Self-Benchmark', value: 'SELF' }
   ];
 
   const loadIVRRGData = async () => {
@@ -154,8 +148,8 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
         // Define the three timeframes for comparison
         const multiTimeframes = [
           { label: '30d', value: '30 days', weeks: 5, rsPeriod: 4, momentumPeriod: 4 },
-          { label: '60d', value: '60 days', weeks: 9, rsPeriod: 8, momentumPeriod: 8 },
-          { label: '1Y', value: '1Y', weeks: 56, rsPeriod: 52, momentumPeriod: 52 }
+          { label: '120d', value: '120 days', weeks: 18, rsPeriod: 16, momentumPeriod: 16 },
+          { label: '365d', value: '365 days', weeks: 52, rsPeriod: 48, momentumPeriod: 48 }
         ];
 
         // Fetch data for all three timeframes in parallel
@@ -212,7 +206,7 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
         
         const selectedTimeframe = timeframeOptions.find(tf => tf.value === timeframe);
         if (!selectedTimeframe) {
-          throw new Error('Invalid timeframe selected');
+          throw new Error(`Invalid timeframe selected: ${timeframe}`);
         }
 
         const { weeks, rsPeriod, momentumPeriod } = selectedTimeframe;
@@ -353,30 +347,6 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
             symbolMode={symbolMode}
             onSymbolModeChange={setSymbolMode}
           />
-          
-          {/* Empty state message inside chart area */}
-          {!getCurrentSymbols().trim() && rrgData.length === 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '400px',
-              color: '#ff8500',
-              fontSize: '16px',
-              fontFamily: '"Bloomberg Terminal", monospace',
-              textAlign: 'center',
-              padding: '20px',
-              marginTop: '20px'
-            }}>
-              <div>
-                <div style={{ marginBottom: '15px', fontSize: '36px' }}>📊</div>
-                <div style={{ marginBottom: '10px', fontSize: '16px' }}>Select a Symbol Group or Enter Custom Symbols Above</div>
-                <div style={{ fontSize: '13px', color: '#888' }}>
-                  Choose MAG 7, HIGH BETA, LOW BETA, or enter your own symbols to begin analysis
-                </div>
-              </div>
-            </div>
-          )}
           
           {/* IV Line Chart */}
           {ivChartData.length > 0 && (

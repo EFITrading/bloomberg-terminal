@@ -171,7 +171,8 @@ function parseTimeframe(timeframe: string): { multiplier: number; timespan: stri
  '4h': { multiplier: 4, timespan: 'hour' },
  '1d': { multiplier: 1, timespan: 'day' },
  '1w': { multiplier: 1, timespan: 'week' },
- '1mo': { multiplier: 1, timespan: 'month' }
+ '1mo': { multiplier: 1, timespan: 'month' },
+ '1y': { multiplier: 1, timespan: 'year' }
  };
 
  const result = timeframeMap[timeframe as keyof typeof timeframeMap];
