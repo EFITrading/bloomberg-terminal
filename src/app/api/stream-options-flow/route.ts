@@ -43,7 +43,13 @@ interface ProcessedTrade {
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-  const ticker = searchParams.get('ticker');
+  let ticker = searchParams.get('ticker');
+  
+  // Validate ticker parameter - empty ticker causes EventSource connection issues
+  if (ticker !== null && ticker.trim() === '') {
+    console.warn('⚠️ Empty ticker parameter received, treating as undefined for market-wide scan');
+    ticker = null; // Treat empty string as no ticker (market-wide scan)
+  }
   
   const polygonApiKey = process.env.POLYGON_API_KEY;
   
@@ -123,14 +129,17 @@ export async function GET(request: NextRequest) {
       }, 15000); // Every 15 seconds
 
       try {
-        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${ticker || 'MARKET-WIDE'} scan`);
+        const scanType = ticker || 'MARKET-WIDE';
+        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
+        console.log(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
         
         // Send initial status with connection confirmation
         sendData({
           type: 'status',
-          message: 'Connection established, starting options flow scan...',
+          message: `Connection established, starting ${scanType} options flow scan...`,
           timestamp: new Date().toISOString(),
-          connectionId: Math.random().toString(36).substring(7)
+          connectionId: Math.random().toString(36).substring(7),
+          scanType: scanType
         });
 
         // Initialize the options flow service with streaming callback
@@ -165,9 +174,14 @@ export async function GET(request: NextRequest) {
           setTimeout(() => reject(new Error('Scan timeout after 10 minutes')), 600000)
         );
         
-        const finalTrades = await Promise.race([scanPromise, timeoutPromise]) as any[];
+        let finalTrades = await Promise.race([scanPromise, timeoutPromise]) as any[];
         
         console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
+        
+        // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
+        console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
+        finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
+        console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
         
         // DEBUG: Check if trades are enriched
         if (finalTrades.length > 0) {

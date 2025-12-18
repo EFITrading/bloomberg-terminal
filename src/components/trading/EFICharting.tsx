@@ -3916,6 +3916,10 @@ export default function TradingViewChart({
  const [isSeasonalElectionActive, setIsSeasonalElectionActive] = useState(false);
  const seasonalButtonRef = useRef<HTMLButtonElement>(null);
  const [seasonalProjectionData, setSeasonalProjectionData] = useState<Array<{date: Date, price: number}> | null>(null);
+ const [seasonal20YData, setSeasonal20YData] = useState<Array<{date: Date, price: number}> | null>(null);
+ const [seasonal15YData, setSeasonal15YData] = useState<Array<{date: Date, price: number}> | null>(null);
+ const [seasonal10YData, setSeasonal10YData] = useState<Array<{date: Date, price: number}> | null>(null);
+ const [seasonalElectionData, setSeasonalElectionData] = useState<Array<{date: Date, price: number}> | null>(null);
  const [isLoadingSeasonalProjection, setIsLoadingSeasonalProjection] = useState(false);
 
   // GEX state for gamma exposure levels
@@ -6227,7 +6231,75 @@ export default function TradingViewChart({
  console.log('?? Expected Range lines rendered on top');
  }
 
- // Draw Seasonal Projection line on top of candlesticks
+ // Draw Seasonal Projection lines on top of candlesticks
+ if (isSeasonalActive && visibleData && visibleData.length > 0) {
+ const lastVisibleCandle = visibleData[visibleData.length - 1];
+ const lastCandleTime = new Date(lastVisibleCandle.timestamp).getTime();
+ const lastCandlePrice = lastVisibleCandle.close;
+ const lastCandleIndex = visibleData.length - 1;
+ const lastCandleX = 40 + (lastCandleIndex * candleSpacing) + candleSpacing / 2;
+ const lastCandleY = priceChartHeight - ((lastCandlePrice - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+
+ // Helper function to draw a seasonal projection line
+ const drawSeasonalLine = (projectionData: Array<{date: Date, price: number}> | null, color: string, isDashed: boolean) => {
+ if (!projectionData || projectionData.length === 0) return;
+
+ ctx.save();
+ ctx.strokeStyle = color;
+ ctx.lineWidth = 2;
+ 
+ if (isDashed) {
+ ctx.setLineDash([5, 5]);
+ }
+
+ ctx.beginPath();
+ ctx.moveTo(lastCandleX, lastCandleY);
+
+ projectionData.forEach((point) => {
+ const pointTime = point.date.getTime();
+ const timeDiff = pointTime - lastCandleTime;
+ const daysFromEnd = timeDiff / (24 * 60 * 60 * 1000);
+ const x = lastCandleX + (daysFromEnd * candleSpacing);
+ const y = priceChartHeight - ((point.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+ 
+ if (y >= 0 && y <= priceChartHeight) {
+ ctx.lineTo(x, y);
+ }
+ });
+
+ ctx.stroke();
+
+ // Draw start marker at last candle
+ ctx.beginPath();
+ ctx.arc(lastCandleX, lastCandleY, 3, 0, 2 * Math.PI);
+ ctx.fillStyle = color;
+ ctx.fill();
+
+ // Draw end marker
+ const lastPoint = projectionData[projectionData.length - 1];
+ const lastPointTime = lastPoint.date.getTime();
+ const daysFromEnd = (lastPointTime - lastCandleTime) / (24 * 60 * 60 * 1000);
+ const endX = lastCandleX + (daysFromEnd * candleSpacing);
+ const endY = priceChartHeight - ((lastPoint.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+
+ if (endY >= 0 && endY <= priceChartHeight) {
+ ctx.beginPath();
+ ctx.arc(endX, endY, 4, 0, 2 * Math.PI);
+ ctx.fillStyle = color;
+ ctx.fill();
+ }
+
+ ctx.restore();
+ };
+
+ // Draw each active seasonal line with its color and style
+ if (isSeasonal20YActive) drawSeasonalLine(seasonal20YData, '#FFFFFF', false); // Solid white
+ if (isSeasonal15YActive) drawSeasonalLine(seasonal15YData, '#FFD700', false); // Solid yellow
+ if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#4169E1', false); // Solid blue
+ if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true); // Purple dashed
+ }
+
+ // Keep old seasonalProjectionData logic for backwards compatibility (remove later)
  if (isSeasonalActive && seasonalProjectionData && seasonalProjectionData.length > 0) {
  
  // Get last candle position from visible data
@@ -12861,20 +12933,24 @@ export default function TradingViewChart({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <button
                         onClick={async () => {
-                          // Clear old data and set states
-                          setSeasonalProjectionData(null);
-                          setIsSeasonalActive(true);
-                          setIsSeasonal20YActive(true);
-                          setIsSeasonal15YActive(false);
-                          setIsSeasonal10YActive(false);
-                          setIsSeasonalElectionActive(false);
-                          setIsLoadingSeasonalProjection(true);
-                          setIsSeasonalDropdownOpen(false);
+                          const newState = !isSeasonal20YActive;
+                          setIsSeasonal20YActive(newState);
                           
-                          // Load new data
-                          const projection = await calculateSeasonalityProjection(symbol, 20, data);
-                          setSeasonalProjectionData(projection);
-                          setIsLoadingSeasonalProjection(false);
+                          if (newState) {
+                            // Load data if not already loaded
+                            if (!seasonal20YData) {
+                              setIsLoadingSeasonalProjection(true);
+                              const projection = await calculateSeasonalityProjection(symbol, 20, data);
+                              setSeasonal20YData(projection);
+                              setIsLoadingSeasonalProjection(false);
+                            }
+                            setIsSeasonalActive(true);
+                          } else {
+                            // Check if any seasonal is still active
+                            if (!isSeasonal15YActive && !isSeasonal10YActive && !isSeasonalElectionActive) {
+                              setIsSeasonalActive(false);
+                            }
+                          }
                         }}
                         style={{
                           padding: '8px 12px',
@@ -12895,20 +12971,24 @@ export default function TradingViewChart({
                       </button>
                       <button
                         onClick={async () => {
-                          // Clear old data and set states
-                          setSeasonalProjectionData(null);
-                          setIsSeasonalActive(true);
-                          setIsSeasonal20YActive(false);
-                          setIsSeasonal15YActive(true);
-                          setIsSeasonal10YActive(false);
-                          setIsSeasonalElectionActive(false);
-                          setIsLoadingSeasonalProjection(true);
-                          setIsSeasonalDropdownOpen(false);
+                          const newState = !isSeasonal15YActive;
+                          setIsSeasonal15YActive(newState);
                           
-                          // Load new data
-                          const projection = await calculateSeasonalityProjection(symbol, 15, data);
-                          setSeasonalProjectionData(projection);
-                          setIsLoadingSeasonalProjection(false);
+                          if (newState) {
+                            // Load data if not already loaded
+                            if (!seasonal15YData) {
+                              setIsLoadingSeasonalProjection(true);
+                              const projection = await calculateSeasonalityProjection(symbol, 15, data);
+                              setSeasonal15YData(projection);
+                              setIsLoadingSeasonalProjection(false);
+                            }
+                            setIsSeasonalActive(true);
+                          } else {
+                            // Check if any seasonal is still active
+                            if (!isSeasonal20YActive && !isSeasonal10YActive && !isSeasonalElectionActive) {
+                              setIsSeasonalActive(false);
+                            }
+                          }
                         }}
                         style={{
                           padding: '8px 12px',
@@ -12929,20 +13009,24 @@ export default function TradingViewChart({
                       </button>
                       <button
                         onClick={async () => {
-                          // Clear old data and set states
-                          setSeasonalProjectionData(null);
-                          setIsSeasonalActive(true);
-                          setIsSeasonal20YActive(false);
-                          setIsSeasonal15YActive(false);
-                          setIsSeasonal10YActive(true);
-                          setIsSeasonalElectionActive(false);
-                          setIsLoadingSeasonalProjection(true);
-                          setIsSeasonalDropdownOpen(false);
+                          const newState = !isSeasonal10YActive;
+                          setIsSeasonal10YActive(newState);
                           
-                          // Load new data
-                          const projection = await calculateSeasonalityProjection(symbol, 10, data);
-                          setSeasonalProjectionData(projection);
-                          setIsLoadingSeasonalProjection(false);
+                          if (newState) {
+                            // Load data if not already loaded
+                            if (!seasonal10YData) {
+                              setIsLoadingSeasonalProjection(true);
+                              const projection = await calculateSeasonalityProjection(symbol, 10, data);
+                              setSeasonal10YData(projection);
+                              setIsLoadingSeasonalProjection(false);
+                            }
+                            setIsSeasonalActive(true);
+                          } else {
+                            // Check if any seasonal is still active
+                            if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonalElectionActive) {
+                              setIsSeasonalActive(false);
+                            }
+                          }
                         }}
                         style={{
                           padding: '8px 12px',
@@ -12963,22 +13047,26 @@ export default function TradingViewChart({
                       </button>
                       <button
                         onClick={async () => {
-                          // Clear old data and set states
-                          setSeasonalProjectionData(null);
-                          setIsSeasonalActive(true);
-                          setIsSeasonal20YActive(false);
-                          setIsSeasonal15YActive(false);
-                          setIsSeasonal10YActive(false);
-                          setIsSeasonalElectionActive(true);
-                          setIsLoadingSeasonalProjection(true);
-                          setIsSeasonalDropdownOpen(false);
+                          const newState = !isSeasonalElectionActive;
+                          setIsSeasonalElectionActive(newState);
                           
-                          // Use current election cycle period (2025 = Post-Election, 2026 = Mid-Term)
-                          const currentCycle = getCurrentElectionCycle();
-                          console.log(`📊 Using current election cycle: ${currentCycle}`);
-                          const projection = await calculateSeasonalityProjection(symbol, 20, data, currentCycle);
-                          setSeasonalProjectionData(projection);
-                          setIsLoadingSeasonalProjection(false);
+                          if (newState) {
+                            // Load data if not already loaded
+                            if (!seasonalElectionData) {
+                              setIsLoadingSeasonalProjection(true);
+                              const currentCycle = getCurrentElectionCycle();
+                              console.log(`📊 Using current election cycle: ${currentCycle}`);
+                              const projection = await calculateSeasonalityProjection(symbol, 20, data, currentCycle);
+                              setSeasonalElectionData(projection);
+                              setIsLoadingSeasonalProjection(false);
+                            }
+                            setIsSeasonalActive(true);
+                          } else {
+                            // Check if any seasonal is still active
+                            if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) {
+                              setIsSeasonalActive(false);
+                            }
+                          }
                         }}
                         style={{
                           padding: '8px 12px',

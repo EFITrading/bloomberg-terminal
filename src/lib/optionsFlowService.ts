@@ -2297,11 +2297,106 @@ export class OptionsFlowService {
   private async enrichTradesInstantlyParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
     
-    console.log(`✅ ARCHITECTURAL FIX: Returning ${trades.length} trades WITHOUT enrichment`);
-    console.log(`💡 Frontend will enrich ONLY visible trades (250 per page) to avoid 6GB memory crash`);
+    console.log(`🚀 BACKEND ENRICHMENT: Processing ${trades.length} trades with combined snapshot approach`);
     
-    // Return trades immediately - frontend will enrich visible trades progressively
-    return trades;
+    // Group trades by underlying ticker for efficient batch processing
+    const tradesByTicker = new Map<string, ProcessedTrade[]>();
+    trades.forEach(trade => {
+      const ticker = trade.underlying_ticker;
+      if (!tradesByTicker.has(ticker)) {
+        tradesByTicker.set(ticker, []);
+      }
+      tradesByTicker.get(ticker)!.push(trade);
+    });
+    
+    console.log(`📊 Enriching ${trades.length} trades across ${tradesByTicker.size} tickers in parallel`);
+    
+    // Process all tickers in parallel for maximum speed
+    const enrichmentPromises = Array.from(tradesByTicker.entries()).map(async ([ticker, tickerTrades], idx) => {
+      try {
+        // Stagger requests to avoid rate limiting (50ms between tickers)
+        await new Promise(resolve => setTimeout(resolve, idx * 50));
+        
+        // Use direct contract snapshots - fetch only the contracts we need
+        const enrichedTrades = await Promise.all(
+          tickerTrades.map(async (trade, tradeIdx) => {
+            try {
+              // Minimal stagger within ticker batch
+              await new Promise(resolve => setTimeout(resolve, tradeIdx * 20));
+              
+              // Build option ticker format
+              const expiry = trade.expiry.replace(/-/g, '').slice(2, 8); // YYMMDD
+              const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+              const optionType = trade.type === 'call' ? 'C' : 'P';
+              const optionTicker = `O:${ticker}${expiry}${optionType}${strikeFormatted}`;
+              
+              // Direct contract snapshot - gets Vol/OI/Greeks/Bid/Ask in ONE call
+              const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}/${optionTicker}?apikey=${this.polygonApiKey}`;
+              const response = await this.robustFetch(snapshotUrl, 3000);
+              const data = await response.json();
+              
+              if (data.results) {
+                const result = data.results;
+                
+                // Extract all enrichment data
+                const volume = result.day?.volume || 0;
+                const openInterest = result.open_interest || 0;
+                const volOIRatio = openInterest > 0 ? volume / openInterest : 0;
+                
+                const bid = result.last_quote?.bid || 0;
+                const ask = result.last_quote?.ask || 0;
+                const bidAskSpread = ask - bid;
+                
+                const fillStyle = this.detectFillStyle(
+                  trade.premium_per_contract,
+                  bid,
+                  ask,
+                  bidAskSpread
+                );
+                
+                return {
+                  ...trade,
+                  volume,
+                  open_interest: openInterest,
+                  vol_oi_ratio: volOIRatio,
+                  delta: result.greeks?.delta || 0,
+                  gamma: result.greeks?.gamma || 0,
+                  theta: result.greeks?.theta || 0,
+                  vega: result.greeks?.vega || 0,
+                  implied_volatility: result.implied_volatility || 0,
+                  bid,
+                  ask,
+                  bid_ask_spread: bidAskSpread,
+                  fill_style: fillStyle,
+                  current_price: result.last_quote?.midpoint || result.last_trade?.price || trade.premium_per_contract
+                };
+              }
+              
+              // Return unenriched if no data
+              return trade;
+              
+            } catch (error) {
+              console.warn(`⚠️ Failed to enrich ${trade.ticker}:`, error instanceof Error ? error.message : error);
+              return trade; // Return unenriched on error
+            }
+          })
+        );
+        
+        console.log(`✅ ${ticker}: Enriched ${enrichedTrades.length} trades`);
+        return enrichedTrades;
+        
+      } catch (error) {
+        console.error(`❌ Enrichment error for ${ticker}:`, error);
+        return tickerTrades; // Return unenriched on error
+      }
+    });
+    
+    // Wait for all ticker enrichments to complete
+    const enrichedTradeArrays = await Promise.all(enrichmentPromises);
+    const allEnrichedTrades = enrichedTradeArrays.flat();
+    
+    console.log(`✅ Backend enrichment complete: ${allEnrichedTrades.length} trades fully enriched`);
+    return allEnrichedTrades;
   }
 
   // 🚀 INSTANT ENRICHMENT: Add Vol/OI/Greeks/Current Price to trades after worker scan
@@ -2847,6 +2942,95 @@ export class OptionsFlowService {
     
     console.log(`🎯 BULK OPTIMIZATION COMPLETE: ${allTrades.length} trades from ${contracts.length} contracts for ${ticker}`);
     return allTrades;
+  }
+
+  // 🚀 ULTRA-FAST PARALLEL ENRICHMENT - Enriches trades with Vol/OI + Fill Style using all CPU cores
+  async enrichTradesWithVolOIParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
+    if (trades.length === 0) return trades;
+    
+    const BATCH_SIZE = 50; // Process 50 trades per API call batch
+    const batches = [];
+    
+    for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+      batches.push(trades.slice(i, i + BATCH_SIZE));
+    }
+    
+    console.log(`🚀 PARALLEL ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+    
+    // Process all batches in parallel
+    const enrichedBatches = await Promise.all(
+      batches.map(async (batch, batchIndex) => {
+        const enrichedTrades = await Promise.all(
+          batch.map(async (trade) => {
+            try {
+              const expiry = trade.expiry.replace(/-/g, '').slice(2);
+              const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+              const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+              const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+              
+              // Use snapshot endpoint - gets EVERYTHING in one call
+              const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
+              
+              const response = await fetch(snapshotUrl);
+              if (!response.ok) return trade;
+              
+              const data = await response.json();
+              
+              if (data.status === 'OK' && data.results) {
+                const snapshot = data.results;
+                
+                // Extract Vol/OI
+                const volume = snapshot.day?.volume || trade.volume;
+                const openInterest = snapshot.open_interest || trade.open_interest;
+                
+                // Calculate Fill Style from bid/ask
+                let fillStyle = 'N/A';
+                const lastPrice = trade.premium_per_contract;
+                const bid = snapshot.last_quote?.bid;
+                const ask = snapshot.last_quote?.ask;
+                
+                if (bid && ask && ask > bid) {
+                  const midpoint = (bid + ask) / 2;
+                  const spread = ask - bid;
+                  const distanceFromMid = lastPrice - midpoint;
+                  
+                  if (distanceFromMid > spread * 0.25) fillStyle = 'A';
+                  else if (distanceFromMid > 0) fillStyle = 'AA';
+                  else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
+                  else if (distanceFromMid < 0) fillStyle = 'BB';
+                }
+                
+                return {
+                  ...trade,
+                  volume,
+                  open_interest: openInterest,
+                  vol_oi_ratio: openInterest > 0 ? volume / openInterest : undefined,
+                  fill_style: fillStyle,
+                  bid,
+                  ask,
+                  bid_ask_spread: bid && ask ? ask - bid : undefined
+                };
+              }
+              
+              return trade;
+            } catch (error) {
+              return trade;
+            }
+          })
+        );
+        
+        if (batchIndex % 10 === 0) {
+          console.log(`📦 Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
+        }
+        
+        return enrichedTrades;
+      })
+    );
+    
+    const allEnriched = enrichedBatches.flat();
+    console.log(`✅ PARALLEL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
+    
+    return allEnriched;
   }
 
 }

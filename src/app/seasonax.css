@@ -79,13 +79,14 @@
   background: #000000;
   border-bottom: 2px solid #FF6600;
   padding: 0;
+  min-height: auto;
 }
 
 .header-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
+  padding: 8px 24px;
   max-width: 1400px;
   margin: 0 auto;
   background: #000000;

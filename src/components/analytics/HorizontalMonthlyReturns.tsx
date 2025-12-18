@@ -25,6 +25,7 @@ interface HorizontalMonthlyReturnsProps {
  onElectionPeriodChange?: (period: string) => void;
  onSweetSpotClick?: () => void;
  onPainPointClick?: () => void;
+ onMonthClick?: (monthIndex: number, monthName: string) => void;
 }
 
 const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({ 
@@ -36,7 +37,8 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
  selectedElectionPeriod = 'Normal Mode',
  onElectionPeriodChange,
  onSweetSpotClick,
- onPainPointClick
+ onPainPointClick,
+ onMonthClick
 }) => {
  const formatPercentage = (value: number): string => {
  return (value >= 0 ? '+' : '') + value.toFixed(2) + '%';
@@ -63,18 +65,21 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
  }
 
  const electionPeriods = ['Normal Mode', 'Election Year', 'Post-Election', 'Mid-Term', 'Pre-Election'];
+ 
+ // Only show controls if callback functions are provided
+ const showControls = onYearsChange && onElectionPeriodChange && onSweetSpotClick && onPainPointClick;
 
  return (
  <div className="horizontal-monthly-returns" style={{ 
    display: 'flex', 
    flexDirection: 'row', 
    width: 'fit-content', 
-   padding: '10px 20px',
-   background: '#000',
+   padding: '10px 80px 10px 20px',
    alignItems: 'center',
    marginLeft: '1px'
  }}>
- {/* Left side - Dropdowns */}
+ {/* Left side - Dropdowns (only show if controls are enabled) */}
+ {showControls && (
  <div style={{ 
    display: 'flex', 
    flexDirection: 'column', 
@@ -185,6 +190,7 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
  </button>
  </div>
  </div>
+ )}
  <div className="monthly-returns-main-container" style={{ 
    display: 'flex', 
    flexDirection: 'row', 
@@ -197,8 +203,8 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
  <div className="period-column left-column" style={{ flexShrink: 0 }}>
  {best30DayPeriod && (
  <div className="period-item bullish-period" style={{
-   minWidth: '115px',
-   maxWidth: '115px',
+   minWidth: '140px',
+   maxWidth: '140px',
    padding: '10px 8px',
    borderRadius: '12px',
    border: '2px solid #00FF00',
@@ -246,28 +252,36 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
    flexWrap: 'nowrap'
  }}>
  {monthlyData.slice(0, 6).map((month, index) => (
- <div key={index} className="monthly-return-item" style={{
-   minWidth: '60px',
-   maxWidth: '60px',
-   padding: '6px 10px',
+ <div 
+   key={index} 
+   className="monthly-return-item" 
+   onClick={() => onMonthClick?.(index, month.month)}
+   style={{
+   minWidth: '80px',
+   maxWidth: '80px',
+   padding: '10px 14px',
    borderRadius: '10px',
    border: '1px solid rgba(255, 255, 255, 0.2)',
    background: '#0a0a0a',
    display: 'flex',
    flexDirection: 'column',
-   alignItems: 'center'
- }}>
+   alignItems: 'center',
+   cursor: onMonthClick ? 'pointer' : 'default',
+   transition: 'all 0.2s'
+ }}
+   onMouseEnter={(e) => onMonthClick && (e.currentTarget.style.transform = 'scale(1.05)')}
+   onMouseLeave={(e) => onMonthClick && (e.currentTarget.style.transform = 'scale(1)')}>
  <div className={getMonthClass(month.month)} style={{ 
-   fontSize: '13px',
+   fontSize: '15px',
    fontWeight: '800',
-   marginBottom: '6px',
+   marginBottom: '8px',
    letterSpacing: '0.5px',
    color: bestMonths.includes(month.month) ? '#00FF00' : worstMonths.includes(month.month) ? '#FF0000' : '#FFFFFF'
  }}>{month.month.toUpperCase()}</div>
  <div className={`return-value ${month.outperformance > 0 ? 'positive' : 'negative'}`} style={{
-   fontSize: '15px',
+   fontSize: '17px',
    fontWeight: '800',
-   padding: '4px 8px',
+   padding: '6px 10px',
    borderRadius: '5px',
    color: month.outperformance > 0 ? '#00FF00' : '#FF0000',
    background: month.outperformance > 0 ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 0, 0, 0.1)'
@@ -287,28 +301,36 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
    flexWrap: 'nowrap'
  }}>
  {monthlyData.slice(6, 12).map((month, index) => (
- <div key={index + 6} className="monthly-return-item" style={{
-   minWidth: '60px',
-   maxWidth: '60px',
-   padding: '6px 10px',
+ <div 
+   key={index + 6} 
+   className="monthly-return-item"
+   onClick={() => onMonthClick?.(index + 6, month.month)}
+   style={{
+   minWidth: '80px',
+   maxWidth: '80px',
+   padding: '10px 14px',
    borderRadius: '10px',
    border: '1px solid rgba(255, 255, 255, 0.2)',
    background: '#0a0a0a',
    display: 'flex',
    flexDirection: 'column',
-   alignItems: 'center'
- }}>
+   alignItems: 'center',
+   cursor: onMonthClick ? 'pointer' : 'default',
+   transition: 'all 0.2s'
+ }}
+   onMouseEnter={(e) => onMonthClick && (e.currentTarget.style.transform = 'scale(1.05)')}
+   onMouseLeave={(e) => onMonthClick && (e.currentTarget.style.transform = 'scale(1)')}>
  <div className={getMonthClass(month.month)} style={{ 
-   fontSize: '13px',
+   fontSize: '15px',
    fontWeight: '800',
-   marginBottom: '6px',
+   marginBottom: '8px',
    letterSpacing: '0.5px',
    color: bestMonths.includes(month.month) ? '#00FF00' : worstMonths.includes(month.month) ? '#FF0000' : '#FFFFFF'
  }}>{month.month.toUpperCase()}</div>
  <div className={`return-value ${month.outperformance > 0 ? 'positive' : 'negative'}`} style={{
-   fontSize: '15px',
+   fontSize: '17px',
    fontWeight: '800',
-   padding: '4px 8px',
+   padding: '6px 10px',
    borderRadius: '5px',
    color: month.outperformance > 0 ? '#00FF00' : '#FF0000',
    background: month.outperformance > 0 ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 0, 0, 0.1)'
@@ -324,8 +346,8 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
  <div className="period-column right-column" style={{ flexShrink: 0 }}>
  {worst30DayPeriod && (
  <div className="period-item bearish-period" style={{
-   minWidth: '115px',
-   maxWidth: '115px',
+   minWidth: '140px',
+   maxWidth: '140px',
    padding: '10px 8px',
    borderRadius: '12px',
    border: '2px solid #FF0000',

@@ -8,7 +8,119 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 // Polygon API key
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
-// VOL/OI ENRICHMENT - Same as AlgoFlow
+// 🚀 COMBINED ENRICHMENT - Vol/OI + Fill Style in ONE API call
+const enrichTradeDataCombined = async (
+  trades: OptionsFlowData[], 
+  updateCallback: (results: OptionsFlowData[]) => void
+): Promise<OptionsFlowData[]> => {
+  if (trades.length === 0) return trades;
+  
+  const BATCH_SIZE = 50; // Process 50 trades per batch
+  const BATCH_DELAY = 100; // 100ms delay between batches
+  const REQUEST_DELAY = 20; // 20ms stagger between requests
+  const batches = [];
+  
+  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+    batches.push(trades.slice(i, i + BATCH_SIZE));
+  }
+  
+  console.log(`🚀 COMBINED ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+  
+  const allResults: OptionsFlowData[] = [];
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    
+    if (batchIndex % 10 === 0) {
+      console.log(`📦 Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex/batches.length)*100)}%)`);
+    }
+    
+    const batchResults = await Promise.all(
+      batch.map(async (trade, tradeIndex) => {
+        await new Promise(resolve => setTimeout(resolve, tradeIndex * REQUEST_DELAY));
+        
+        try {
+          const expiry = trade.expiry.replace(/-/g, '').slice(2);
+          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+          
+          // Use snapshot endpoint - gets EVERYTHING in one call (quotes, greeks, Vol/OI)
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+          
+          const response = await fetch(snapshotUrl, {
+            signal: AbortSignal.timeout(8000)
+          });
+          
+          if (!response.ok) {
+            failCount++;
+            return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+          }
+          
+          const data = await response.json();
+          
+          if (data.results) {
+            const result = data.results;
+            
+            // Extract Vol/OI
+            const volume = result.day?.volume || 0;
+            const openInterest = result.open_interest || 0;
+            
+            successCount++;
+            
+            // Extract fill style from last quote
+            let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
+            if (result.last_quote) {
+              const bid = result.last_quote.bid;
+              const ask = result.last_quote.ask;
+              const fillPrice = trade.premium_per_contract;
+              
+              if (bid && ask && fillPrice) {
+                const midpoint = (bid + ask) / 2;
+                
+                if (fillPrice >= ask + 0.01) {
+                  fillStyle = 'AA';
+                } else if (fillPrice <= bid - 0.01) {
+                  fillStyle = 'BB';
+                } else if (fillPrice === ask) {
+                  fillStyle = 'A';
+                } else if (fillPrice === bid) {
+                  fillStyle = 'B';
+                } else if (fillPrice >= midpoint) {
+                  fillStyle = 'A';
+                } else {
+                  fillStyle = 'B';
+                }
+              }
+            }
+            
+            return { ...trade, fill_style: fillStyle, volume, open_interest: openInterest };
+          }
+          
+          failCount++;
+          return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+        } catch (error) {
+          failCount++;
+          return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+        }
+      })
+    );
+    
+    allResults.push(...batchResults);
+    updateCallback([...allResults]);
+    
+    if (batchIndex < batches.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+    }
+  }
+  
+  console.log(`✅ Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);
+  return allResults;
+};
+
+// OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
 const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
   console.log(`🔍 Fetching volume/OI data for ${trades.length} trades`);
   
@@ -276,6 +388,13 @@ export default function OptionsFlowPage() {
  try {
  // Map scan categories to appropriate ticker parameter
  let tickerParam = tickerOverride || selectedTicker;
+ 
+ // Fix: Default to 'ALL' if ticker is empty or just whitespace
+ if (!tickerParam || tickerParam.trim() === '') {
+ console.log('⚠️ Empty ticker parameter detected, defaulting to ALL');
+ tickerParam = 'ALL';
+ }
+ 
  if (tickerParam === 'MAG7') {
  tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG';
  } else if (tickerParam === 'ETF') {
@@ -285,6 +404,7 @@ export default function OptionsFlowPage() {
  }
  // Otherwise use the ticker as-is for individual ticker searches
  
+ console.log(`🔌 Connecting to EventSource with ticker: ${tickerParam}`);
  const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
  
  eventSource.onmessage = (event) => {
@@ -373,48 +493,9 @@ export default function OptionsFlowPage() {
  const updatedTrades = [...prevData, ...newTrades];
  console.log(`✅ Total trades now: ${updatedTrades.length}`);
  
- // Enrich only the NEW trades
- if (newTrades.length > 0) {
- setTimeout(() => {
- console.log(`🚀 ENRICHING ${newTrades.length} NEW TRADES`);
- setStreamingStatus('Fetching volume/OI data for new trades...');
- 
- fetchVolumeAndOpenInterest(newTrades)
- .then(tradesWithVolOI => {
- console.log('✅ VOL/OI FETCH COMPLETE!');
- setStreamingStatus('Analyzing fill styles...');
- return analyzeBidAskExecution(tradesWithVolOI);
- })
- .then(enrichedNewTrades => {
- console.log('✅ NEW TRADES ENRICHMENT COMPLETE!');
- 
- // Merge enriched new trades with existing trades
- setData(currentTrades => {
- const existingIds = new Set(
- currentTrades.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
- );
- 
- // Replace unenriched versions with enriched ones
- const finalTrades = currentTrades.map((t: OptionsFlowData) => {
- const enriched = enrichedNewTrades.find((e: OptionsFlowData) => 
- `${e.ticker}-${e.trade_timestamp}-${e.strike}` === `${t.ticker}-${t.trade_timestamp}-${t.strike}`
- );
- return enriched || t;
- });
- 
- console.log(`✅ FINAL TRADE COUNT: ${finalTrades.length}`);
+ // ✅ NO ENRICHMENT NEEDED - Backend sends fully enriched data with Vol/OI + Fill Style
+ // Data comes pre-enriched from the API with snapshot data
  setStreamingStatus('');
- return finalTrades;
- });
- })
- .catch(enrichError => {
- console.error('❌ Error during enrichment:', enrichError);
- setStreamingStatus('');
- });
- }, 500);
- } else {
- setStreamingStatus('');
- }
  
  return updatedTrades;
  });
@@ -476,18 +557,23 @@ export default function OptionsFlowPage() {
             if (eventSource.readyState === 2) { // CLOSED state
               console.log('ℹ️ Stream closed normally');
               eventSource.close();
+              setStreamingStatus('');
+              setLoading(false);
               return;
             }
             
-            // Only show error if connection truly failed
+            // Only show error if connection truly failed during connection phase
             if (eventSource.readyState === 0) { // CONNECTING state - connection failed
               console.error('❌ Connection failed to establish');
-              setStreamError('Failed to establish connection');
+              const errorMsg = 'Failed to connect to options flow stream. Please check your network connection.';
+              setStreamError(errorMsg);
+              setStreamingStatus('');
             } else {
+              console.error('❌ Connection interrupted');
               setStreamError('Connection interrupted');
+              setStreamingStatus('Connection error - retrying...');
             }
             
-            setStreamingStatus('Connection error - retrying...');
             eventSource.close();            // Auto-retry with exponential backoff (max 3 retries)
             if (currentRetry < 3) {
               const nextRetry = currentRetry + 1;

@@ -455,7 +455,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  streamingProgress,
  streamError
 }) => {
- const [sortField, setSortField] = useState<keyof OptionsFlowData>('trade_timestamp');
+ const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade'>('trade_timestamp');
  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
  const [filterType, setFilterType] = useState<string>('all');
  const [selectedOptionTypes, setSelectedOptionTypes] = useState<string[]>(['call', 'put']);
@@ -485,6 +485,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({});
  const [tradesWithFillStyles, setTradesWithFillStyles] = useState<OptionsFlowData[]>([]);
  const [isMounted, setIsMounted] = useState(false);
+ 
+ // State for historical price data and standard deviations
+ const [historicalStdDevs, setHistoricalStdDevs] = useState<Map<string, number>>(new Map());
+ const [historicalDataLoading, setHistoricalDataLoading] = useState<Set<string>>(new Set());
+ const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null);
+ const [aGradeFilterActive, setAGradeFilterActive] = useState<boolean>(false);
 
  // Ensure component is mounted on client side to avoid hydration issues
  useEffect(() => {
@@ -639,6 +645,36 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  };
  }, [data.length]); // Only re-setup when data length changes, not content
 
+ // Fetch historical standard deviations when EFI Highlights is active
+ useEffect(() => {
+ if (!efiHighlightsActive || !data || data.length === 0) return;
+ 
+ const uniqueTickers = [...new Set(data.map(trade => trade.underlying_ticker))];
+ console.log(`📊 Fetching historical std dev for ${uniqueTickers.length} tickers...`);
+ 
+ const fetchAllStdDevs = async () => {
+ const stdDevsMap = new Map<string, number>();
+ 
+ for (const ticker of uniqueTickers) {
+ if (!historicalStdDevs.has(ticker) && !historicalDataLoading.has(ticker)) {
+ setHistoricalDataLoading(prev => new Set(prev).add(ticker));
+ const stdDev = await fetchHistoricalStdDev(ticker);
+ stdDevsMap.set(ticker, stdDev);
+ console.log(`📊 ${ticker} std dev: ${stdDev.toFixed(2)}%`);
+ 
+ // Small delay to avoid rate limits
+ await new Promise(resolve => setTimeout(resolve, 100));
+ }
+ }
+ 
+ if (stdDevsMap.size > 0) {
+ setHistoricalStdDevs(prev => new Map([...prev, ...stdDevsMap]));
+ }
+ };
+ 
+ fetchAllStdDevs();
+ }, [efiHighlightsActive, data.length]);
+
  // Fetch current option prices for position tracking (only when EFI Highlights is ON)
  const fetchCurrentOptionPrices = async (trades: OptionsFlowData[]) => {
  const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
@@ -683,6 +719,241 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} option prices`);
  };
 
+ // Function to fetch historical prices and calculate standard deviation
+ const fetchHistoricalStdDev = async (ticker: string): Promise<number> => {
+ try {
+ // Get 30 days of historical data
+ const endDate = new Date().toISOString().split('T')[0];
+ const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+ 
+ const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+ 
+ const response = await fetch(url);
+ const data = await response.json();
+ 
+ if (data.results && data.results.length > 1) {
+ const closes = data.results.map((r: any) => r.c);
+ 
+ // Step 1: Calculate daily returns
+ const returns: number[] = [];
+ for (let i = 1; i < closes.length; i++) {
+ const dailyReturn = ((closes[i] - closes[i-1]) / closes[i-1]) * 100;
+ returns.push(dailyReturn);
+ }
+ 
+ if (returns.length === 0) return 2.0; // Default fallback
+ 
+ // Step 2: Calculate mean return
+ const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+ 
+ // Step 3: Calculate deviations from mean
+ const deviations = returns.map(r => r - meanReturn);
+ 
+ // Step 4: Square the deviations
+ const squaredDeviations = deviations.map(d => d * d);
+ 
+ // Step 5: Calculate variance (using n-1 for sample data)
+ const variance = squaredDeviations.reduce((sum, d) => sum + d, 0) / (returns.length - 1);
+ 
+ // Step 6: Standard deviation is square root of variance
+ const stdDev = Math.sqrt(variance);
+ 
+ return stdDev;
+ }
+ 
+ return 2.0; // Default fallback
+ } catch (error) {
+ console.error(`Error fetching historical data for ${ticker}:`, error);
+ return 2.0; // Default fallback
+ }
+ };
+
+ // Calculate positioning grade for EFI trades - COMPLETE 100-POINT SYSTEM
+ const calculatePositioningGrade = (trade: OptionsFlowData, allTrades: OptionsFlowData[]): { 
+ grade: string; 
+ score: number; 
+ color: string; 
+ breakdown: string;
+ scores: {
+ expiration: number;
+ contractPrice: number;
+ combo: number;
+ priceAction: number;
+ stockReaction: number;
+ };
+ } => {
+ // Get option ticker for current price lookup
+ const expiry = trade.expiry.replace(/-/g, '').slice(2);
+ const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+ const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+ const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+ const currentPrice = currentOptionPrices[optionTicker];
+ const entryPrice = trade.premium_per_contract;
+ 
+ let confidenceScore = 0;
+ const scores = {
+ expiration: 0,
+ contractPrice: 0,
+ combo: 0,
+ priceAction: 0,
+ stockReaction: 0
+ };
+ 
+ // 1. Expiration Score (25 points max)
+ const daysToExpiry = trade.days_to_expiry;
+ if (daysToExpiry <= 7) scores.expiration = 25;
+ else if (daysToExpiry <= 14) scores.expiration = 20;
+ else if (daysToExpiry <= 21) scores.expiration = 15;
+ else if (daysToExpiry <= 28) scores.expiration = 10;
+ else if (daysToExpiry <= 42) scores.expiration = 5;
+ confidenceScore += scores.expiration;
+ 
+ // 2. Contract Price Score (25 points max) - based on position P&L
+ if (currentPrice && currentPrice > 0) {
+ const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+ 
+ if (percentChange <= -40) scores.contractPrice = 25;
+ else if (percentChange <= -20) scores.contractPrice = 20;
+ else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 15;
+ else if (percentChange >= 20) scores.contractPrice = 5;
+ else scores.contractPrice = 10;
+ } else {
+ scores.contractPrice = 12;
+ }
+ confidenceScore += scores.contractPrice;
+ 
+ // 3. Combo Trade Score (10 points max)
+ const isCall = trade.type === 'call';
+ const fillStyle = trade.fill_style || '';
+ const hasComboTrade = allTrades.some(t => {
+ if (t.underlying_ticker !== trade.underlying_ticker) return false;
+ if (t.expiry !== trade.expiry) return false;
+ if (Math.abs(t.strike - trade.strike) > trade.strike * 0.05) return false;
+ 
+ const oppositeFill = t.fill_style || '';
+ const oppositeType = t.type.toLowerCase();
+ 
+ // Bullish combo: Calls with A/AA + Puts with B/BB
+ if (isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+ return oppositeType === 'put' && (oppositeFill === 'B' || oppositeFill === 'BB');
+ }
+ // Bearish combo: Calls with B/BB + Puts with A/AA
+ if (isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+ return oppositeType === 'put' && (oppositeFill === 'A' || oppositeFill === 'AA');
+ }
+ // For puts, reverse logic
+ if (!isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+ return oppositeType === 'call' && (oppositeFill === 'A' || oppositeFill === 'AA');
+ }
+ if (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+ return oppositeType === 'call' && (oppositeFill === 'B' || oppositeFill === 'BB');
+ }
+ return false;
+ });
+ if (hasComboTrade) scores.combo = 10;
+ confidenceScore += scores.combo;
+ 
+ // Shared variables for sections 4 and 5
+ const entryStockPrice = trade.spot_price;
+ const currentStockPrice = currentPrices[trade.underlying_ticker];
+ const tradeTime = new Date(trade.trade_timestamp);
+ const currentTime = new Date();
+ 
+ // 4. Price Action Score (25 points max) - Stock within standard deviation
+ const stdDev = historicalStdDevs.get(trade.underlying_ticker);
+ 
+ if (currentStockPrice && entryStockPrice && stdDev) {
+ const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
+ const tradingDaysElapsed = Math.floor(hoursElapsed / 6.5); // 6.5-hour trading day
+ 
+ // Calculate current stock move in percentage
+ const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
+ const absMove = Math.abs(stockPercentChange);
+ 
+ // Check if stock is within 1 standard deviation
+ const withinStdDev = absMove <= stdDev;
+ 
+ // Award points based on how many days stock stayed within std dev
+ if (withinStdDev && tradingDaysElapsed >= 3) scores.priceAction = 25;
+ else if (withinStdDev && tradingDaysElapsed >= 2) scores.priceAction = 20;
+ else if (withinStdDev && tradingDaysElapsed >= 1) scores.priceAction = 15;
+ else scores.priceAction = 10;
+ } else {
+ scores.priceAction = 12;
+ }
+ confidenceScore += scores.priceAction;
+ 
+ // 5. Stock Reaction Score (15 points max)
+ // Measure stock movement 1 hour and 3 hours after trade placement
+ if (currentStockPrice && entryStockPrice) {
+ const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
+ 
+ // Determine trade direction (bullish or bearish)
+ const isBullish = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) || 
+ (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+ const isBearish = (isCall && (fillStyle === 'B' || fillStyle === 'BB')) || 
+ (!isCall && (fillStyle === 'A' || fillStyle === 'AA'));
+ 
+ // Check if stock reversed against trade direction
+ const reversed = (isBullish && stockPercentChange <= -1.0) || 
+ (isBearish && stockPercentChange >= 1.0);
+ const followed = (isBullish && stockPercentChange >= 1.0) || 
+ (isBearish && stockPercentChange <= -1.0);
+ const chopped = Math.abs(stockPercentChange) < 1.0;
+ 
+ // Calculate time elapsed since trade
+ const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
+ 
+ // Award points based on time checkpoints
+ if (hoursElapsed >= 1) {
+ // 1-hour checkpoint (50% of points)
+ if (reversed) scores.stockReaction += 7.5;
+ else if (chopped) scores.stockReaction += 5;
+ else if (followed) scores.stockReaction += 2.5;
+ 
+ if (hoursElapsed >= 3) {
+ // 3-hour checkpoint (remaining 50%)
+ if (reversed) scores.stockReaction += 7.5;
+ else if (chopped) scores.stockReaction += 5;
+ else if (followed) scores.stockReaction += 2.5;
+ }
+ }
+ }
+ confidenceScore += scores.stockReaction;
+ 
+ // Color code confidence score
+ let scoreColor = '#ff0000'; // F = Red
+ if (confidenceScore >= 85) scoreColor = '#00ff00'; // A = Bright Green
+ else if (confidenceScore >= 70) scoreColor = '#84cc16'; // B = Lime Green
+ else if (confidenceScore >= 50) scoreColor = '#fbbf24'; // C = Yellow
+ else if (confidenceScore >= 33) scoreColor = '#3b82f6'; // D = Blue
+ 
+ // Grade letter
+ let grade = 'F';
+ if (confidenceScore >= 85) grade = 'A+';
+ else if (confidenceScore >= 80) grade = 'A';
+ else if (confidenceScore >= 75) grade = 'A-';
+ else if (confidenceScore >= 70) grade = 'B+';
+ else if (confidenceScore >= 65) grade = 'B';
+ else if (confidenceScore >= 60) grade = 'B-';
+ else if (confidenceScore >= 55) grade = 'C+';
+ else if (confidenceScore >= 50) grade = 'C';
+ else if (confidenceScore >= 48) grade = 'C-';
+ else if (confidenceScore >= 43) grade = 'D+';
+ else if (confidenceScore >= 38) grade = 'D';
+ else if (confidenceScore >= 33) grade = 'D-';
+ 
+ // Create breakdown tooltip text
+ const breakdown = `Score: ${confidenceScore}/100
+Expiration: ${scores.expiration}/25
+Contract P&L: ${scores.contractPrice}/25
+Combo Trade: ${scores.combo}/10
+Price Action: ${scores.priceAction}/25
+Stock Reaction: ${scores.stockReaction}/15`;
+ 
+ return { grade, score: confidenceScore, color: scoreColor, breakdown, scores };
+ };
+
  // EFI Highlights criteria checker
  const meetsEfiCriteria = (trade: OptionsFlowData): boolean => {
  // 1. Check expiration (0-35 trading days)
@@ -708,10 +979,14 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  return true;
  };
 
- const handleSort = (field: keyof OptionsFlowData) => {
+ const handleSort = (field: keyof OptionsFlowData | 'positioning_grade') => {
+ console.log(`🔧 handleSort called: field=${field}, current sortField=${sortField}, current direction=${sortDirection}`);
  if (sortField === field) {
- setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+ const newDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+ console.log(`🔧 Toggling direction: ${sortDirection} → ${newDirection}`);
+ setSortDirection(newDirection);
  } else {
+ console.log(`🔧 New field: ${sortField} → ${field}, setting direction=desc`);
  setSortField(field);
  setSortDirection('desc');
  }
@@ -965,10 +1240,30 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  filtered = filtered.filter(trade => trade.underlying_ticker === selectedTickerFilter);
  }
 
+ // A+ grade filter (only active when EFI Highlights is on)
+ if (efiHighlightsActive && aGradeFilterActive) {
+ filtered = filtered.filter(trade => {
+ const gradeData = calculatePositioningGrade(trade, filtered);
+ return gradeData.grade === 'A+' || gradeData.grade === 'A' || gradeData.grade === 'A-';
+ });
+ }
+
  // Apply sorting
  filtered.sort((a, b) => {
- const aValue = a[sortField];
- const bValue = b[sortField];
+ // Special handling for positioning grade sorting (custom field)
+ if (sortField === 'positioning_grade') {
+ // Calculate positioning grades for comparison
+ const gradeA = calculatePositioningGrade(a, filtered);
+ const gradeB = calculatePositioningGrade(b, filtered);
+ 
+ // Use the numeric score for sorting (higher score = better grade)
+ // DESC: High to Low (A+ to F), ASC: Low to High (F to A+)
+ const result = sortDirection === 'desc' ? gradeB.score - gradeA.score : gradeA.score - gradeB.score;
+ return result;
+ }
+ 
+ const aValue = a[sortField as keyof OptionsFlowData];
+ const bValue = b[sortField as keyof OptionsFlowData];
  
  if (typeof aValue === 'string' && typeof bValue === 'string') {
  return sortDirection === 'asc' 
@@ -982,7 +1277,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  });
 
  return filtered;
- }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive, quickFilters]);
+ }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive, quickFilters, aGradeFilterActive]);
 
  // Automatically enrich trades with Vol/OI AND Fill Style in ONE combined call - IMMEDIATELY as part of scan
  useEffect(() => {
@@ -1840,6 +2135,30 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  >
  SWEEP
  </button>
+ {efiHighlightsActive && (
+ <button
+ onClick={() => setAGradeFilterActive(!aGradeFilterActive)}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: aGradeFilterActive 
+ ? 'linear-gradient(180deg, #00ff00 0%, #00cc00 100%)'
+ : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: aGradeFilterActive ? '2px solid #00ff00' : '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '12px',
+ letterSpacing: '1px',
+ fontWeight: '900',
+ boxShadow: aGradeFilterActive 
+ ? '0 0 12px rgba(0, 255, 0, 0.6), inset 0 2px 8px rgba(0, 0, 0, 0.3)'
+ : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: aGradeFilterActive ? '#000000' : '#00ff00'
+ }}
+ >
+ A+ ONLY
+ </button>
+ )}
  </div>
 
  {/* Divider */}
@@ -2255,9 +2574,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  </th>
  {efiHighlightsActive && (
  <th 
- className="text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+ className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+ onClick={() => {
+ console.log('🎯 Position column clicked!');
+ handleSort('positioning_grade');
+ }}
  >
- Position
+ Position {sortField === 'positioning_grade' && (sortDirection === 'asc' ? '↑' : '↓')}
  </th>
  )}
  </tr>
@@ -2267,7 +2590,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  const isEfiHighlight = efiHighlightsActive && meetsEfiCriteria(trade);
  return (
  <tr 
- key={index} 
+ key={`${trade.ticker}-${trade.strike}-${trade.trade_timestamp}-${trade.trade_size}-${index}`}
  className="border-b border-slate-700/50 hover:bg-slate-800/40 transition-all duration-300 hover:shadow-lg"
  style={isEfiHighlight ? {
  border: '2px solid #ffd700',
@@ -2327,8 +2650,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display">
  <PriceDisplay 
  spotPrice={trade.spot_price}
- currentPrice={trade.current_price || currentPrices[trade.underlying_ticker]}
- isLoading={!trade.current_price && priceLoadingState[trade.underlying_ticker]}
+ currentPrice={currentPrices[trade.underlying_ticker] || trade.current_price}
+ isLoading={priceLoadingState[trade.underlying_ticker]}
  ticker={trade.underlying_ticker}
  />
  </td>
@@ -2364,6 +2687,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  const currentPrice = currentOptionPrices[optionTicker];
  const entryPrice = trade.premium_per_contract;
  
+ // Calculate grade using the centralized function
+ const gradeData = calculatePositioningGrade(trade, filteredAndSortedData);
+ 
  if (currentPrice && currentPrice > 0) {
  const currentValue = currentPrice * trade.trade_size * 100;
  const entryValue = trade.total_premium;
@@ -2383,64 +2709,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  color = priceHigher ? '#ff0000' : '#00ff00';
  }
  
- // Calculate Confidence Score (0-100)
- let confidenceScore = 0;
- 
- // 1. Expiration Score (25 points max)
- const daysToExpiry = trade.days_to_expiry;
- if (daysToExpiry <= 7) confidenceScore += 25;
- else if (daysToExpiry <= 14) confidenceScore += 20;
- else if (daysToExpiry <= 21) confidenceScore += 15;
- else if (daysToExpiry <= 28) confidenceScore += 10;
- else if (daysToExpiry <= 42) confidenceScore += 5;
- 
- // 2. Contract Price Score (40 points max)
- if (percentChange <= -66) confidenceScore += 10;
- else if (percentChange <= -40) confidenceScore += 40;
- else if (percentChange <= -30) confidenceScore += 35;
- else if (percentChange <= -20) confidenceScore += 30;
- else if (percentChange >= -10 && percentChange <= 10) confidenceScore += 15;
- else if (percentChange >= 20) confidenceScore += 5;
- 
- // 3. Combo Trade Score (10 points max)
- // Check if there's an opposing trade with similar characteristics
- const hasComboTrade = filteredAndSortedData.some(t => {
- if (t.underlying_ticker !== trade.underlying_ticker) return false;
- if (t.expiry !== trade.expiry) return false;
- if (Math.abs(t.strike - trade.strike) > trade.strike * 0.05) return false;
- 
- const oppositeFill = t.fill_style || '';
- const oppositeType = t.type.toLowerCase();
- 
- // Bullish combo: Calls with A/AA + Puts with B/BB
- if (isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
- return oppositeType === 'put' && (oppositeFill === 'B' || oppositeFill === 'BB');
- }
- // Bearish combo: Calls with B/BB + Puts with A/AA
- if (isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
- return oppositeType === 'put' && (oppositeFill === 'A' || oppositeFill === 'AA');
- }
- // For puts, reverse logic
- if (!isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
- return oppositeType === 'call' && (oppositeFill === 'A' || oppositeFill === 'AA');
- }
- if (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
- return oppositeType === 'call' && (oppositeFill === 'B' || oppositeFill === 'BB');
- }
- return false;
- });
- if (hasComboTrade) confidenceScore += 10;
- 
- // 4. Price Action Score (25 points max)
- // Note: This requires historical price data and standard deviation calculation
- // For now, we'll assign a placeholder score based on days to expiry as proxy
- // You can enhance this by fetching actual price history and calculating std dev
- if (daysToExpiry >= 1 && daysToExpiry <= 1) confidenceScore += 15;
- else if (daysToExpiry >= 2 && daysToExpiry <= 2) confidenceScore += 20;
- else if (daysToExpiry >= 3 && daysToExpiry <= 3) confidenceScore += 25;
- else if (daysToExpiry >= 4 && daysToExpiry <= 4) confidenceScore += 20;
- else if (daysToExpiry >= 5) confidenceScore += 10;
- 
  // Smart formatting for value
  const formatValue = (val: number): string => {
  if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
@@ -2448,27 +2716,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  return `$${val.toFixed(0)}`;
  };
  
- // Color code confidence score
- let scoreColor = '#ff0000'; // F = Red
- if (confidenceScore >= 85) scoreColor = '#00ff00'; // A = Bright Green
- else if (confidenceScore >= 70) scoreColor = '#84cc16'; // B = Lime Green
- else if (confidenceScore >= 50) scoreColor = '#fbbf24'; // C = Yellow
- else if (confidenceScore >= 33) scoreColor = '#3b82f6'; // D = Blue
- 
- // Grade letter
- let grade = 'F';
- if (confidenceScore >= 85) grade = 'A+';
- else if (confidenceScore >= 80) grade = 'A';
- else if (confidenceScore >= 75) grade = 'A-';
- else if (confidenceScore >= 70) grade = 'B+';
- else if (confidenceScore >= 65) grade = 'B';
- else if (confidenceScore >= 60) grade = 'B-';
- else if (confidenceScore >= 55) grade = 'C+';
- else if (confidenceScore >= 50) grade = 'C';
- else if (confidenceScore >= 48) grade = 'C-';
- else if (confidenceScore >= 43) grade = 'D+';
- else if (confidenceScore >= 38) grade = 'D';
- else if (confidenceScore >= 33) grade = 'D-';
+ // Use calculated grade data
+ const { grade, color: scoreColor, breakdown } = gradeData;
  
  return (
  <td className="p-2 md:p-6 border-r border-gray-700/30">
@@ -2509,7 +2758,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  border: `2px dashed ${scoreColor}80`,
  borderRadius: '50%'
  }}></div>
- <span style={{ 
+ <span
+ onMouseEnter={() => setHoveredGradeIndex(index)}
+ onMouseLeave={() => setHoveredGradeIndex(null)}
+ style={{ 
  color: scoreColor, 
  fontWeight: 'normal', 
  fontSize: '31.2px', 
@@ -2523,9 +2775,160 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  transform: 'rotate(12deg)',
  letterSpacing: '1px',
  filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
- WebkitTextStroke: `0.5px ${scoreColor}`
+ WebkitTextStroke: `0.5px ${scoreColor}`,
+ cursor: 'help',
+ position: 'relative'
  }}>
  {grade}
+ {hoveredGradeIndex === index && (
+ index < 3 ? (
+ <div style={{
+ position: 'absolute',
+ top: '100%',
+ left: '50%',
+ transform: 'translateX(-50%) translateY(12px)',
+ backgroundColor: '#000000',
+ color: '#ffffff',
+ padding: '16px 20px',
+ borderRadius: '12px',
+ fontSize: '15px',
+ fontFamily: 'monospace',
+ fontStyle: 'normal',
+ fontWeight: 'normal',
+ whiteSpace: 'pre-line',
+ zIndex: 10000,
+ minWidth: '280px',
+ boxShadow: `
+ 0 8px 32px rgba(0, 0, 0, 0.8),
+ 0 0 0 2px ${scoreColor}40
+ `,
+ border: `2px solid ${scoreColor}`,
+ lineHeight: '1.8',
+ letterSpacing: '0.5px',
+ textShadow: 'none',
+ WebkitTextStroke: '0',
+ pointerEvents: 'none'
+ }}>
+ <div style={{ marginBottom: '8px', fontWeight: 'bold', fontSize: '16px' }}>
+ Score: <span style={{ color: scoreColor }}>{gradeData.score}/100</span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Expiration:</span>
+ <span style={{ color: gradeData.scores.expiration === 0 ? '#ff0000' : gradeData.scores.expiration === 25 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.expiration}/25
+ </span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Contract P&L:</span>
+ <span style={{ color: gradeData.scores.contractPrice === 0 ? '#ff0000' : gradeData.scores.contractPrice === 25 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.contractPrice}/25
+ </span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Combo Trade:</span>
+ <span style={{ color: gradeData.scores.combo === 0 ? '#ff0000' : gradeData.scores.combo === 10 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.combo}/10
+ </span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Price Action:</span>
+ <span style={{ color: gradeData.scores.priceAction === 0 ? '#ff0000' : gradeData.scores.priceAction === 25 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.priceAction}/25
+ </span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Stock Reaction:</span>
+ <span style={{ color: gradeData.scores.stockReaction === 0 ? '#ff0000' : gradeData.scores.stockReaction === 15 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.stockReaction}/15
+ </span>
+ </div>
+ <div style={{
+ position: 'absolute',
+ top: '-10px',
+ left: '50%',
+ transform: 'translateX(-50%)',
+ width: 0,
+ height: 0,
+ borderLeft: '10px solid transparent',
+ borderRight: '10px solid transparent',
+ borderBottom: `10px solid ${scoreColor}`
+ }}></div>
+ </div>
+ ) : (
+ <div style={{
+ position: 'absolute',
+ bottom: '100%',
+ left: '50%',
+ transform: 'translateX(-50%) translateY(-12px)',
+ backgroundColor: '#000000',
+ color: '#ffffff',
+ padding: '16px 20px',
+ borderRadius: '12px',
+ fontSize: '15px',
+ fontFamily: 'monospace',
+ fontStyle: 'normal',
+ fontWeight: 'normal',
+ whiteSpace: 'pre-line',
+ zIndex: 10000,
+ minWidth: '280px',
+ boxShadow: `
+ 0 8px 32px rgba(0, 0, 0, 0.8),
+ 0 0 0 2px ${scoreColor}40
+ `,
+ border: `2px solid ${scoreColor}`,
+ lineHeight: '1.8',
+ letterSpacing: '0.5px',
+ textShadow: 'none',
+ WebkitTextStroke: '0',
+ pointerEvents: 'none'
+ }}>
+ <div style={{ marginBottom: '8px', fontWeight: 'bold', fontSize: '16px' }}>
+ Score: <span style={{ color: scoreColor }}>{gradeData.score}/100</span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Expiration:</span>
+ <span style={{ color: gradeData.scores.expiration === 0 ? '#ff0000' : gradeData.scores.expiration === 25 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.expiration}/25
+ </span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Contract P&L:</span>
+ <span style={{ color: gradeData.scores.contractPrice === 0 ? '#ff0000' : gradeData.scores.contractPrice === 25 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.contractPrice}/25
+ </span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Combo Trade:</span>
+ <span style={{ color: gradeData.scores.combo === 0 ? '#ff0000' : gradeData.scores.combo === 10 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.combo}/10
+ </span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Price Action:</span>
+ <span style={{ color: gradeData.scores.priceAction === 0 ? '#ff0000' : gradeData.scores.priceAction === 25 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.priceAction}/25
+ </span>
+ </div>
+ <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+ <span>Stock Reaction:</span>
+ <span style={{ color: gradeData.scores.stockReaction === 0 ? '#ff0000' : gradeData.scores.stockReaction === 15 ? '#00ff00' : '#ffffff' }}>
+ {gradeData.scores.stockReaction}/15
+ </span>
+ </div>
+ <div style={{
+ position: 'absolute',
+ bottom: '-10px',
+ left: '50%',
+ transform: 'translateX(-50%)',
+ width: 0,
+ height: 0,
+ borderLeft: '10px solid transparent',
+ borderRight: '10px solid transparent',
+ borderTop: `10px solid ${scoreColor}`
+ }}></div>
+ </div>
+ )
+ )}
  </span>
  </div>
  </div>

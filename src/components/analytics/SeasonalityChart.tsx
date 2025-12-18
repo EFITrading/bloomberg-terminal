@@ -123,6 +123,9 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  const [isEditingNote, setIsEditingNote] = useState<boolean>(false);
  const [isElectionDropdownOpen, setIsElectionDropdownOpen] = useState<boolean>(false);
  const [displayElectionPeriod, setDisplayElectionPeriod] = useState<string>('Normal Mode');
+ const [monthlyViewActive, setMonthlyViewActive] = useState<boolean>(false);
+ const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
+ const [selectedMonthName, setSelectedMonthName] = useState<string>('');
  const [chartSettings, setChartSettings] = useState<ChartSettings>({
  startDate: '11 Oct',
  endDate: '6 Nov',
@@ -797,6 +800,13 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  }
  };
 
+ const handleMonthClick = (monthIndex: number, monthName: string) => {
+ console.log(`📅 Month clicked: ${monthName} (index: ${monthIndex})`);
+ setSelectedMonthIndex(monthIndex);
+ setSelectedMonthName(monthName);
+ setMonthlyViewActive(true);
+ };
+
  const handleNoteKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
  if (e.key === 'Enter' && notepadText.trim()) {
  setSavedNote(notepadText.trim());
@@ -1016,6 +1026,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
       monthlyData={isElectionMode ? electionData!.spyComparison!.monthlyData : seasonalData!.spyComparison!.monthlyData}
       best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
       worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
+      onMonthClick={handleMonthClick}
      />
     )}
     <SeasonaxControls 
@@ -1038,6 +1049,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
      onElectionPeriodChange={handleElectionPeriodSelect}
      onSweetSpotClick={handleSweetSpotClick}
      onPainPointClick={handlePainPointClick}
+     onMonthClick={handleMonthClick}
     />
    )}
 
@@ -1079,7 +1091,73 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
        settings={chartSettings}
        sweetSpotPeriod={sweetSpotPeriod}
        painPointPeriod={painPointPeriod}
+       selectedMonth={monthlyViewActive ? selectedMonthIndex : null}
       />
+     </div>
+    </div>
+   )}
+
+   {/* Monthly View Modal */}
+   {monthlyViewActive && selectedMonthIndex !== null && (
+    <div style={{
+     position: 'fixed',
+     top: 0,
+     left: 0,
+     right: 0,
+     bottom: 0,
+     background: 'rgba(0, 0, 0, 0.85)',
+     display: 'flex',
+     alignItems: 'center',
+     justifyContent: 'center',
+     zIndex: 9999,
+     backdropFilter: 'blur(8px)'
+    }} onClick={() => setMonthlyViewActive(false)}>
+     <div style={{
+      background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)',
+      borderRadius: '20px',
+      padding: '25px',
+      width: '85vw',
+      height: '75vh',
+      overflow: 'auto',
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      flexDirection: 'column'
+     }} onClick={(e) => e.stopPropagation()}>
+      <div style={{
+       display: 'flex',
+       justifyContent: 'space-between',
+       alignItems: 'center',
+       marginBottom: '20px'
+      }}>
+       <h2 style={{ color: '#fff', fontSize: '24px', fontWeight: '700' }}>
+        {selectedMonthName} Seasonality - {selectedSymbol}
+       </h2>
+       <button
+        onClick={() => setMonthlyViewActive(false)}
+        style={{
+         background: 'rgba(255, 0, 0, 0.1)',
+         border: '1px solid #ff0000',
+         borderRadius: '8px',
+         color: '#ff0000',
+         padding: '8px 16px',
+         cursor: 'pointer',
+         fontSize: '14px',
+         fontWeight: '600'
+        }}
+       >
+        ✕ Close
+       </button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+       <SeasonaxMainChart
+        data={(isElectionMode ? electionData : seasonalData) as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
+        settings={chartSettings}
+        sweetSpotPeriod={null}
+        painPointPeriod={null}
+        selectedMonth={selectedMonthIndex}
+       />
+      </div>
      </div>
     </div>
    )}

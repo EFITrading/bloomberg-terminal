@@ -704,8 +704,6 @@ export class TradingAssistant {
 
 **Current Price:** $${currentPrice.toFixed(2)}
 
----
-
 **Date Range:** ${startDate} to ${endDate} (${expsInRange.length} expirations)
 
 <strong><span style="color: rgb(59, 130, 246);">90% Range:</span></strong> $${rangeData.put90.toFixed(2)} - $${rangeData.call90.toFixed(2)}
@@ -715,8 +713,6 @@ export class TradingAssistant {
 **Open Interest:**
 - <span style="color: rgb(34, 197, 94);">Call OI:</span> ${totalCallOI.toLocaleString()}
 - <span style="color: rgb(239, 68, 68);">Put OI:</span> ${totalPutOI.toLocaleString()}
-
----
 
 **Interpretation:** ${ratioRange === '∞' ? 'No call OI - extremely bearish positioning' : parseFloat(ratioRange) > 1 ? 'Bearish - More put OI than calls' : 'Bullish - More call OI than puts'}`;
       }
@@ -754,8 +750,6 @@ export class TradingAssistant {
           output += `<strong><span style="color: rgb(34, 197, 94);">Call OI:</span></strong> ${data.totalCallOI.toLocaleString()} | <strong><span style="color: rgb(239, 68, 68);">Put OI:</span></strong> ${data.totalPutOI.toLocaleString()}  
 `;
           output += `**Interpretation:** ${data.ratio === '∞' ? 'No call OI' : parseFloat(data.ratio) > 1 ? 'Bearish - More put OI than calls' : 'Bullish - More call OI than puts'}
-
----
 
 `;
         }
@@ -1207,62 +1201,48 @@ export class TradingAssistant {
   }
 
   // POSITIONING GRADE CALCULATION - Exact copy from OptionsFlowTable
-  private calculatePositioningGrade(trade: any): { grade: string; score: number; color: string } {
-    let confidenceScore = 0;
-    
-    // 1. Expiration Score (25 points max)
-    const daysToExpiry = trade.days_to_expiry;
-    if (daysToExpiry <= 7) confidenceScore += 25;
-    else if (daysToExpiry <= 14) confidenceScore += 20;
-    else if (daysToExpiry <= 21) confidenceScore += 15;
-    else if (daysToExpiry <= 28) confidenceScore += 10;
-    else if (daysToExpiry <= 42) confidenceScore += 5;
-    
-    // 2. Contract Price Score (40 points max) - using current_price vs premium_per_contract
-    const entryPrice = trade.premium_per_contract;
-    const currentPrice = trade.current_price || entryPrice;
-    const percentChange = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0;
-    
-    if (percentChange <= -66) confidenceScore += 10;
-    else if (percentChange <= -40) confidenceScore += 40;
-    else if (percentChange <= -30) confidenceScore += 35;
-    else if (percentChange <= -20) confidenceScore += 30;
-    else if (percentChange >= -10 && percentChange <= 10) confidenceScore += 15;
-    else if (percentChange >= 20) confidenceScore += 5;
-    
-    // 3. Combo Trade Score (10 points max) - simplified version
-    if (trade.trade_type === 'MULTI-LEG') confidenceScore += 10;
-    
-    // 4. Price Action Score (25 points max) - based on days to expiry
-    if (daysToExpiry >= 1 && daysToExpiry <= 1) confidenceScore += 15;
-    else if (daysToExpiry >= 2 && daysToExpiry <= 2) confidenceScore += 20;
-    else if (daysToExpiry >= 3 && daysToExpiry <= 3) confidenceScore += 25;
-    else if (daysToExpiry >= 4 && daysToExpiry <= 4) confidenceScore += 20;
-    else if (daysToExpiry >= 5) confidenceScore += 10;
-    
-    // Determine grade and color - exact thresholds from page
-    let grade = 'F';
-    let color = '#ff0000';
-    
-    if (confidenceScore >= 85) { grade = 'A+'; color = '#00ff00'; }
-    else if (confidenceScore >= 80) { grade = 'A'; color = '#22c55e'; }
-    else if (confidenceScore >= 75) { grade = 'A-'; color = '#22c55e'; }
-    else if (confidenceScore >= 70) { grade = 'B+'; color = '#84cc16'; }
-    else if (confidenceScore >= 65) { grade = 'B'; color = '#84cc16'; }
-    else if (confidenceScore >= 60) { grade = 'B-'; color = '#84cc16'; }
-    else if (confidenceScore >= 55) { grade = 'C+'; color = '#fbbf24'; }
-    else if (confidenceScore >= 50) { grade = 'C'; color = '#fbbf24'; }
-    else if (confidenceScore >= 48) { grade = 'C-'; color = '#fbbf24'; }
-    else if (confidenceScore >= 43) { grade = 'D+'; color = '#3b82f6'; }
-    else if (confidenceScore >= 38) { grade = 'D'; color = '#3b82f6'; }
-    else if (confidenceScore >= 33) { grade = 'D-'; color = '#3b82f6'; }
-    
-    return { grade, score: confidenceScore, color };
-  }
-
   // OPTIONS FLOW - Main query method
   private async getOptionsFlow(ticker: string, efiOnly: boolean = false, minPremium: number = 0, gradeFilter?: string): Promise<string> {
     try {
+      // For EFI queries, use the new API endpoint that calculates positioning with real-time data
+      if (efiOnly) {
+        const url = `${this.baseUrl}/api/efi-with-positioning?ticker=${ticker}`;
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.trades || data.trades.length === 0) {
+          return `❌ No EFI Highlights found for ${ticker}.`;
+        }
+        
+        let finalTrades = data.trades;
+        
+        // Filter by grade if specified
+        if (gradeFilter) {
+          finalTrades = data.trades.filter((trade: any) => {
+            if (!trade.positioning) return false;
+            
+            if (gradeFilter === 'A') {
+              return ['A+', 'A', 'A-'].includes(trade.positioning.grade);
+            }
+            
+            return trade.positioning.grade === gradeFilter;
+          });
+          
+          if (finalTrades.length === 0) {
+            return `❌ No ${gradeFilter} grade flows found for ${ticker}.`;
+          }
+        }
+        
+        return this.buildOptionsFlowTable(ticker, finalTrades, efiOnly, gradeFilter);
+      }
+      
+      // For non-EFI queries, use the old streaming approach
       // Map scan categories - EXACT same as options-flow page
       let tickerParam = ticker;
       if (ticker === 'MAG7') {
@@ -1351,56 +1331,12 @@ export class TradingAssistant {
         });
       }
       
-      // Filter by EFI if requested
-      if (efiOnly) {
-        displayTrades = displayTrades.filter(trade => this.meetsEfiCriteria(trade));
-      }
-      
       if (displayTrades.length === 0) {
-        if (gradeFilter) {
-          return `❌ No ${gradeFilter} grade flows found for ${ticker}.`;
-        }
-        return efiOnly 
-          ? `❌ No EFI Highlights found for ${ticker}.` 
-          : `❌ No options flow data found for ${ticker}.`;
+        return `❌ No options flow data found for ${ticker}.`;
       }
       
-      // Calculate positioning grades for EFI trades OR when grade filter is specified - EXACT same as options-flow page
-      const tradesWithGrades = displayTrades.map(trade => {
-        if ((efiOnly && this.meetsEfiCriteria(trade)) || gradeFilter) {
-          const positioning = this.calculatePositioningGrade(trade);
-          return { ...trade, positioning };
-        }
-        return trade;
-      });
-      
-      // Filter by grade if specified (A grade for "best flow" includes A+, A, A-)
-      let finalTrades = tradesWithGrades;
-      if (gradeFilter) {
-        // For grade filtering, only include trades that meet EFI criteria AND have the specified grade tier
-        finalTrades = tradesWithGrades.filter(trade => {
-          if (!this.meetsEfiCriteria(trade) || !trade.positioning) {
-            return false;
-          }
-          
-          // If gradeFilter is 'A', include A+, A, and A-
-          if (gradeFilter === 'A') {
-            return ['A+', 'A', 'A-'].includes(trade.positioning.grade);
-          }
-          
-          // For other grades, exact match
-          return trade.positioning.grade === gradeFilter;
-        });
-      }
-      
-      if (finalTrades.length === 0) {
-        return gradeFilter 
-          ? `❌ No ${gradeFilter} grade flows found for ${ticker}.`
-          : `❌ No options flow data found for ${ticker}.`;
-      }
-      
-      // Build table output
-      return this.buildOptionsFlowTable(ticker, finalTrades, efiOnly, gradeFilter);
+      // Build table output (no positioning for non-EFI)
+      return this.buildOptionsFlowTable(ticker, displayTrades, false, undefined);
       
     } catch (error) {
       console.error('Error fetching options flow:', error);
@@ -1470,7 +1406,7 @@ export class TradingAssistant {
         
         // Calculate actual position metrics
         const entryPrice = trade.premium_per_contract;
-        const currentPrice = trade.current_price || entryPrice;
+        const currentPrice = trade.current_option_price || trade.current_price || entryPrice;
         const percentChangeNum = entryPrice > 0 
           ? ((currentPrice - entryPrice) / entryPrice) * 100
           : 0;
@@ -1511,6 +1447,151 @@ export class TradingAssistant {
     output += `</tbody>\n</table>\n`;
     
     return output;
+  }
+  
+  // Calculate positioning grade - EXACT same logic as OptionsFlowTable.tsx
+  private calculatePositioningGrade(trade: any, allTrades: any[]): { grade: string; score: number; color: string } {
+    // Get option ticker for current price lookup
+    const expiry = trade.expiry.replace(/-/g, '').slice(2);
+    const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+    const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+    const currentPrice = trade.current_price;
+    const entryPrice = trade.premium_per_contract;
+
+    let confidenceScore = 0;
+    const scores = {
+      expiration: 0,
+      contractPrice: 0,
+      combo: 0,
+      priceAction: 0,
+      stockReaction: 0
+    };
+
+    // 1. Expiration Score (25 points max)
+    const daysToExpiry = trade.days_to_expiry;
+    if (daysToExpiry <= 7) scores.expiration = 25;
+    else if (daysToExpiry <= 14) scores.expiration = 20;
+    else if (daysToExpiry <= 21) scores.expiration = 15;
+    else if (daysToExpiry <= 28) scores.expiration = 10;
+    else if (daysToExpiry <= 42) scores.expiration = 5;
+    confidenceScore += scores.expiration;
+
+    // 2. Contract Price Score (25 points max) - based on position P&L
+    if (currentPrice && currentPrice > 0) {
+      const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+
+      if (percentChange <= -40) scores.contractPrice = 25;
+      else if (percentChange <= -20) scores.contractPrice = 20;
+      else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 15;
+      else if (percentChange >= 20) scores.contractPrice = 5;
+      else scores.contractPrice = 10;
+    } else {
+      scores.contractPrice = 12;
+    }
+    confidenceScore += scores.contractPrice;
+
+    // 3. Combo Trade Score (10 points max)
+    const isCall = trade.type === 'call';
+    const fillStyle = trade.fill_style || '';
+    const hasComboTrade = allTrades.some(t => {
+      if (t.underlying_ticker !== trade.underlying_ticker) return false;
+      if (t.expiry !== trade.expiry) return false;
+      if (Math.abs(t.strike - trade.strike) > trade.strike * 0.05) return false;
+
+      const oppositeFill = t.fill_style || '';
+      const oppositeType = t.type.toLowerCase();
+
+      // Bullish combo: Calls with A/AA + Puts with B/BB
+      if (isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+        return oppositeType === 'put' && (oppositeFill === 'B' || oppositeFill === 'BB');
+      }
+      // Bearish combo: Calls with B/BB + Puts with A/AA
+      if (isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+        return oppositeType === 'put' && (oppositeFill === 'A' || oppositeFill === 'AA');
+      }
+      // For puts, reverse logic
+      if (!isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+        return oppositeType === 'call' && (oppositeFill === 'A' || oppositeFill === 'AA');
+      }
+      if (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+        return oppositeType === 'call' && (oppositeFill === 'B' || oppositeFill === 'BB');
+      }
+      return false;
+    });
+    if (hasComboTrade) scores.combo = 10;
+    confidenceScore += scores.combo;
+
+    // Shared variables for sections 4 and 5
+    const entryStockPrice = trade.spot_price;
+    const currentStockPrice = trade.current_stock_price || trade.spot_price;
+    const tradeTime = new Date(trade.trade_timestamp);
+    const currentTime = new Date();
+
+    // 4. Price Action Score (25 points max) - simplified without std dev
+    // Since we don't have historical std devs, give default score
+    scores.priceAction = 12;
+    confidenceScore += scores.priceAction;
+
+    // 5. Stock Reaction Score (15 points max)
+    if (currentStockPrice && entryStockPrice) {
+      const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
+
+      // Determine trade direction (bullish or bearish)
+      const isBullish = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) ||
+        (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+      const isBearish = (isCall && (fillStyle === 'B' || fillStyle === 'BB')) ||
+        (!isCall && (fillStyle === 'A' || fillStyle === 'AA'));
+
+      // Check if stock reversed against trade direction
+      const reversed = (isBullish && stockPercentChange <= -1.0) ||
+        (isBearish && stockPercentChange >= 1.0);
+      const followed = (isBullish && stockPercentChange >= 1.0) ||
+        (isBearish && stockPercentChange <= -1.0);
+      const chopped = Math.abs(stockPercentChange) < 1.0;
+
+      // Calculate time elapsed since trade
+      const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
+
+      // Award points based on time checkpoints
+      if (hoursElapsed >= 1) {
+        // 1-hour checkpoint (50% of points)
+        if (reversed) scores.stockReaction += 7.5;
+        else if (chopped) scores.stockReaction += 5;
+        else if (followed) scores.stockReaction += 2.5;
+
+        if (hoursElapsed >= 3) {
+          // 3-hour checkpoint (remaining 50%)
+          if (reversed) scores.stockReaction += 7.5;
+          else if (chopped) scores.stockReaction += 5;
+          else if (followed) scores.stockReaction += 2.5;
+        }
+      }
+    }
+    confidenceScore += scores.stockReaction;
+
+    // Color code confidence score
+    let scoreColor = '#ff0000'; // F = Red
+    if (confidenceScore >= 85) scoreColor = '#00ff00'; // A = Bright Green
+    else if (confidenceScore >= 70) scoreColor = '#84cc16'; // B = Lime Green
+    else if (confidenceScore >= 50) scoreColor = '#fbbf24'; // C = Yellow
+    else if (confidenceScore >= 33) scoreColor = '#3b82f6'; // D = Blue
+
+    // Grade letter
+    let grade = 'F';
+    if (confidenceScore >= 85) grade = 'A+';
+    else if (confidenceScore >= 80) grade = 'A';
+    else if (confidenceScore >= 75) grade = 'A-';
+    else if (confidenceScore >= 70) grade = 'B+';
+    else if (confidenceScore >= 65) grade = 'B';
+    else if (confidenceScore >= 60) grade = 'B-';
+    else if (confidenceScore >= 55) grade = 'C+';
+    else if (confidenceScore >= 50) grade = 'C';
+    else if (confidenceScore >= 48) grade = 'C-';
+    else if (confidenceScore >= 43) grade = 'D+';
+    else if (confidenceScore >= 38) grade = 'D';
+    else if (confidenceScore >= 33) grade = 'D-';
+
+    return { grade, score: confidenceScore, color: scoreColor };
   }
 
   // Method to add custom knowledge

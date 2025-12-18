@@ -193,9 +193,7 @@ class PolygonService {
  const response = await fetch(url, {
  method: 'GET',
  headers: {
- 'Accept': 'application/json',
- 'Connection': 'keep-alive',
- 'Cache-Control': 'no-cache'
+ 'Accept': 'application/json'
  },
  // Add timeout for faster failure detection
  signal: AbortSignal.timeout(30000) // 30 second timeout
@@ -244,8 +242,7 @@ class PolygonService {
  const response = await fetch(endpoint, {
  method: 'GET',
  headers: {
- 'Accept': 'application/json',
- 'Cache-Control': 'no-cache'
+ 'Accept': 'application/json'
  },
  });
  
@@ -320,8 +317,7 @@ class PolygonService {
  const response = await fetch(endpoint, {
  method: 'GET',
  headers: {
- 'Accept': 'application/json',
- 'Cache-Control': 'no-cache'
+ 'Accept': 'application/json'
  },
  });
  
@@ -381,9 +377,7 @@ class PolygonService {
  method: 'GET',
  signal: controller.signal,
  headers: {
- 'Accept': 'application/json',
- 'Cache-Control': 'no-cache',
- 'Connection': 'keep-alive'
+ 'Accept': 'application/json'
  },
  });
 

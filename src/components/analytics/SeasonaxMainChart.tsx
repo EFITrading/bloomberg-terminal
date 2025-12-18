@@ -56,6 +56,7 @@ interface SeasonaxMainChartProps {
  settings: ChartSettings;
  sweetSpotPeriod?: { startDay: number; endDay: number; period: string } | null;
  painPointPeriod?: { startDay: number; endDay: number; period: string } | null;
+ selectedMonth?: number | null;
 }
 
 // Helper function to smooth data - removes abnormal spikes/crashes
@@ -123,14 +124,28 @@ const drawSeasonalLine = (
  paddedRange: number,
  color: string,
  lineWidth: number,
- symbol: string
+ symbol: string,
+ isMonthlyView: boolean,
+ allDataPoints: DailySeasonalData[]
 ) => {
  ctx.strokeStyle = color;
  ctx.lineWidth = lineWidth;
  ctx.beginPath();
 
+ // Calculate x position based on view mode
+ const getX = (dayData: DailySeasonalData) => {
+ if (isMonthlyView && allDataPoints.length > 0) {
+ const firstDay = allDataPoints[0].dayOfYear;
+ const lastDay = allDataPoints[allDataPoints.length - 1].dayOfYear;
+ const dayRange = lastDay - firstDay + 1;
+ return padding.left + ((dayData.dayOfYear - firstDay) / dayRange) * chartWidth;
+ } else {
+ return padding.left + (dayData.dayOfYear / 365) * chartWidth;
+ }
+ };
+
  dataPoints.forEach((dayData, index) => {
- const x = padding.left + (dayData.dayOfYear / 365) * chartWidth;
+ const x = getX(dayData);
  const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
  
  if (index === 0) {
@@ -144,7 +159,7 @@ const drawSeasonalLine = (
  // Add symbol label at the end of the line
  if (dataPoints.length > 0) {
  const lastPoint = dataPoints[dataPoints.length - 1];
- const x = padding.left + (lastPoint.dayOfYear / 365) * chartWidth;
+ const x = getX(lastPoint);
  const y = containerHeight - padding.bottom - ((lastPoint.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
  
  ctx.fillStyle = color;
@@ -154,7 +169,7 @@ const drawSeasonalLine = (
  }
 };
 
-const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings, sweetSpotPeriod, painPointPeriod }) => {
+const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings, sweetSpotPeriod, painPointPeriod, selectedMonth = null }) => {
  const canvasRef = useRef<HTMLCanvasElement>(null);
  const containerRef = useRef<HTMLDivElement>(null);
 
@@ -296,6 +311,21 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  // Process data based on settings
  let processedData = [...data.dailyData];
  
+ // Filter by selected month if specified
+ if (selectedMonth !== null && selectedMonth !== undefined) {
+ processedData = processedData.filter(d => d.month === selectedMonth);
+ console.log(`Filtering to month ${selectedMonth}, data points:`, processedData.length);
+ 
+ // Recalculate cumulative returns for just this month
+ if (processedData.length > 0) {
+ let cumulative = 0;
+ processedData = processedData.map(d => {
+ cumulative += d.avgReturn;
+ return { ...d, cumulativeReturn: cumulative };
+ });
+ }
+ }
+ 
  // Apply smoothing if enabled - removes abnormal pumps/crashes
  if (settings.smoothing) {
  processedData = smoothData(processedData);
@@ -336,6 +366,20 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  const paddedMax = maxReturn + returnRange * 0.1;
  const paddedRange = paddedMax - paddedMin;
 
+ // Helper function to calculate X position
+ const getXPosition = (dataPoint: DailySeasonalData) => {
+ if (selectedMonth !== null && selectedMonth !== undefined && processedData.length > 0) {
+ // Monthly view - scale to fit the month's data range
+ const firstDay = processedData[0].dayOfYear;
+ const lastDay = processedData[processedData.length - 1].dayOfYear;
+ const dayRange = lastDay - firstDay + 1;
+ return padding.left + ((dataPoint.dayOfYear - firstDay) / dayRange) * chartWidth;
+ } else {
+ // Full year view - use standard scaling
+ return padding.left + (dataPoint.dayOfYear / 365) * chartWidth;
+ }
+ };
+
  // Draw background
  ctx.fillStyle = '#000000';
  ctx.fillRect(0, 0, containerWidth, containerHeight);
@@ -355,6 +399,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
 
  // Vertical grid lines (monthly)
  const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]; // Day of year for each month
+ if (selectedMonth === null || selectedMonth === undefined) {
  monthStarts.forEach(dayOfYear => {
  const x = padding.left + (dayOfYear / 365) * chartWidth;
  ctx.beginPath();
@@ -362,6 +407,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  ctx.lineTo(x, containerHeight - padding.bottom);
  ctx.stroke();
  });
+ }
 
  // Draw zero line
  const zeroY = containerHeight - padding.bottom - ((0 - paddedMin) / paddedRange) * chartHeight;
@@ -381,9 +427,9 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  const currentDay = processedData[i];
  const nextDay = processedData[i + 1];
  
- const x1 = padding.left + (currentDay.dayOfYear / 365) * chartWidth;
+ const x1 = getXPosition(currentDay);
  const y1 = containerHeight - padding.bottom - ((currentDay.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
- const x2 = padding.left + (nextDay.dayOfYear / 365) * chartWidth;
+ const x2 = getXPosition(nextDay);
  const y2 = containerHeight - padding.bottom - ((nextDay.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
  
  // Fill green for positive segments
@@ -455,7 +501,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  }
 
  // Draw main seasonal line with processed data
- drawSeasonalLine(ctx, processedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, '#ffffff', 3, data.symbol);
+ const isMonthlyView = selectedMonth !== null && selectedMonth !== undefined;
+ drawSeasonalLine(ctx, processedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, '#ffffff', 3, data.symbol, isMonthlyView, processedData);
 
  // Draw comparison lines
  const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000'];
@@ -472,7 +519,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  }
  
  const color = comparisonColors[index % comparisonColors.length];
- drawSeasonalLine(ctx, compProcessedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, color, 2, compData.symbol);
+ drawSeasonalLine(ctx, compProcessedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, color, 2, compData.symbol, false, compProcessedData);
  }
  });
 
@@ -506,8 +553,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  ctx.fillText('PAIN POINT', (startX + endX) / 2, padding.top - 5);
  }
 
- // Draw current date line if enabled
- if (settings.showCurrentDate) {
+ // Draw current date line if enabled and not in monthly view
+ if (settings.showCurrentDate && (selectedMonth === null || selectedMonth === undefined)) {
  const currentDate = new Date();
  const startOfYear = new Date(currentDate.getFullYear(), 0, 1);
  const dayOfYear = Math.floor((currentDate.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
@@ -542,19 +589,39 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  ctx.fillText(value.toFixed(1) + '%', padding.left - 15, y);
  }
 
- // Draw X-axis labels (months) - crispy white and 30% smaller
+ // Draw X-axis labels
  ctx.fillStyle = '#ffffff';
  ctx.font = 'bold 17px "Roboto Mono", monospace';
  ctx.textAlign = 'center';
  ctx.textBaseline = 'top';
- const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
  
+ if (selectedMonth !== null && selectedMonth !== undefined && processedData.length > 0) {
+ // For single month view, show day numbers
+ const firstDay = processedData[0].dayOfYear;
+ const lastDay = processedData[processedData.length - 1].dayOfYear;
+ const dayRange = lastDay - firstDay + 1;
+ 
+ // Show every few days depending on chart width
+ const labelInterval = Math.max(1, Math.floor(dayRange / 15));
+ 
+ processedData.forEach((dataPoint, index) => {
+ if (index % labelInterval === 0 || index === processedData.length - 1) {
+ const x = padding.left + ((dataPoint.dayOfYear - firstDay) / dayRange) * chartWidth;
+ const monthNum = dataPoint.month + 1;
+ const dayNum = dataPoint.day;
+ ctx.fillText(`${monthNum}/${dayNum}`, x, containerHeight - padding.bottom + 15);
+ }
+ });
+ } else {
+ // Full year view - show month names
+ const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
  monthStarts.forEach((dayOfYear, index) => {
  if (index < monthNames.length) {
  const x = padding.left + (dayOfYear / 365) * chartWidth;
  ctx.fillText(monthNames[index], x, containerHeight - padding.bottom + 15);
  }
  });
+ }
 
  } catch (error) {
  console.error('Error drawing main seasonal chart:', error);

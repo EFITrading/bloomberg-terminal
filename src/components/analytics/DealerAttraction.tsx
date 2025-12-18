@@ -508,7 +508,7 @@ interface MMDashboardProps {
 interface SIDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number}}};
+  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVega?: number, putVega?: number}}};
   vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
   expirations: string[];
 }
@@ -1103,7 +1103,33 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
     return value.toFixed(0);
   };
 
-  // Calculate SI metrics for the gauge
+  // ============================================================================
+  // STABILITY INDEX (SI) CALCULATION - UNIFIED ACCURATE METHOD
+  // ============================================================================
+  // This calculation is now IDENTICAL between the gauge and screener for consistency.
+  // 
+  // Formula: SI = GEX_total / (|VEX_total| + |DEX_total|)
+  // 
+  // Where:
+  // - GEX (Gamma Exposure) = Gamma × OI × Price² × 100
+  //   * Calls: positive gamma contribution
+  //   * Puts: negative gamma contribution  
+  // 
+  // - VEX (Vega Exposure) = Vega × OI × 100
+  //   * Calls: positive vega contribution
+  //   * Puts: negative vega contribution
+  // 
+  // - DEX (Delta Exposure) = Delta × OI × Price × 100
+  //   * Delta approximated by moneyness:
+  //     - OTM calls (strike/price > 1.05): delta = max(0, min(1, (moneyness-1)*2))
+  //     - ITM calls (strike/price < 0.95): delta = max(0, min(1, 0.8+(1-moneyness)*0.4))
+  //     - ATM calls (else): delta = 0.5
+  //     - Put delta = Call delta - 1 (put-call parity)
+  // 
+  // Time Horizon: 45-day expirations only
+  // ============================================================================
+  
+  // Calculate SI metrics for the gauge - ACCURATE METHOD using raw Greeks
   const siMetrics = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) {
       return { si: 0, gexTotal: 0, vexTotal: 0, dexTotal: 0, siNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data', stabilityColor: 'text-gray-400' };
@@ -1113,7 +1139,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
     let totalVEX = 0; 
     let totalDEX = 0;
     
-    // Sum across 45-day expirations and strikes using real data
+    // Sum across 45-day expirations and strikes - CALCULATE from raw Greeks
     mmExpirations.forEach(exp => {
       const gexData = gexByStrikeByExpiration[exp];
       const vexData = vexByStrikeByExpiration[exp];
@@ -1122,38 +1148,57 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         Object.entries(gexData).forEach(([strike, data]) => {
           const strikePrice = parseFloat(strike);
           
-          // Add GEX (already calculated in your existing data)
-          totalGEX += data.call + data.put;
-          
-          // Add VEX (already calculated in your existing data)
-          if (vexData && vexData[strikePrice]) {
-            totalVEX += vexData[strikePrice].call + vexData[strikePrice].put;
-          }
-          
-          // Calculate DEX (Delta Exposure): Delta × OI × 100 × Stock Price
           const callOI = data.callOI || 0;
           const putOI = data.putOI || 0;
           
-          // Approximate delta for calls and puts
-          const moneyness = strikePrice / currentPrice;
-          let callDelta = 0;
-          let putDelta = 0;
-          
-          if (moneyness > 1.05) { // OTM calls
-            callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
-          } else if (moneyness < 0.95) { // ITM calls
-            callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
-          } else { // ATM calls
-            callDelta = 0.5;
+          if (callOI > 0 || putOI > 0) {
+            // Calculate GEX from raw gamma (stored in data)
+            const callGamma = data.callGamma || 0;
+            const putGamma = data.putGamma || 0;
+            
+            if (callOI > 0 && callGamma !== 0) {
+              const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100;
+              totalGEX += callGEX;
+            }
+            if (putOI > 0 && putGamma !== 0) {
+              const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100;
+              totalGEX += putGEX;
+            }
+            
+            // Calculate VEX from raw vega stored in gexData (simple formula matching screener)
+            const callVega = data.callVega || 0;
+            const putVega = data.putVega || 0;
+            
+            if (callOI > 0 && callVega !== 0) {
+              const callVEX = callVega * callOI * 100;
+              totalVEX += callVEX;
+            }
+            if (putOI > 0 && putVega !== 0) {
+              const putVEX = -putVega * putOI * 100;
+              totalVEX += putVEX;
+            }
+            
+            // Calculate DEX using standardized delta approximation
+            const moneyness = strikePrice / currentPrice;
+            let callDelta = 0;
+            let putDelta = 0;
+            
+            if (moneyness > 1.05) { // OTM calls
+              callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
+            } else if (moneyness < 0.95) { // ITM calls
+              callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
+            } else { // ATM calls
+              callDelta = 0.5;
+            }
+            
+            putDelta = callDelta - 1; // Put-call parity
+            
+            // Calculate DEX
+            const callDEX = callDelta * callOI * 100 * currentPrice;
+            const putDEX = putDelta * putOI * 100 * currentPrice;
+            
+            totalDEX += callDEX + putDEX;
           }
-          
-          putDelta = callDelta - 1; // Put-call parity
-          
-          // Calculate DEX
-          const callDEX = callDelta * callOI * 100 * currentPrice;
-          const putDEX = putDelta * putOI * 100 * currentPrice;
-          
-          totalDEX += callDEX + putDEX;
         });
       }
     });
@@ -2153,7 +2198,13 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     }).sort();
   }, [expirations]);
 
-  // Calculate SI using real GEX, VEX, and DEX data
+  // ============================================================================
+  // STABILITY INDEX (SI) CALCULATION - UNIFIED ACCURATE METHOD
+  // Uses identical logic to MMDashboard gauge for consistency
+  // See detailed formula documentation above MMDashboard siMetrics
+  // ============================================================================
+
+  // Calculate SI using real GEX, VEX, and DEX data - ACCURATE METHOD
   const siMetrics = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) {
       return { si: 0, gexTotal: 0, vexTotal: 0, dexTotal: 0, siNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data' };
@@ -2163,7 +2214,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     let totalVEX = 0; 
     let totalDEX = 0;
     
-    // Sum across 45-day expirations and strikes using real data
+    // Sum across 45-day expirations and strikes - CALCULATE from raw Greeks
     siExpirations.forEach(exp => {
       const gexData = gexByStrikeByExpiration[exp];
       const vexData = vexByStrikeByExpiration[exp];
@@ -2172,39 +2223,57 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         Object.entries(gexData).forEach(([strike, data]) => {
           const strikePrice = parseFloat(strike);
           
-          // Add GEX (already calculated in your existing data)
-          totalGEX += data.call + data.put;
-          
-          // Add VEX (already calculated in your existing data)
-          if (vexData && vexData[strikePrice]) {
-            totalVEX += vexData[strikePrice].call + vexData[strikePrice].put;
-          }
-          
-          // Calculate DEX (Delta Exposure): Delta × OI × 100 × Stock Price
-          // Delta approximation: (Strike - Current Price) sensitivity
           const callOI = data.callOI || 0;
           const putOI = data.putOI || 0;
           
-          // Approximate delta for calls and puts
-          const moneyness = strikePrice / currentPrice;
-          let callDelta = 0;
-          let putDelta = 0;
-          
-          if (moneyness > 1.05) { // OTM calls
-            callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
-          } else if (moneyness < 0.95) { // ITM calls
-            callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
-          } else { // ATM calls
-            callDelta = 0.5;
+          if (callOI > 0 || putOI > 0) {
+            // Calculate GEX from raw gamma
+            const callGamma = data.callGamma || 0;
+            const putGamma = data.putGamma || 0;
+            
+            if (callOI > 0 && callGamma !== 0) {
+              const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100;
+              totalGEX += callGEX;
+            }
+            if (putOI > 0 && putGamma !== 0) {
+              const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100;
+              totalGEX += putGEX;
+            }
+            
+            // Calculate VEX from raw vega stored in gexData (simple formula matching screener)
+            const callVega = data.callVega || 0;
+            const putVega = data.putVega || 0;
+            
+            if (callOI > 0 && callVega !== 0) {
+              const callVEX = callVega * callOI * 100;
+              totalVEX += callVEX;
+            }
+            if (putOI > 0 && putVega !== 0) {
+              const putVEX = -putVega * putOI * 100;
+              totalVEX += putVEX;
+            }
+            
+            // Calculate DEX using standardized delta approximation
+            const moneyness = strikePrice / currentPrice;
+            let callDelta = 0;
+            let putDelta = 0;
+            
+            if (moneyness > 1.05) { // OTM calls
+              callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
+            } else if (moneyness < 0.95) { // ITM calls
+              callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
+            } else { // ATM calls
+              callDelta = 0.5;
+            }
+            
+            putDelta = callDelta - 1; // Put-call parity
+            
+            // Calculate DEX
+            const callDEX = callDelta * callOI * 100 * currentPrice;
+            const putDEX = putDelta * putOI * 100 * currentPrice;
+            
+            totalDEX += callDEX + putDEX;
           }
-          
-          putDelta = callDelta - 1; // Put-call parity
-          
-          // Calculate DEX
-          const callDEX = callDelta * callOI * 100 * currentPrice;
-          const putDEX = putDelta * putOI * 100 * currentPrice;
-          
-          totalDEX += callDEX + putDEX;
         });
       }
     });
@@ -2611,7 +2680,15 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     }
   };
   
-  // Separate SI calculation function - REBUILT FROM SCRATCH using main gauge logic
+  // ============================================================================
+  // SCREENER: SI CALCULATION FROM RAW OPTIONS CHAIN DATA
+  // ============================================================================
+  // This function calculates SI from scratch using raw options chain data.
+  // Uses IDENTICAL methodology to the gauge for consistency.
+  // See detailed formula documentation above MMDashboard siMetrics.
+  // ============================================================================
+  
+  // Separate SI calculation function - Uses unified accurate method
   const calculateSIFromData = async (ticker: string, price: number, optionsData: any) => {
     // STEP 1: Filter EXACTLY like main component (first 3 months, then 45 days)
     const allExps = Object.keys(optionsData).sort();
@@ -2700,7 +2777,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       });
     });
     
-    // STEP 3: Calculate SI using EXACT logic from main gauge
+    // STEP 3: Calculate SI using accumulated GEX/VEX from Greeks and calculated DEX
     let totalGEX = 0;
     let totalVEX = 0;
     let totalDEX = 0;
@@ -2708,12 +2785,15 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
       const strikePrice = parseFloat(strike);
       
+      // Use accumulated GEX values (already calculated from gamma × oi × price² × 100)
       totalGEX += data.call + data.put;
       
+      // Use accumulated VEX values (already calculated from vega × oi × 100)
       if (vexByStrikeByExp[strikePrice]) {
         totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put;
       }
       
+      // Calculate DEX using standardized delta approximation
       const callOI = data.callOI || 0;
       const putOI = data.putOI || 0;
       
