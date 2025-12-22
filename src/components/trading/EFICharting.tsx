@@ -6,7 +6,8 @@ import { flushSync } from 'react-dom';
 import { 
  TbChartLine, 
  TbNews, 
- TbBellRinging, 
+ TbBellRinging,
+ TbBellOff, 
  TbMessageCircle, 
  TbTrendingUp,
  TbTrendingDown,
@@ -21,7 +22,19 @@ import {
  TbPencil,
  TbArrowsHorizontal,
  TbBoxMultiple,
- TbBrush
+ TbBrush,
+ TbCurrencyDollar,
+ TbChartCandle,
+ TbChartInfographic,
+ TbMail,
+ TbBell,
+ TbCheck,
+ TbActivity,
+ TbChartBar,
+ TbCalendar,
+ TbArrowsShuffle,
+ TbFilter,
+ TbChartDots
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 import PolygonService from '../../lib/polygonService';
@@ -41,6 +54,7 @@ import TradingPlan from './TradingPlan';
 import OptionsChain from './OptionsChain';
 import DealerAttraction from '../analytics/DealerAttraction';
 import { gexService } from '../../lib/gexService';
+import MultiChartView from './MultiChartView';
 import { useGEXData } from '../../hooks/useGEXData';
 import { GEXChartOverlay } from '../GEXChartOverlay';
 import { getExpirationDates, getExpirationDatesFromAPI, getDaysUntilExpiration } from '../../lib/optionsExpirationUtils';
@@ -81,6 +95,17 @@ const carvedTextStyles = `
  100% { transform: rotate(360deg); }
  }
  
+ @keyframes fadeInSlide {
+ 0% { 
+ opacity: 0;
+ transform: translateX(-10px);
+ }
+ 100% { 
+ opacity: 1;
+ transform: translateX(0);
+ }
+ }
+ 
  .animate-shimmer {
  animation: shimmer 2s infinite;
  }
@@ -100,6 +125,101 @@ interface ChartDataPoint {
  volume: number;
  date: string;
  time: string;
+}
+
+// ==================================================================================
+// ALERTS SYSTEM INTERFACES
+// ==================================================================================
+
+interface PriceAlert {
+  id: string;
+  symbol: string;
+  price: number;
+  condition: 'above' | 'below' | 'crossesAbove' | 'crossesBelow' | 
+    'closeAbove5m' | 'closeAbove15m' | 'closeAbove30m' | 'closeAbove1h' | 'closeAbove4h' | 'closeAbove1d' |
+    'closeBelow5m' | 'closeBelow15m' | 'closeBelow30m' | 'closeBelow1h' | 'closeBelow4h' | 'closeBelow1d' |
+    'staysInRange' | 'breaksOutOfRange';
+  message: string;
+  triggered: boolean;
+  createdAt: Date;
+  once: boolean;
+  soundEnabled: boolean;
+  emailEnabled: boolean;
+  type: 'price' | 'options' | 'technical';
+  optionsData?: {
+    strike: number;
+    expiration: string;
+    optionType: 'call' | 'put';
+    metric: 'iv' | 'volume' | 'oi' | 'delta';
+    value: number;
+  };
+  technicalData?: {
+    indicator: string;
+    value: number;
+  };
+  rangeData?: {
+    upper: number;
+    lower: number;
+    duration: number;
+  };
+}
+
+// TECHNALYSIS PRICE ACTION SYSTEM INTERFACES
+// ==================================================================================
+
+interface OrderBlock {
+  type: 'bullish' | 'bearish';
+  price: number;
+  high: number;
+  low: number;
+  index: number;
+  strength: number;
+  isValid: boolean;
+  isMitigated: boolean;
+  volumeConfirmation: boolean;
+}
+
+interface FairValueGap {
+  type: 'bullish' | 'bearish';
+  topPrice: number;
+  bottomPrice: number;
+  startIndex: number;
+  endIndex: number;
+  gapSize: number;
+  isValid: boolean;
+  isFilled: boolean;
+}
+
+interface LiquidityZone {
+  type: 'buy_side' | 'sell_side';
+  price: number;
+  strength: number;
+  index: number;
+  isSwept: boolean;
+  expectedReaction: 'reversal' | 'continuation';
+}
+
+interface MarketStructure {
+  type: 'higher_high' | 'higher_low' | 'lower_high' | 'lower_low';
+  price: number;
+  index: number;
+  trendDirection: 'bullish' | 'bearish' | 'ranging';
+}
+
+interface BreakOfStructure {
+  type: 'bos' | 'choch';
+  direction: 'bullish' | 'bearish';
+  price: number;
+  index: number;
+  previousStructure: MarketStructure;
+}
+
+interface OptimalTradeEntry {
+  type: 'premium' | 'discount' | 'equilibrium';
+  priceLevel: number;
+  confidence: number;
+  setupType: string;
+  index: number;
 }
 
 // Drawing types for proper TypeScript support
@@ -511,13 +631,15 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
  type="color"
  value={selectedDrawing.style?.color || '#00ff88'}
  onChange={(e) => updateStyle({ color: e.target.value })}
- className="w-8 h-8 rounded border border-[#2a2e39] bg-transparent cursor-pointer"
+ style={{ background: '#000000', border: '1px solid rgba(255, 255, 255, 0.15)', borderRadius: '4px' }}
+ className="w-8 h-8 rounded cursor-pointer"
  />
  <input
  type="text"
  value={selectedDrawing.style?.color || '#00ff88'}
  onChange={(e) => updateStyle({ color: e.target.value })}
- className="flex-1 px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+ style={{ background: '#000000', border: '1px solid rgba(255, 255, 255, 0.15)', borderRadius: '4px', outline: 'none' }}
+ className="flex-1 px-2 py-1 text-xs rounded text-white"
  placeholder="#00ff88"
  />
  </div>
@@ -547,7 +669,14 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
  <select
  value={selectedDrawing.style?.lineStyle || 'solid'}
  onChange={(e) => updateStyle({ lineStyle: e.target.value as any })}
- className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+ className="w-full px-2 py-1 text-xs rounded text-white"
+ style={{
+ background: '#000000',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '4px',
+ boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+ outline: 'none'
+ }}
  >
  <option value="solid">Solid</option>
  <option value="dashed">Dashed</option>
@@ -565,13 +694,15 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
  type="color"
  value={selectedDrawing.style?.fillColor || '#00ff8844'}
  onChange={(e) => updateStyle({ fillColor: e.target.value })}
- className="w-8 h-8 rounded border border-[#2a2e39] bg-transparent cursor-pointer"
+ style={{ background: '#000000', border: '1px solid rgba(255, 255, 255, 0.15)', borderRadius: '4px' }}
+ className="w-8 h-8 rounded cursor-pointer"
  />
  <input
  type="text"
  value={selectedDrawing.style?.fillColor || '#00ff8844'}
  onChange={(e) => updateStyle({ fillColor: e.target.value })}
- className="flex-1 px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+ style={{ background: '#000000', border: '1px solid rgba(255, 255, 255, 0.15)', borderRadius: '4px', outline: 'none' }}
+ className="flex-1 px-2 py-1 text-xs rounded text-white"
  placeholder="#00ff8844"
  />
  </div>
@@ -680,7 +811,14 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
  updateText({ fontFamily: e.target.value });
  updateStyle({ fontFamily: e.target.value });
  }}
- className="w-full px-2 py-1 text-xs bg-[#1e222d] border border-[#2a2e39] rounded text-white"
+ className="w-full px-2 py-1 text-xs rounded text-white"
+ style={{
+ background: '#000000',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '4px',
+ boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+ outline: 'none'
+ }}
  >
  <option value="Arial">Arial</option>
  <option value="Helvetica">Helvetica</option>
@@ -1107,70 +1245,70 @@ const processDailySeasonalData = (
 
 // Fetch and calculate seasonality projection for next 45 days
 const calculateSeasonalityProjection = async (
- symbol: string,
- yearsOfData: number,
- chartData: ChartDataPoint[],
- electionType?: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
+  symbol: string,
+  yearsOfData: number,
+  chartData: ChartDataPoint[],
+  electionType?: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
 ): Promise<Array<{date: Date, price: number}> | null> => {
- try {
- console.log(`📊 Calculating seasonality projection for ${symbol} with ${yearsOfData} years`);
- 
- // Calculate date range
- const endDate = new Date();
- const startDate = new Date();
- startDate.setFullYear(endDate.getFullYear() - yearsOfData);
- 
- const startDateStr = startDate.toISOString().split('T')[0];
- const endDateStr = endDate.toISOString().split('T')[0];
- 
- let dailySeasonalData: DailySeasonalData[];
- 
- if (electionType) {
- // Election cycle mode - use election service
- console.log(`📊 Using election cycle data: ${electionType}`);
- const electionData = await electionCycleService.analyzeElectionCycleSeasonality(
- symbol,
- electionType,
- yearsOfData
- );
- 
- if (!electionData || !electionData.dailyData) {
- console.error('Failed to fetch election cycle data');
- return null;
- }
- 
- // Convert election data to our format
- dailySeasonalData = electionData.dailyData.map(d => ({
- dayOfYear: d.dayOfYear,
- avgReturn: d.avgReturn,
- occurrences: d.occurrences
- }));
- } else {
- // Normal seasonality mode
- // Fetch historical data for symbol and SPY using bulk method
- const isSPY = symbol.toUpperCase() === 'SPY';
- 
- console.log(`📊 Fetching ${yearsOfData} years of historical data for ${symbol}`);
- 
- const [symbolResponse, spyResponse] = await Promise.all([
- polygonService.getBulkHistoricalData(symbol, yearsOfData),
- isSPY ? Promise.resolve(null) : polygonService.getBulkHistoricalData('SPY', yearsOfData)
- ]);
- 
- if (!symbolResponse || !symbolResponse.results) {
- console.error('Failed to fetch historical data');
- return null;
- }
- 
- console.log(`📊 Fetched ${symbolResponse.results.length} data points for ${symbol}`);
- if (symbolResponse.results.length > 0) {
- const firstDate = new Date(symbolResponse.results[0].t);
- const lastDate = new Date(symbolResponse.results[symbolResponse.results.length - 1].t);
- const actualYears = (lastDate.getTime() - firstDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
- console.log(`📊 Data spans from ${firstDate.toISOString().split('T')[0]} to ${lastDate.toISOString().split('T')[0]} (${actualYears.toFixed(1)} years)`);
- }
- 
- if (spyResponse && spyResponse.results && spyResponse.results.length > 0) {
+  try {
+    console.log(`📊 Calculating seasonality projection for ${symbol} with ${yearsOfData} years`);
+    
+    // Calculate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setFullYear(endDate.getFullYear() - yearsOfData);
+    
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    
+    let dailySeasonalData: DailySeasonalData[];
+    
+    if (electionType) {
+      // Election cycle mode - use election service
+      console.log(`📊 Using election cycle data: ${electionType}`);
+      const electionData = await electionCycleService.analyzeElectionCycleSeasonality(
+        symbol,
+        electionType,
+        yearsOfData
+      );
+      
+      if (!electionData || !electionData.dailyData) {
+        console.error('Failed to fetch election cycle data');
+        return null;
+      }
+      
+      // Convert election data to our format
+      dailySeasonalData = electionData.dailyData.map(d => ({
+        dayOfYear: d.dayOfYear,
+        avgReturn: d.avgReturn,
+        occurrences: d.occurrences
+      }));
+    } else {
+      // Normal seasonality mode
+      // Fetch historical data for symbol and SPY using bulk method
+      const isSPY = symbol.toUpperCase() === 'SPY';
+      
+      console.log(`📊 Fetching ${yearsOfData} years of historical data for ${symbol}`);
+      
+      const [symbolResponse, spyResponse] = await Promise.all([
+        polygonService.getBulkHistoricalData(symbol, yearsOfData),
+        isSPY ? Promise.resolve(null) : polygonService.getBulkHistoricalData('SPY', yearsOfData)
+      ]);
+      
+      if (!symbolResponse || !symbolResponse.results) {
+        console.error('Failed to fetch historical data');
+        return null;
+      }
+      
+      console.log(`📊 Fetched ${symbolResponse.results.length} data points for ${symbol}`);
+      if (symbolResponse.results.length > 0) {
+        const firstDate = new Date(symbolResponse.results[0].t);
+        const lastDate = new Date(symbolResponse.results[symbolResponse.results.length - 1].t);
+        const actualYears = (lastDate.getTime() - firstDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+        console.log(`📊 Data spans from ${firstDate.toISOString().split('T')[0]} to ${lastDate.toISOString().split('T')[0]} (${actualYears.toFixed(1)} years)`);
+      }
+      
+      if (spyResponse && spyResponse.results && spyResponse.results.length > 0) {
  const spyFirstDate = new Date(spyResponse.results[0].t);
  const spyLastDate = new Date(spyResponse.results[spyResponse.results.length - 1].t);
  console.log(`📊 SPY data: ${spyResponse.results.length} points from ${spyFirstDate.toISOString().split('T')[0]} to ${spyLastDate.toISOString().split('T')[0]}`);
@@ -1273,6 +1411,114 @@ const calculateSeasonalityProjection = async (
 };
 
 // ==================== END SEASONALITY PROJECTION FUNCTIONS ====================
+
+// ==================== MARKET EVENTS PERFORMANCE FUNCTIONS ====================
+
+// Define major stock market events with their typical dates
+
+
+// Check if a date is a market holiday (US stock market)
+const isMarketHoliday = (date: Date): boolean => {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const day = date.getDate();
+  
+  // New Year's Day
+  if (month === 0 && day === 1) return true;
+  
+  // MLK Day (3rd Monday in January)
+  if (month === 0 && date.getDay() === 1) {
+    const janFirst = new Date(year, 0, 1);
+    const firstMonday = janFirst.getDay() === 1 ? 1 : (8 - janFirst.getDay());
+    if (day >= firstMonday + 14 && day < firstMonday + 21) return true;
+  }
+  
+  // Presidents Day (3rd Monday in February)
+  if (month === 1 && date.getDay() === 1) {
+    const febFirst = new Date(year, 1, 1);
+    const firstMonday = febFirst.getDay() === 1 ? 1 : (8 - febFirst.getDay());
+    if (day >= firstMonday + 14 && day < firstMonday + 21) return true;
+  }
+  
+  // Good Friday (Friday before Easter - simplified check)
+  // Memorial Day (last Monday in May)
+  if (month === 4 && date.getDay() === 1 && day >= 25) return true;
+  
+  // Juneteenth (June 19 - if weekday, or observed on nearest weekday)
+  if (month === 5 && day === 19) return true;
+  if (month === 5 && day === 18 && date.getDay() === 5) return true; // Friday if 19th is Saturday
+  if (month === 5 && day === 20 && date.getDay() === 1) return true; // Monday if 19th is Sunday
+  
+  // Independence Day (July 4 - if weekday, or observed on nearest weekday)
+  if (month === 6 && day === 4) return true;
+  if (month === 6 && day === 3 && date.getDay() === 5) return true; // Friday if 4th is Saturday
+  if (month === 6 && day === 5 && date.getDay() === 1) return true; // Monday if 4th is Sunday
+  
+  // Labor Day (1st Monday in September)
+  if (month === 8 && date.getDay() === 1 && day <= 7) return true;
+  
+  // Thanksgiving (4th Thursday in November)
+  if (month === 10 && date.getDay() === 4) {
+    const novFirst = new Date(year, 10, 1);
+    const firstThursday = novFirst.getDay() === 4 ? 1 : ((11 - novFirst.getDay()) % 7) + 1;
+    if (day >= firstThursday + 21 && day < firstThursday + 28) return true;
+  }
+  
+  // Christmas (December 25 - if weekday, or observed on nearest weekday)
+  if (month === 11 && day === 25) return true;
+  if (month === 11 && day === 24 && date.getDay() === 5) return true; // Friday if 25th is Saturday
+  if (month === 11 && day === 26 && date.getDay() === 1) return true; // Monday if 25th is Sunday
+  
+  return false;
+};
+
+// Calculate trading days difference (excluding weekends and holidays)
+const getTradingDaysDiff = (fromDate: Date, toDate: Date): number => {
+  let count = 0;
+  const current = new Date(fromDate);
+  const end = new Date(toDate);
+  
+  // Normalize to start of day
+  current.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  
+  const increment = current <= end ? 1 : -1;
+  
+  while (current.getTime() !== end.getTime()) {
+    const dayOfWeek = current.getDay();
+    // Count only weekdays (Monday=1 to Friday=5) that are not holidays
+    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isMarketHoliday(current)) {
+      count += increment;
+    }
+    current.setDate(current.getDate() + increment);
+  }
+  
+  return count;
+};
+
+// Add or subtract N trading days from a date (excluding weekends and holidays)
+const addTradingDays = (date: Date, days: number): Date => {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  
+  let remaining = Math.abs(days);
+  const increment = days > 0 ? 1 : -1;
+  
+  while (remaining > 0) {
+    result.setDate(result.getDate() + increment);
+    const dayOfWeek = result.getDay();
+    // Count only weekdays (Monday=1 to Friday=5) that are not holidays
+    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isMarketHoliday(result)) {
+      remaining--;
+    }
+  }
+  
+  return result;
+};
+
+
+
+
 
 // Polygon API Integration for Expected Range Calculations
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
@@ -2251,7 +2497,461 @@ const renderExpansionLiquidationZone = (
  console.log(`?? Drew ${zone.type} zone: Candle $${zone.candleOpen.toFixed(2)}-$${zone.candleClose.toFixed(2)} at X: ${zoneStartX.toFixed(1)}-${zoneEndX.toFixed(1)}`);
 };
 
-interface TradingViewChartProps {
+// ==================================================================================
+// TECHNALYSIS PRICE ACTION DETECTION FUNCTIONS
+// ==================================================================================
+
+const calculateImpulseStrength = (candles: ChartDataPoint[]): number => {
+  let strength = 0;
+  candles.forEach(c => {
+    const body = Math.abs(c.close - c.open);
+    const wick = c.high - c.low - body;
+    if (body > wick * 2) strength++;
+  });
+  return Math.min(strength, 5);
+};
+
+const detectMarketStructure = (data: ChartDataPoint[], lookback: number = 5): MarketStructure[] => {
+  const structures: MarketStructure[] = [];
+  const swings: { price: number; index: number; type: 'high' | 'low' }[] = [];
+  
+  for (let i = lookback; i < data.length - lookback; i++) {
+    const current = data[i];
+    let isSwingHigh = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (data[i - j].high >= current.high || data[i + j].high >= current.high) {
+        isSwingHigh = false;
+        break;
+      }
+    }
+    if (isSwingHigh) swings.push({ price: current.high, index: i, type: 'high' });
+    
+    let isSwingLow = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (data[i - j].low <= current.low || data[i + j].low <= current.low) {
+        isSwingLow = false;
+        break;
+      }
+    }
+    if (isSwingLow) swings.push({ price: current.low, index: i, type: 'low' });
+  }
+  
+  for (let i = 1; i < swings.length; i++) {
+    const prev = swings[i - 1];
+    const curr = swings[i];
+    if (prev.type === 'high' && curr.type === 'high') {
+      structures.push({
+        type: curr.price > prev.price ? 'higher_high' : 'lower_high',
+        price: curr.price,
+        index: curr.index,
+        trendDirection: curr.price > prev.price ? 'bullish' : 'bearish'
+      });
+    } else if (prev.type === 'low' && curr.type === 'low') {
+      structures.push({
+        type: curr.price > prev.price ? 'higher_low' : 'lower_low',
+        price: curr.price,
+        index: curr.index,
+        trendDirection: curr.price > prev.price ? 'bullish' : 'bearish'
+      });
+    }
+  }
+  return structures;
+};
+
+const detectOrderBlocks = (data: ChartDataPoint[]): OrderBlock[] => {
+  const orderBlocks: OrderBlock[] = [];
+  for (let i = 3; i < data.length - 3; i++) {
+    const current = data[i];
+    const next = data[i + 1];
+    const next2 = data[i + 2];
+    const next3 = data[i + 3];
+    
+    if (current.close < current.open && next.close > next.open && next2.close > next2.open && next3.close > current.high) {
+      orderBlocks.push({
+        type: 'bullish',
+        price: (current.open + current.close) / 2,
+        high: current.high,
+        low: current.low,
+        index: i,
+        strength: calculateImpulseStrength([next, next2, next3]),
+        isValid: true,
+        isMitigated: false,
+        volumeConfirmation: current.volume > (data[i-1]?.volume || 0)
+      });
+    }
+    
+    if (current.close > current.open && next.close < next.open && next2.close < next2.open && next3.close < current.low) {
+      orderBlocks.push({
+        type: 'bearish',
+        price: (current.open + current.close) / 2,
+        high: current.high,
+        low: current.low,
+        index: i,
+        strength: calculateImpulseStrength([next, next2, next3]),
+        isValid: true,
+        isMitigated: false,
+        volumeConfirmation: current.volume > (data[i-1]?.volume || 0)
+      });
+    }
+  }
+  return orderBlocks;
+};
+
+const invalidateOrderBlocks = (orderBlocks: OrderBlock[], data: ChartDataPoint[]): OrderBlock[] => {
+  return orderBlocks.map(ob => {
+    if (ob.isMitigated) return ob;
+    
+    // Check all candles after the order block for mitigation
+    for (let i = ob.index + 1; i < data.length; i++) {
+      const candle = data[i];
+      
+      // Bullish order block is mitigated when price breaks below its low
+      if (ob.type === 'bullish' && candle.close < ob.low) {
+        return { ...ob, isMitigated: true };
+      }
+      
+      // Bearish order block is mitigated when price breaks above its high
+      if (ob.type === 'bearish' && candle.close > ob.high) {
+        return { ...ob, isMitigated: true };
+      }
+    }
+    
+    return ob;
+  });
+};
+
+const detectFairValueGaps = (data: ChartDataPoint[]): FairValueGap[] => {
+  const fvgs: FairValueGap[] = [];
+  for (let i = 1; i < data.length - 1; i++) {
+    const prev = data[i - 1];
+    const current = data[i];
+    const next = data[i + 1];
+    
+    if (next.low > prev.high) {
+      const gapSize = next.low - prev.high;
+      if (gapSize / current.close >= 0.002) {
+        fvgs.push({
+          type: 'bullish',
+          topPrice: next.low,
+          bottomPrice: prev.high,
+          startIndex: i - 1,
+          endIndex: i + 1,
+          gapSize,
+          isValid: true,
+          isFilled: false
+        });
+      }
+    }
+    
+    if (next.high < prev.low) {
+      const gapSize = prev.low - next.high;
+      if (gapSize / current.close >= 0.002) {
+        fvgs.push({
+          type: 'bearish',
+          topPrice: prev.low,
+          bottomPrice: next.high,
+          startIndex: i - 1,
+          endIndex: i + 1,
+          gapSize,
+          isValid: true,
+          isFilled: false
+        });
+      }
+    }
+  }
+  return fvgs;
+};
+
+const invalidateFilledFVGs = (fvgs: FairValueGap[], data: ChartDataPoint[]): FairValueGap[] => {
+  return fvgs.map(fvg => {
+    if (fvg.isFilled) return fvg;
+    
+    // Check all candles after the FVG for fills
+    for (let i = fvg.endIndex + 1; i < data.length; i++) {
+      const candle = data[i];
+      
+      // Bullish FVG is filled when price comes back down into the gap
+      if (fvg.type === 'bullish' && candle.low <= fvg.topPrice) {
+        return { ...fvg, isFilled: true };
+      }
+      
+      // Bearish FVG is filled when price comes back up into the gap
+      if (fvg.type === 'bearish' && candle.high >= fvg.bottomPrice) {
+        return { ...fvg, isFilled: true };
+      }
+    }
+    
+    return fvg;
+  });
+};
+
+const detectLiquidityZones = (data: ChartDataPoint[]): LiquidityZone[] => {
+  const liquidityZones: LiquidityZone[] = [];
+  const swingHighs: { price: number; index: number }[] = [];
+  const swingLows: { price: number; index: number }[] = [];
+  
+  for (let i = 5; i < data.length - 5; i++) {
+    let isSwingHigh = true;
+    let isSwingLow = true;
+    for (let j = 1; j <= 5; j++) {
+      if (data[i - j].high >= data[i].high || data[i + j].high >= data[i].high) isSwingHigh = false;
+      if (data[i - j].low <= data[i].low || data[i + j].low <= data[i].low) isSwingLow = false;
+    }
+    if (isSwingHigh) swingHighs.push({ price: data[i].high, index: i });
+    if (isSwingLow) swingLows.push({ price: data[i].low, index: i });
+  }
+  
+  for (let i = 0; i < swingHighs.length - 1; i++) {
+    let equalCount = 1;
+    const basePrice = swingHighs[i].price;
+    for (let j = i + 1; j < swingHighs.length; j++) {
+      if (Math.abs(swingHighs[j].price - basePrice) / basePrice <= 0.003) equalCount++;
+    }
+    if (equalCount >= 2) {
+      liquidityZones.push({
+        type: 'buy_side',
+        price: basePrice,
+        strength: equalCount,
+        index: swingHighs[i].index,
+        isSwept: false,
+        expectedReaction: 'reversal'
+      });
+    }
+  }
+  
+  for (let i = 0; i < swingLows.length - 1; i++) {
+    let equalCount = 1;
+    const basePrice = swingLows[i].price;
+    for (let j = i + 1; j < swingLows.length; j++) {
+      if (Math.abs(swingLows[j].price - basePrice) / basePrice <= 0.003) equalCount++;
+    }
+    if (equalCount >= 2) {
+      liquidityZones.push({
+        type: 'sell_side',
+        price: basePrice,
+        strength: equalCount,
+        index: swingLows[i].index,
+        isSwept: false,
+        expectedReaction: 'reversal'
+      });
+    }
+  }
+  return liquidityZones;
+};
+
+const detectBreakOfStructure = (data: ChartDataPoint[], structures: MarketStructure[]): BreakOfStructure[] => {
+  const breaks: BreakOfStructure[] = [];
+  for (let i = 1; i < structures.length; i++) {
+    const prev = structures[i - 1];
+    const curr = structures[i];
+    if (prev.type === 'lower_low' && curr.type === 'higher_low') {
+      breaks.push({ type: 'bos', direction: 'bullish', price: curr.price, index: curr.index, previousStructure: prev });
+    }
+    if (prev.type === 'higher_high' && curr.type === 'lower_high') {
+      breaks.push({ type: 'bos', direction: 'bearish', price: curr.price, index: curr.index, previousStructure: prev });
+    }
+    if ((prev.trendDirection === 'bullish' && curr.trendDirection === 'bearish') ||
+        (prev.trendDirection === 'bearish' && curr.trendDirection === 'bullish')) {
+      breaks.push({ type: 'choch', direction: curr.trendDirection, price: curr.price, index: curr.index, previousStructure: prev });
+    }
+  }
+  return breaks;
+};
+
+const calculatePremiumDiscountZones = (data: ChartDataPoint[], startIdx: number, endIdx: number): OptimalTradeEntry[] => {
+  const rangeHigh = Math.max(...data.slice(startIdx, endIdx + 1).map(d => d.high));
+  const rangeLow = Math.min(...data.slice(startIdx, endIdx + 1).map(d => d.low));
+  const rangeSize = rangeHigh - rangeLow;
+  return [
+    { type: 'premium', priceLevel: rangeLow + (rangeSize * 0.75), confidence: 8, setupType: 'Sell Zone', index: endIdx },
+    { type: 'premium', priceLevel: rangeLow + (rangeSize * 0.618), confidence: 9, setupType: 'Optimal Sell', index: endIdx },
+    { type: 'equilibrium', priceLevel: rangeLow + (rangeSize * 0.5), confidence: 5, setupType: 'Mid-Range', index: endIdx },
+    { type: 'discount', priceLevel: rangeLow + (rangeSize * 0.382), confidence: 9, setupType: 'Optimal Buy', index: endIdx },
+    { type: 'discount', priceLevel: rangeLow + (rangeSize * 0.25), confidence: 8, setupType: 'Buy Zone', index: endIdx }
+  ];
+};
+
+const renderTechnalysisIndicators = (
+  ctx: CanvasRenderingContext2D,
+  data: ChartDataPoint[],
+  chartWidth: number,
+  chartHeight: number,
+  minPrice: number,
+  maxPrice: number,
+  startIndex: number,
+  visibleCandleCount: number,
+  activeFeatures: {
+    orderBlocks: boolean;
+    fvg: boolean;
+    liquidity: boolean;
+    structure: boolean;
+    premiumDiscount: boolean;
+  }
+) => {
+  const candleSpacing = chartWidth / visibleCandleCount;
+  const priceToY = (price: number) => chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight;
+  const indexToX = (index: number) => 40 + ((index - startIndex) * candleSpacing);
+  
+  if (activeFeatures.orderBlocks) {
+    const orderBlocks = detectOrderBlocks(data);
+    const validBlocks = invalidateOrderBlocks(orderBlocks, data);
+    validBlocks.forEach(ob => {
+      if (!ob.isValid || ob.isMitigated || ob.strength < 2 || ob.index < startIndex || ob.index > startIndex + visibleCandleCount + 50) return;
+      const x = indexToX(ob.index);
+      const lastX = indexToX(data.length - 1) + (5 * candleSpacing);
+      const topY = priceToY(ob.high);
+      const bottomY = priceToY(ob.low);
+      
+      // Use opacity based on strength: 3 stars = 100%, 2 stars = 50%
+      const fillOpacity = ob.strength >= 3 ? 0.5 : 0.175;
+      const strokeOpacity = ob.strength >= 3 ? 1.0 : 0.5;
+      
+      // 3-star = lime green/pure red, 2-star = regular green/red at 50%
+      const bullishColor = ob.strength >= 3 ? '50, 205, 50' : '0, 255, 0'; // Lime green vs pure green
+      const bearishColor = '255, 0, 0'; // Red
+      
+      ctx.fillStyle = ob.type === 'bullish' ? `rgba(${bullishColor}, ${fillOpacity})` : `rgba(${bearishColor}, ${fillOpacity})`;
+      ctx.fillRect(x, topY, lastX - x, bottomY - topY);
+      
+      ctx.strokeStyle = ob.type === 'bullish' ? `rgba(${bullishColor}, ${strokeOpacity})` : `rgba(${bearishColor}, ${strokeOpacity})`;
+      ctx.lineWidth = ob.volumeConfirmation ? 3 : 2;
+      ctx.setLineDash(ob.volumeConfirmation ? [] : [5, 3]);
+      ctx.strokeRect(x, topY, lastX - x, bottomY - topY);
+      ctx.setLineDash([]);
+      
+      // Label without stars
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = ob.type === 'bullish' ? `rgba(${bullishColor}, ${strokeOpacity})` : `rgba(${bearishColor}, ${strokeOpacity})`;
+      ctx.fillText('OB', x + 5, (topY + bottomY) / 2);
+    });
+  }
+  
+  if (activeFeatures.fvg) {
+    const fvgs = detectFairValueGaps(data);
+    const validFvgs = invalidateFilledFVGs(fvgs, data);
+    validFvgs.forEach(fvg => {
+      if (!fvg.isValid || fvg.isFilled || fvg.endIndex < startIndex || fvg.startIndex > startIndex + visibleCandleCount + 50) return;
+      const startX = indexToX(fvg.startIndex);
+      const lastX = indexToX(data.length - 1) + (5 * candleSpacing);
+      const topY = priceToY(fvg.topPrice);
+      const bottomY = priceToY(fvg.bottomPrice);
+      ctx.fillStyle = fvg.type === 'bullish' ? 'rgba(255, 215, 0, 0.15)' : 'rgba(255, 0, 255, 0.15)';
+      ctx.fillRect(startX, topY, lastX - startX, bottomY - topY);
+      ctx.strokeStyle = fvg.type === 'bullish' ? '#ffd700' : '#ff00ff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 4]);
+      ctx.beginPath();
+      ctx.moveTo(startX, topY);
+      ctx.lineTo(lastX, topY);
+      ctx.moveTo(startX, bottomY);
+      ctx.lineTo(lastX, bottomY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = fvg.type === 'bullish' ? '#ffd700' : '#ff00ff';
+      ctx.fillText('FVG', startX + 3, topY + 12);
+    });
+  }
+  
+  if (activeFeatures.liquidity) {
+    const liqZones = detectLiquidityZones(data);
+    liqZones.forEach(liq => {
+      if (liq.isSwept || liq.index < startIndex || liq.index > startIndex + visibleCandleCount + 50) return;
+      const y = priceToY(liq.price);
+      const startX = Math.max(40, indexToX(liq.index - 10));
+      const endX = indexToX(data.length - 1) + (5 * candleSpacing);
+      ctx.strokeStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600';
+      ctx.lineWidth = Math.min(liq.strength, 4);
+      ctx.setLineDash([10, 5]);
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (let i = 0; i < liq.strength; i++) {
+        ctx.fillStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600';
+        ctx.beginPath();
+        ctx.arc(startX + (i * 15), y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600';
+      ctx.fillText(liq.type === 'buy_side' ? '🔼 BSL' : '🔽 SSL', startX + (liq.strength * 15) + 5, y - 5);
+    });
+  }
+  
+  if (activeFeatures.structure) {
+    const structures = detectMarketStructure(data);
+    const breaks = detectBreakOfStructure(data, structures);
+    breaks.forEach(brk => {
+      if (brk.index < startIndex || brk.index > startIndex + visibleCandleCount) return;
+      const x = indexToX(brk.index);
+      const y = priceToY(brk.price);
+      
+      // Determine label based on type and direction
+      let label = '';
+      if (brk.type === 'bos' && brk.direction === 'bullish') label = 'Up';
+      else if (brk.type === 'bos' && brk.direction === 'bearish') label = 'Down';
+      else if (brk.type === 'choch' && brk.direction === 'bullish') label = 'Building';
+      else if (brk.type === 'choch' && brk.direction === 'bearish') label = 'Failing';
+      
+      // Set full opacity for text
+      ctx.globalAlpha = 1.0;
+      ctx.font = 'bold 14px monospace';
+      const textMetrics = ctx.measureText(label);
+      const textWidth = textMetrics.width;
+      const textHeight = 16;
+      
+      // Draw semi-transparent background box
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.fillRect(x - textWidth/2 - 3, y - 25, textWidth + 6, textHeight + 4);
+      
+      // Draw text at full opacity
+      ctx.fillStyle = brk.direction === 'bullish' ? '#00ff00' : '#ff0000';
+      ctx.fillText(label, x - textWidth/2, y - 10);
+      ctx.beginPath();
+      if (brk.direction === 'bullish') {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 5, y + 10);
+        ctx.lineTo(x + 5, y + 10);
+      } else {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 5, y - 10);
+        ctx.lineTo(x + 5, y - 10);
+      }
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+  
+  if (activeFeatures.premiumDiscount) {
+    const pdZones = calculatePremiumDiscountZones(data, Math.max(0, data.length - 50), data.length - 1);
+    pdZones.forEach(zone => {
+      const y = priceToY(zone.priceLevel);
+      const startX = 40;
+      const endX = indexToX(data.length - 1) + (5 * candleSpacing);
+      let color = '#888888';
+      if (zone.type === 'premium') color = '#ff4444';
+      if (zone.type === 'discount') color = '#44ff44';
+      if (zone.type === 'equilibrium') color = '#ffff00';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = zone.confidence >= 9 ? 2 : 1;
+      ctx.setLineDash(zone.confidence >= 9 ? [] : [5, 5]);
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([]);
+      ctx.font = '11px monospace';
+      ctx.fillStyle = color;
+      ctx.fillText(zone.setupType, endX + 5, y + 4);
+    });
+  }
+};
+
+interface TradingViewChartProps{
  symbol: string;
  initialTimeframe?: string;
  height?: number;
@@ -2273,6 +2973,7 @@ export default function TradingViewChart({
  
   // Dropdown button refs for positioning
   const drawingsButtonRef = useRef<HTMLButtonElement>(null);
+  const technalysisButtonRef = useRef<HTMLButtonElement>(null);
   const expectedRangeButtonRef = useRef<HTMLButtonElement>(null);
   const gexButtonRef = useRef<HTMLButtonElement>(null);
   const rrgButtonRef = useRef<HTMLButtonElement>(null); // Chart state
@@ -2315,6 +3016,9 @@ export default function TradingViewChart({
 
  // Settings panel state
  const [showSettings, setShowSettings] = useState(false);
+ 
+ // Chat store for Guide AI panel
+ const { isOpen: isGuideAIOpen, setIsOpen: setGuideAIOpen } = useChatStore();
 
  // Dropdown positioning state
  const [dropdownPositions, setDropdownPositions] = useState({
@@ -2333,6 +3037,7 @@ export default function TradingViewChart({
  const [horizontalRays, setHorizontalRays] = useState<HorizontalRay[]>([]);
  const [selectedRay, setSelectedRay] = useState<string | null>(null);
  const [isDrawingsDropdownOpen, setIsDrawingsDropdownOpen] = useState<boolean>(false);
+ const [isTechnalysisDropdownOpen, setIsTechnalysisDropdownOpen] = useState<boolean>(false);
  const [isEditingRay, setIsEditingRay] = useState<boolean>(false);
  const [rayDragStart, setRayDragStart] = useState<{x: number, y: number, originalPrice: number} | null>(null);
 
@@ -2363,6 +3068,66 @@ export default function TradingViewChart({
  useEffect(() => {
  drawingBrushesRef.current = drawingBrushes;
    }, [drawingBrushes]);
+
+ // ========================================
+ // MULTICHART STATE & MANAGEMENT
+ // ========================================
+ 
+ interface ChartInstance {
+   id: string;
+   symbol: string;
+   timeframe: string;
+   config: ChartConfig;
+ }
+ 
+ type ChartLayout = '1x1' | '1x2' | '2x2';
+ 
+ const [chartLayout, setChartLayout] = useState<ChartLayout>('1x1');
+ const [chartInstances, setChartInstances] = useState<ChartInstance[]>([
+   { id: 'chart-1', symbol, timeframe: initialTimeframe, config }
+ ]);
+ const [activeChartId, setActiveChartId] = useState<string>('chart-1');
+ 
+ // Per-chart data storage
+ const chartCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
+ const overlayCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
+ const chartDataMap = useRef<Map<string, ChartDataPoint[]>>(new Map());
+ const chartScrollMap = useRef<Map<string, number>>(new Map());
+ const chartZoomMap = useRef<Map<string, number>>(new Map());
+ const chartPriceRangeMap = useRef<Map<string, { min: number; max: number } | null>>(new Map());
+ const chartCrosshairMap = useRef<Map<string, { x: number; y: number }>>(new Map());
+ const chartLoadingMap = useRef<Map<string, boolean>>(new Map());
+ const chartPriceMap = useRef<Map<string, number>>(new Map());
+ const chartVelocityMap = useRef<Map<string, { x: number; y: number }>>(new Map());
+ const chartDragStateMap = useRef<Map<string, boolean>>(new Map());
+ 
+ // Layout change handler
+ const changeChartLayout = useCallback((newLayout: ChartLayout) => {
+   setChartLayout(newLayout);
+   
+   const layouts = { '1x1': 1, '1x2': 2, '2x2': 4 };
+   const numCharts = layouts[newLayout];
+   const newInstances: ChartInstance[] = [];
+   
+   for (let i = 0; i < numCharts; i++) {
+     const existingInstance = chartInstances[i];
+     if (existingInstance) {
+       newInstances.push(existingInstance);
+     } else {
+       newInstances.push({
+         id: `chart-${i + 1}`,
+         symbol: symbol,
+         timeframe: config.timeframe,
+         config: { ...config }
+       });
+     }
+   }
+   
+   setChartInstances(newInstances);
+   if (!newInstances.find(ci => ci.id === activeChartId)) {
+     setActiveChartId(newInstances[0].id);
+   }
+ }, [chartInstances, symbol, config, activeChartId]);
 
   // GEX OI Handler - Uses Polygon snapshot data (old way)
   const handleOIGEXClick = async () => {
@@ -3921,6 +4686,252 @@ export default function TradingViewChart({
  const [seasonal10YData, setSeasonal10YData] = useState<Array<{date: Date, price: number}> | null>(null);
  const [seasonalElectionData, setSeasonalElectionData] = useState<Array<{date: Date, price: number}> | null>(null);
  const [isLoadingSeasonalProjection, setIsLoadingSeasonalProjection] = useState(false);
+ const [isSeasonalEventActive, setIsSeasonalEventActive] = useState(false);
+ const [selectedSeasonalEvent, setSelectedSeasonalEvent] = useState<string | null>(null);
+ const [seasonalEventData, setSeasonalEventData] = useState<Array<{date: Date, price: number}> | null>(null);
+ const [isEventDropdownOpen, setIsEventDropdownOpen] = useState(false);
+
+  // Event seasonal calculation with Polygon API
+  const calculateEventSeasonal = useCallback(async (eventType: string, chartData: ChartDataPoint[]) => {
+    console.log('🎯 Event seasonal triggered for:', eventType);
+    const API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    const currentYear = new Date().getFullYear();
+    
+    const getEventDates = (event: string): Date[] => {
+      const dates: Date[] = [];
+      // Include past 5 years + current year + next year for future projections
+      for (let year = currentYear - 5; year <= currentYear + 1; year++) {
+        switch(event) {
+          case 'thanksgiving':
+            const nov1 = new Date(year, 10, 1);
+            const firstThursday = (4 - nov1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 10, firstThursday + 21));
+            break;
+          case 'christmas':
+            dates.push(new Date(year, 11, 25));
+            break;
+          case 'newyear':
+            dates.push(new Date(year, 0, 1));
+            break;
+          case 'presidentsday':
+            const feb1 = new Date(year, 1, 1);
+            const firstMonday = (1 - feb1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 1, firstMonday + 14));
+            break;
+          case 'mlkday':
+            const jan1 = new Date(year, 0, 1);
+            const firstMondayJan = (1 - jan1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 0, firstMondayJan + 14));
+            break;
+          case 'memorialday':
+            const may31 = new Date(year, 4, 31);
+            const lastMonday = 31 - ((may31.getDay() + 6) % 7);
+            dates.push(new Date(year, 4, lastMonday));
+            break;
+          case 'july4th':
+            dates.push(new Date(year, 6, 4));
+            break;
+          case 'laborday':
+            const sep1 = new Date(year, 8, 1);
+            const firstMondaySep = (1 - sep1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 8, firstMondaySep));
+            break;
+          case 'fomc-march':
+            dates.push(new Date(year, 2, 20));
+            break;
+          case 'fomc-june':
+            dates.push(new Date(year, 5, 15));
+            break;
+          case 'fomc-september':
+            dates.push(new Date(year, 8, 20));
+            break;
+          case 'fomc-december':
+            dates.push(new Date(year, 11, 15));
+            break;
+          case 'quad-witching-mar':
+            const mar1 = new Date(year, 2, 1);
+            const firstFridayMar = (5 - mar1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 2, firstFridayMar + 14));
+            break;
+          case 'quad-witching-jun':
+            const jun1 = new Date(year, 5, 1);
+            const firstFridayJun = (5 - jun1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 5, firstFridayJun + 14));
+            break;
+          case 'quad-witching-sep':
+            const sep1qw = new Date(year, 8, 1);
+            const firstFridaySep = (5 - sep1qw.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 8, firstFridaySep + 14));
+            break;
+          case 'quad-witching-dec':
+            const dec1 = new Date(year, 11, 1);
+            const firstFridayDec = (5 - dec1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 11, firstFridayDec + 14));
+            break;
+          case 'monthlyopex':
+            const today = new Date();
+            const month1 = new Date(year, today.getMonth(), 1);
+            const firstFridayMonth = (5 - month1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, today.getMonth(), firstFridayMonth + 14));
+            break;
+          case 'yearendrally':
+            dates.push(new Date(year, 11, 31));
+            break;
+          case 'halloweenrally':
+            dates.push(new Date(year, 9, 31));
+            break;
+          case 'santarally':
+            dates.push(new Date(year, 11, 20));
+            break;
+          case 'q1-earnings':
+            dates.push(new Date(year, 3, 15));
+            break;
+          case 'q2-earnings':
+            dates.push(new Date(year, 6, 15));
+            break;
+          case 'q3-earnings':
+            dates.push(new Date(year, 9, 15));
+            break;
+          case 'q4-earnings':
+            dates.push(new Date(year, 0, 15));
+            break;
+        }
+      }
+      return dates;
+    };
+
+    const isWeekend = (date: Date) => date.getDay() === 0 || date.getDay() === 6;
+
+    const isHoliday = (date: Date) => {
+      const month = date.getMonth(), day = date.getDate(), dayOfWeek = date.getDay();
+      if (month === 0 && day === 1) return true;
+      if (month === 6 && day === 4) return true;
+      if (month === 11 && day === 25) return true;
+      if (month === 0 && dayOfWeek === 1 && day >= 15 && day <= 21) return true;
+      if (month === 1 && dayOfWeek === 1 && day >= 15 && day <= 21) return true;
+      if (month === 4 && dayOfWeek === 1 && day >= 25) return true;
+      if (month === 8 && dayOfWeek === 1 && day <= 7) return true;
+      if (month === 10 && dayOfWeek === 4 && day >= 22 && day <= 28) return true;
+      return false;
+    };
+
+    const getTradingDays = (startDate: Date, count: number, forward: boolean): Date[] => {
+      const days: Date[] = [];
+      const current = new Date(startDate);
+      let found = 0;
+      while (found < count) {
+        current.setDate(current.getDate() + (forward ? 1 : -1));
+        if (!isWeekend(current) && !isHoliday(current)) {
+          days.push(new Date(current));
+          found++;
+        }
+      }
+      return forward ? days : days.reverse();
+    };
+
+    try {
+      const eventDates = getEventDates(eventType);
+      console.log('📅 Event dates found:', eventDates.length, eventDates);
+      const allReturns: number[][] = Array(13).fill(0).map(() => []); // 5 before + event + 7 after = 13
+      
+      for (const eventDate of eventDates) {
+        const before = getTradingDays(eventDate, 5, false);
+        const after = getTradingDays(eventDate, 7, true);
+        const allDays = [...before, eventDate, ...after];
+        
+        const from = allDays[0].toISOString().split('T')[0];
+        const to = allDays[allDays.length - 1].toISOString().split('T')[0];
+        
+        console.log(`📡 Fetching ${symbol} from ${from} to ${to}`);
+        const response = await fetch(
+          `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${API_KEY}`
+        );
+        
+        if (!response.ok) {
+          console.warn('⚠️ API response not ok:', response.status);
+          continue;
+        }
+        const data = await response.json();
+        if (!data.results || data.results.length === 0) {
+          console.warn('⚠️ No data results for', from, to);
+          continue;
+        }
+        
+        console.log('✅ Got', data.results.length, 'data points');
+        const prices = data.results.map((r: any) => r.c);
+        
+        // Event should be at index 5 (after 5 days before)
+        const eventIndex = 5;
+        const eventPrice = prices[eventIndex];
+        
+        // Calculate returns for all points relative to event price
+        for (let i = 0; i < prices.length && i < 13; i++) {
+          const returnPct = ((prices[i] - eventPrice) / eventPrice) * 100;
+          allReturns[i].push(returnPct);
+        }
+      }
+      
+      const avgReturns = allReturns.map(returns => 
+        returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
+      );
+      
+      console.log('📊 Average returns (5 before, event, 7 after):', avgReturns);
+      
+      const lastPrice = chartData.length > 0 ? chartData[chartData.length - 1]?.close : 0;
+      console.log('💰 Last price:', lastPrice, 'from data with', chartData.length, 'points');
+      
+      // Find closest event date to today (prefer recent past or near future, not a year away)
+      const allEventDates = getEventDates(eventType);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // Find event closest to today (within +/- 30 days is reasonable for projection)
+      let closestEvent = allEventDates[0];
+      let minDiff = Math.abs(allEventDates[0].getTime() - today.getTime());
+      
+      for (const eventDate of allEventDates) {
+        const diff = Math.abs(eventDate.getTime() - today.getTime());
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestEvent = eventDate;
+        }
+      }
+      
+      // If closest event is more than 60 days away, use the most recent past event
+      const daysDiff = (closestEvent.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysDiff > 60) {
+        // Find most recent past event
+        const pastEvents = allEventDates.filter(d => d < today);
+        if (pastEvents.length > 0) {
+          closestEvent = pastEvents[pastEvents.length - 1];
+        }
+      }
+      
+      console.log('📆 Selected event date:', closestEvent, '(days from today:', Math.round(daysDiff), ')');
+      
+      // Create projection starting from 5 trading days before event to 7 trading days after
+      const projectionData: Array<{date: Date, price: number}> = [];
+      const beforeDays = getTradingDays(closestEvent, 5, false);
+      const afterDays = getTradingDays(closestEvent, 7, true);
+      const projectionDates = [...beforeDays, closestEvent, ...afterDays];
+      
+      for (let i = 0; i < avgReturns.length && i < projectionDates.length; i++) {
+        const projectedPrice = lastPrice * (1 + avgReturns[i] / 100);
+        projectionData.push({ date: projectionDates[i], price: projectedPrice });
+      }
+      
+      console.log('🎯 Projection data created:', projectionData.length, 'points from', projectionDates[0], 'to', projectionDates[projectionDates.length - 1]);
+      setSeasonalEventData(projectionData);
+      setIsSeasonalEventActive(true);
+      setIsSeasonalActive(true);
+      console.log('✅ States set - isSeasonalEventActive: true');
+      
+    } catch (error) {
+      console.error('❌ Event seasonal calculation failed:', error);
+      setSeasonalEventData(null);
+      setIsSeasonalEventActive(false);
+    }
+  }, [symbol]);
 
   // GEX state for gamma exposure levels
   const [isGexActive, setIsGexActive] = useState(false);
@@ -3959,6 +4970,9 @@ export default function TradingViewChart({
   const [isDraggingIVPanel, setIsDraggingIVPanel] = useState(false); // For resize dragging
   const [ivLookbackPeriod, setIVLookbackPeriod] = useState(365); // Default 1 year
   const [hvWindow, setHVWindow] = useState(20); // Historical Volatility window (10, 20, 30, 60 days)
+  
+  // Event Panel settings
+  const eventPanelHeight = 360; // Height for event projection panel
   
   // IV Data state
   const [ivData, setIVData] = useState<Array<{
@@ -4235,6 +5249,24 @@ export default function TradingViewChart({
  // Expansion/Liquidation indicator state
  const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false);
  const [expansionLiquidationZones, setExpansionLiquidationZones] = useState<any[]>([]);
+
+ // Technalysis indicator state
+ const [technalysisActive, setTechnalysisActive] = useState(false);
+ const [technalysisFeatures, setTechnalysisFeatures] = useState({
+   orderBlocks: false,
+   fvg: false,
+   liquidity: false,
+   structure: false,
+   premiumDiscount: false
+ });
+
+ // Alerts state
+ const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+ const [quickNotes, setQuickNotes] = useState<string>('');
+ const [isAlertPlacementMode, setIsAlertPlacementMode] = useState(false);
+ const [newAlertPrice, setNewAlertPrice] = useState<number | null>(null);
+ const [showAlertDialog, setShowAlertDialog] = useState(false);
+ const [selectedAlertType, setSelectedAlertType] = useState<'price' | 'options' | 'technical'>('price');
 
  // Watchlist data state
  const [watchlistData, setWatchlistData] = useState<{[key: string]: {
@@ -5143,9 +6175,7 @@ export default function TradingViewChart({
  const handleSearch = (symbol: string) => {
  if (symbol && symbol.length > 0) {
  const upperSymbol = symbol.toUpperCase();
- if (onSymbolChange) {
- onSymbolChange(upperSymbol);
- }
+ handleSymbolChange(upperSymbol);
  setSearchQuery('');
  setShowSearchResults(false);
  }
@@ -5357,10 +6387,18 @@ export default function TradingViewChart({
  }
  };
 
+ // Immediate update
  updateDimensions();
+ 
+ // Delayed update to account for CSS transition (300ms)
+ const timer = setTimeout(updateDimensions, 350);
+ 
  window.addEventListener('resize', updateDimensions);
- return () => window.removeEventListener('resize', updateDimensions);
- }, []);
+ return () => {
+ clearTimeout(timer);
+ window.removeEventListener('resize', updateDimensions);
+ };
+ }, [isGuideAIOpen]);
 
  // Initialize chart - SIMPLE
  useEffect(() => {
@@ -5797,6 +6835,11 @@ export default function TradingViewChart({
  break;
  case 'Delete':
  case 'Backspace':
+ // Don't prevent default if user is typing in an input/textarea
+ const target = e.target as HTMLElement;
+ if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+ return;
+ }
  e.preventDefault();
  // Delete selected ray or channel
  if (selectedRay) {
@@ -6060,9 +7103,10 @@ export default function TradingViewChart({
  const timeAxisHeight = 30;
  const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0; // Reserve space for flow chart when active
  const actualIVPanelHeight = isAnyIVHVActive ? (activeIVPanelCount * ivPanelHeight) : 0; // Reserve space for IV indicator panels
+ const actualEventPanelHeight = 0; // No event panel needed
  const volumeAreaHeight = 80; // Volume bars area
  // Adjust price chart height based on active indicators
- const totalBottomSpace = actualFlowChartHeight + actualIVPanelHeight + volumeAreaHeight + timeAxisHeight;
+ const totalBottomSpace = actualFlowChartHeight + actualIVPanelHeight + actualEventPanelHeight + volumeAreaHeight + timeAxisHeight;
  const priceChartHeight = height - totalBottomSpace;
 
  // Draw grid first for price chart area (only if enabled)
@@ -6241,77 +7285,177 @@ export default function TradingViewChart({
  const lastCandleY = priceChartHeight - ((lastCandlePrice - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
 
  // Helper function to draw a seasonal projection line
- const drawSeasonalLine = (projectionData: Array<{date: Date, price: number}> | null, color: string, isDashed: boolean) => {
- if (!projectionData || projectionData.length === 0) return;
+ const drawSeasonalLine = (projectionData: Array<{date: Date, price: number}> | null, color: string, isDashed: boolean, eventLabel?: string) => {
+    if (!projectionData || projectionData.length === 0) {
+      console.log('⚠️ No projection data to draw');
+      return;
+    }
 
- ctx.save();
- ctx.strokeStyle = color;
- ctx.lineWidth = 2;
- 
- if (isDashed) {
- ctx.setLineDash([5, 5]);
- }
+    // Helper to count trading days between dates (excluding weekends and holidays) - handles both directions
+    const countTradingDaysBetween = (startDate: Date, endDate: Date): number => {
+      const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6;
+      const isHoliday = (d: Date) => {
+        const m = d.getMonth(), day = d.getDate(), dow = d.getDay();
+        return (m === 0 && day === 1) || (m === 6 && day === 4) || (m === 11 && day === 25) ||
+               (m === 0 && dow === 1 && day >= 15 && day <= 21) ||
+               (m === 1 && dow === 1 && day >= 15 && day <= 21) ||
+               (m === 4 && dow === 1 && day >= 25) ||
+               (m === 8 && dow === 1 && day <= 7) ||
+               (m === 10 && dow === 4 && day >= 22 && day <= 28);
+      };
+      
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      
+      // Determine direction
+      const forward = end >= start;
+      const current = new Date(forward ? start : end);
+      const target = new Date(forward ? end : start);
+      
+      let count = 0;
+      while (current < target) {
+        current.setDate(current.getDate() + 1);
+        if (!isWeekend(current) && !isHoliday(current)) count++;
+      }
+      
+      return forward ? count : -count;
+    };
 
- ctx.beginPath();
- ctx.moveTo(lastCandleX, lastCandleY);
+    console.log('🖌️ Drawing seasonal line with', projectionData.length, 'points, color:', color);
+    const lastCandleDate = new Date(lastVisibleCandle.timestamp);
+    lastCandleDate.setHours(0, 0, 0, 0);
+    
+    console.log('📍 Last candle date:', lastCandleDate.toISOString().split('T')[0]);
+    console.log('📍 First projection date:', projectionData[0].date.toISOString().split('T')[0]);
+    
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    
+    if (isDashed) {
+      ctx.setLineDash([5, 5]);
+    }
 
- projectionData.forEach((point) => {
- const pointTime = point.date.getTime();
- const timeDiff = pointTime - lastCandleTime;
- const daysFromEnd = timeDiff / (24 * 60 * 60 * 1000);
- const x = lastCandleX + (daysFromEnd * candleSpacing);
- const y = priceChartHeight - ((point.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
- 
- if (y >= 0 && y <= priceChartHeight) {
- ctx.lineTo(x, y);
- }
- });
+    ctx.beginPath();
+    let firstPoint = true;
+    let eventX = 0;
+    let pointsDrawn = 0;
 
- ctx.stroke();
+    // Draw projection line with proper date-based positioning
+    projectionData.forEach((point, index) => {
+      const projDate = new Date(point.date);
+      projDate.setHours(0, 0, 0, 0);
+      
+      // Calculate trading days from last candle to this projection point
+      const tradingDaysFromLast = countTradingDaysBetween(lastCandleDate, projDate);
+      
+      // Calculate x position based on trading days
+      const x = Math.round(lastCandleX + (tradingDaysFromLast * candleSpacing));
+      const y = priceChartHeight - ((point.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+      
+      console.log(`  Point ${index}: date=${projDate.toISOString().split('T')[0]}, tradingDays=${tradingDaysFromLast}, x=${x}, y=${y}, price=${point.price.toFixed(2)}`);
+      
+      // Always draw the line, canvas will clip
+      if (firstPoint) {
+        ctx.moveTo(x, y);
+        firstPoint = false;
+      } else {
+        ctx.lineTo(x, y);
+      }
+      pointsDrawn++;
+      
+      // Track event position (index 5)
+      if (index === 5) {
+        eventX = x;
+      }
+    });
 
- // Draw start marker at last candle
- ctx.beginPath();
- ctx.arc(lastCandleX, lastCandleY, 3, 0, 2 * Math.PI);
- ctx.fillStyle = color;
- ctx.fill();
+    if (pointsDrawn > 0) {
+      ctx.stroke();
+      console.log('✅ Line stroked with', pointsDrawn, 'points');
+    } else {
+      console.warn('⚠️ No points drawn!');
+    }
+    ctx.setLineDash([]); // Reset dash
+    
+    // Draw vertical line at event date
+    if (eventX >= 40 && eventX <= chartWidth) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 5]);
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(eventX, 0);
+      ctx.lineTo(eventX, priceChartHeight);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+      
+      // Label event name at top
+      if (eventLabel) {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.font = 'bold 10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(eventLabel.toUpperCase(), eventX, 10);
+        ctx.restore();
+      }
+    }
+    
+    // Draw numbered labels on each point
+    projectionData.forEach((point, index) => {
+      const projDate = new Date(point.date);
+      projDate.setHours(0, 0, 0, 0);
+      const tradingDaysFromLast = countTradingDaysBetween(lastCandleDate, projDate);
+      const x = Math.round(lastCandleX + (tradingDaysFromLast * candleSpacing));
+      const y = priceChartHeight - ((point.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+      
+      if (x >= 40 && x <= chartWidth && y >= 0 && y <= priceChartHeight) {
+        // Draw circle at point
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.fill();
+        
+        // Draw number label
+        ctx.fillStyle = color;
+        ctx.font = 'bold 11px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(index + 1), x, y - 12);
+      }
+    });
+    
+    ctx.restore();
+  };
 
- // Draw end marker
- const lastPoint = projectionData[projectionData.length - 1];
- const lastPointTime = lastPoint.date.getTime();
- const daysFromEnd = (lastPointTime - lastCandleTime) / (24 * 60 * 60 * 1000);
- const endX = lastCandleX + (daysFromEnd * candleSpacing);
- const endY = priceChartHeight - ((lastPoint.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
+  // Draw each active seasonal line with its color and style
+  if (isSeasonal20YActive) drawSeasonalLine(seasonal20YData, '#FFFFFF', false); // Solid white
+  if (isSeasonal15YActive) drawSeasonalLine(seasonal15YData, '#FFD700', false); // Solid yellow
+  if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#4169E1', false); // Solid blue
+  if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true); // Purple dashed
+  if (isSeasonalEventActive) {
+    console.log('🎨 Drawing event seasonal line, data:', seasonalEventData, 'event:', selectedSeasonalEvent);
+    drawSeasonalLine(seasonalEventData, '#00FF00', true, selectedSeasonalEvent || undefined); // Green dashed
+  }
+  }
 
- if (endY >= 0 && endY <= priceChartHeight) {
- ctx.beginPath();
- ctx.arc(endX, endY, 4, 0, 2 * Math.PI);
- ctx.fillStyle = color;
- ctx.fill();
- }
-
- ctx.restore();
- };
-
- // Draw each active seasonal line with its color and style
- if (isSeasonal20YActive) drawSeasonalLine(seasonal20YData, '#FFFFFF', false); // Solid white
- if (isSeasonal15YActive) drawSeasonalLine(seasonal15YData, '#FFD700', false); // Solid yellow
- if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#4169E1', false); // Solid blue
- if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true); // Purple dashed
- }
-
- // Keep old seasonalProjectionData logic for backwards compatibility (remove later)
- if (isSeasonalActive && seasonalProjectionData && seasonalProjectionData.length > 0) {
- 
- // Get last candle position from visible data
- if (visibleData && visibleData.length > 0) {
- const lastVisibleCandle = visibleData[visibleData.length - 1];
- const lastCandleTime = new Date(lastVisibleCandle.timestamp).getTime();
- const lastCandlePrice = lastVisibleCandle.close;
- 
- // Calculate last candle x position using same coordinate system as candlesticks
- // Last visible candle is at index (visibleData.length - 1)
- const lastCandleIndex = visibleData.length - 1;
- const lastCandleX = 40 + (lastCandleIndex * candleSpacing) + candleSpacing / 2;
+  // Keep old seasonalProjectionData logic for backwards compatibility (remove later)
+  if (isSeasonalActive && seasonalProjectionData && seasonalProjectionData.length > 0) {
+  
+    // Get last candle position from visible data
+    if (visibleData && visibleData.length > 0) {
+      const lastVisibleCandle = visibleData[visibleData.length - 1];
+      const lastCandleTime = new Date(lastVisibleCandle.timestamp).getTime();
+      const lastCandlePrice = lastVisibleCandle.close;
+      
+      // Calculate last candle x position using same coordinate system as candlesticks
+      // Last visible candle is at index (visibleData.length - 1)
+      const lastCandleIndex = visibleData.length - 1;
+      const lastCandleX = 40 + (lastCandleIndex * candleSpacing) + candleSpacing / 2;
  
  // Draw the projection line starting from last visible candle
  ctx.save();
@@ -6427,6 +7571,24 @@ export default function TradingViewChart({
  console.log(`?? Rendered ${validZones.filter(z => z.isValid).length} valid zones`);
  }
 
+ // Draw Technalysis indicators
+ const anyFeatureEnabled = technalysisActive || Object.values(technalysisFeatures).some(f => f);
+ if (anyFeatureEnabled) {
+ console.log('🔥 Rendering Technalysis indicators');
+ renderTechnalysisIndicators(
+ ctx,
+ data,
+ chartWidth,
+ priceChartHeight,
+ adjustedMin,
+ adjustedMax,
+ startIndex,
+ visibleCandleCount,
+ technalysisFeatures
+ );
+ console.log('✅ Technalysis indicators rendered');
+ }
+
  // Draw flow chart above volume if active (only on 5min timeframe)
  if (isFlowChartActive && flowChartData.length > 0) {
    console.log(`🔍 Flow Chart Check: timeframe=${config.timeframe}, flowData=${flowChartData.length}, visibleData=${visibleData.length}`);
@@ -6458,9 +7620,9 @@ export default function TradingViewChart({
    }
  }
 
- // Draw IV/HV indicator panels below the flow chart (or below price chart if no flow chart)
+ // Draw IV/HV indicator panels after flow chart
  if (isAnyIVHVActive) {
-   let currentPanelY = priceChartHeight + actualFlowChartHeight;
+   let currentPanelY = priceChartHeight + actualFlowChartHeight + actualEventPanelHeight;
    
    // If no data yet, show loading panels
    if (ivData.length === 0) {
@@ -6519,7 +7681,7 @@ export default function TradingViewChart({
  }
 
  // Draw volume bars above the time axis (TradingView style)
- drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + actualFlowChartHeight + actualIVPanelHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+ drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + actualFlowChartHeight + actualEventPanelHeight + actualIVPanelHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
 
  // Draw time axis at the bottom
  drawTimeAxis(ctx, width, height, visibleData, chartWidth, visibleCandleCount, scrollOffset, data);
@@ -7804,46 +8966,46 @@ export default function TradingViewChart({
  const monthsSpan = daysSpan / 30;
  const yearsSpan = daysSpan / 365;
 
- // Very zoomed in (intraday with small time span)
+ // Very zoomed in (intraday with small time span) - DOUBLED DENSITY
  if (isIntraday && hoursSpan <= 24) {
  return { 
  format: 'time', 
- spacing: Math.max(1, Math.floor(visibleCandleCount / 6))
+ spacing: Math.max(1, Math.floor(visibleCandleCount / 12))
  };
  }
- // Intraday but longer span
+ // Intraday but longer span - DOUBLED DENSITY
  else if (isIntraday && hoursSpan <= 168) { // 1 week
  return { 
  format: 'datetime', 
- spacing: Math.max(1, Math.floor(visibleCandleCount / 8))
+ spacing: Math.max(1, Math.floor(visibleCandleCount / 16))
  };
  }
- // Daily view, short term
+ // Daily view, short term - DOUBLED DENSITY
  else if (daysSpan <= 30) {
  return { 
  format: 'date', 
- spacing: Math.max(1, Math.floor(visibleCandleCount / 6))
+ spacing: Math.max(1, Math.floor(visibleCandleCount / 12))
  };
  }
- // Medium term (months)
+ // Medium term (months) - DOUBLED DENSITY
  else if (monthsSpan <= 12) {
  return { 
  format: 'monthday', 
- spacing: Math.max(1, Math.floor(visibleCandleCount / 8))
+ spacing: Math.max(1, Math.floor(visibleCandleCount / 16))
  };
  }
- // Long term (years)
+ // Long term (years) - DOUBLED DENSITY
  else if (yearsSpan <= 5) {
  return { 
  format: 'monthyear', 
- spacing: Math.max(1, Math.floor(visibleCandleCount / 10))
+ spacing: Math.max(1, Math.floor(visibleCandleCount / 20))
  };
  }
- // Very long term
+ // Very long term - DOUBLED DENSITY
  else {
  return { 
  format: 'year', 
- spacing: Math.max(1, Math.floor(visibleCandleCount / 12))
+ spacing: Math.max(1, Math.floor(visibleCandleCount / 24))
  };
  }
  };
@@ -7862,40 +9024,50 @@ export default function TradingViewChart({
  switch (format) {
  case 'time':
  return date.toLocaleTimeString('en-US', { 
- hour: '2-digit', 
+ hour: 'numeric', 
  minute: '2-digit',
- hour12: false
+ hour12: true,
+ timeZone: 'America/New_York'
  });
  case 'datetime':
  return date.toLocaleDateString('en-US', { 
  month: 'short', 
- day: 'numeric'
+ day: 'numeric',
+ timeZone: 'America/New_York'
  }) + ' ' + date.toLocaleTimeString('en-US', { 
- hour: '2-digit', 
+ hour: 'numeric', 
  minute: '2-digit',
- hour12: false
+ hour12: true,
+ timeZone: 'America/New_York'
  });
  case 'date':
  return date.toLocaleDateString('en-US', { 
  month: 'short', 
- day: 'numeric'
+ day: 'numeric',
+ timeZone: 'America/New_York'
  });
  case 'monthday':
  return date.toLocaleDateString('en-US', { 
  month: 'short', 
- day: 'numeric'
+ day: 'numeric',
+ timeZone: 'America/New_York'
  });
  case 'monthyear':
  return date.toLocaleDateString('en-US', { 
  month: 'short', 
- year: 'numeric'
+ year: 'numeric',
+ timeZone: 'America/New_York'
  });
  case 'year':
- return date.getFullYear().toString();
+ return date.toLocaleDateString('en-US', {
+ year: 'numeric',
+ timeZone: 'America/New_York'
+ }).split(',')[0];
  default:
  return date.toLocaleDateString('en-US', { 
  month: 'short', 
- day: 'numeric'
+ day: 'numeric',
+ timeZone: 'America/New_York'
  });
  }
  };
@@ -8001,12 +9173,15 @@ export default function TradingViewChart({
  addLabel(x, timeLabel, false);
  }
 
- // Draw future labels if we're showing future area
+ // Draw future labels if we're showing future area - MUCH DENSER SPACING FOR FUTURE
  if (showingFutureArea && futurePeriodsShown > 0 && allData.length > 0) {
  const lastDataTimestamp = allData[allData.length - 1].timestamp;
  
+ // Use much smaller spacing for future area - show way more labels
+ const futureSpacing = Math.max(1, Math.floor(labelStep / 3)); // 3x denser than historical
+ 
  for (let i = 1; i <= futurePeriodsShown; i++) {
- if (i % labelStep === 0) {
+ if (i % futureSpacing === 0) {
  const futureIndex = visibleData.length + i - 1;
  const x = 40 + (futureIndex * candleSpacing) + candleSpacing / 2;
  const futureTimestamp = getFutureTimestamp(lastDataTimestamp, i);
@@ -8057,6 +9232,54 @@ export default function TradingViewChart({
  
  // Price text in white
  ctx.fillStyle = '#ffffff';
+ ctx.textAlign = 'left';
+ ctx.fillText(priceText, dimensions.width - 76, y + 4);
+ }
+ });
+ }
+
+ // Draw price alerts on the chart
+ if (alerts.length > 0) {
+ alerts.filter(a => !a.triggered).forEach(alert => {
+ const y = priceToScreenForDrawings(alert.price);
+ 
+ if (y >= 0 && y <= dimensions.height) {
+ // Determine alert color based on condition and type
+ let alertColor = '#FFD700'; // Default gold
+ if (alert.type === 'options') alertColor = '#00BFFF'; // Blue for options
+ if (alert.type === 'technical') alertColor = '#32CD32'; // Green for technical
+ 
+ // Draw dashed horizontal line
+ ctx.strokeStyle = alertColor;
+ ctx.lineWidth = 2;
+ ctx.setLineDash([8, 4]);
+ ctx.globalAlpha = 0.8;
+ 
+ ctx.beginPath();
+ ctx.moveTo(40, y);
+ ctx.lineTo(dimensions.width - 80, y);
+ ctx.stroke();
+ 
+ ctx.globalAlpha = 1.0;
+ ctx.setLineDash([]);
+ 
+ // Draw bell icon
+ ctx.font = '16px Arial';
+ ctx.fillStyle = alertColor;
+ ctx.fillText('\uD83D\uDD14', 45, y - 5);
+ 
+ // Draw price label on Y-axis
+ const priceText = alert.price.toFixed(2);
+ ctx.font = '12px Arial';
+ const textWidth = ctx.measureText(priceText).width;
+ const textHeight = 16;
+ 
+ // Background box
+ ctx.fillStyle = alertColor;
+ ctx.fillRect(dimensions.width - 80, y - textHeight/2, textWidth + 8, textHeight);
+ 
+ // Price text
+ ctx.fillStyle = '#000000';
  ctx.textAlign = 'left';
  ctx.fillText(priceText, dimensions.width - 76, y + 4);
  }
@@ -8402,11 +9625,11 @@ export default function TradingViewChart({
  // Re-render when data or settings change
  // Call renderChart only when critical dependencies change
  useEffect(() => {
- if (dimensions.width > 0 && dimensions.height > 0 && data.length > 0) {
+ if (dimensions.width > 0 && dimensions.height > 0 && data.length > 0 && chartLayout === '1x1') {
  renderChart();
  }
  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow]); // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
+  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow, chartLayout]); // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
  useEffect(() => {
  if (!isParallelChannelMode) return;
  
@@ -8618,26 +9841,47 @@ export default function TradingViewChart({
  const candleWidth = chartWidth / visibleCandleCount;
  const relativeX = Math.max(0, screenX - 40); // Account for left margin (match crosshair)
  const visibleCandleIndex = Math.floor(relativeX / candleWidth);
- const absoluteCandleIndex = scrollOffset + visibleCandleIndex;
  
- // Handle future dates beyond last candle (for seasonal projection)
- let timestamp: number;
- if (absoluteCandleIndex >= data.length) {
- // We're beyond the last candle - calculate future date
- const lastCandle = data[data.length - 1];
- const daysIntoFuture = absoluteCandleIndex - (data.length - 1);
- const futureDate = new Date(lastCandle.timestamp);
- futureDate.setDate(futureDate.getDate() + daysIntoFuture);
- timestamp = futureDate.getTime();
- } else {
- const boundedIndex = Math.max(0, Math.min(absoluteCandleIndex, data.length - 1));
- timestamp = data[boundedIndex]?.timestamp || Date.now();
- }
- 
- // Convert screen Y to actual price using EXACT same logic as crosshair calculation
+ // Get visible data slice to work with actual visible candles
  const startIndex = Math.max(0, Math.floor(scrollOffset));
  const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
  const visibleData = data.slice(startIndex, endIndex);
+ 
+ // Handle future dates beyond visible data (for seasonal projection)
+ let timestamp: number;
+ if (visibleCandleIndex >= visibleData.length) {
+ // We're beyond the visible data - calculate future date using proper timeframe
+ const lastCandle = data[data.length - 1];
+ const periodsIntoFuture = visibleCandleIndex - visibleData.length + 1;
+ 
+ // Calculate milliseconds per period based on timeframe
+ const timeframe = config.timeframe;
+ let millisecondsPerPeriod = 0;
+ 
+ switch (timeframe) {
+ case '1m': millisecondsPerPeriod = 60 * 1000; break;
+ case '5m': millisecondsPerPeriod = 5 * 60 * 1000; break;
+ case '15m': millisecondsPerPeriod = 15 * 60 * 1000; break;
+ case '30m': millisecondsPerPeriod = 30 * 60 * 1000; break;
+ case '1h': millisecondsPerPeriod = 60 * 60 * 1000; break;
+ case '4h': millisecondsPerPeriod = 4 * 60 * 60 * 1000; break;
+ case '1d': millisecondsPerPeriod = 24 * 60 * 60 * 1000; break;
+ case '1w': millisecondsPerPeriod = 7 * 24 * 60 * 60 * 1000; break;
+ case '1mo': millisecondsPerPeriod = 30 * 24 * 60 * 60 * 1000; break;
+ case '1y': millisecondsPerPeriod = 365 * 24 * 60 * 60 * 1000; break;
+ default: millisecondsPerPeriod = 24 * 60 * 60 * 1000; break;
+ }
+ 
+ // Simple linear calculation - add time intervals based on actual timeframe
+ timestamp = lastCandle.timestamp + (periodsIntoFuture * millisecondsPerPeriod);
+ } else {
+ // Use the actual visible candle's timestamp directly
+ const boundedIndex = Math.max(0, Math.min(visibleCandleIndex, visibleData.length - 1));
+ timestamp = visibleData[boundedIndex]?.timestamp || Date.now();
+ }
+ 
+ // Convert screen Y to actual price using EXACT same logic as crosshair calculation
+ // (visibleData already calculated above)
  
  if (visibleData.length === 0) return { timestamp, price: 0 };
  
@@ -8666,6 +9910,31 @@ export default function TradingViewChart({
  const rect = canvas.getBoundingClientRect();
  const x = e.clientX - rect.left;
  const y = e.clientY - rect.top;
+
+ // Handle alert placement mode FIRST
+ if (isAlertPlacementMode) {
+ const startIndex = Math.max(0, Math.floor(scrollOffset));
+ const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+ const currentVisibleData = data.slice(startIndex, endIndex);
+ 
+ if (currentVisibleData.length > 0) {
+ const timeAxisHeight = 25;
+ const volumeAreaHeight = 80;
+ const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight;
+ const minPrice = Math.min(...currentVisibleData.map(d => d.low));
+ const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
+ 
+ // Convert canvas Y to price
+ const price = canvasToPrice(y, minPrice, maxPrice, chartHeight);
+ 
+ // Show alert creation dialog
+ setNewAlertPrice(price);
+ setShowAlertDialog(true);
+ setIsAlertPlacementMode(false);
+ }
+ 
+ return;
+ }
 
  console.log('??? CLICK DETECTED at:', { x, y, isParallelChannelMode, currentChannelPoints: currentChannelPoints.length, button: e.button });
  
@@ -8851,7 +10120,7 @@ export default function TradingViewChart({
  parallelChannels, isBrushing, isMousePressed,
  drawingBrushes, dimensions, data, visibleCandleCount, isDrawingLocked,
  screenToTimePriceCoordinates, screenToPrice, priceToScreenForDrawings, activateToolExclusively,
- selectedRay, selectedChannel
+ selectedRay, selectedChannel, isAlertPlacementMode, alerts, newAlertPrice, showAlertDialog
  ]);
 
  // ? NEW: Advanced Hit Detection System
@@ -9311,10 +10580,19 @@ export default function TradingViewChart({
  closestCandle = data[Math.max(0, Math.min(candleIndex, data.length - 1))];
  }
  
- // Format date and time
+ // Format date and time in ET timezone
  const date = new Date(timestamp);
- const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
- const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+ const dateStr = date.toLocaleDateString('en-US', { 
+   month: 'short', 
+   day: 'numeric', 
+   year: 'numeric',
+   timeZone: 'America/New_York'
+ });
+ const timeStr = date.toLocaleTimeString('en-US', { 
+   hour: '2-digit', 
+   minute: '2-digit',
+   timeZone: 'America/New_York'
+ });
  
  setCrosshairInfo({
  price: isInFuture && seasonalProjectionPrice ? `$${seasonalProjectionPrice.toFixed(2)} (Projection)` : `$${price.toFixed(2)}`,
@@ -9599,7 +10877,7 @@ export default function TradingViewChart({
  setLastMousePosition({ x, y });
  return;
  }
- }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame]);
+ }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame, scrollOffset]);
 
  const handleMouseUp = useCallback(() => {
  
@@ -9802,12 +11080,23 @@ export default function TradingViewChart({
 
  // Handle timeframe change - SIMPLE DIRECT FETCH (no broken cache)
  const handleTimeframeChange = (timeframe: string) => {
- console.log(`?? TIMEFRAME CHANGE: ${symbol} -> ${timeframe}`);
- console.log(`?? Current data length before change: ${data.length}`);
- console.log(`?? Current loading state: ${loading}`);
+ console.log(`🔄 TIMEFRAME CHANGE: ${symbol} -> ${timeframe}`);
+ console.log(`📊 Current data length before change: ${data.length}`);
+ console.log(`⏳ Current loading state: ${loading}`);
  
- // ALWAYS fetch fresh data - no caching to ensure accurate prices
- console.log(`?? FRESH FETCH: Getting live ${timeframe} data for ${symbol}`);
+ // If in multichart mode, update the active chart instance
+ if (chartLayout !== '1x1' && activeChartId) {
+   console.log(`📊 MULTICHART: Changing timeframe for active chart ${activeChartId}`);
+   const updatedInstances = chartInstances.map(inst => 
+     inst.id === activeChartId ? { ...inst, timeframe } : inst
+   );
+   setChartInstances(updatedInstances);
+   // Let MultiChartView handle the data fetch for this chart
+   return;
+ }
+ 
+ // Single chart mode - ALWAYS fetch fresh data
+ console.log(`🔄 FRESH FETCH: Getting live ${timeframe} data for ${symbol}`);
  fetchData(symbol, timeframe);
  
  // Update config
@@ -9822,6 +11111,18 @@ export default function TradingViewChart({
 
  // Handle symbol change with instant preloading
  const handleSymbolChange = (newSymbol: string) => {
+ // If in multichart mode, update only the active chart instance
+ if (chartLayout !== '1x1' && activeChartId) {
+   console.log(`📊 MULTICHART: Changing symbol for active chart ${activeChartId} to ${newSymbol}`);
+   const updatedInstances = chartInstances.map(inst => 
+     inst.id === activeChartId ? { ...inst, symbol: newSymbol } : inst
+   );
+   setChartInstances(updatedInstances);
+   // Let MultiChartView handle the data fetch for this chart
+   return;
+ }
+ 
+ // Single chart mode
  setConfig(prev => ({ ...prev, symbol: newSymbol }));
  onSymbolChange?.(newSymbol);
  
@@ -9964,7 +11265,30 @@ export default function TradingViewChart({
  const x = e.clientX - rect.left;
  const y = e.clientY - rect.top;
 
-
+ // Handle alert placement mode
+ if (isAlertPlacementMode) {
+ const startIndex = Math.max(0, Math.floor(scrollOffset));
+ const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+ const currentVisibleData = data.slice(startIndex, endIndex);
+ 
+ if (!currentVisibleData.length) return;
+ 
+ const timeAxisHeight = 25;
+ const volumeAreaHeight = 80;
+ const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight;
+ const minPrice = Math.min(...currentVisibleData.map(d => d.low));
+ const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
+ 
+ // Convert canvas Y to price
+ const price = canvasToPrice(y, minPrice, maxPrice, chartHeight);
+ 
+ // Show alert creation dialog
+ setNewAlertPrice(price);
+ setShowAlertDialog(true);
+ setIsAlertPlacementMode(false);
+ 
+ return;
+ }
 
  // Handle horizontal ray mode
  if (isHorizontalRayMode) {
@@ -12393,7 +13717,8 @@ export default function TradingViewChart({
  `
  }} />
  
- <div className="w-full h-full rounded-lg overflow-hidden" style={{ backgroundColor: colors.background }}>
+ <div className="w-full h-full flex">
+ <div className={`${isGuideAIOpen ? 'w-[70%]' : 'w-full'} h-full rounded-lg overflow-hidden transition-all duration-300`} style={{ backgroundColor: colors.background }}>
  {/* Premium Bloomberg Terminal Top Bar with Solid Black & Gold */}
  <div 
  className="h-14 border-b flex items-center justify-between px-6 relative navigation-bar-premium"
@@ -12401,8 +13726,9 @@ export default function TradingViewChart({
  background: '#000000',
  backgroundSize: '400% 400%',
  borderColor: '#333333',
- boxShadow: '0 4px 20px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(128, 128, 128, 0.1)',
- backdropFilter: 'blur(10px)',
+ boxShadow: 'inset 0 1px 0 rgba(128, 128, 128, 0.1)',
+ backdropFilter: 'none',
+ overflow: 'hidden',
  zIndex: 10000
  }}
  >
@@ -12410,24 +13736,24 @@ export default function TradingViewChart({
  <div 
  className="absolute inset-0 pointer-events-none"
  style={{
- background: 'linear-gradient(90deg, transparent, rgba(128, 128, 128, 0.3), transparent)',
- backgroundSize: '200% 100%',
- borderRadius: 'inherit',
- opacity: 0.6
- }}
- />
- 
- {/* Premium Metallic Overlay */}
- <div 
- className="absolute inset-0 pointer-events-none"
- style={{
- background: 'linear-gradient(180deg, rgba(128, 128, 128, 0.05) 0%, transparent 30%, transparent 70%, rgba(96, 96, 96, 0.02) 100%)',
- borderRadius: 'inherit'
- }}
- />
- 
- {/* Drawing Tools Status Badge */}
- <div className="absolute top-2 left-4 z-20">
+      background: 'transparent',
+      backgroundSize: '200% 100%',
+      borderRadius: 'inherit',
+      opacity: 0
+    }}
+  />
+  
+  {/* Premium Metallic Overlay */}
+  <div 
+    className="absolute inset-0 pointer-events-none"
+    style={{
+      background: 'transparent',
+      borderRadius: 'inherit'
+    }}
+  />
+  
+  {/* Drawing Tools Status Badge */}
+  <div className="absolute top-2 left-4 z-20">
  <div
  className="flex items-center space-x-2 px-3 py-1 rounded-full bg-black bg-opacity-60 backdrop-blur border border-gray-600 border-opacity-50"
  style={{
@@ -12498,6 +13824,26 @@ export default function TradingViewChart({
  {priceChangePercent >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePercent.toFixed(2)}%)
  </span>
  </div>
+
+ {/* Alert Placement Mode Indicator */}
+ {isAlertPlacementMode && (
+ <div 
+ className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
+ style={{
+ animation: 'pulse 2s ease-in-out infinite'
+ }}
+ >
+ <div className="bg-blue-600 text-white px-8 py-4 rounded-lg shadow-2xl border-2 border-blue-400">
+ <div className="flex items-center gap-3">
+ <TbBellRinging className="w-8 h-8 animate-bounce" />
+ <div>
+ <p className="text-xl font-bold">Click on Chart</p>
+ <p className="text-sm opacity-80">Click anywhere to place your alert</p>
+ </div>
+ </div>
+ </div>
+ </div>
+ )}
 
  {/* Timeframes - Moved closer to symbol/price */}
  <div 
@@ -12672,10 +14018,13 @@ export default function TradingViewChart({
  <select
  value={config.timeframe}
  onChange={(e) => handleTimeframeChange(e.target.value)}
- className="btn-3d-carved text-white bg-gradient-to-b from-gray-700 via-gray-800 to-gray-900 border border-gray-600 rounded-md px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
+ className="btn-3d-carved text-white rounded-md px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
  style={{
- background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
- boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05)'
+ background: '#000000',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '4px',
+ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+ outline: 'none'
  }}
  >
  <option value="5m">5M</option>
@@ -12694,10 +14043,10 @@ export default function TradingViewChart({
  <div 
  className="flex items-center chart-type-dropdown"
  style={{
- background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
- border: '2px solid rgba(255, 255, 255, 0.4)',
- borderRadius: '8px',
- boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4)'
+ background: '#000000',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '4px',
+ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
  }}
  >
  {/* Desktop Chart Type Buttons - Hidden on mobile */}
@@ -12727,11 +14076,11 @@ export default function TradingViewChart({
  onClick={() => handleChartTypeChange(config.chartType === 'candlestick' ? 'line' : 'candlestick')}
  className="btn-3d-carved font-bold focus:outline-none focus:ring-2 focus:ring-orange-500"
  style={{
- background: 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%)',
- boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05)',
- color: '#ff6600',
- border: '1px solid rgba(255, 102, 0, 0.3)',
+ background: '#000000',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
  borderRadius: '4px',
+ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+ color: '#ff6600',
  padding: '6px',
  minWidth: 'auto',
  width: 'auto',
@@ -12803,15 +14152,15 @@ export default function TradingViewChart({
  top: expectedRangeButtonRef.current ? expectedRangeButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
  left: expectedRangeButtonRef.current ? expectedRangeButtonRef.current.getBoundingClientRect().left : 0,
  zIndex: 100000,
- background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
- border: '2px solid rgba(255, 255, 255, 0.2)',
+ background: '#000000',
+ border: '2px solid rgba(255, 133, 0, 0.3)',
  borderRadius: '8px',
  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
- padding: '8px',
+ padding: '12px',
  minWidth: '180px'
  }}
  >
- <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+ <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
  <button
  onClick={() => {
  setIsWeeklyActive(!isWeeklyActive);
@@ -12828,22 +14177,17 @@ export default function TradingViewChart({
  else if (isWeeklyActive && !isMonthlyActive) setIsExpectedRangeActive(false);
  setIsExpectedRangeDropdownOpen(false);
  }}
+ className={`btn-3d-carved ${isWeeklyActive ? 'active' : ''}`}
  style={{
- padding: '8px 12px',
- background: isWeeklyActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
- border: 'none',
- color: '#ffffff',
- cursor: 'pointer',
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
  borderRadius: '4px',
- fontSize: '13px',
- fontWeight: '600',
- display: 'flex',
- alignItems: 'center',
- justifyContent: 'space-between'
+ width: '100%'
  }}
  >
- <span>Weekly Range</span>
- {isWeeklyActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+ Weekly Range
  </button>
  <button
  onClick={() => {
@@ -12861,22 +14205,17 @@ export default function TradingViewChart({
  else if (isMonthlyActive && !isWeeklyActive) setIsExpectedRangeActive(false);
  setIsExpectedRangeDropdownOpen(false);
  }}
+ className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`}
  style={{
- padding: '8px 12px',
- background: isMonthlyActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
- border: 'none',
- color: '#ffffff',
- cursor: 'pointer',
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
  borderRadius: '4px',
- fontSize: '13px',
- fontWeight: '600',
- display: 'flex',
- alignItems: 'center',
- justifyContent: 'space-between'
+ width: '100%'
  }}
  >
- <span>Monthly Range</span>
- {isMonthlyActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+ Monthly Range
  </button>
  </div>
  </div>,
@@ -12922,15 +14261,15 @@ export default function TradingViewChart({
                       top: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
                       left: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().left : 0,
                       zIndex: 100000,
-                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
-                      border: '2px solid rgba(255, 255, 255, 0.2)',
+                      background: '#000000',
+                      border: '2px solid rgba(255, 133, 0, 0.3)',
                       borderRadius: '8px',
                       boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                      padding: '8px',
+                      padding: '12px',
                       minWidth: '180px'
                     }}
                   >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <button
                         onClick={async () => {
                           const newState = !isSeasonal20YActive;
@@ -12952,22 +14291,17 @@ export default function TradingViewChart({
                             }
                           }
                         }}
+                        className={`btn-3d-carved ${isSeasonal20YActive ? 'active' : ''}`}
                         style={{
-                          padding: '8px 12px',
-                          background: isSeasonal20YActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <span>20 Y</span>
-                        {isSeasonal20YActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+                        20 Y
                       </button>
                       <button
                         onClick={async () => {
@@ -12990,22 +14324,17 @@ export default function TradingViewChart({
                             }
                           }
                         }}
+                        className={`btn-3d-carved ${isSeasonal15YActive ? 'active' : ''}`}
                         style={{
-                          padding: '8px 12px',
-                          background: isSeasonal15YActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <span>15 Y</span>
-                        {isSeasonal15YActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+                        15 Y
                       </button>
                       <button
                         onClick={async () => {
@@ -13028,22 +14357,17 @@ export default function TradingViewChart({
                             }
                           }
                         }}
+                        className={`btn-3d-carved ${isSeasonal10YActive ? 'active' : ''}`}
                         style={{
-                          padding: '8px 12px',
-                          background: isSeasonal10YActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <span>10 Y</span>
-                        {isSeasonal10YActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+                        10 Y
                       </button>
                       <button
                         onClick={async () => {
@@ -13068,25 +14392,162 @@ export default function TradingViewChart({
                             }
                           }
                         }}
+                        className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`}
                         style={{
-                          padding: '8px 12px',
-                          background: isSeasonalElectionActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <span>Election</span>
-                        {isSeasonalElectionActive && <span style={{ color: '#10b981', fontSize: '16px' }}>✓</span>}
+                        Election
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsEventDropdownOpen(!isEventDropdownOpen);
+                        }}
+                        className={`btn-3d-carved ${isSeasonalEventActive ? 'active' : ''}`}
+                        style={{
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
+                          borderRadius: '4px',
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <span>Event Seasonal</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
                       </button>
                     </div>
                   </div>,
+                  document.body
+                )}
+                
+                {/* Event Seasonal Sub-Dropdown */}
+                {isEventDropdownOpen && createPortal(
+                  <div
+                    style={{
+                      position: 'fixed',
+                      top: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
+                      left: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().right + 10 : 0,
+                      zIndex: 100001,
+                      background: '#000000',
+                      border: '2px solid rgba(255, 133, 0, 0.3)',
+                      borderRadius: '8px',
+                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                      padding: '12px',
+                      minWidth: '200px',
+                      maxHeight: '400px',
+                      overflowY: 'auto'
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: 'bold', marginBottom: '4px', textTransform: 'uppercase' }}>Holidays</div>
+                      {['Thanksgiving', 'Christmas', 'New Year', 'Presidents Day', 'MLK Day', 'Memorial Day', 'July 4th', 'Labor Day'].map(event => (
+                        <button
+                          key={event}
+                          onClick={() => {
+                            const eventKey = event.toLowerCase().replace(/\s+/g, '');
+                            setSelectedSeasonalEvent(eventKey);
+                            calculateEventSeasonal(eventKey, data);
+                            setIsEventDropdownOpen(false);
+                            setIsSeasonalDropdownOpen(false);
+                          }}
+                          className="btn-3d-carved"
+                          style={{ padding: '8px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
+                        >
+                          {event}
+                        </button>
+                      ))}
+                      
+                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: 'bold', margin: '8px 0 4px', textTransform: 'uppercase' }}>Fed Events</div>
+                      {['FOMC March', 'FOMC June', 'FOMC September', 'FOMC December'].map(event => (
+                        <button
+                          key={event}
+                          onClick={() => {
+                            const eventKey = event.toLowerCase().replace(/\s+/g, '-');
+                            setSelectedSeasonalEvent(eventKey);
+                            calculateEventSeasonal(eventKey, data);
+                            setIsEventDropdownOpen(false);
+                          }}
+                          className="btn-3d-carved"
+                          style={{ padding: '8px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
+                        >
+                          {event}
+                        </button>
+                      ))}
+                      
+                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: 'bold', margin: '8px 0 4px', textTransform: 'uppercase' }}>Options</div>
+                      {['Quad Witching Mar', 'Quad Witching Jun', 'Quad Witching Sep', 'Quad Witching Dec', 'Monthly OpEx'].map(event => (
+                        <button
+                          key={event}
+                          onClick={() => {
+                            const eventKey = event.toLowerCase().replace(/\s+/g, '-');
+                            setSelectedSeasonalEvent(eventKey);
+                            calculateEventSeasonal(eventKey, data);
+                            setIsEventDropdownOpen(false);
+                          }}
+                          className="btn-3d-carved"
+                          style={{ padding: '8px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
+                        >
+                          {event}
+                        </button>
+                      ))}
+                      
+                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: 'bold', margin: '8px 0 4px', textTransform: 'uppercase' }}>Rallies</div>
+                      {['Year End Rally', 'Halloween Rally', 'Santa Rally'].map(event => (
+                        <button
+                          key={event}
+                          onClick={() => {
+                            const eventKey = event.toLowerCase().replace(/\s+/g, '');
+                            setSelectedSeasonalEvent(eventKey);
+                            calculateEventSeasonal(eventKey, data);
+                            setIsEventDropdownOpen(false);
+                          }}
+                          className="btn-3d-carved"
+                          style={{ padding: '8px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
+                        >
+                          {event}
+                        </button>
+                      ))}
+                      
+                      <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: 'bold', margin: '8px 0 4px', textTransform: 'uppercase' }}>Earnings</div>
+                      {['Q1 Earnings', 'Q2 Earnings', 'Q3 Earnings', 'Q4 Earnings'].map(event => (
+                        <button
+                          key={event}
+                          onClick={() => {
+                            const eventKey = event.toLowerCase().replace(/\s+/g, '-');
+                            setSelectedSeasonalEvent(eventKey);
+                            calculateEventSeasonal(eventKey, data);
+                            setIsEventDropdownOpen(false);
+                            setIsSeasonalDropdownOpen(false);
+                          }}
+                          className="btn-3d-carved"
+                          style={{ padding: '8px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
+                        >
+                          {event}
+                        </button>
+                      ))}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+                
+                {/* Click outside to close event dropdown */}
+                {isEventDropdownOpen && createPortal(
+                  <div 
+                    className="fixed inset-0" 
+                    style={{ zIndex: 100000 }}
+                    onClick={() => setIsEventDropdownOpen(false)}
+                  />, 
                   document.body
                 )}
 
@@ -13130,15 +14591,15 @@ export default function TradingViewChart({
                       top: gexButtonRef.current ? gexButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
                       left: gexButtonRef.current ? gexButtonRef.current.getBoundingClientRect().left : 0,
                       zIndex: 100000,
-                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
-                      border: '2px solid rgba(255, 255, 255, 0.2)',
+                      background: '#000000',
+                      border: '2px solid rgba(255, 133, 0, 0.3)',
                       borderRadius: '8px',
                       boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                      padding: '8px',
+                      padding: '12px',
                       minWidth: '180px'
                     }}
                   >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <button
                         onClick={() => {
                           setIsLiveGexActive(!isLiveGexActive);
@@ -13147,22 +14608,17 @@ export default function TradingViewChart({
                           else if (isLiveGexActive && !isOiGexActive) setIsGexActive(false);
                           setIsGexDropdownOpen(false);
                         }}
+                        className={`btn-3d-carved ${isLiveGexActive ? 'active' : ''}`}
                         style={{
-                          padding: '8px 12px',
-                          background: isLiveGexActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <span>Live GEX</span>
-                        {isLiveGexActive && <span style={{ color: '#ff8c00', fontSize: '16px' }}>✓</span>}
+                        Live GEX
                       </button>
                       <button
                         onClick={() => {
@@ -13172,22 +14628,17 @@ export default function TradingViewChart({
                           else if (isOiGexActive && !isLiveGexActive) setIsGexActive(false);
                           setIsGexDropdownOpen(false);
                         }}
+                        className={`btn-3d-carved ${isOiGexActive ? 'active' : ''}`}
                         style={{
-                          padding: '8px 12px',
-                          background: isOiGexActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <span>OI GEX</span>
-                        {isOiGexActive && <span style={{ color: '#3b82f6', fontSize: '16px' }}>✓</span>}
+                        OI GEX
                       </button>
                     </div>
                   </div>,
@@ -13243,8 +14694,8 @@ export default function TradingViewChart({
                       top: ivhvButtonRef.current ? ivhvButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
                       left: ivhvButtonRef.current ? ivhvButtonRef.current.getBoundingClientRect().left : 0,
                       zIndex: 100000,
-                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 100%)',
-                      border: '2px solid rgba(255, 140, 0, 0.5)',
+                      background: '#000000',
+                      border: '2px solid rgba(255, 133, 0, 0.3)',
                       borderRadius: '8px',
                       boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
                       padding: '12px',
@@ -13254,15 +14705,15 @@ export default function TradingViewChart({
                     {/* Header */}
                     <div style={{ 
                       borderBottom: '1px solid rgba(255, 255, 255, 0.1)', 
-                      paddingBottom: '8px', 
-                      marginBottom: '8px' 
+                      paddingBottom: '6px', 
+                      marginBottom: '6px' 
                     }}>
                       <span style={{ color: '#ff8c00', fontWeight: '700', fontSize: '12px', letterSpacing: '0.5px' }}>
                         VOLATILITY INDICATORS
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {/* Implied Volatility - Single toggle, line options inside panel */}
                       <button
                         onClick={() => {
@@ -13271,25 +14722,17 @@ export default function TradingViewChart({
                             fetchIVData();
                           }
                         }}
+                        className={`btn-3d-carved ${showIVPanel ? 'active' : ''}`}
                         style={{
-                          padding: '10px 12px',
-                          background: showIVPanel ? 'rgba(255, 149, 0, 0.15)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '12px', height: '3px', backgroundColor: '#FF9500', borderRadius: '2px' }}></div>
-                          <span>Implied Volatility</span>
-                        </div>
-                        {showIVPanel && <span style={{ color: '#FF9500', fontSize: '16px' }}>✓</span>}
+                        Implied Volatility
                       </button>
 
                       {/* IV Rank */}
@@ -13300,25 +14743,17 @@ export default function TradingViewChart({
                             fetchIVData();
                           }
                         }}
+                        className={`btn-3d-carved ${showIVRankIndicator ? 'active' : ''}`}
                         style={{
-                          padding: '10px 12px',
-                          background: showIVRankIndicator ? 'rgba(255, 107, 157, 0.15)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '12px', height: '3px', backgroundColor: '#ff6b9d', borderRadius: '2px' }}></div>
-                          <span>IV Rank</span>
-                        </div>
-                        {showIVRankIndicator && <span style={{ color: '#ff6b9d', fontSize: '16px' }}>✓</span>}
+                        IV Rank
                       </button>
 
                       {/* IV Percentile */}
@@ -13329,25 +14764,17 @@ export default function TradingViewChart({
                             fetchIVData();
                           }
                         }}
+                        className={`btn-3d-carved ${showIVPercentileIndicator ? 'active' : ''}`}
                         style={{
-                          padding: '10px 12px',
-                          background: showIVPercentileIndicator ? 'rgba(0, 255, 136, 0.15)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '12px', height: '3px', backgroundColor: '#00ff88', borderRadius: '2px' }}></div>
-                          <span>IV Percentile</span>
-                        </div>
-                        {showIVPercentileIndicator && <span style={{ color: '#00ff88', fontSize: '16px' }}>✓</span>}
+                        IV Percentile
                       </button>
 
                       {/* Historical Volatility */}
@@ -13358,25 +14785,17 @@ export default function TradingViewChart({
                             fetchIVData();
                           }
                         }}
+                        className={`btn-3d-carved ${showHVIndicator ? 'active' : ''}`}
                         style={{
-                          padding: '10px 12px',
-                          background: showHVIndicator ? 'rgba(0, 212, 255, 0.15)' : 'transparent',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: 'pointer',
+                          padding: '10px 16px',
+                          fontWeight: '700',
+                          fontSize: '14px',
+                          textAlign: 'left',
                           borderRadius: '4px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
+                          width: '100%'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '12px', height: '3px', backgroundColor: '#00d4ff', borderRadius: '2px' }}></div>
-                          <span>Historical Volatility</span>
-                        </div>
-                        {showHVIndicator && <span style={{ color: '#00d4ff', fontSize: '16px' }}>✓</span>}
+                        Historical Volatility
                       </button>
 
                       {/* HV Window Selection (only visible when HV is active) */}
@@ -13493,34 +14912,170 @@ export default function TradingViewChart({
                 )}
               </div>
               
-              {/* Expansion/Liquidation Button */}
- <div className="ml-4">
+              {/* Technalysis Button */}
+ <div className="ml-4 relative">
  <button
- onClick={() => {
- const newActiveState = !isExpansionLiquidationActive;
- setIsExpansionLiquidationActive(newActiveState);
- 
- if (newActiveState) {
- // Calculate expansion/liquidation zones when activated
- console.log('?? Expansion/Liquidation indicator activated');
- // This will trigger the detection algorithm in the canvas rendering
- } else {
- // Clear zones when deactivated
- setExpansionLiquidationZones([]);
- console.log('?? Expansion/Liquidation indicator deactivated');
- }
- }}
- className={`btn-3d-carved btn-expansion-liquidation relative group flex items-center space-x-2 ${isExpansionLiquidationActive ? 'active' : ''}`}
+ ref={technalysisButtonRef}
+ onClick={() => setIsTechnalysisDropdownOpen(!isTechnalysisDropdownOpen)}
+ className={`btn-3d-carved relative group flex items-center space-x-2 ${technalysisActive ? 'active' : ''}`}
  style={{
- padding: '10px 14px',
+ padding: '10px 16px',
  fontWeight: '700',
  fontSize: '13px',
  borderRadius: '4px',
  color: 'white'
  }}
  >
- <span style={{ color: 'white' }}>EXPANSION/LIQUIDATION</span>
+ <span style={{ color: 'white' }}>TECHNALYSIS</span>
+ <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+ <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+ </svg>
+ {technalysisActive && (
+ <div 
+ className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
+ style={{
+ boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
+ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+ }}
+ />
+ )}
  </button>
+
+ {/* Technalysis Dropdown Menu */}
+ {isTechnalysisDropdownOpen && createPortal(
+ <div 
+ onClick={(e) => e.stopPropagation()}
+ className="absolute w-48" 
+ style={{
+ top: technalysisButtonRef.current ? technalysisButtonRef.current.getBoundingClientRect().bottom + 10 : 100,
+ left: technalysisButtonRef.current ? technalysisButtonRef.current.getBoundingClientRect().left : 400,
+ zIndex: 100000,
+ background: '#000000',
+ border: '2px solid rgba(255, 133, 0, 0.3)',
+ borderRadius: '8px',
+ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+ padding: '12px'
+ }}
+ >
+ <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+ <button
+ onClick={() => {
+ setTechnalysisActive(!technalysisActive);
+ setIsTechnalysisDropdownOpen(false);
+ }}
+ className={`btn-3d-carved ${technalysisActive ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Enable All
+ </button>
+ 
+ <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', margin: '4px 0' }}></div>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, orderBlocks: !prev.orderBlocks}));
+ }}
+ className={`btn-3d-carved ${technalysisFeatures.orderBlocks ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Zones
+ </button>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, fvg: !prev.fvg}));
+ }}
+ className={`btn-3d-carved ${technalysisFeatures.fvg ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Fills
+ </button>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, liquidity: !prev.liquidity}));
+ }}
+ className={`btn-3d-carved ${technalysisFeatures.liquidity ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Hunting
+ </button>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, structure: !prev.structure}));
+ }}
+ className={`btn-3d-carved ${technalysisFeatures.structure ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Trend
+ </button>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, premiumDiscount: !prev.premiumDiscount}));
+ }}
+ className={`btn-3d-carved ${technalysisFeatures.premiumDiscount ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
+ >
+ Premium/Discount
+ </button>
+ </div>
+ </div>, 
+ document.body
+ )}
+
+ {/* Click outside to close dropdown */}
+ {isTechnalysisDropdownOpen && createPortal(
+ <div 
+ className="fixed inset-0" 
+ style={{ zIndex: 99998 }}
+ onClick={() => setIsTechnalysisDropdownOpen(false)}
+ />, 
+ document.body
+ )}
  </div>
 
  {/* Drawing Tools Button */}
@@ -13557,27 +15112,36 @@ export default function TradingViewChart({
  {/* Dropdown Menu */}
  {isDrawingsDropdownOpen && createPortal(
  <div 
- className="absolute w-48 bg-gray-800 border border-gray-600 rounded-md shadow-lg" 
+ className="absolute w-48" 
  style={{ 
- top: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().bottom + 4 : 100,
+ top: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().bottom + 10 : 100,
  left: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().left : 400,
- zIndex: 99999,
- boxShadow: '0 10px 25px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
- background: 'rgba(40, 40, 40, 0.98)',
- backdropFilter: 'blur(10px)'
+ zIndex: 100000,
+ background: '#000000',
+ border: '2px solid rgba(255, 133, 0, 0.3)',
+ borderRadius: '8px',
+ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+ padding: '12px'
  }}
  >
- <div className="py-1">
+ <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
  <button
  onClick={() => {
  activateToolExclusively(isHorizontalRayMode ? 'none' : 'horizontal');
  setIsDrawingsDropdownOpen(false);
  console.log('?? Horizontal Ray mode:', !isHorizontalRayMode);
  }}
- className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isHorizontalRayMode ? 'bg-gray-700' : ''}`}
+ className={`btn-3d-carved ${isHorizontalRayMode ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
  >
- <TbArrowsHorizontal className="w-5 h-5" />
- <span>Horizontal Ray</span>
+ Horizontal Ray
  </button>
  
  <button
@@ -13586,11 +15150,18 @@ export default function TradingViewChart({
  setIsDrawingsDropdownOpen(false);
  console.log('?? Parallel Channel mode:', !isParallelChannelMode);
  }}
- className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isParallelChannelMode ? 'bg-gray-700' : ''}`}
+ className={`btn-3d-carved ${isParallelChannelMode ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
  title="Click 3 points: 1) Start trend line 2) End trend line 3) Define channel width"
  >
- <TbBoxMultiple className="w-5 h-5" />
- <span>Parallel Channels</span>
+ Parallel Channels
  </button>
 
  <button
@@ -13599,11 +15170,18 @@ export default function TradingViewChart({
  setIsDrawingsDropdownOpen(false);
  console.log('?? Drawing Brush mode:', !isDrawingBrushMode);
  }}
- className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center space-x-2 ${isDrawingBrushMode ? 'bg-gray-700' : ''}`}
+ className={`btn-3d-carved ${isDrawingBrushMode ? 'active' : ''}`}
+ style={{
+ padding: '10px 16px',
+ fontWeight: '700',
+ fontSize: '14px',
+ textAlign: 'left',
+ borderRadius: '4px',
+ width: '100%'
+ }}
  title="Hold and drag to draw freehand on the chart"
  >
- <TbBrush className="w-5 h-5" />
- <span>Drawing Brush</span>
+ Drawing Brush
  </button>
  </div>
  </div>, 
@@ -13889,25 +15467,7 @@ export default function TradingViewChart({
                 )}
               </div>
 
-              {/* Guide Button */}
-              <div className="ml-4 relative">
-                <button
-                  onClick={() => {
-                    useChatStore.getState().setIsOpen(true);
-                  }}
-                  className={`btn-3d-carved relative group flex items-center space-x-2`}
-                  style={{
-                    padding: '10px 14px',
-                    fontWeight: '700',
-                    fontSize: '13px',
-                    borderRadius: '4px',
-                    color: 'white'
-                  }}
-                  title="Guide"
-                >
-                  <span style={{ color: 'white' }}>GUIDE</span>
-                </button>
-              </div>
+
 
  {/* Spacer to push remaining items to the right */}
  <div className="flex-1"></div>
@@ -13918,6 +15478,64 @@ export default function TradingViewChart({
  {/* Enhanced Action Buttons */}
  <div className="flex items-center space-x-4">
 
+ </div>
+
+ {/* GUIDE AI Button - Matches toolbar button style */}
+ <button 
+ onClick={() => setGuideAIOpen(!isGuideAIOpen)}
+ className={`btn-3d-carved relative group ${isGuideAIOpen ? 'active' : ''}`}
+ style={{
+ padding: '10px 14px',
+ fontWeight: '700',
+ fontSize: '13px',
+ borderRadius: '4px',
+ color: isGuideAIOpen ? '#FF8833' : '#888',
+ marginRight: '12px'
+ }}
+ title="Toggle Guide AI Panel"
+ >
+ <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+ <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+ </svg>
+ </button>
+
+ {/* MULTICHART LAYOUT Button - Matches toolbar button style */}
+ <div className="relative group" style={{ marginRight: '12px' }}>
+ <button 
+ onClick={() => {
+ const layouts: ('1x1' | '1x2' | '2x2')[] = ['1x1', '1x2', '2x2'];
+ const currentIndex = layouts.indexOf(chartLayout);
+ const nextIndex = (currentIndex + 1) % layouts.length;
+ changeChartLayout(layouts[nextIndex]);
+ }}
+ className="btn-3d-carved relative group"
+ style={{
+ padding: '10px 14px',
+ fontWeight: '700',
+ fontSize: '13px',
+ borderRadius: '4px',
+ color: chartLayout !== '1x1' ? '#00D9FF' : '#888'
+ }}
+ title={`Current: ${chartLayout} - Click to cycle layouts`}
+ >
+ <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+ {chartLayout === '1x1' ? (
+ <rect x="3" y="3" width="18" height="18" rx="2" />
+ ) : chartLayout === '1x2' ? (
+ <>
+ <rect x="3" y="3" width="8" height="18" rx="2" />
+ <rect x="13" y="3" width="8" height="18" rx="2" />
+ </>
+ ) : (
+ <>
+ <rect x="3" y="3" width="8" height="8" rx="2" />
+ <rect x="13" y="3" width="8" height="8" rx="2" />
+ <rect x="3" y="13" width="8" height="8" rx="2" />
+ <rect x="13" y="13" width="8" height="8" rx="2" />
+ </>
+ )}
+ </svg>
+ </button>
  </div>
 
  {/* SETTINGS Button - Matches toolbar button style */}
@@ -14238,7 +15856,7 @@ export default function TradingViewChart({
  {/* Chart Container with Sidebar */}
  <div className="flex flex-1 bg-[#0a0a0a]">
  {/* Animated 3D Sidebar */}
- <div className="sidebar-container w-16 md:w-16 sm:w-12 bg-gradient-to-b from-[#000000] via-[#0a0a0a] to-[#000000] border-r border-[#1a1a1a] shadow-2xl relative overflow-hidden mobile-sidebar">
+ <div className="sidebar-container w-[70px] md:w-[70px] sm:w-[53px] bg-gradient-to-b from-[#000000] via-[#0a0a0a] to-[#000000] border-r border-[#1a1a1a] shadow-2xl relative overflow-hidden mobile-sidebar">
  {/* Subtle background pattern */}
  <div className="absolute inset-0 opacity-5">
  <div className="absolute top-0 left-0 w-full h-full" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, rgba(255,255,255,0.03))' }}></div>
@@ -14246,18 +15864,24 @@ export default function TradingViewChart({
  <div className="absolute w-4 h-4 bg-white bg-opacity-2 rounded-full animate-pulse" style={{ bottom: '33.333%', right: '25%', animationDelay: '2000ms' }}></div>
  </div>
  
- <div className="relative z-10 flex flex-col items-center py-4 h-full">
+ <div className="relative z-10 flex flex-col items-center py-4 h-full gap-2">
  {/* Sidebar Buttons */}
  {[
- { id: 'liquid', icon: TbBoxMultiple, label: 'Liquid', color: 'from-gray-800 to-gray-900', accent: 'orange' },
- { id: 'watchlist', icon: TbChartLine, label: 'Watch', color: 'from-gray-800 to-gray-900', accent: 'blue' },
- { id: 'regimes', icon: TbTrendingUp, label: 'Markets', color: 'from-gray-800 to-gray-900', accent: 'emerald' },
- { id: 'news', icon: TbNews, label: 'News', color: 'from-gray-800 to-gray-900', accent: 'amber' },
- { id: 'alerts', icon: TbBellRinging, label: 'Alerts', color: 'from-gray-800 to-gray-900', accent: 'red' },
- { id: 'calc', icon: TbCalculator, label: 'Calc', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
- { id: 'chain', icon: TbLink, label: 'Chain', color: 'from-gray-800 to-gray-900', accent: 'cyan' },
- { id: 'plan', icon: TbChartLine, label: 'Plan', color: 'from-gray-800 to-gray-900', accent: 'purple' },
- { id: 'chat', icon: TbMessageCircle, label: 'Chat', color: 'from-gray-800 to-gray-900', accent: 'violet' }
+ { id: 'liquid', icon: TbBoxMultiple, label: 'Liquid', accent: 'orange' },
+ { id: 'watchlist', icon: TbChartLine, label: 'Watch', accent: 'blue' },
+ { id: 'regimes', icon: TbTrendingUp, label: 'Markets', accent: 'emerald' },
+ { id: 'news', icon: TbNews, label: 'News', accent: 'amber' },
+ { id: 'alerts', icon: TbBellRinging, label: 'Alerts', accent: 'red' },
+ { id: 'calc', icon: TbCalculator, label: 'Calc', accent: 'cyan' },
+ { id: 'chain', icon: TbLink, label: 'Chain', accent: 'cyan' },
+ { id: 'plan', icon: TbChartLine, label: 'Plan', accent: 'purple' },
+ { id: 'chat', icon: TbMessageCircle, label: 'Chat', accent: 'violet' },
+ { id: 'trades', icon: TbActivity, label: 'Trades', accent: 'green' },
+ { id: 'research', icon: TbChartBar, label: 'Research', accent: 'indigo' },
+ { id: 'calendar', icon: TbCalendar, label: 'Calendar', accent: 'pink' },
+ { id: 'flow', icon: TbArrowsShuffle, label: 'Flow', accent: 'lime' },
+ { id: 'screeners', icon: TbFilter, label: 'Screeners', accent: 'teal' },
+ { id: 'rrg', icon: TbChartDots, label: 'RRG', accent: 'rose' }
  ].map((item, index) => {
  const IconComponent = item.icon;
  const accentColors: { [key: string]: string } = {
@@ -14268,43 +15892,55 @@ export default function TradingViewChart({
  violet: 'text-violet-400 group-hover:text-violet-300',
  cyan: 'text-cyan-400 group-hover:text-cyan-300',
  purple: 'text-purple-400 group-hover:text-purple-300',
- orange: 'text-orange-400 group-hover:text-orange-300'
+ orange: 'text-orange-400 group-hover:text-orange-300',
+ green: 'text-green-400 group-hover:text-green-300',
+ indigo: 'text-indigo-400 group-hover:text-indigo-300',
+ pink: 'text-pink-400 group-hover:text-pink-300',
+ lime: 'text-lime-400 group-hover:text-lime-300',
+ teal: 'text-teal-400 group-hover:text-teal-300',
+ rose: 'text-rose-400 group-hover:text-rose-300'
  };
  return (
- <div key={item.id} className="flex flex-col items-center mb-3">
- {/* Title above button */}
- <span className="text-xs text-white text-opacity-40 font-medium mb-1 tracking-wide text-center">
- {item.label}
- </span>
- 
+ <div key={item.id} className="flex flex-col items-center w-full px-1">
  <button
- className={`sidebar-btn group relative w-12 h-12 md:w-12 md:h-12 sm:w-10 sm:h-10 xs:w-8 xs:h-8 rounded-lg bg-gradient-to-br ${item.color} 
- shadow-lg hover:shadow-2xl transform transition-all duration-300 
- hover:scale-105 hover:-translate-y-0.5 active:scale-95
- border border-gray-700 border-opacity-50 hover:border-gray-600 hover:border-opacity-70
- relative overflow-hidden
- backdrop-blur-sm flex items-center justify-center mobile-sidebar-btn`}
+ className="group relative w-full h-20 rounded-lg flex flex-col items-center justify-center gap-1.5
+ transition-all duration-150 active:scale-[0.98] hover:scale-[1.01] transform"
  style={{
- animationDelay: `${index * 100}ms`,
- background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.95) 0%, rgba(10, 10, 10, 0.98) 100%)',
- boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.5)'
+ animation: `fadeInSlide 0.3s ease-out ${index * 0.05}s both`,
+ background: 'linear-gradient(145deg, #000000, #000000)',
+ boxShadow: `
+ 8px 8px 16px #000000,
+ -8px -8px 16px #0f0f0f,
+ inset 1px 1px 2px rgba(255, 255, 255, 0.05)
+ `,
+ border: '1px solid rgba(255, 255, 255, 0.1)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.boxShadow = `
+ 10px 10px 20px #000000,
+ -10px -10px 20px #1a1a1a,
+ inset 1px 1px 3px rgba(255, 255, 255, 0.08)
+ `;
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.boxShadow = `
+ 8px 8px 16px #000000,
+ -8px -8px 16px #0f0f0f,
+ inset 1px 1px 2px rgba(255, 255, 255, 0.05)
+ `;
  }}
  onClick={() => handleSidebarClick(item.id)}
  title={item.label}
  >
- {/* Subtle inner glow */}
- <div className="absolute inset-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, transparent)' }}></div>
- 
  {/* Icon with accent color */}
- <span className={`z-10 text-4xl md:text-4xl sm:text-3xl xs:text-2xl filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 ${accentColors[item.accent]} mobile-sidebar-icon`}>
- <IconComponent />
+ <span className={`text-3xl transition-all duration-150 group-hover:scale-110 ${accentColors[item.accent]}`}>
+ <IconComponent strokeWidth={2.5} />
  </span>
  
- {/* Subtle ripple effect */}
- <div className="absolute inset-0 rounded-lg bg-white bg-opacity-10 scale-0 group-active:scale-100 transition-transform duration-200"></div>
- 
- {/* Accent glow effect */}
- <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-30 blur-sm transition-opacity duration-300" style={{ background: `linear-gradient(to right, ${item.accent === 'blue' ? 'rgba(59, 130, 246, 0.2)' : item.accent === 'emerald' ? 'rgba(16, 185, 129, 0.2)' : item.accent === 'purple' ? 'rgba(147, 51, 234, 0.2)' : item.accent === 'amber' ? 'rgba(245, 158, 11, 0.2)' : item.accent === 'orange' ? 'rgba(251, 146, 60, 0.2)' : item.accent === 'rose' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)'}, ${item.accent === 'blue' ? 'rgba(37, 99, 235, 0.2)' : item.accent === 'emerald' ? 'rgba(5, 150, 105, 0.2)' : item.accent === 'purple' ? 'rgba(126, 34, 206, 0.2)' : item.accent === 'amber' ? 'rgba(217, 119, 6, 0.2)' : item.accent === 'orange' ? 'rgba(234, 88, 12, 0.2)' : item.accent === 'rose' ? 'rgba(225, 29, 72, 0.2)' : 'rgba(37, 99, 235, 0.2)'})` }}></div>
+ {/* Label - 100% opacity white */}
+ <span className="text-[11px] text-white font-bold uppercase tracking-wider transition-all duration-150">
+ {item.label}
+ </span>
  </button>
  </div>
  );
@@ -14345,6 +15981,81 @@ export default function TradingViewChart({
  </div>
  )}
 
+ {/* Multichart View */}
+ {chartLayout !== '1x1' ? (
+   <MultiChartView
+     layout={chartLayout}
+     instances={chartInstances}
+     activeChartId={activeChartId}
+     onActiveChartChange={setActiveChartId}
+     config={config}
+     colors={colors}
+     isSeasonalActive={isSeasonalActive}
+     seasonal20YData={seasonal20YData}
+     seasonal15YData={seasonal15YData}
+     seasonal10YData={seasonal10YData}
+     seasonalElectionData={seasonalElectionData}
+     isSeasonal20YActive={isSeasonal20YActive}
+     isSeasonal15YActive={isSeasonal15YActive}
+     isSeasonal10YActive={isSeasonal10YActive}
+     isSeasonalElectionActive={isSeasonalElectionActive}
+     isGexActive={isGexActive}
+     liveGexData={liveGexData}
+     gexData={gexData}
+     isExpectedRangeActive={isExpectedRangeActive}
+     expectedRangeLevels={expectedRangeLevels}
+     isWeeklyActive={isWeeklyActive}
+     isMonthlyActive={isMonthlyActive}
+     isExpansionLiquidationActive={isExpansionLiquidationActive}
+     technalysisActive={technalysisActive}
+     technalysisFeatures={technalysisFeatures}
+     isFlowChartActive={isFlowChartActive}
+     flowChartData={flowChartData}
+     flowChartHeight={flowChartHeight}
+     isIVRankActive={showIVRankIndicator}
+     isIVPercentileActive={showIVPercentileIndicator}
+     isHVActive={showHVIndicator}
+     ivPanelHeight={ivPanelHeight}
+     showIVPanel={showIVPanel}
+     ivData={ivData}
+     isIVLoading={isIVLoading}
+     showCallIVLine={showCallIVLine}
+     showPutIVLine={showPutIVLine}
+     showNetIVLine={showNetIVLine}
+     hvWindow={hvWindow}
+     dimensions={dimensions}
+     data={data}
+     scrollOffset={scrollOffset}
+     visibleCandleCount={visibleCandleCount}
+     priceRange={priceRange}
+     crosshair={crosshairPosition}
+     symbol={symbol}
+     isDragging={isDragging}
+     isDraggingYAxis={isDraggingYAxis}
+     isAutoScale={isAutoScale}
+     manualPriceRange={manualPriceRange}
+     setScrollOffset={setScrollOffset}
+     setVisibleCandleCount={setVisibleCandleCount}
+     setManualPriceRange={setManualPriceRange}
+     setIsAutoScale={setIsAutoScale}
+     setIsDragging={setIsDragging}
+     setIsDraggingYAxis={setIsDraggingYAxis}
+     handleTimeframeChange={handleTimeframeChange}
+     handleMouseMove={handleMouseMove}
+     drawings={drawings}
+     activeTool={activeTool}
+     renderExpectedRangeLines={renderExpectedRangeLines}
+     renderGEXLevels={renderGEXLevels}
+     detectExpansionLiquidation={detectExpansionLiquidation}
+     invalidateTouchedZones={invalidateTouchedZones}
+     renderExpansionLiquidationZone={renderExpansionLiquidationZone}
+     renderTechnalysisIndicators={renderTechnalysisIndicators}
+     handleUnifiedMouseDown={handleUnifiedMouseDown}
+     handleCanvasMouseMove={handleCanvasMouseMove}
+     handleMouseLeave={handleMouseLeave}
+   />
+ ) : (
+   <>
  {/* Y-Axis Auto-Scale Toggle Button - Removed as auto-scale is always enabled by default */}
 
  {/* Main Chart Canvas */}
@@ -14721,7 +16432,9 @@ export default function TradingViewChart({
           ×
         </button>
       )}
-    </div>
+    </>
+  )}
+</div>
 
  {/* Text Input Modal for Drawing Tools */}
  {showTextInput && textInputPosition && (
@@ -14815,8 +16528,352 @@ export default function TradingViewChart({
  <NewsPanel symbol={config.symbol} />
  )}
  {activeSidebarPanel === 'alerts' && (
- <div className="p-4 text-center text-white text-opacity-50">
- Alerts section coming soon...
+ <div className="p-4 space-y-4" style={{ 
+ maxHeight: '100%', 
+ overflow: 'auto',
+ background: '#000000'
+ }}>
+ <div className="flex items-center justify-between mb-5" style={{
+ borderBottom: '1px solid rgba(255, 107, 0, 0.25)',
+ paddingBottom: '12px'
+ }}>
+ <div className="flex items-center gap-2">
+ <TbBellRinging style={{ color: '#ff6b00', fontSize: '22px', strokeWidth: 2.5 }} />
+ <h3 style={{
+ color: '#ff6b00',
+ fontWeight: '700',
+ fontSize: '14px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Price Alerts</h3>
+ </div>
+ <button
+ onClick={() => {
+ setIsAlertPlacementMode(!isAlertPlacementMode);
+ if (!isAlertPlacementMode) {
+ setShowAlertDialog(false);
+ }
+ }}
+ style={{
+ padding: '8px 16px',
+ borderRadius: '2px',
+ fontSize: '11px',
+ fontWeight: '700',
+ textTransform: 'uppercase',
+ letterSpacing: '1.2px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased',
+ background: isAlertPlacementMode 
+ ? 'linear-gradient(135deg, #ff6b00 0%, #ff8533 100%)' 
+ : 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)',
+ color: isAlertPlacementMode ? '#000' : '#ff6b00',
+ border: isAlertPlacementMode ? '1px solid #ff8533' : '1px solid rgba(255, 107, 0, 0.4)',
+ cursor: 'pointer',
+ transition: 'all 0.2s',
+ boxShadow: isAlertPlacementMode ? '0 4px 12px rgba(255, 107, 0, 0.4)' : '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ onMouseEnter={(e) => {
+ if (!isAlertPlacementMode) {
+ e.currentTarget.style.background = 'linear-gradient(135deg, #252525 0%, #1a1a1a 100%)';
+ e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (!isAlertPlacementMode) {
+ e.currentTarget.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)';
+ e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)';
+ }
+ }}
+ >
+ {isAlertPlacementMode ? '✓ Click Chart' : '+ New Alert'}
+ </button>
+ </div>
+
+ {/* Alert Type Tabs */}
+ <div className="flex gap-2 mb-5">
+ {(['price', 'options', 'technical'] as const).map(type => (
+ <button
+ key={type}
+ onClick={() => setSelectedAlertType(type)}
+ style={{
+ flex: 1,
+ padding: '10px 12px',
+ borderRadius: '4px',
+ fontSize: '11px',
+ fontWeight: '700',
+ textTransform: 'uppercase',
+ letterSpacing: '1px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased',
+ background: selectedAlertType === type
+ ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
+ : 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)',
+ color: selectedAlertType === type ? '#ff6b00' : '#ff6b00',
+ border: selectedAlertType === type 
+ ? '1px solid rgba(255, 107, 0, 0.5)' 
+ : '1px solid rgba(255, 255, 255, 0.1)',
+ cursor: 'pointer',
+ transition: 'all 0.2s',
+ boxShadow: selectedAlertType === type 
+ ? 'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 107, 0, 0.3)' 
+ : 'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
+ display: 'flex',
+ alignItems: 'center',
+ justifyContent: 'center',
+ gap: '6px',
+ position: 'relative',
+ overflow: 'hidden'
+ }}
+ onMouseEnter={(e) => {
+ if (selectedAlertType !== type) {
+ e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.3)';
+ e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 8px rgba(255, 107, 0, 0.2)';
+ }
+ }}
+ onMouseLeave={(e) => {
+ if (selectedAlertType !== type) {
+ e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+ e.currentTarget.style.boxShadow = 'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)';
+ }
+ }}
+ >
+ <span style={{
+ position: 'absolute',
+ top: 0,
+ left: 0,
+ right: 0,
+ height: '50%',
+ background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 100%)',
+ pointerEvents: 'none'
+ }} />
+ {type === 'price' && <TbCurrencyDollar style={{ fontSize: '16px', strokeWidth: 2.5, position: 'relative', zIndex: 1 }} />}
+ {type === 'options' && <TbChartCandle style={{ fontSize: '16px', strokeWidth: 2.5, position: 'relative', zIndex: 1 }} />}
+ {type === 'technical' && <TbChartInfographic style={{ fontSize: '16px', strokeWidth: 2.5, position: 'relative', zIndex: 1 }} />}
+ <span style={{ position: 'relative', zIndex: 1 }}>{type.charAt(0).toUpperCase() + type.slice(1)}</span>
+ </button>
+ ))}
+ </div>
+
+ {/* Active Alerts List */}
+ <div className="space-y-3">
+ {alerts.filter(a => !a.triggered).length === 0 ? (
+ <div className="text-center py-10" style={{
+ background: '#0a0a0a',
+ border: '1px solid rgba(255, 255, 255, 0.08)',
+ borderRadius: '2px'
+ }}>
+ <TbBellOff style={{ 
+ width: '48px', 
+ height: '48px', 
+ margin: '0 auto 12px',
+ color: '#ff6b00',
+ opacity: 0.3,
+ strokeWidth: 1.5
+ }} />
+ <p style={{
+ fontSize: '13px',
+ color: '#999',
+ fontWeight: '600',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>No active alerts</p>
+ <p style={{
+ fontSize: '11px',
+ marginTop: '6px',
+ color: '#666',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Click "New Alert" and then click on the chart to set a price level</p>
+ </div>
+ ) : (
+ alerts.filter(a => !a.triggered).map(alert => (
+ <div
+ key={alert.id}
+ style={{
+ background: '#0a0a0a',
+ border: '1px solid rgba(255, 255, 255, 0.1)',
+ borderRadius: '2px',
+ padding: '12px',
+ transition: 'all 0.2s',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)';
+ e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.4)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+ e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.3)';
+ }}
+ >
+ <div className="flex items-start justify-between">
+ <div className="flex-1">
+ <div className="flex items-center gap-2 mb-2">
+ {alert.type === 'price' && <TbCurrencyDollar style={{ color: '#ff6b00', fontSize: '18px', strokeWidth: 2.5 }} />}
+ {alert.type === 'options' && <TbChartCandle style={{ color: '#ff6b00', fontSize: '18px', strokeWidth: 2.5 }} />}
+ {alert.type === 'technical' && <TbChartInfographic style={{ color: '#ff6b00', fontSize: '18px', strokeWidth: 2.5 }} />}
+ <span style={{
+ color: '#fff',
+ fontWeight: '700',
+ fontSize: '13px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>{alert.symbol}</span>
+ <span style={{
+ fontSize: '10px',
+ padding: '3px 8px',
+ borderRadius: '2px',
+ background: 'rgba(255, 107, 0, 0.15)',
+ color: '#ff6b00',
+ border: '1px solid rgba(255, 107, 0, 0.3)',
+ fontWeight: '600',
+ textTransform: 'uppercase',
+ letterSpacing: '0.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>
+ {alert.condition === 'above' && 'Above'}
+ {alert.condition === 'below' && 'Below'}
+ {alert.condition === 'crossesAbove' && 'Crosses ↑'}
+ {alert.condition === 'crossesBelow' && 'Crosses ↓'}
+ </span>
+ </div>
+ <div style={{
+ fontSize: '20px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontWeight: '700',
+ color: '#ff6b00',
+ letterSpacing: '-0.5px',
+ textShadow: '0 0 10px rgba(255, 107, 0, 0.3)',
+ WebkitFontSmoothing: 'antialiased'
+ }}>
+ ${alert.price.toFixed(2)}
+ </div>
+ {alert.message && (
+ <p style={{
+ fontSize: '11px',
+ color: '#999',
+ marginTop: '6px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>{alert.message}</p>
+ )}
+ {alert.optionsData && (
+ <div style={{
+ fontSize: '10px',
+ color: '#999',
+ marginTop: '6px',
+ padding: '6px 10px',
+ background: 'rgba(255, 107, 0, 0.1)',
+ border: '1px solid rgba(255, 107, 0, 0.2)',
+ borderRadius: '2px',
+ fontWeight: '600',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>
+ {alert.optionsData.strike} {alert.optionsData.optionType.toUpperCase()} - {alert.optionsData.expiration}
+ </div>
+ )}
+ <div className="flex items-center gap-2 mt-3">
+ {alert.soundEnabled && <TbBell style={{ fontSize: '14px', color: '#ff6b00', strokeWidth: 2 }} />}
+ {alert.emailEnabled && <TbMail style={{ fontSize: '14px', color: '#ff6b00', strokeWidth: 2 }} />}
+ {alert.once && (
+ <span style={{
+ fontSize: '10px',
+ color: '#666',
+ padding: '2px 6px',
+ background: 'rgba(255, 107, 0, 0.1)',
+ border: '1px solid rgba(255, 107, 0, 0.2)',
+ borderRadius: '2px',
+ fontWeight: '600',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>ONCE</span>
+ )}
+ </div>
+ </div>
+ <button
+ onClick={() => setAlerts(alerts.filter(a => a.id !== alert.id))}
+ style={{
+ color: '#666',
+ fontSize: '18px',
+ marginLeft: '8px',
+ padding: '4px',
+ background: 'transparent',
+ border: 'none',
+ cursor: 'pointer',
+ transition: 'color 0.2s'
+ }}
+ onMouseEnter={(e) => e.currentTarget.style.color = '#ff6b00'}
+ onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
+ >
+ <TbX style={{ strokeWidth: 2.5 }} />
+ </button>
+ </div>
+ </div>
+ ))
+ )}
+ </div>
+
+ {/* Triggered Alerts History */}
+ {alerts.filter(a => a.triggered).length > 0 && (
+ <div className="mt-6" style={{
+ borderTop: '2px solid rgba(255, 107, 0, 0.2)',
+ paddingTop: '16px'
+ }}>
+ <h4 style={{
+ color: '#ff6b00',
+ fontSize: '11px',
+ fontWeight: '700',
+ marginBottom: '12px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Triggered Alerts</h4>
+ <div className="space-y-2">
+ {alerts.filter(a => a.triggered).slice(0, 5).map(alert => (
+ <div
+ key={alert.id}
+ style={{
+ background: 'linear-gradient(135deg, rgba(255, 107, 0, 0.08) 0%, rgba(255, 107, 0, 0.03) 100%)',
+ border: '1px solid rgba(255, 107, 0, 0.2)',
+ borderRadius: '2px',
+ padding: '10px 12px',
+ opacity: 0.7
+ }}
+ >
+ <div className="flex items-center justify-between">
+ <div className="flex items-center gap-2">
+ <TbCheck style={{ color: '#10b981', fontSize: '16px', strokeWidth: 2.5 }} />
+ <span style={{
+ color: '#fff',
+ fontSize: '12px',
+ fontWeight: '600',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>{alert.symbol}</span>
+ <span style={{
+ color: '#999',
+ fontSize: '11px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>${alert.price.toFixed(2)}</span>
+ </div>
+ <button
+ onClick={() => setAlerts(alerts.filter(a => a.id !== alert.id))}
+ className="text-gray-600 hover:text-gray-500 text-xs"
+ >
+ ✕
+ </button>
+ </div>
+ </div>
+ ))}
+ </div>
+ </div>
+ )}
  </div>
  )}
  {activeSidebarPanel === 'calc' && (
@@ -15402,8 +17459,908 @@ export default function TradingViewChart({
  />
  )}
 
+ {/* Alert Creation Dialog */}
+ {showAlertDialog && newAlertPrice !== null && createPortal(
+ <div className="fixed inset-0 z-[99999] flex items-center justify-center" style={{ backgroundColor: 'rgba(0, 0, 0, 0.9)' }}>
+ <div style={{
+ background: '#000000',
+ border: '1px solid rgba(255, 107, 0, 0.4)',
+ boxShadow: '0 10px 40px rgba(0, 0, 0, 0.9)',
+ }} className="rounded p-6 w-[520px] max-h-[85vh] overflow-auto">
+ <div className="flex items-center justify-between mb-5" style={{
+ borderBottom: '1px solid rgba(255, 107, 0, 0.3)',
+ paddingBottom: '12px'
+ }}>
+ <h3 style={{
+ color: '#ff6b00',
+ fontFamily: 'monospace',
+ fontSize: '20px',
+ fontWeight: '700',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px'
+ }}>Create Alert</h3>
+ <button
+ onClick={() => {
+ setShowAlertDialog(false);
+ setNewAlertPrice(null);
+ }}
+ style={{ color: '#666' }}
+ className="hover:text-white transition-colors"
+ >
+ <TbX className="w-6 h-6" />
+ </button>
+ </div>
+
+ <form onSubmit={(e) => {
+ e.preventDefault();
+ const formData = new FormData(e.currentTarget);
+ 
+ const newAlert: PriceAlert = {
+ id: Date.now().toString(),
+ symbol: formData.get('symbol') as string || config.symbol,
+ price: Number(formData.get('price')) || newAlertPrice,
+ condition: formData.get('condition') as any,
+ message: formData.get('message') as string,
+ triggered: false,
+ createdAt: new Date(),
+ once: formData.get('once') === 'on',
+ soundEnabled: formData.get('sound') === 'on',
+ emailEnabled: formData.get('email') === 'on',
+ type: selectedAlertType,
+ ...(selectedAlertType === 'options' && {
+ optionsData: {
+ strike: Number(formData.get('strike')),
+ expiration: formData.get('expiration') as string,
+ optionType: formData.get('optionType') as 'call' | 'put',
+ metric: formData.get('metric') as any,
+ value: Number(formData.get('value'))
+ }
+ }),
+ ...(selectedAlertType === 'technical' && {
+ technicalData: {
+ indicator: formData.get('indicator') as string,
+ value: Number(formData.get('techValue'))
+ }
+ }),
+ ...((formData.get('condition') === 'staysInRange' || formData.get('condition') === 'breaksOutOfRange') && {
+ rangeData: {
+ upper: Number(formData.get('rangeUpper')),
+ lower: Number(formData.get('rangeLower')),
+ duration: Number(formData.get('rangeDuration')) || 60
+ }
+ })
+ };
+ 
+ setAlerts([...alerts, newAlert]);
+ setShowAlertDialog(false);
+ setNewAlertPrice(null);
+ }}>
+ 
+ <div className="space-y-4">
+ {/* Alert Type Badge */}
+ <div className="flex items-center gap-3 mb-3" style={{
+ background: '#0a0a0a',
+ border: '1px solid rgba(255, 107, 0, 0.25)',
+ padding: '12px 16px',
+ borderRadius: '2px'
+ }}>
+ {selectedAlertType === 'price' && <TbCurrencyDollar style={{ color: '#ff6b00', fontSize: '24px', strokeWidth: 2 }} />}
+ {selectedAlertType === 'options' && <TbChartCandle style={{ color: '#ff6b00', fontSize: '24px', strokeWidth: 2 }} />}
+ {selectedAlertType === 'technical' && <TbChartInfographic style={{ color: '#ff6b00', fontSize: '24px', strokeWidth: 2 }} />}
+ <span style={{
+ color: '#ff6b00',
+ fontSize: '12px',
+ fontWeight: '700',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased',
+ MozOsxFontSmoothing: 'grayscale'
+ }}>{selectedAlertType} Alert</span>
+ </div>
+
+ {/* Symbol & Price */}
+ <div style={{
+ background: '#000000',
+ border: '1px solid rgba(255, 107, 0, 0.25)',
+ padding: '18px',
+ borderRadius: '2px',
+ boxShadow: 'none'
+ }}>
+ <div className="mb-4">
+ <label style={{ 
+ color: '#fff', 
+ fontSize: '10px', 
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', 
+ textTransform: 'uppercase',
+ letterSpacing: '1.2px',
+ fontWeight: '700',
+ WebkitFontSmoothing: 'antialiased',
+ display: 'block',
+ marginBottom: '10px'
+ }}>Symbol</label>
+ <input
+ type="text"
+ name="symbol"
+ defaultValue={config.symbol}
+ style={{ 
+ width: '100%',
+ background: '#0a0a0a',
+ color: '#fff', 
+ fontWeight: '700', 
+ fontSize: '16px', 
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ letterSpacing: '1px',
+ WebkitFontSmoothing: 'antialiased',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px'
+ }}
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ />
+ </div>
+ <div>
+ <label style={{ 
+ color: '#fff', 
+ fontSize: '10px', 
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', 
+ textTransform: 'uppercase',
+ letterSpacing: '1.2px',
+ fontWeight: '700',
+ WebkitFontSmoothing: 'antialiased',
+ display: 'block',
+ marginBottom: '10px'
+ }}>Alert Price</label>
+ <input
+ type="number"
+ name="price"
+ step="0.01"
+ defaultValue={newAlertPrice.toFixed(2)}
+ style={{ 
+ width: '100%',
+ background: '#0a0a0a',
+ color: '#ff6b00', 
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', 
+ fontWeight: '700', 
+ fontSize: '24px',
+ letterSpacing: '-0.5px',
+ WebkitFontSmoothing: 'antialiased',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px'
+ }}
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ />
+ </div>
+ </div>
+
+ {/* Condition */}
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#fff',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Condition</label>
+ <select
+ name="condition"
+ defaultValue="crossesAbove"
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ cursor: 'pointer',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ className="focus:outline-none transition-all"
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ >
+ <optgroup label="Price Crosses" style={{ background: '#0a0a0a', color: '#ff6b00', fontWeight: '700' }}>
+ <option value="crossesAbove" style={{ background: '#000', color: '#fff' }}>↑ Crosses Above</option>
+ <option value="crossesBelow" style={{ background: '#000', color: '#fff' }}>↓ Crosses Below</option>
+ </optgroup>
+ <optgroup label="Price Levels" style={{ background: '#0a0a0a', color: '#ff6b00', fontWeight: '700' }}>
+ <option value="above" style={{ background: '#000', color: '#fff' }}>▲ Above</option>
+ <option value="below" style={{ background: '#000', color: '#fff' }}>▼ Below</option>
+ </optgroup>
+ <optgroup label="Close Above (Timeframe)" style={{ background: '#0a0a0a', color: '#ff6b00', fontWeight: '700' }}>
+ <option value="closeAbove5m" style={{ background: '#000', color: '#fff' }}>Close Above on 5M</option>
+ <option value="closeAbove15m" style={{ background: '#000', color: '#fff' }}>Close Above on 15M</option>
+ <option value="closeAbove30m" style={{ background: '#000', color: '#fff' }}>Close Above on 30M</option>
+ <option value="closeAbove1h" style={{ background: '#000', color: '#fff' }}>Close Above on 1H</option>
+ <option value="closeAbove4h" style={{ background: '#000', color: '#fff' }}>Close Above on 4H</option>
+ <option value="closeAbove1d" style={{ background: '#000', color: '#fff' }}>Close Above on 1D</option>
+ </optgroup>
+ <optgroup label="Close Below (Timeframe)" style={{ background: '#0a0a0a', color: '#ff6b00', fontWeight: '700' }}>
+ <option value="closeBelow5m" style={{ background: '#000', color: '#fff' }}>Close Below on 5M</option>
+ <option value="closeBelow15m" style={{ background: '#000', color: '#fff' }}>Close Below on 15M</option>
+ <option value="closeBelow30m" style={{ background: '#000', color: '#fff' }}>Close Below on 30M</option>
+ <option value="closeBelow1h" style={{ background: '#000', color: '#fff' }}>Close Below on 1H</option>
+ <option value="closeBelow4h" style={{ background: '#000', color: '#fff' }}>Close Below on 4H</option>
+ <option value="closeBelow1d" style={{ background: '#000', color: '#fff' }}>Close Below on 1D</option>
+ </optgroup>
+ <optgroup label="Range Conditions" style={{ background: '#0a0a0a', color: '#ff6b00', fontWeight: '700' }}>
+ <option value="staysInRange" style={{ background: '#000', color: '#fff' }}>Stays Within Range</option>
+ <option value="breaksOutOfRange" style={{ background: '#000', color: '#fff' }}>Breaks Out of Range</option>
+ </optgroup>
+ </select>
+ </div>
+
+ {/* Range Configuration (conditional) */}
+ <div id="rangeConfig" style={{ display: 'none' }}>
+ <div className="grid grid-cols-2 gap-3">
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#fff',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Upper Range</label>
+ <input
+ type="number"
+ name="rangeUpper"
+ step="0.01"
+ placeholder="Upper price"
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ />
+ </div>
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#fff',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Lower Range</label>
+ <input
+ type="number"
+ name="rangeLower"
+ step="0.01"
+ placeholder="Lower price"
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ />
+ </div>
+ </div>
+ <div className="mt-3">
+ <label style={{
+ display: 'block',
+ color: '#fff',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Time Period (minutes)</label>
+ <input
+ type="number"
+ name="rangeDuration"
+ min="1"
+ defaultValue="60"
+ placeholder="Duration in minutes"
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ />
+ </div>
+ </div>
+
+ <script dangerouslySetInnerHTML={{
+ __html: `
+ document.querySelector('select[name="condition"]')?.addEventListener('change', (e) => {
+ const rangeConfig = document.getElementById('rangeConfig');
+ if (e.target.value === 'staysInRange' || e.target.value === 'breaksOutOfRange') {
+ rangeConfig.style.display = 'block';
+ } else {
+ rangeConfig.style.display = 'none';
+ }
+ });
+ `
+ }} />
+
+ {/* Options-specific fields */}
+ {selectedAlertType === 'options' && (
+ <>
+ <div className="grid grid-cols-2 gap-3">
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#ff6b00',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Strike</label>
+ <input
+ type="number"
+ name="strike"
+ step="0.5"
+ defaultValue={Math.round(newAlertPrice)}
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ className="focus:outline-none transition-all"
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ required
+ />
+ </div>
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#ff6b00',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Type</label>
+ <select
+ name="optionType"
+ defaultValue="call"
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ cursor: 'pointer',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ className="focus:outline-none transition-all"
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ >
+ <option value="call">Call</option>
+ <option value="put">Put</option>
+ </select>
+ </div>
+ </div>
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#ff6b00',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Expiration</label>
+ <input
+ type="date"
+ name="expiration"
+ defaultValue={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ className="focus:outline-none transition-all"
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ required
+ />
+ </div>
+ <div className="grid grid-cols-2 gap-3">
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#ff6b00',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Metric</label>
+ <select
+ name="metric"
+ defaultValue="iv"
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ cursor: 'pointer',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ className="focus:outline-none transition-all"
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ >
+ <option value="iv">IV</option>
+ <option value="volume">Volume</option>
+ <option value="oi">Open Interest</option>
+ <option value="delta">Delta</option>
+ </select>
+ </div>
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#ff6b00',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Value</label>
+ <input
+ type="number"
+ name="value"
+ step="0.01"
+ defaultValue="0.5"
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ className="focus:outline-none transition-all"
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ required
+ />
+ </div>
+ </div>
+ </>
+ )}
+
+ {/* Message */}
+ <div>
+ <label style={{
+ display: 'block',
+ color: '#ff6b00',
+ fontSize: '10px',
+ fontWeight: '700',
+ marginBottom: '10px',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Message (Optional)</label>
+ <textarea
+ name="message"
+ placeholder="Add a custom message for this alert..."
+ rows={2}
+ style={{
+ width: '100%',
+ background: '#000000',
+ color: '#fff',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ borderRadius: '2px',
+ padding: '12px 14px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontSize: '14px',
+ fontWeight: '400',
+ resize: 'none',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ className="focus:outline-none transition-all"
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.5)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+ />
+ </div>
+
+ {/* Notification Options */}
+ <div style={{
+ background: '#0a0a0a',
+ border: '1px solid rgba(255, 255, 255, 0.1)',
+ padding: '14px 16px',
+ borderRadius: '2px'
+ }}>
+ <div style={{
+ color: '#fff',
+ fontSize: '10px',
+ fontWeight: '700',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ marginBottom: '12px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Notification Settings</div>
+ <div className="space-y-3">
+ <label className="flex items-center gap-3 cursor-pointer" style={{ transition: 'all 0.2s' }}>
+ <input type="checkbox" name="sound" defaultChecked style={{
+ width: '18px',
+ height: '18px',
+ accentColor: '#ff6b00',
+ cursor: 'pointer'
+ }} />
+ <TbBell style={{ color: '#ff6b00', fontSize: '18px', strokeWidth: 2 }} />
+ <span style={{ 
+ color: '#fff', 
+ fontSize: '13px', 
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Play sound notification</span>
+ </label>
+ <label className="flex items-center gap-3 cursor-pointer" style={{ transition: 'all 0.2s' }}>
+ <input type="checkbox" name="email" style={{
+ width: '18px',
+ height: '18px',
+ accentColor: '#ff6b00',
+ cursor: 'pointer'
+ }} />
+ <TbMail style={{ color: '#ff6b00', fontSize: '18px', strokeWidth: 2 }} />
+ <span style={{ 
+ color: '#fff', 
+ fontSize: '13px', 
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Send email notification</span>
+ </label>
+ <label className="flex items-center gap-3 cursor-pointer" style={{ transition: 'all 0.2s' }}>
+ <input type="checkbox" name="once" defaultChecked style={{
+ width: '18px',
+ height: '18px',
+ accentColor: '#ff6b00',
+ cursor: 'pointer'
+ }} />
+ <TbCheck style={{ color: '#ff6b00', fontSize: '18px', strokeWidth: 2 }} />
+ <span style={{ 
+ color: '#fff', 
+ fontSize: '13px', 
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ fontWeight: '500',
+ WebkitFontSmoothing: 'antialiased'
+ }}>Trigger only once</span>
+ </label>
+ </div>
+ </div>
+
+ {/* Action Buttons */}
+ <div className="flex gap-4 pt-5" style={{
+ borderTop: '2px solid rgba(255, 107, 0, 0.25)',
+ paddingTop: '20px',
+ marginTop: '8px'
+ }}>
+ <button
+ type="button"
+ onClick={() => {
+ setShowAlertDialog(false);
+ setNewAlertPrice(null);
+ }}
+ style={{
+ flex: 1,
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)',
+ color: '#999',
+ padding: '14px 20px',
+ borderRadius: '2px',
+ border: '1px solid rgba(255, 255, 255, 0.15)',
+ fontWeight: '700',
+ fontSize: '12px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ cursor: 'pointer',
+ transition: 'all 0.2s',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.background = 'linear-gradient(135deg, #252525 0%, #1a1a1a 100%)';
+ e.currentTarget.style.color = '#ccc';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)';
+ e.currentTarget.style.color = '#999';
+ }}
+ >
+ Cancel
+ </button>
+ <button
+ type="submit"
+ style={{
+ flex: 1,
+ background: 'linear-gradient(135deg, #ff6b00 0%, #ff8533 100%)',
+ color: '#000',
+ padding: '14px 20px',
+ borderRadius: '2px',
+ border: '1px solid #ff8533',
+ fontWeight: '800',
+ fontSize: '12px',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+ textTransform: 'uppercase',
+ letterSpacing: '1.5px',
+ cursor: 'pointer',
+ transition: 'all 0.2s',
+ WebkitFontSmoothing: 'antialiased',
+ boxShadow: '0 4px 20px rgba(255, 107, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3)'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.transform = 'translateY(-1px)';
+ e.currentTarget.style.boxShadow = '0 6px 25px rgba(255, 107, 0, 0.6), 0 4px 6px rgba(0, 0, 0, 0.4)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.transform = 'translateY(0)';
+ e.currentTarget.style.boxShadow = '0 4px 20px rgba(255, 107, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3)';
+ }}
+ >
+ Create Alert
+ </button>
+ </div>
+ </div>
+ </form>
+ </div>
+ </div>,
+ document.body
+ )}
+ </div>
+
  {/* Guide Chatbot */}
  <GuideChatbot />
+
+ {/* Notes & Alerts Box - Show when Guide AI button is active (panel visible) */}
+ {isGuideAIOpen && (
+ <div className="fixed right-0 z-[9999]" style={{ top: '70%', width: '30%', height: '30%' }}>
+ <div className="w-full h-full flex flex-col relative" style={{
+ background: '#000000',
+ border: '2px solid rgba(255, 107, 0, 0.5)',
+ borderRight: 'none',
+ borderTop: '2px solid rgba(255, 107, 0, 0.4)'
+ }}>
+ 
+ {/* Header */}
+ <div className="px-4 py-2 border-b relative" style={{
+ background: 'linear-gradient(180deg, rgba(255, 107, 0, 0.12) 0%, rgba(0, 0, 0, 0.4) 100%)',
+ borderColor: 'rgba(255, 107, 0, 0.3)'
+ }}>
+ <div className="flex items-center justify-between">
+ <div className="flex items-center gap-2">
+ <div className="w-6 h-6 rounded flex items-center justify-center" style={{
+ background: 'rgba(255, 107, 0, 0.2)',
+ border: '1px solid rgba(255, 107, 0, 0.5)'
+ }}>
+ <span style={{ fontSize: '14px' }}>📋</span>
+ </div>
+ <h3 className="text-xs font-bold uppercase tracking-widest" style={{
+ color: '#ffffff',
+ letterSpacing: '1.5px'
+ }}>
+ NOTES & ALERTS
+ </h3>
+ </div>
+ <span className="text-xs font-mono font-semibold" style={{ color: '#10b981' }}>
+ {alerts.filter(a => !a.triggered).length}
+ </span>
+ </div>
+ </div>
+
+ {/* Content Area */}
+ <div className="flex-1 overflow-y-auto p-2" style={{
+ background: '#0a0a0a',
+ scrollbarWidth: 'thin',
+ scrollbarColor: 'rgba(255, 107, 0, 0.6) rgba(0, 0, 0, 0.4)'
+ }}>
+ {/* Notes Input */}
+ <div className="mb-2">
+ <textarea
+ placeholder="Add your notes here..."
+ className="w-full p-2 text-xs font-mono resize-none"
+ rows={3}
+ value={quickNotes}
+ onChange={(e) => setQuickNotes(e.target.value)}
+ style={{
+ background: 'rgba(26, 26, 26, 0.8)',
+ border: '1px solid rgba(255, 107, 0, 0.4)',
+ borderRadius: '4px',
+ color: '#ffffff',
+ outline: 'none'
+ }}
+ onFocus={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.7)'}
+ onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)'}
+ />
+ </div>
+
+ {/* Alerts List */}
+ <div className="space-y-1.5">
+ {alerts.filter(a => !a.triggered).map(alert => (
+ <div
+ key={alert.id}
+ className="relative"
+ style={{
+ background: 'rgba(26, 26, 26, 0.9)',
+ border: '1px solid rgba(255, 107, 0, 0.3)',
+ borderRadius: '4px',
+ padding: '8px 10px',
+ transition: 'all 0.2s ease',
+ cursor: 'pointer'
+ }}
+ onMouseEnter={(e) => {
+ e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)';
+ e.currentTarget.style.transform = 'translateX(-2px)';
+ }}
+ onMouseLeave={(e) => {
+ e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.3)';
+ e.currentTarget.style.transform = 'translateX(0)';
+ }}
+ >
+ <div className="flex items-center justify-between mb-1">
+ <div className="flex items-center gap-2">
+ <span className="px-1.5 py-0.5 rounded text-xs font-bold uppercase" style={{
+ background: 'rgba(255, 107, 0, 0.2)',
+ color: '#ff8833',
+ border: '1px solid rgba(255, 107, 0, 0.5)',
+ fontSize: '9px',
+ letterSpacing: '0.5px'
+ }}>
+ {alert.type}
+ </span>
+ <span className="text-xs font-mono font-bold" style={{ color: '#ffffff' }}>
+ {alert.symbol}
+ </span>
+ </div>
+ <span className="text-sm font-bold font-mono" style={{ color: '#ff6b00' }}>
+ ${alert.price.toFixed(2)}
+ </span>
+ </div>
+ 
+ <div className="text-xs" style={{ color: '#cccccc' }}>
+ {alert.condition.replace(/([A-Z])/g, ' $1').trim()}
+ </div>
+ 
+ {alert.message && (
+ <div className="text-xs mt-1 pt-1" style={{ 
+ color: '#999999',
+ borderTop: '1px solid rgba(255, 107, 0, 0.15)',
+ fontStyle: 'italic'
+ }}>
+ {alert.message}
+ </div>
+ )}
+ </div>
+ ))}
+
+ {alerts.filter(a => !a.triggered).length === 0 && (
+ <div className="flex flex-col items-center justify-center py-4">
+ <div className="w-12 h-12 rounded flex items-center justify-center mb-2" style={{
+ background: 'rgba(255, 107, 0, 0.1)',
+ border: '1px solid rgba(255, 107, 0, 0.3)'
+ }}>
+ <span style={{ fontSize: '24px' }}>🔔</span>
+ </div>
+ <p className="text-xs font-semibold mb-1" style={{ color: '#ffffff' }}>
+ No Active Alerts
+ </p>
+ <p className="text-xs text-center px-4" style={{ color: '#666666' }}>
+ Set alerts from the sidebar
+ </p>
+ </div>
+ )}
+ </div>
+ </div>
+
+ {/* Footer */}
+ <div className="px-3 py-1.5 border-t" style={{
+ background: 'rgba(0, 0, 0, 0.9)',
+ borderColor: 'rgba(255, 107, 0, 0.25)'
+ }}>
+ <div className="flex items-center justify-between text-xs">
+ <span className="font-mono font-bold" style={{ color: '#ffffff' }}>
+ {config.symbol}
+ </span>
+ <span className="font-mono font-semibold" style={{ color: '#10b981' }}>
+ {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+ </span>
+ </div>
+ </div>
+ </div>
+ </div>
+ )}
  </>
  );
 }

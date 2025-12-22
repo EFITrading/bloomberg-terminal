@@ -1357,7 +1357,6 @@ export class TradingAssistant {
     output += `<table style="width: 100%; border-collapse: collapse; background: #000;">\n`;
     output += `<thead>\n<tr style="background: linear-gradient(135deg, #000 0%, #1a1a1a 100%); border-bottom: 2px solid #ff8500;">\n`;
     output += `<th style="padding: 12px 8px; text-align: left; color: #ff8500; font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Time</th>\n`;
-    output += `<th style="padding: 12px 8px; text-align: left; color: #ff8500; font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Symbol</th>\n`;
     output += `<th style="padding: 12px 8px; text-align: left; color: #ff8500; font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">C/P</th>\n`;
     output += `<th style="padding: 12px 8px; text-align: right; color: #ff8500; font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Strike</th>\n`;
     output += `<th style="padding: 12px 8px; text-align: left; color: #ff8500; font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Size</th>\n`;

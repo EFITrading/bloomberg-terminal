@@ -99,6 +99,65 @@ interface ChartDataPoint {
  time: string;
 }
 
+// ==================================================================================
+// TECHNALYSIS PRICE ACTION SYSTEM INTERFACES
+// ==================================================================================
+
+interface OrderBlock {
+  type: 'bullish' | 'bearish';
+  price: number;
+  high: number;
+  low: number;
+  index: number;
+  strength: number;
+  isValid: boolean;
+  isMitigated: boolean;
+  volumeConfirmation: boolean;
+}
+
+interface FairValueGap {
+  type: 'bullish' | 'bearish';
+  topPrice: number;
+  bottomPrice: number;
+  startIndex: number;
+  endIndex: number;
+  gapSize: number;
+  isValid: boolean;
+  isFilled: boolean;
+}
+
+interface LiquidityZone {
+  type: 'buy_side' | 'sell_side';
+  price: number;
+  strength: number;
+  index: number;
+  isSwept: boolean;
+  expectedReaction: 'reversal' | 'continuation';
+}
+
+interface MarketStructure {
+  type: 'higher_high' | 'higher_low' | 'lower_high' | 'lower_low';
+  price: number;
+  index: number;
+  trendDirection: 'bullish' | 'bearish' | 'ranging';
+}
+
+interface BreakOfStructure {
+  type: 'bos' | 'choch';
+  direction: 'bullish' | 'bearish';
+  price: number;
+  index: number;
+  previousStructure: MarketStructure;
+}
+
+interface OptimalTradeEntry {
+  type: 'premium' | 'discount' | 'equilibrium';
+  priceLevel: number;
+  confidence: number;
+  setupType: string;
+  index: number;
+}
+
 // Drawing types for proper TypeScript support
 interface DrawingPoint {
  x: number;
@@ -1958,6 +2017,602 @@ const renderExpansionLiquidationZone = (
  console.log(`?? Drew ${zone.type} zone: Candle $${zone.candleOpen.toFixed(2)}-$${zone.candleClose.toFixed(2)} at X: ${zoneStartX.toFixed(1)}-${zoneEndX.toFixed(1)}`);
 };
 
+// ==================================================================================
+// TECHNALYSIS PRICE ACTION DETECTION FUNCTIONS
+// ==================================================================================
+
+const calculateImpulseStrength = (candles: ChartDataPoint[]): number => {
+  let strength = 0;
+  const avgBody = candles.reduce((sum, c) => sum + Math.abs(c.close - c.open), 0) / candles.length;
+  
+  candles.forEach(c => {
+    const body = Math.abs(c.close - c.open);
+    const wick = c.high - c.low - body;
+    if (body > wick * 2) strength++;
+  });
+  
+  return Math.min(strength, 5);
+};
+
+const detectMarketStructure = (data: ChartDataPoint[], lookback: number = 5): MarketStructure[] => {
+  const structures: MarketStructure[] = [];
+  const swings: { price: number; index: number; type: 'high' | 'low' }[] = [];
+  
+  for (let i = lookback; i < data.length - lookback; i++) {
+    const current = data[i];
+    
+    let isSwingHigh = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (data[i - j].high >= current.high || data[i + j].high >= current.high) {
+        isSwingHigh = false;
+        break;
+      }
+    }
+    if (isSwingHigh) {
+      swings.push({ price: current.high, index: i, type: 'high' });
+    }
+    
+    let isSwingLow = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (data[i - j].low <= current.low || data[i + j].low <= current.low) {
+        isSwingLow = false;
+        break;
+      }
+    }
+    if (isSwingLow) {
+      swings.push({ price: current.low, index: i, type: 'low' });
+    }
+  }
+  
+  for (let i = 1; i < swings.length; i++) {
+    const prev = swings[i - 1];
+    const curr = swings[i];
+    
+    if (prev.type === 'high' && curr.type === 'high') {
+      const structureType = curr.price > prev.price ? 'higher_high' : 'lower_high';
+      const trend = curr.price > prev.price ? 'bullish' : 'bearish';
+      structures.push({
+        type: structureType,
+        price: curr.price,
+        index: curr.index,
+        trendDirection: trend
+      });
+    } else if (prev.type === 'low' && curr.type === 'low') {
+      const structureType = curr.price > prev.price ? 'higher_low' : 'lower_low';
+      const trend = curr.price > prev.price ? 'bullish' : 'bearish';
+      structures.push({
+        type: structureType,
+        price: curr.price,
+        index: curr.index,
+        trendDirection: trend
+      });
+    }
+  }
+  
+  return structures;
+};
+
+const detectOrderBlocks = (data: ChartDataPoint[]): OrderBlock[] => {
+  const orderBlocks: OrderBlock[] = [];
+  
+  for (let i = 3; i < data.length - 3; i++) {
+    const prev = data[i - 1];
+    const current = data[i];
+    const next = data[i + 1];
+    const next2 = data[i + 2];
+    const next3 = data[i + 3];
+    
+    const isBearishCandle = current.close < current.open;
+    const strongBullishMove = next.close > next.open && 
+                              next2.close > next2.open &&
+                              next3.close > current.high;
+    
+    if (isBearishCandle && strongBullishMove) {
+      const impulseStrength = calculateImpulseStrength([next, next2, next3]);
+      const volumeConfirmed = current.volume ? current.volume > (data[i-1]?.volume || 0) : false;
+      
+      orderBlocks.push({
+        type: 'bullish',
+        price: (current.open + current.close) / 2,
+        high: current.high,
+        low: current.low,
+        index: i,
+        strength: impulseStrength,
+        isValid: true,
+        isMitigated: false,
+        volumeConfirmation: volumeConfirmed
+      });
+      console.log(`📦 BULLISH Order Block detected at index ${i}: $${current.low.toFixed(2)}-$${current.high.toFixed(2)}`);
+    }
+    
+    const isBullishCandle = current.close > current.open;
+    const strongBearishMove = next.close < next.open && 
+                              next2.close < next2.open &&
+                              next3.close < current.low;
+    
+    if (isBullishCandle && strongBearishMove) {
+      const impulseStrength = calculateImpulseStrength([next, next2, next3]);
+      const volumeConfirmed = current.volume ? current.volume > (data[i-1]?.volume || 0) : false;
+      
+      orderBlocks.push({
+        type: 'bearish',
+        price: (current.open + current.close) / 2,
+        high: current.high,
+        low: current.low,
+        index: i,
+        strength: impulseStrength,
+        isValid: true,
+        isMitigated: false,
+        volumeConfirmation: volumeConfirmed
+      });
+      console.log(`📦 BEARISH Order Block detected at index ${i}: $${current.low.toFixed(2)}-$${current.high.toFixed(2)}`);
+    }
+  }
+  
+  console.log(`📦 Total Order Blocks detected: ${orderBlocks.length}`);
+  return orderBlocks;
+};
+
+const invalidateOrderBlocks = (orderBlocks: OrderBlock[], data: ChartDataPoint[]): OrderBlock[] => {
+  return orderBlocks.map(ob => {
+    if (ob.isMitigated) return ob;
+    
+    // Check all candles after the order block for mitigation
+    for (let i = ob.index + 1; i < data.length; i++) {
+      const candle = data[i];
+      
+      // Bullish order block is mitigated when price breaks below its low
+      if (ob.type === 'bullish' && candle.close < ob.low) {
+        return { ...ob, isMitigated: true };
+      }
+      
+      // Bearish order block is mitigated when price breaks above its high
+      if (ob.type === 'bearish' && candle.close > ob.high) {
+        return { ...ob, isMitigated: true };
+      }
+    }
+    
+    return ob;
+  });
+};
+
+const detectFairValueGaps = (data: ChartDataPoint[], minGapPercent: number = 0.002): FairValueGap[] => {
+  const fvgs: FairValueGap[] = [];
+  
+  for (let i = 1; i < data.length - 1; i++) {
+    const prev = data[i - 1];
+    const current = data[i];
+    const next = data[i + 1];
+    
+    if (next.low > prev.high) {
+      const gapSize = next.low - prev.high;
+      const gapPercent = gapSize / current.close;
+      
+      if (gapPercent >= minGapPercent) {
+        fvgs.push({
+          type: 'bullish',
+          topPrice: next.low,
+          bottomPrice: prev.high,
+          startIndex: i - 1,
+          endIndex: i + 1,
+          gapSize,
+          isValid: true,
+          isFilled: false
+        });
+        console.log(`⚡ BULLISH FVG detected at index ${i}: $${prev.high.toFixed(2)} - $${next.low.toFixed(2)}`);
+      }
+    }
+    
+    if (next.high < prev.low) {
+      const gapSize = prev.low - next.high;
+      const gapPercent = gapSize / current.close;
+      
+      if (gapPercent >= minGapPercent) {
+        fvgs.push({
+          type: 'bearish',
+          topPrice: prev.low,
+          bottomPrice: next.high,
+          startIndex: i - 1,
+          endIndex: i + 1,
+          gapSize,
+          isValid: true,
+          isFilled: false
+        });
+        console.log(`⚡ BEARISH FVG detected at index ${i}: $${next.high.toFixed(2)} - $${prev.low.toFixed(2)}`);
+      }
+    }
+  }
+  
+  console.log(`⚡ Total FVGs detected: ${fvgs.length}`);
+  return fvgs;
+};
+
+const invalidateFilledFVGs = (fvgs: FairValueGap[], data: ChartDataPoint[]): FairValueGap[] => {
+  return fvgs.map(fvg => {
+    if (fvg.isFilled) return fvg;
+    
+    // Check all candles after the FVG for fills
+    for (let i = fvg.endIndex + 1; i < data.length; i++) {
+      const candle = data[i];
+      
+      // Bullish FVG is filled when price comes back down into the gap
+      if (fvg.type === 'bullish' && candle.low <= fvg.topPrice) {
+        return { ...fvg, isFilled: true };
+      }
+      
+      // Bearish FVG is filled when price comes back up into the gap
+      if (fvg.type === 'bearish' && candle.high >= fvg.bottomPrice) {
+        return { ...fvg, isFilled: true };
+      }
+    }
+    
+    return fvg;
+  });
+};
+
+const detectLiquidityZones = (data: ChartDataPoint[], tolerance: number = 0.003): LiquidityZone[] => {
+  const liquidityZones: LiquidityZone[] = [];
+  const swingHighs: { price: number; index: number }[] = [];
+  const swingLows: { price: number; index: number }[] = [];
+  
+  for (let i = 5; i < data.length - 5; i++) {
+    let isSwingHigh = true;
+    let isSwingLow = true;
+    
+    for (let j = 1; j <= 5; j++) {
+      if (data[i - j].high >= data[i].high || data[i + j].high >= data[i].high) isSwingHigh = false;
+      if (data[i - j].low <= data[i].low || data[i + j].low <= data[i].low) isSwingLow = false;
+    }
+    
+    if (isSwingHigh) swingHighs.push({ price: data[i].high, index: i });
+    if (isSwingLow) swingLows.push({ price: data[i].low, index: i });
+  }
+  
+  for (let i = 0; i < swingHighs.length - 1; i++) {
+    let equalCount = 1;
+    const basePrice = swingHighs[i].price;
+    
+    for (let j = i + 1; j < swingHighs.length; j++) {
+      const priceDiff = Math.abs(swingHighs[j].price - basePrice) / basePrice;
+      if (priceDiff <= tolerance) {
+        equalCount++;
+      }
+    }
+    
+    if (equalCount >= 2) {
+      liquidityZones.push({
+        type: 'buy_side',
+        price: basePrice,
+        strength: equalCount,
+        index: swingHighs[i].index,
+        isSwept: false,
+        expectedReaction: 'reversal'
+      });
+    }
+  }
+  
+  for (let i = 0; i < swingLows.length - 1; i++) {
+    let equalCount = 1;
+    const basePrice = swingLows[i].price;
+    
+    for (let j = i + 1; j < swingLows.length; j++) {
+      const priceDiff = Math.abs(swingLows[j].price - basePrice) / basePrice;
+      if (priceDiff <= tolerance) {
+        equalCount++;
+      }
+    }
+    
+    if (equalCount >= 2) {
+      liquidityZones.push({
+        type: 'sell_side',
+        price: basePrice,
+        strength: equalCount,
+        index: swingLows[i].index,
+        isSwept: false,
+        expectedReaction: 'reversal'
+      });
+    }
+  }
+  
+  return liquidityZones;
+};
+
+const detectBreakOfStructure = (data: ChartDataPoint[], structures: MarketStructure[]): BreakOfStructure[] => {
+  const breaks: BreakOfStructure[] = [];
+  
+  for (let i = 1; i < structures.length; i++) {
+    const prev = structures[i - 1];
+    const curr = structures[i];
+    
+    if (prev.type === 'lower_low' && curr.type === 'higher_low') {
+      breaks.push({
+        type: 'bos',
+        direction: 'bullish',
+        price: curr.price,
+        index: curr.index,
+        previousStructure: prev
+      });
+    }
+    
+    if (prev.type === 'higher_high' && curr.type === 'lower_high') {
+      breaks.push({
+        type: 'bos',
+        direction: 'bearish',
+        price: curr.price,
+        index: curr.index,
+        previousStructure: prev
+      });
+    }
+    
+    if ((prev.trendDirection === 'bullish' && curr.trendDirection === 'bearish') ||
+        (prev.trendDirection === 'bearish' && curr.trendDirection === 'bullish')) {
+      breaks.push({
+        type: 'choch',
+        direction: curr.trendDirection,
+        price: curr.price,
+        index: curr.index,
+        previousStructure: prev
+      });
+    }
+  }
+  
+  return breaks;
+};
+
+const calculatePremiumDiscountZones = (data: ChartDataPoint[], startIdx: number, endIdx: number): OptimalTradeEntry[] => {
+  const entries: OptimalTradeEntry[] = [];
+  const rangeHigh = Math.max(...data.slice(startIdx, endIdx + 1).map(d => d.high));
+  const rangeLow = Math.min(...data.slice(startIdx, endIdx + 1).map(d => d.low));
+  const rangeSize = rangeHigh - rangeLow;
+  
+  const equilibrium = rangeLow + (rangeSize * 0.5);
+  const premium25 = rangeLow + (rangeSize * 0.75);
+  const premium50 = rangeLow + (rangeSize * 0.618);
+  const discount25 = rangeLow + (rangeSize * 0.25);
+  const discount50 = rangeLow + (rangeSize * 0.382);
+  
+  entries.push(
+    { type: 'premium', priceLevel: premium25, confidence: 8, setupType: 'Sell Zone', index: endIdx },
+    { type: 'premium', priceLevel: premium50, confidence: 9, setupType: 'Optimal Sell', index: endIdx },
+    { type: 'equilibrium', priceLevel: equilibrium, confidence: 5, setupType: 'Mid-Range', index: endIdx },
+    { type: 'discount', priceLevel: discount50, confidence: 9, setupType: 'Optimal Buy', index: endIdx },
+    { type: 'discount', priceLevel: discount25, confidence: 8, setupType: 'Buy Zone', index: endIdx }
+  );
+  
+  return entries;
+};
+
+const renderTechnalysisIndicators = (
+  ctx: CanvasRenderingContext2D,
+  data: ChartDataPoint[],
+  chartWidth: number,
+  chartHeight: number,
+  minPrice: number,
+  maxPrice: number,
+  startIndex: number,
+  visibleCandleCount: number,
+  activeFeatures: {
+    orderBlocks: boolean;
+    fvg: boolean;
+    liquidity: boolean;
+    structure: boolean;
+    premiumDiscount: boolean;
+  }
+) => {
+  console.log('🔥 Beast Mode Render START', {
+    dataLength: data.length,
+    startIndex,
+    visibleCandleCount,
+    activeFeatures,
+    chartWidth,
+    chartHeight
+  });
+  
+  const candleSpacing = chartWidth / visibleCandleCount;
+  const priceToY = (price: number) => 
+    chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight;
+  const indexToX = (index: number) => 40 + ((index - startIndex) * candleSpacing);
+  
+  // ===== ORDER BLOCKS =====
+  if (activeFeatures.orderBlocks) {
+    console.log('📦 Detecting Order Blocks...');
+    const orderBlocks = detectOrderBlocks(data);
+    const validBlocks = invalidateOrderBlocks(orderBlocks, data);
+    console.log(`📦 Found ${orderBlocks.length} order blocks total, ${validBlocks.filter(ob => !ob.isMitigated && ob.strength >= 2).length} active`);
+    
+    let rendered = 0;
+    validBlocks.forEach(ob => {
+      if (!ob.isValid || ob.isMitigated || ob.strength < 2) return;
+      if (ob.index < startIndex || ob.index > startIndex + visibleCandleCount + 50) return;
+      
+      const x = indexToX(ob.index);
+      const lastX = indexToX(data.length - 1) + (5 * candleSpacing);
+      const topY = priceToY(ob.high);
+      const bottomY = priceToY(ob.low);
+      
+      // Use opacity based on strength: 3 stars = 100%, 2 stars = 50%
+      const fillOpacity = ob.strength >= 3 ? 0.5 : 0.175;
+      const strokeOpacity = ob.strength >= 3 ? 1.0 : 0.5;
+      
+      // 3-star = lime green/pure red, 2-star = regular green/red at 50%
+      const bullishColor = ob.strength >= 3 ? '50, 205, 50' : '0, 255, 0'; // Lime green vs pure green
+      const bearishColor = '255, 0, 0'; // Red
+      
+      ctx.fillStyle = ob.type === 'bullish' ? `rgba(${bullishColor}, ${fillOpacity})` : `rgba(${bearishColor}, ${fillOpacity})`;
+      ctx.fillRect(x, topY, lastX - x, bottomY - topY);
+      
+      ctx.strokeStyle = ob.type === 'bullish' ? `rgba(${bullishColor}, ${strokeOpacity})` : `rgba(${bearishColor}, ${strokeOpacity})`;
+      ctx.lineWidth = ob.volumeConfirmation ? 3 : 2;
+      ctx.setLineDash(ob.volumeConfirmation ? [] : [5, 3]);
+      ctx.strokeRect(x, topY, lastX - x, bottomY - topY);
+      ctx.setLineDash([]);
+      
+      // Label without stars
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = ob.type === 'bullish' ? `rgba(${bullishColor}, ${strokeOpacity})` : `rgba(${bearishColor}, ${strokeOpacity})`;
+      ctx.fillText('OB', x + 5, (topY + bottomY) / 2);
+      
+      rendered++;
+    });
+    console.log(`📦 Rendered ${rendered} order blocks on chart`);
+  }
+  
+  // ===== FAIR VALUE GAPS =====
+  if (activeFeatures.fvg) {
+    console.log('⚡ Detecting FVGs...');
+    const fvgs = detectFairValueGaps(data);
+    const validFvgs = invalidateFilledFVGs(fvgs, data);
+    console.log(`⚡ Found ${fvgs.length} FVGs total, ${validFvgs.filter(f => !f.isFilled).length} unfilled`);
+    
+    let rendered = 0;
+    validFvgs.forEach(fvg => {
+      if (!fvg.isValid || fvg.isFilled) return;
+      if (fvg.endIndex < startIndex || fvg.startIndex > startIndex + visibleCandleCount + 50) return;
+      
+      const startX = indexToX(fvg.startIndex);
+      const lastX = indexToX(data.length - 1) + (5 * candleSpacing);
+      const topY = priceToY(fvg.topPrice);
+      const bottomY = priceToY(fvg.bottomPrice);
+      
+      ctx.fillStyle = fvg.type === 'bullish' ? 'rgba(255, 215, 0, 0.15)' : 'rgba(255, 0, 255, 0.15)';
+      ctx.fillRect(startX, topY, lastX - startX, bottomY - topY);
+      
+      ctx.strokeStyle = fvg.type === 'bullish' ? '#ffd700' : '#ff00ff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 4]);
+      ctx.beginPath();
+      ctx.moveTo(startX, topY);
+      ctx.lineTo(lastX, topY);
+      ctx.moveTo(startX, bottomY);
+      ctx.lineTo(lastX, bottomY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = fvg.type === 'bullish' ? '#ffd700' : '#ff00ff';
+      ctx.fillText('FVG', startX + 3, topY + 12);
+      
+      rendered++;
+    });
+    console.log(`⚡ Rendered ${rendered} FVGs on chart`);
+  }
+  
+  // ===== LIQUIDITY ZONES =====
+  if (activeFeatures.liquidity) {
+    const liqZones = detectLiquidityZones(data);
+    liqZones.forEach(liq => {
+      if (liq.isSwept) return;
+      if (liq.index < startIndex || liq.index > startIndex + visibleCandleCount + 50) return;
+      
+      const y = priceToY(liq.price);
+      const startX = Math.max(40, indexToX(liq.index - 10));
+      const endX = indexToX(data.length - 1) + (5 * candleSpacing);
+      
+      ctx.strokeStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600';
+      ctx.lineWidth = Math.min(liq.strength, 4);
+      ctx.setLineDash([10, 5]);
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      
+      for (let i = 0; i < liq.strength; i++) {
+        ctx.fillStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600';
+        ctx.beginPath();
+        ctx.arc(startX + (i * 15), y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600';
+      const label = liq.type === 'buy_side' ? '🔼 BSL' : '🔽 SSL';
+      ctx.fillText(label, startX + (liq.strength * 15) + 5, y - 5);
+    });
+  }
+  
+  // ===== MARKET STRUCTURE =====
+  if (activeFeatures.structure) {
+    const structures = detectMarketStructure(data);
+    const breaks = detectBreakOfStructure(data, structures);
+    
+    breaks.forEach(brk => {
+      if (brk.index < startIndex || brk.index > startIndex + visibleCandleCount) return;
+      
+      const x = indexToX(brk.index);
+      const y = priceToY(brk.price);
+      
+      // Determine label based on type and direction
+      let label = '';
+      if (brk.type === 'bos' && brk.direction === 'bullish') label = 'Up';
+      else if (brk.type === 'bos' && brk.direction === 'bearish') label = 'Down';
+      else if (brk.type === 'choch' && brk.direction === 'bullish') label = 'Building';
+      else if (brk.type === 'choch' && brk.direction === 'bearish') label = 'Failing';
+      
+      // Set full opacity for text
+      ctx.globalAlpha = 1.0;
+      ctx.font = 'bold 14px monospace';
+      const textMetrics = ctx.measureText(label);
+      const textWidth = textMetrics.width;
+      const textHeight = 16;
+      
+      // Draw semi-transparent background box
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.fillRect(x - textWidth/2 - 3, y - 25, textWidth + 6, textHeight + 4);
+      
+      // Draw text at full opacity
+      ctx.fillStyle = brk.direction === 'bullish' ? '#00ff00' : '#ff0000';
+      ctx.fillText(label, x - textWidth/2, y - 10);
+      
+      ctx.beginPath();
+      if (brk.direction === 'bullish') {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 5, y + 10);
+        ctx.lineTo(x + 5, y + 10);
+      } else {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 5, y - 10);
+        ctx.lineTo(x + 5, y - 10);
+      }
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+  
+  // ===== PREMIUM/DISCOUNT ZONES =====
+  if (activeFeatures.premiumDiscount) {
+    const recentSwingStart = Math.max(0, data.length - 50);
+    const recentSwingEnd = data.length - 1;
+    const pdZones = calculatePremiumDiscountZones(data, recentSwingStart, recentSwingEnd);
+    
+    pdZones.forEach(zone => {
+      const y = priceToY(zone.priceLevel);
+      const startX = 40;
+      const endX = indexToX(data.length - 1) + (5 * candleSpacing);
+      
+      let color = '#888888';
+      if (zone.type === 'premium') color = '#ff4444';
+      if (zone.type === 'discount') color = '#44ff44';
+      if (zone.type === 'equilibrium') color = '#ffff00';
+      
+      ctx.strokeStyle = color;
+      ctx.lineWidth = zone.confidence >= 9 ? 2 : 1;
+      ctx.setLineDash(zone.confidence >= 9 ? [] : [5, 5]);
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([]);
+      
+      ctx.font = '11px monospace';
+      ctx.fillStyle = color;
+      ctx.fillText(zone.setupType, endX + 5, y + 4);
+    });
+  }
+};
+
 interface TradingViewChartProps {
  symbol: string;
  initialTimeframe?: string;
@@ -1980,6 +2635,7 @@ export default function TradingViewChart({
  
   // Dropdown button refs for positioning
   const drawingsButtonRef = useRef<HTMLButtonElement>(null);
+ const technalysisButtonRef = useRef<HTMLButtonElement>(null);
   const expectedRangeButtonRef = useRef<HTMLButtonElement>(null);
   const gexButtonRef = useRef<HTMLButtonElement>(null); // Chart state
  const [config, setConfig] = useState<ChartConfig>({
@@ -2039,6 +2695,7 @@ export default function TradingViewChart({
  const [horizontalRays, setHorizontalRays] = useState<HorizontalRay[]>([]);
  const [selectedRay, setSelectedRay] = useState<string | null>(null);
  const [isDrawingsDropdownOpen, setIsDrawingsDropdownOpen] = useState<boolean>(false);
+ const [isTechnalysisDropdownOpen, setIsTechnalysisDropdownOpen] = useState<boolean>(false);
  const [isEditingRay, setIsEditingRay] = useState<boolean>(false);
  const [rayDragStart, setRayDragStart] = useState<{x: number, y: number, originalPrice: number} | null>(null);
 
@@ -2691,6 +3348,16 @@ export default function TradingViewChart({
  // Expansion/Liquidation indicator state
  const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false);
  const [expansionLiquidationZones, setExpansionLiquidationZones] = useState<any[]>([]);
+
+ // Technalysis indicator state
+ const [technalysisActive, setTechnalysisActive] = useState(false);
+ const [technalysisFeatures, setTechnalysisFeatures] = useState({
+   orderBlocks: false,
+   fvg: false,
+   liquidity: false,
+   structure: false,
+   premiumDiscount: false
+ });
 
  // Watchlist data state
  const [watchlistData, setWatchlistData] = useState<{[key: string]: {
@@ -4613,6 +5280,24 @@ export default function TradingViewChart({
  });
  
  console.log(`?? Rendered ${validZones.filter(z => z.isValid).length} valid zones`);
+ }
+
+ // Draw Technalysis indicators (Order Blocks, FVGs, Liquidity, etc.)
+ const anyFeatureEnabled = technalysisActive || Object.values(technalysisFeatures).some(f => f);
+ if (anyFeatureEnabled) {
+ console.log('🔥 Rendering Technalysis indicators');
+ renderTechnalysisIndicators(
+ ctx,
+ data,
+ chartWidth,
+ priceChartHeight,
+ adjustedMin,
+ adjustedMax,
+ startIndex,
+ visibleCandleCount,
+ technalysisFeatures
+ );
+ console.log('✅ Technalysis indicators rendered');
  }
 
  // Draw flow chart above volume if active (only on 5min timeframe)
@@ -10334,33 +11019,127 @@ export default function TradingViewChart({
                   />, 
                   document.body
                 )}
-              </div> {/* Expansion/Liquidation Button */}
- <div className="ml-4">
+              </div>
+
+ {/* Technalysis Button */}}
+ <div className="ml-4 relative">
  <button
- onClick={() => {
- const newActiveState = !isExpansionLiquidationActive;
- setIsExpansionLiquidationActive(newActiveState);
- 
- if (newActiveState) {
- // Calculate expansion/liquidation zones when activated
- console.log('?? Expansion/Liquidation indicator activated');
- // This will trigger the detection algorithm in the canvas rendering
- } else {
- // Clear zones when deactivated
- setExpansionLiquidationZones([]);
- console.log('?? Expansion/Liquidation indicator deactivated');
- }
- }}
- className={`btn-3d-carved btn-expansion-liquidation relative group flex items-center space-x-2 ${isExpansionLiquidationActive ? 'active' : 'text-white'}`}
+ ref={technalysisButtonRef}
+ onClick={() => setIsTechnalysisDropdownOpen(!isTechnalysisDropdownOpen)}
+ className={`btn-3d-carved relative group flex items-center space-x-2 text-white ${technalysisActive ? 'active' : ''}`}
  style={{
- padding: '10px 14px',
+ padding: '10px 16px',
  fontWeight: '700',
  fontSize: '13px',
  borderRadius: '4px'
  }}
  >
- <span>EXPANSION/LIQUIDATION</span>
+ <span>TECHNALYSIS</span>
+ <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+ <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+ </svg>
+ {technalysisActive && (
+ <div 
+ className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
+ style={{
+ boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
+ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+ }}
+ />
+ )}
  </button>
+
+ {/* Technalysis Dropdown Menu */}
+ {isTechnalysisDropdownOpen && createPortal(
+ <div 
+ onClick={(e) => e.stopPropagation()}
+ className="absolute w-48 border border-gray-600 rounded-md shadow-lg" 
+ style={{ 
+ top: technalysisButtonRef.current ? technalysisButtonRef.current.getBoundingClientRect().bottom + 4 : 100,
+ left: technalysisButtonRef.current ? technalysisButtonRef.current.getBoundingClientRect().left : 400,
+ zIndex: 99999,
+ boxShadow: '0 10px 25px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+ background: '#000000',
+ backdropFilter: 'blur(10px)'
+ }}
+ >
+ <div className="py-1">
+ <button
+ onClick={() => {
+ setTechnalysisActive(!technalysisActive);
+ setIsTechnalysisDropdownOpen(false);
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-black flex items-center justify-between ${technalysisActive ? 'bg-black' : ''}`}
+ >
+ <span>Enable All</span>
+ {technalysisActive && <span className="text-blue-400">✓</span>}
+ </button>
+ 
+ <div className="border-t border-gray-600 my-1"></div>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, orderBlocks: !prev.orderBlocks}));
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.orderBlocks ? 'bg-black' : ''}`}
+ >
+ <span>Zones</span>
+ {technalysisFeatures.orderBlocks && <span className="text-blue-400">✓</span>}
+ </button>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, fvg: !prev.fvg}));
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.fvg ? 'bg-black' : ''}`}
+ >
+ <span>Fills</span>
+ {technalysisFeatures.fvg && <span className="text-blue-400">✓</span>}
+ </button>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, liquidity: !prev.liquidity}));
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.liquidity ? 'bg-black' : ''}`}
+ >
+ <span>Hunting</span>
+ {technalysisFeatures.liquidity && <span className="text-blue-400">✓</span>}
+ </button>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, structure: !prev.structure}));
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.structure ? 'bg-black' : ''}`}
+ >
+ <span>Trend</span>
+ {technalysisFeatures.structure && <span className="text-blue-400">✓</span>}
+ </button>
+ 
+ <button
+ onClick={() => {
+ setTechnalysisFeatures(prev => ({...prev, premiumDiscount: !prev.premiumDiscount}));
+ }}
+ className={`w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between ${technalysisFeatures.premiumDiscount ? 'bg-black' : ''}`}
+ >
+ <span>Value</span>
+ {technalysisFeatures.premiumDiscount && <span className="text-blue-400">✓</span>}
+ </button>
+ </div>
+ </div>, 
+ document.body
+ )}
+
+ {/* Click outside to close dropdown */}
+ {isTechnalysisDropdownOpen && createPortal(
+ <div 
+ className="fixed inset-0" 
+ style={{ zIndex: 99998 }}
+ onClick={() => setIsTechnalysisDropdownOpen(false)}
+ />, 
+ document.body
+ )}
  </div>
 
  {/* Drawing Tools Button */}
