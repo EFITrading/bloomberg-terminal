@@ -15,9 +15,9 @@ const enrichTradeDataCombined = async (
 ): Promise<OptionsFlowData[]> => {
   if (trades.length === 0) return trades;
   
-  const BATCH_SIZE = 50; // Process 50 trades per batch
-  const BATCH_DELAY = 100; // 100ms delay between batches
-  const REQUEST_DELAY = 20; // 20ms stagger between requests
+  const BATCH_SIZE = 500; // Massive batch size for maximum throughput
+  const BATCH_DELAY = 0; // Zero delay
+  const REQUEST_DELAY = 0; // Zero stagger - full parallel blast
   const batches = [];
   
   for (let i = 0; i < trades.length; i += BATCH_SIZE) {
@@ -33,13 +33,13 @@ const enrichTradeDataCombined = async (
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
     
-    if (batchIndex % 10 === 0) {
+    if (batchIndex % 20 === 0) { // Log every 20th batch instead of every 10th
       console.log(`📦 Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex/batches.length)*100)}%)`);
     }
     
     const batchResults = await Promise.all(
-      batch.map(async (trade, tradeIndex) => {
-        await new Promise(resolve => setTimeout(resolve, tradeIndex * REQUEST_DELAY));
+      batch.map(async (trade) => {
+        // No delay - maximum parallel execution
         
         try {
           const expiry = trade.expiry.replace(/-/g, '').slice(2);
@@ -51,8 +51,10 @@ const enrichTradeDataCombined = async (
           const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
           
           const response = await fetch(snapshotUrl, {
-            signal: AbortSignal.timeout(8000)
-          });
+            signal: AbortSignal.timeout(2000), // Faster timeout
+            keepalive: true,
+            priority: 'high' // Browser prioritization hint
+          } as RequestInit);
           
           if (!response.ok) {
             failCount++;
@@ -111,9 +113,7 @@ const enrichTradeDataCombined = async (
     allResults.push(...batchResults);
     updateCallback([...allResults]);
     
-    if (batchIndex < batches.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
-    }
+    // No delay - process at maximum speed
   }
   
   console.log(`✅ Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);

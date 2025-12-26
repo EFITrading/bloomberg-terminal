@@ -8,7 +8,6 @@ import {
  TbNews, 
  TbBellRinging,
  TbBellOff, 
- TbMessageCircle, 
  TbTrendingUp,
  TbTrendingDown,
  TbX,
@@ -34,12 +33,15 @@ import {
  TbCalendar,
  TbArrowsShuffle,
  TbFilter,
- TbChartDots
+ TbChartDots,
+ TbArrowUp,
+ TbArrowDown
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 import PolygonService from '../../lib/polygonService';
 import ElectionCycleService from '../../lib/electionCycleService';
 import ETFHoldingsModal from '../ETFHoldingsModal';
+import { useMarketRegime } from '../../contexts/MarketRegimeContext';
 
 // Global type declarations
 declare global {
@@ -2966,6 +2968,8 @@ export default function TradingViewChart({
  onSymbolChange,
  onTimeframeChange
 }: TradingViewChartProps) {
+ const { setRegimes } = useMarketRegime();
+ 
  // Canvas refs
  const containerRef = useRef<HTMLDivElement>(null);
  const chartCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -3063,6 +3067,9 @@ export default function TradingViewChart({
  const [isBrushing, setIsBrushing] = useState<boolean>(false);
  const [lastBrushTime, setLastBrushTime] = useState<number>(0);
  const [isMousePressed, setIsMousePressed] = useState<boolean>(false);
+
+ // Pinch-to-zoom state for mobile
+ const [lastTouchDistance, setLastTouchDistance] = useState<number | null>(null);
 
  // Keep ref in sync with state for reliable access
  useEffect(() => {
@@ -3861,9 +3868,7 @@ export default function TradingViewChart({
  // Sidebar panel state
  const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null);
  const [watchlistTab, setWatchlistTab] = useState('Watchlist');
- const [regimesTab, setRegimesTab] = useState('Life');
- const [chatTab, setChatTab] = useState('announcements');
- const [chatView, setChatView] = useState('channels'); // 'channels' or 'hub'
+ const [regimesTab, setRegimesTab] = useState('life');
  
  // Performance Dashboard state
  const [performanceDashboardDropdowns, setPerformanceDashboardDropdowns] = useState({
@@ -4657,11 +4662,151 @@ export default function TradingViewChart({
  // Market Regime Analysis state with caching and progress tracking
  const [marketRegimeData, setMarketRegimeData] = useState<MarketRegimeData | null>(null);
  const [isLoadingRegimes, setIsLoadingRegimes] = useState(false);
- const [regimeDataCache, setRegimeDataCache] = useState<{ [key: string]: MarketRegimeData }>({});
+ const [regimeDataCache, setRegimeDataCache] = useState<{ [key: string]: TimeframeAnalysis }>({});
  const [lastRegimeUpdate, setLastRegimeUpdate] = useState<number>(0);
  const [regimeUpdateProgress, setRegimeUpdateProgress] = useState<number>(0);
  const [regimeLoadingStage, setRegimeLoadingStage] = useState<string>('');
  const [selectedIndustry, setSelectedIndustry] = useState<IndustryPerformance | null>(null);
+ const [allRegimesLoaded, setAllRegimesLoaded] = useState(false);
+ const [highlightFilter, setHighlightFilter] = useState<'all' | 'gold' | 'purple' | 'highlights'>('all');
+
+ // Switch regime tabs instantly from cache
+ useEffect(() => {
+   // Build MarketRegimeData from ALL cached TimeframeAnalysis
+   const fullData: any = {
+     life: regimeDataCache['life'] || null,
+     developing: regimeDataCache['developing'] || null,
+     momentum: regimeDataCache['momentum'] || null
+   };
+   
+   // Only update if we have at least one timeframe loaded
+   if (fullData.life || fullData.developing || fullData.momentum) {
+     setMarketRegimeData(fullData as MarketRegimeData);
+     console.log(`⚡ Market regime data updated:`, {
+       life: !!fullData.life,
+       developing: !!fullData.developing,
+       momentum: !!fullData.momentum
+     });
+   }
+ }, [regimeDataCache]);
+
+ // Prefetch ALL regime tabs in parallel when panel opens
+ useEffect(() => {
+   if (activeSidebarPanel === 'regimes' && !allRegimesLoaded && Object.keys(regimeDataCache).length === 0) {
+     const fetchAllRegimes = async () => {
+       console.log('🚀 Parallel prefetch: Life + Developing + Momentum');
+       setIsLoadingRegimes(true);
+       setRegimeLoadingStage('Loading all regimes in parallel...');
+       
+       const tabConfigs = [
+         { tab: 'life', days: 5 },
+         { tab: 'developing', days: 21 },
+         { tab: 'momentum', days: 80 }
+       ];
+       
+       const results = await Promise.allSettled(
+         tabConfigs.map(({ tab, days }) => 
+           IndustryAnalysisService.analyzeTimeframe(days, tab.charAt(0).toUpperCase() + tab.slice(1))
+             .then(data => ({ tab, data }))
+             .catch(err => ({ tab, data: null, error: err }))
+         )
+       );
+       
+       const newCache: { [key: string]: TimeframeAnalysis } = {};
+       results.forEach((result) => {
+         if (result.status === 'fulfilled' && result.value.data) {
+           // Store TimeframeAnalysis directly
+           newCache[result.value.tab] = result.value.data;
+           const bullish = result.value.data.industries?.filter((i: any) => i.trend === 'bullish').length || 0;
+           const bearish = result.value.data.industries?.filter((i: any) => i.trend === 'bearish').length || 0;
+           console.log(`✅ ${result.value.tab}: ${bullish}B/${bearish}B industries`);
+         }
+       });
+       
+       setRegimeDataCache(newCache);
+       
+       // Build full MarketRegimeData with ALL timeframes
+       const fullData: any = {
+         life: newCache['life'] || null,
+         developing: newCache['developing'] || null,
+         momentum: newCache['momentum'] || null
+       };
+       setMarketRegimeData(fullData as MarketRegimeData);
+       console.log('📊 Full market regime data loaded:', {
+         life: !!fullData.life,
+         developing: !!fullData.developing,
+         momentum: !!fullData.momentum
+       });
+       
+       setAllRegimesLoaded(true);
+       setIsLoadingRegimes(false);
+       setLastRegimeUpdate(Date.now());
+       console.log('🎉 All regimes cached');
+     };
+     
+     fetchAllRegimes();
+   }
+ }, [activeSidebarPanel, allRegimesLoaded, regimeDataCache, regimesTab]);
+
+ // Load Market Regimes immediately on page load (background prefetch)
+ useEffect(() => {
+   if (allRegimesLoaded || Object.keys(regimeDataCache).length > 0) {
+     return; // Already loaded
+   }
+   
+   const fetchAllRegimes = async () => {
+     setIsLoadingRegimes(true);
+     
+     const tabConfigs = [
+       { tab: 'life', days: 5 },
+       { tab: 'developing', days: 21 },
+       { tab: 'momentum', days: 80 }
+     ];
+     
+     const results = await Promise.allSettled(
+       tabConfigs.map(({ tab, days }) => 
+         IndustryAnalysisService.analyzeTimeframe(days, tab.charAt(0).toUpperCase() + tab.slice(1))
+           .then(data => ({ tab, data }))
+           .catch(err => ({ tab, data: null, error: err }))
+       )
+     );
+     
+     const newCache: { [key: string]: TimeframeAnalysis } = {};
+     results.forEach((result) => {
+       if (result.status === 'fulfilled' && result.value.data) {
+         newCache[result.value.tab] = result.value.data;
+       }
+     });
+     
+     setRegimeDataCache(newCache);
+     
+     const fullData: any = {
+       life: newCache['life'] || null,
+       developing: newCache['developing'] || null,
+       momentum: newCache['momentum'] || null
+     };
+     setMarketRegimeData(fullData as MarketRegimeData);
+     console.log('📊 Full market regime data loaded:', {
+       life: !!fullData.life,
+       developing: !!fullData.developing,
+       momentum: !!fullData.momentum
+     });
+     
+     setAllRegimesLoaded(true);
+     setIsLoadingRegimes(false);
+     setLastRegimeUpdate(Date.now());
+     console.log('🎉 All regimes cached on page load');
+   };
+   
+   fetchAllRegimes();
+ }, []); // Run once on mount
+
+ // AI Trade Highlighting System - Clean Implementation with per-tab caching
+ const [highlightedTrades, setHighlightedTrades] = useState<Record<string, any>>({});
+ const [highlightedTradesCache, setHighlightedTradesCache] = useState<{ [key: string]: Record<string, any> }>({});
+ const [selectedTradeForModal, setSelectedTradeForModal] = useState<any>(null);
+ const [showTradeModal, setShowTradeModal] = useState(false);
+ const [isCalculatingTrades, setIsCalculatingTrades] = useState(false);
 
  // Expected Range state for probability levels
  const [expectedRangeLevels, setExpectedRangeLevels] = useState<any>(null);
@@ -5522,6 +5667,45 @@ export default function TradingViewChart({
  if (Object.keys(processedData).length > 0) {
  console.log(`? Successfully processed ${Object.keys(processedData).length} symbols for watchlist`);
  setWatchlistData(processedData);
+ 
+ // Update market regimes for Navigation (calculate inline with processedData)
+ const calculateRegime = (period: string) => {
+ const growthSectors = ['XLY', 'XLK', 'XLC'];
+ const defensiveSectors = ['XLP', 'XLU', 'XLRE', 'XLV'];
+ const valueSectors = ['XLB', 'XLI', 'XLF', 'XLE'];
+ 
+ const getChange = (symbol: string) => {
+ const data = processedData[symbol];
+ if (!data) return 0;
+ if (period === '1d') return data.change1d;
+ if (period === '5d') return data.change5d;
+ if (period === '13d') return data.change13d;
+ if (period === '21d') return data.change21d;
+ if (period === 'ytd') return data.changeYTD;
+ return 0;
+ };
+ 
+ const spyChange = getChange('SPY');
+ 
+ const growthRising = growthSectors.filter(s => (getChange(s) - spyChange) > 0).length;
+ const defensiveFalling = defensiveSectors.filter(s => (getChange(s) - spyChange) <= 0).length;
+ const defensiveRising = defensiveSectors.filter(s => (getChange(s) - spyChange) > 0).length;
+ const growthFalling = growthSectors.filter(s => (getChange(s) - spyChange) <= 0).length;
+ const valueRising = valueSectors.filter(s => (getChange(s) - spyChange) > 0).length;
+ 
+ if (growthRising === 3 && defensiveFalling >= 3) return 'RISK ON';
+ if (growthFalling === 3 && defensiveRising >= 3) return 'DEFENSIVE';
+ if (valueRising === 4) return 'VALUE';
+ return 'MIXED';
+ };
+ 
+ const periods = ['1d', '5d', '13d', '21d', 'ytd'];
+ const activeRegimes = periods.map(period => {
+ const regime = calculateRegime(period);
+ return regime !== 'MIXED' ? { period: period.toUpperCase(), regime } : null;
+ }).filter(Boolean) as { period: string; regime: string }[];
+ 
+ setRegimes(activeRegimes);
  } else {
  console.error('? No watchlist data processed - market data unavailable');
  setWatchlistData({});
@@ -5620,86 +5804,502 @@ export default function TradingViewChart({
  setSearchQuery(symbol);
  }, [symbol]);
 
- // Enhanced Market Regime Data Loading with immediate start and streaming results
- useEffect(() => {
- const loadMarketRegimeData = async () => {
- // Start loading immediately on component mount, not waiting for panel click
- if (!isLoadingRegimes && !marketRegimeData) {
- const cacheKey = new Date().toDateString(); // Cache by day
- const now = Date.now();
- 
- // Check if we have recent cached data (within 15 minutes)
- if (regimeDataCache[cacheKey] && (now - lastRegimeUpdate) < 15 * 60 * 1000) {
- setMarketRegimeData(regimeDataCache[cacheKey]);
- return;
- }
+ // OLD regime loading removed - now using parallel prefetch on panel open
 
- setIsLoadingRegimes(true);
- setRegimeUpdateProgress(0);
- setRegimeLoadingStage('Starting immediate analysis...');
+ // Switch to cached highlights instantly when changing tabs
+ useEffect(() => {
+   if (highlightedTradesCache[regimesTab]) {
+     setHighlightedTrades(highlightedTradesCache[regimesTab]);
+     console.log(`⚡ Using cached highlights for ${regimesTab}:`, Object.keys(highlightedTradesCache[regimesTab]).length, 'trades');
+   }
+ }, [regimesTab, highlightedTradesCache]);
+
+ // AI Trade Scoring and Highlighting Logic - Calculate for ALL tabs when data loads
+ useEffect(() => {
+ const calculateHighlightedTrades = async () => {
+ // Skip if already calculating
+ if (isCalculatingTrades) {
+   console.log(`⏭️ Skipping highlight calc: already calculating`);
+   return;
+ }
+ 
+ // Find tabs that have data but no highlights yet
+ const tabsToCalculate = Object.keys(regimeDataCache).filter(
+   tab => regimeDataCache[tab] && !highlightedTradesCache[tab]
+ );
+ 
+ if (tabsToCalculate.length === 0) {
+   return; // All tabs either have highlights or no data
+ }
+ 
+ setIsCalculatingTrades(true);
+ 
+ // Process each tab sequentially
+ for (const regimeTab of tabsToCalculate) {
+ try {
+ const currentTabData = regimeDataCache[regimeTab];
+ 
+ // Helper function to fetch full trade details for a stock
+ const fetchTradeDetails = async (candidate: any, regimeTab: string) => {
+ const { symbol, relativePerformance, trend, industry, industrySymbol } = candidate;
  
  try {
- // Create a progress tracker
- const progressCallback = (stage: string, progress: number) => {
- setRegimeLoadingStage(stage);
- setRegimeUpdateProgress(progress);
- };
-
- // Create a streaming callback to update results as they come in
- const streamCallback = (timeframe: string, data: TimeframeAnalysis) => {
- setMarketRegimeData(prev => {
- const newData = {
- ...prev,
- [timeframe.toLowerCase()]: data
- } as MarketRegimeData;
- return newData;
- });
- };
- 
- // Add timeout to prevent infinite loading
- const timeoutPromise = new Promise<never>((_, reject) => {
- setTimeout(() => {
- reject(new Error('Market regime analysis timeout after 3 minutes'));
- }, 180000);
+ // Fetch current price
+ const priceResponse = await fetch('/api/bulk-chart-data', {
+ method: 'POST',
+ headers: { 'Content-Type': 'application/json' },
+ body: JSON.stringify({
+ symbols: [symbol],
+ timeframe: '1d',
+ startDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+ endDate: new Date().toISOString().split('T')[0]
+ })
  });
  
- const regimeData = await Promise.race([
- IndustryAnalysisService.getMarketRegimeDataStreaming(progressCallback, streamCallback),
- timeoutPromise
- ]);
+ if (!priceResponse.ok) {
+ console.warn(`⚠️ Failed to fetch price for ${symbol}:`, priceResponse.status);
+ return null;
+ }
  
- // Cache the complete data
- setRegimeDataCache(prev => ({
- ...prev,
- [cacheKey]: regimeData
- }));
+ const priceData = await priceResponse.json();
+ const prices = priceData.data?.[symbol];
+ if (!prices || prices.length === 0) {
+ console.warn(`⚠️ No price data for ${symbol}`);
+ return null;
+ }
+ const currentPrice = prices[prices.length - 1].close;
+      console.log(`  ✓ Got price: $${currentPrice}`);
+      
+      // Fetch options chain
+      const optionsResponse = await fetch(`/api/options-chain?symbol=${symbol}`);
+      
+      if (!optionsResponse.ok) {
+        console.warn(`⚠️ Failed to fetch options for ${symbol}:`, optionsResponse.status);
+        return null;
+      }
+      
+      const optionsData = await optionsResponse.json();
+      
+      // Handle both API response formats: {results: {...}} or {success: true, data: {...}}
+      const resultsData = optionsData.results || optionsData.data;
+      
+      // DEBUG: Log full response structure
+      console.log(`  📦 Options API response for ${symbol}:`, {
+        hasResults: !!resultsData,
+        resultsType: typeof resultsData,
+        resultsKeys: resultsData ? Object.keys(resultsData).slice(0, 5) : [],
+        currentPrice: optionsData.currentPrice,
+        fullStructure: Object.keys(optionsData)
+      });
+      
+      // Convert results object to array of [expirationDate, data] tuples
+      const expirationEntries = Object.entries(resultsData || {});
+      console.log(`  ✓ Got options data, ${expirationEntries.length} expirations`);
+      
+      if (expirationEntries.length === 0) {
+        console.log(`  ❌ No options available for ${symbol}`, optionsData);
+        return null;
+      }
+      
+      // Select appropriate expiration based on market regime timeframe
+      // Life (5d): ~1-2 weeks | Developing (21d): ~3-5 weeks | Momentum (80d): ~3 months
+      let targetDays = 10; // Life default
+      
+      if (regimeTab === 'developing') {
+        targetDays = 28; // ~4 weeks
+      } else if (regimeTab === 'momentum') {
+        targetDays = 90; // ~3 months
+      }
+      
+      // Find closest available expiration to target, prioritizing next available
+      const now = Date.now();
+      let closestExpiration: [string, any] | null = null;
+      let closestDiff = Infinity;
+      
+      for (const [expDateStr, data] of expirationEntries) {
+        const expDate = new Date(expDateStr);
+        const daysToExp = (expDate.getTime() - now) / (1000 * 60 * 60 * 24);
+        
+        // Skip expired options
+        if (daysToExp < 1) continue;
+        
+        // Calculate difference from target (prefer slightly longer than shorter)
+        const diff = Math.abs(daysToExp - targetDays);
+        
+        // Prefer this expiration if it's closer to target
+        if (diff < closestDiff) {
+          closestDiff = diff;
+          closestExpiration = [expDateStr, data];
+        }
+      }
+      
+      if (!closestExpiration) return null;
+      
+      const validExpirations = [closestExpiration];
  
- setMarketRegimeData(regimeData);
- setLastRegimeUpdate(now);
+ // Select optimal strike - extract strikes from calls/puts objects
+ const optionType = trend === 'bullish' ? 'call' : 'put';
+ const targetStrike = trend === 'bullish' ? currentPrice * 1.05 : currentPrice * 0.95;
+ 
+ // Find best option by iterating through expiration dates and their strikes
+ let bestOption: any = null;
+ let bestExpiration = '';
+ 
+ for (const [expDateStr, data] of validExpirations) {
+   const optionsAtStrike = (data as any)[optionType === 'call' ? 'calls' : 'puts'] || {};
+   
+   // First pass: Find ATM strike with IV data for reference
+   let atmStrikeWithIV: any = null;
+   let atmStrike = 0;
+   
+   for (const [strikeStr, optionData] of Object.entries(optionsAtStrike)) {
+     if (!optionData || typeof optionData !== 'object') continue;
+     const strike = parseFloat(strikeStr);
+     if (isNaN(strike)) continue;
+     
+     const hasIV = !!(optionData as any).implied_volatility;
+     if (hasIV && (!atmStrikeWithIV || Math.abs(strike - currentPrice) < Math.abs(atmStrike - currentPrice))) {
+       atmStrikeWithIV = optionData;
+       atmStrike = strike;
+     }
+   }
+   
+   // Second pass: Select optimal strike (prefer those with IV, especially near ATM)
+   for (const [strikeStr, optionData] of Object.entries(optionsAtStrike)) {
+     if (!optionData || typeof optionData !== 'object') continue;
+     
+     const strike = parseFloat(strikeStr);
+     if (isNaN(strike)) continue;
+     
+     const hasIV = !!(optionData as any).implied_volatility;
+     const strikeDiff = Math.abs(strike - targetStrike);
+     const distanceFromATM = Math.abs(strike - currentPrice);
+     
+     // Scoring: Prefer IV data, then proximity to target, bonus for being near ATM
+     const score = (hasIV ? 1000 : 0) - strikeDiff - (distanceFromATM * 0.1);
+     const currentBestScore = bestOption ? 
+       ((bestOption as any).implied_volatility ? 1000 : 0) - Math.abs(bestOption.strike_price - targetStrike) - (Math.abs(bestOption.strike_price - currentPrice) * 0.1) : 
+       -9999;
+     
+     if (!bestOption || score > currentBestScore) {
+       bestOption = {
+         ...optionData,
+         strike_price: strike,
+         expiration_date: expDateStr,
+         option_type: optionType
+       };
+       bestExpiration = expDateStr;
+     }
+   }
+ }
+ 
+ if (!bestOption) {
+   console.log(`  ❌ No valid options found for ${symbol} (${optionType})`);
+   return null;
+ }
+ 
+ const expDate = new Date(bestExpiration);
+ const daysToExpiration = Math.floor((expDate.getTime() - now) / (1000 * 60 * 60 * 24));
+ 
+ // Log what we found
+ console.log(`  ✅ Selected ${optionType} $${bestOption.strike_price} exp ${bestExpiration} (${daysToExpiration}d)`);
+ 
+ return {
+ symbol,
+ trend,
+ industry,
+ industrySymbol,
+ currentPrice,
+ relativePerformance,
+ optionType: optionType.toUpperCase(),
+ strike: bestOption.strike_price,
+ optionPrice: bestOption.last_price || 0,
+ expiration: bestExpiration,
+ daysToExpiration,
+ impliedVolatility: bestOption.implied_volatility ? (bestOption.implied_volatility * 100).toFixed(1) : 'N/A',
+ delta: bestOption.greeks?.delta ? bestOption.greeks.delta.toFixed(2) : 'N/A',
+ contractSymbol: bestOption.ticker || `${symbol}${bestExpiration.replace(/-/g, '')}${optionType[0].toUpperCase()}${bestOption.strike_price}`,
+ triggeredAt: new Date(),
+ score: 0,
+ details: {},
+ highlightType: '',
+ industryLeaderOf: ''
+ } as any;
  } catch (error) {
- console.error('Error loading market regime data:', error);
- const errorMessage = error instanceof Error ? error.message : 'Unknown error';
- 
- if (errorMessage.includes('Failed to fetch') || errorMessage.includes('CONNECTION_REFUSED')) {
- setRegimeLoadingStage('Server connection failed - ensure dev server is running');
- } else if (errorMessage.includes('timeout') || errorMessage.includes('AbortError')) {
- setRegimeLoadingStage('Analysis timeout - server may be overloaded');
- } else {
- setRegimeLoadingStage('Error loading data - check console for details');
- }
- } finally {
- setIsLoadingRegimes(false);
- setRegimeUpdateProgress(100);
- setTimeout(() => {
- setRegimeLoadingStage('');
- setRegimeUpdateProgress(0);
- }, 1000);
- }
+ console.error(`Error fetching trade details for ${symbol}:`, error);
+ return null;
  }
  };
+ 
+ // Web Worker pool for parallel scoring computation across multiple threads
+ const scoreWithWorkers = (candidates: any[], pricesMap: Map<string, any[]>): Promise<any[]> => {
+   return new Promise((resolve, reject) => {
+     const workerCount = Math.min(4, Math.max(1, Math.floor(candidates.length / 20))); // 4 workers max, 1 per 20 candidates
+     const workers: Worker[] = [];
+     const results: any[][] = [];
+     let completedWorkers = 0;
+     
+     console.log(`🔧 Spawning ${workerCount} workers for ${candidates.length} candidates`);
+     
+     // Convert Map to plain object for worker transfer
+     const pricesObj: Record<string, any[]> = {};
+     pricesMap.forEach((value, key) => {
+       pricesObj[key] = value;
+     });
+     
+     // Split candidates across workers
+     const chunkSize = Math.ceil(candidates.length / workerCount);
+     
+     for (let i = 0; i < workerCount; i++) {
+       const start = i * chunkSize;
+       const end = Math.min(start + chunkSize, candidates.length);
+       const chunk = candidates.slice(start, end);
+       
+       if (chunk.length === 0) continue;
+       
+       const worker = new Worker('/workers/aiTradeScoreWorker.js');
+       workers.push(worker);
+       
+       worker.onmessage = (e) => {
+         if (e.data.success) {
+           results[i] = e.data.scoredCandidates;
+           completedWorkers++;
+           console.log(`✅ Worker ${i + 1}/${workerCount} completed: ${e.data.scoredCandidates.length} scored`);
+           
+           if (completedWorkers === workerCount) {
+             // All workers done, combine results
+             const allScored = results.flat();
+             console.log(`🎉 All ${workerCount} workers complete: ${allScored.length} total scored`);
+             workers.forEach(w => w.terminate());
+             resolve(allScored);
+           }
+         } else {
+           workers.forEach(w => w.terminate());
+           reject(new Error(e.data.error));
+         }
+       };
+       
+       worker.onerror = (error) => {
+         workers.forEach(w => w.terminate());
+         reject(error);
+       };
+       
+       worker.postMessage({ candidates: chunk, pricesMap: pricesObj });
+     }
+   });
+ };
+ 
+ // currentTabData is already TimeframeAnalysis, use it directly
+ const currentData = currentTabData;
+ 
+ if (!currentData || !currentData.industries) {
+ setIsCalculatingTrades(false);
+ return;
+ }
+ 
+ // Collect all visible stocks from all industries
+ const bullishIndustries = currentData.industries.filter(ind => ind.trend === 'bullish').slice(0, 20);
+ const bearishIndustries = currentData.industries.filter(ind => ind.trend === 'bearish').slice(0, 20);
+ 
+ console.log(`📈 Found ${bullishIndustries.length} bullish and ${bearishIndustries.length} bearish industries`);
+ 
+ const allCandidates: any[] = [];
+ 
+ // Collect top 3 from each bullish industry
+ for (const industry of bullishIndustries) {
+ if (industry.topPerformers && industry.topPerformers.length > 0) {
+ const top3 = industry.topPerformers.slice(0, 3);
+ for (const stock of top3) {
+ allCandidates.push({
+ symbol: stock.symbol,
+ relativePerformance: stock.relativePerformance,
+ trend: 'bullish',
+ industry: industry.name,
+ industrySymbol: industry.symbol
+ });
+ }
+ }
+ }
+ 
+ // Collect worst 3 from each bearish industry
+ for (const industry of bearishIndustries) {
+ if (industry.worstPerformers && industry.worstPerformers.length > 0) {
+ const worst3 = industry.worstPerformers.slice(0, 3);
+ for (const stock of worst3) {
+ allCandidates.push({
+ symbol: stock.symbol,
+ relativePerformance: stock.relativePerformance,
+ trend: 'bearish',
+ industry: industry.name,
+ industrySymbol: industry.symbol
+ });
+ }
+ }
+ }
+ 
+ if (allCandidates.length === 0) {
+ setIsCalculatingTrades(false);
+ return;
+ }
+ 
+ // Fetch bulk price data for all candidates (parallel batching with 10 symbols per batch)
+ const symbols = [...new Set(allCandidates.map(c => c.symbol))];
 
- loadMarketRegimeData();
- }, []); // Empty dependency array to run only once on mount
+ const pricesMap = new Map<string, any[]>();
+ const batchSize = 10;
+ 
+ // Create all batch promises
+ const batchPromises = [];
+ for (let i = 0; i < symbols.length; i += batchSize) {
+ const batch = symbols.slice(i, i + batchSize);
+ 
+ batchPromises.push(
+ fetch('/api/bulk-chart-data', {
+ method: 'POST',
+ headers: { 'Content-Type': 'application/json' },
+ body: JSON.stringify({
+ symbols: batch,
+ timeframe: '1d',
+ startDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+ endDate: new Date().toISOString().split('T')[0]
+ })
+ })
+ .then(async res => {
+ if (!res.ok) {
+ const error = await res.text();
+ return { success: false, batch, error };
+ }
+ const data = await res.json();
+ return { success: true, batch, data: data.data };
+ })
+ .catch(error => ({ success: false, batch, error: error.message }))
+ );
+ }
+ 
+ // Execute all batches in parallel
+ const results = await Promise.allSettled(batchPromises);
+ 
+ // Process successful results
+ let successCount = 0;
+ for (const result of results) {
+    if (result.status === 'fulfilled') {
+      if (result.value.success && 'data' in result.value && result.value.data) {
+        Object.entries(result.value.data).forEach(([symbol, prices]) => {
+          pricesMap.set(symbol, prices as any[]);
+          successCount++;
+        });
+      } else if (!result.value.success) {
+        console.warn(`⚠️ Batch [${result.value.batch.join(', ')}] failed:`, result.value.error);
+      }
+    } else {
+      console.error(`❌ Batch promise rejected:`, result.reason);
+    }
+  }
+  
+  // Score all candidates in parallel using multiple Web Workers
+  const scoredCandidates = await scoreWithWorkers(allCandidates, pricesMap);
+  const validScored = scoredCandidates.filter((c: any) => c.score > 0);
+  
+  if (validScored.length === 0) {
+    setIsCalculatingTrades(false);
+    return;
+  }
+  
+  // Find best bullish and best bearish overall (GOLD highlights)
+  const bullishScored = validScored.filter((c: any) => c.trend === 'bullish');
+  const bearishScored = validScored.filter((c: any) => c.trend === 'bearish');
+  
+  const bestBullish = bullishScored.length > 0 ? bullishScored.reduce((best: any, curr: any) => curr.score > best.score ? curr : best) : null;
+  const bestBearish = bearishScored.length > 0 ? bearishScored.reduce((best: any, curr: any) => curr.score > best.score ? curr : best) : null;
+ 
+ // Find best in each industry (PURPLE highlights)
+ const industryBestMap = new Map<string, any>();
+ 
+ for (const industry of [...bullishIndustries, ...bearishIndustries]) {
+ const industryStocks = validScored.filter(c => c.industrySymbol === industry.symbol);
+ if (industryStocks.length > 0) {
+ const best = industryStocks.reduce((best, curr) => curr.score > best.score ? curr : best);
+ industryBestMap.set(industry.symbol, best);
+ }
+ }
+ 
+ // Fetch full trade details for all highlighted stocks
+ const tradesMap: Record<string, any> = {};
+ 
+ // Fetch for gold highlights
+ if (bestBullish) {
+    const details = await fetchTradeDetails(bestBullish, regimeTab);
+    if (details) {
+      details.score = bestBullish.score;
+      details.details = bestBullish.details;
+      details.highlightType = 'gold';
+      details.sourceTab = regimeTab;
+      tradesMap[bestBullish.symbol] = details;
+    }
+  }
+  
+  if (bestBearish && bestBearish.symbol !== bestBullish?.symbol) {
+    const details = await fetchTradeDetails(bestBearish, regimeTab);
+    if (details) {
+      details.score = bestBearish.score;
+      details.details = bestBearish.details;
+      details.highlightType = 'gold';
+      details.sourceTab = regimeTab;
+      tradesMap[bestBearish.symbol] = details;
+    }
+  }
+  
+  // Fetch for purple highlights (industry leaders) - PARALLEL
+  const purplePromises = Array.from(industryBestMap.entries()).map(async ([industrySymbol, candidate]) => {
+    // Skip if already fetched as gold
+    if (tradesMap[candidate.symbol]) {
+      tradesMap[candidate.symbol].highlightType = 'gold'; // Gold takes precedence
+      return null;
+    }
+    
+    const details = await fetchTradeDetails(candidate, regimeTab);
+    if (details) {
+      details.score = candidate.score;
+      details.details = candidate.details;
+      details.highlightType = 'purple';
+      details.sourceTab = regimeTab;
+      details.industryLeaderOf = industrySymbol;
+      return { symbol: candidate.symbol, details };
+    } else {
+      return null;
+    }
+  });
+  
+  const purpleResults = await Promise.all(purplePromises);
+  purpleResults.forEach(result => {
+    if (result) {
+      tradesMap[result.symbol] = result.details;
+    }
+  });
+  
+  // Update state and cache for this tab
+  const goldCount = Object.values(tradesMap).filter(t => t.highlightType === 'gold').length;
+  const purpleCount = Object.values(tradesMap).filter(t => t.highlightType === 'purple').length;
+  console.log(`✨ Highlighting complete for ${regimeTab}: ${goldCount} gold, ${purpleCount} purple (${Object.keys(tradesMap).length} total tradeable)`);
+  
+  // Update cache for this specific tab
+  setHighlightedTradesCache(prev => ({ ...prev, [regimeTab]: tradesMap }));
+  
+  // If this is the currently active tab, update visible highlights too
+  if (regimeTab === regimesTab) {
+    setHighlightedTrades(tradesMap);
+  }
+  
+  } catch (error) {
+    console.error(`Error calculating highlighted trades for ${regimeTab}:`, error);
+  }
+  } // End of for loop for each tab
+  
+  setIsCalculatingTrades(false);
+};
+
+calculateHighlightedTrades();
+ }, [regimeDataCache, highlightedTradesCache, isCalculatingTrades, regimesTab]); // Calculate for all tabs when data loads
 
  // Essential drawing state (keep minimal set for existing functionality)
  const [showToolsDropdown, setShowToolsDropdown] = useState(false);
@@ -5895,8 +6495,8 @@ export default function TradingViewChart({
  const [isFirstDragFrame, setIsFirstDragFrame] = useState(false);
  
  // TradingView-style navigation state
- const [scrollOffset, setScrollOffset] = useState(0); // Index of first visible candle
- const [visibleCandleCount, setVisibleCandleCount] = useState(100); // Number of visible candles
+ const [scrollOffset, setScrollOffset] = useState(9999999); // Start at end - will be corrected when data loads
+ const [visibleCandleCount, setVisibleCandleCount] = useState(150); // Number of visible candles
 
  // Y-axis zoom state (TradingView-style price scaling)
  const [priceZoomLevel, setPriceZoomLevel] = useState(1.0); // 1.0 = auto-fit, >1 = zoomed in, <1 = zoomed out
@@ -6014,10 +6614,10 @@ export default function TradingViewChart({
  }, []);
 
  // Helper to get future periods based on timeframe - TradingView style
- // TradingView allows ~20% margin to the right of last candle for drawing space
+ // 100% margin to the right of last candle for drawing space
  const getFuturePeriods = useCallback((visibleCount: number): number => {
-   // Return 20% of visible candles as right margin, minimum 5 candles
-   return Math.max(5, Math.ceil(visibleCount * 0.2));
+   // Return 100% of visible candles as right margin, minimum 5 candles
+   return Math.max(5, Math.ceil(visibleCount * 1.0));
  }, []); // ============================================================================
  // TRADINGVIEW-STYLE MOMENTUM SCROLLING - EXACT IMPLEMENTATION
  // ============================================================================
@@ -6267,12 +6867,15 @@ export default function TradingViewChart({
  
  // Set data and complete loading
  setData(data);
- 
- // Initialize scroll position to show most recent candles (not 2016!)
- const defaultVisible = Math.min(200, data.length); // Show up to 200 candles initially
- setScrollOffset(Math.max(0, data.length - defaultVisible));
- 
  setLoading(false);
+ 
+ // CRITICAL: Initialize scroll position to show MOST RECENT candles
+ setTimeout(() => {
+   const defaultVisible = 150;
+   const targetOffset = Math.max(0, data.length - defaultVisible);
+   setVisibleCandleCount(150);
+   setScrollOffset(targetOffset);
+ }, 50);
  
  const loadTime = performance.now() - startTime;
  
@@ -6431,6 +7034,17 @@ export default function TradingViewChart({
  return () => clearInterval(interval);
  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [symbol]);
+
+ // CRITICAL: Ensure scroll position shows most recent data when data loads
+ useEffect(() => {
+   if (data.length > 0 && !loading) {
+     const defaultVisible = Math.min(150, data.length);
+     const targetOffset = Math.max(0, data.length - defaultVisible);
+     
+     setVisibleCandleCount(150);
+     setScrollOffset(targetOffset);
+   }
+ }, [data.length, loading]);
 
  // Initialize scroll position with FULL DATA - DISABLED to prevent override
  // This was overriding the timeframe-specific scroll positioning
@@ -6958,8 +7572,8 @@ export default function TradingViewChart({
  const Y_AXIS_WIDTH = 80;
  const chartWidth = canvasWidth - Y_AXIS_WIDTH;
  
- // Calculate zoom factor - TradingView uses ~5% per tick
- const baseZoomFactor = e.ctrlKey || e.metaKey ? 0.15 : 0.05; // Ctrl = faster zoom
+ // Calculate zoom factor - faster zoom speed
+ const baseZoomFactor = e.ctrlKey || e.metaKey ? 0.25 : 0.12; // Ctrl = faster zoom
  const zoomMultiplier = zoomIn ? (1 - baseZoomFactor) : (1 + baseZoomFactor);
  
  const currentCount = visibleCandleCount;
@@ -7117,8 +7731,6 @@ export default function TradingViewChart({
  // Calculate visible data range using scrollOffset and visibleCandleCount
  const startIndex = Math.max(0, Math.floor(scrollOffset));
  const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
- 
- // ?? CRITICAL DEBUG: Check actual data before slicing
  
  const visibleData = data.slice(startIndex, endIndex);
  
@@ -7771,23 +8383,11 @@ export default function TradingViewChart({
  const isGreen = candle.close > candle.open;
  const volumeColor = isGreen ? config.colors.volume.bullish : config.colors.volume.bearish;
  
- // Convert hex to rgba with transparency
- const hexToRgba = (hex: string, alpha: number) => {
- const r = parseInt(hex.slice(1, 3), 16);
- const g = parseInt(hex.slice(3, 5), 16);
- const b = parseInt(hex.slice(5, 7), 16);
- return `rgba(${r}, ${g}, ${b}, ${alpha})`;
- };
- 
- ctx.fillStyle = hexToRgba(volumeColor, 0.7);
+ // Solid colors - 100% opacity
+ ctx.fillStyle = volumeColor;
 
  // Draw volume bar
  ctx.fillRect(x, barY, Math.round(candleWidth), volumeHeight);
-
- // Add subtle border to volume bars for better definition
- ctx.strokeStyle = hexToRgba(volumeColor, 0.9);
- ctx.lineWidth = 0.5;
- ctx.strokeRect(x, barY, Math.round(candleWidth), volumeHeight);
  });
 
  // Draw volume scale labels on the right
@@ -12193,6 +12793,42 @@ export default function TradingViewChart({
  return 'DEFENSIVE';
  }
  
+ // VALUE: All value sectors outperforming SPY (XLB, XLI, XLF, XLE)
+ const valueSectors = ['XLB', 'XLI', 'XLF', 'XLE'];
+ const valuePerformance = valueSectors.map(symbol => {
+ const data = watchlistData[symbol];
+ const spyData = watchlistData['SPY'];
+ if (!data || !spyData) return null;
+ 
+ let change = 0;
+ let spyChange = 0;
+ 
+ if (period === '1d') {
+ change = data.change1d;
+ spyChange = spyData.change1d;
+ } else if (period === '5d') {
+ change = data.change5d;
+ spyChange = spyData.change5d;
+ } else if (period === '13d') {
+ change = data.change13d;
+ spyChange = spyData.change13d;
+ } else if (period === '21d') {
+ change = data.change21d;
+ spyChange = spyData.change21d;
+ } else if (period === 'ytd') {
+ change = data.changeYTD;
+ spyChange = spyData.changeYTD;
+ }
+ 
+ return (change - spyChange) > 0;
+ }).filter(result => result !== null);
+ 
+ const valueRising = valuePerformance.filter(Boolean).length;
+ 
+ if (valueRising === valuePerformance.length && valuePerformance.length === 4) {
+ return 'VALUE';
+ }
+ 
  // MIXED: Everything else
  return 'MIXED';
  };
@@ -12218,7 +12854,18 @@ export default function TradingViewChart({
  return (
  <div className="h-full flex flex-col bg-black text-white">
  {/* Bloomberg-style Header */}
- <div className="p-3 border-b border-yellow-500 bg-black">
+ <div className="p-3 border-b border-yellow-500 bg-black relative">
+ {/* Close button - mobile and desktop */}
+ <button
+ onClick={() => setActiveSidebarPanel(null)}
+ className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
+ aria-label="Close panel"
+ >
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+ <line x1="18" y1="6" x2="6" y2="18"></line>
+ <line x1="6" y1="6" x2="18" y2="18"></line>
+ </svg>
+ </button>
  {/* Tab Navigation */}
  <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
  {['Watchlist'].map(tab => (
@@ -12260,38 +12907,38 @@ export default function TradingViewChart({
  {activeTab === 'Watchlist' && (
  <>
  {/* Bloomberg-style Column Headers - 8 Columns */}
- <div className="grid grid-cols-8 gap-0 border-b border-gray-700 bg-black text-sm font-bold uppercase shadow-inner">
- <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
+ <div className="grid grid-cols-8 gap-0 border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner">
+ <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
  <span className="drop-shadow-lg text-shadow-carved text-orange-500">Symbol</span>
  </div>
- <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
+ <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
  <span className="drop-shadow-lg text-shadow-carved text-orange-500">Price</span>
  </div>
- <div className="p-3 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
+ <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
  <span className="drop-shadow-lg text-shadow-carved text-orange-500">Change</span>
  </div>
- <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
+ <div className="md:p-3 p-2 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('1d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
  <span className="text-white font-bold">1D</span> {getMarketRegimeForHeader('1d')}
  </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('5d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
  <span className="text-white font-bold">5D</span> {getMarketRegimeForHeader('5d')}
  </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('13d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
  <span className="text-white font-bold">13D</span> {getMarketRegimeForHeader('13d')}
  </span>
  </div>
  <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('21d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
  <span className="text-white font-bold">21D</span> {getMarketRegimeForHeader('21d')}
  </span>
  </div>
  <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
- <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-yellow-400'}`}>
+ <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('ytd') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
  <span className="text-white font-bold">YTD</span> {getMarketRegimeForHeader('ytd')}
  </span>
  </div>
@@ -12430,58 +13077,58 @@ export default function TradingViewChart({
  }}
  >
  {/* Symbol */}
- <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
  <div className="flex flex-col">
- <span className="font-mono font-bold text-[#FF6600] text-base tracking-wide">{symbol}</span>
- <span className="font-sans text-white text-xs mt-0.5">{tickerNames[symbol] || symbol}</span>
+ <span className="font-mono font-bold text-[#FF6600] md:text-base text-[14px] tracking-wide">{symbol}</span>
+ <span className="font-sans text-white md:text-xs text-[10px] mt-0.5 md:block hidden">{tickerNames[symbol] || symbol}</span>
  </div>
  </div>
  
  {/* Price */}
- <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
- <div className="font-mono text-white font-bold text-sm">
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <div className="font-mono text-white font-bold md:text-sm text-[11px]">
  ${data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
  </div>
  </div>
  
  {/* Change */}
- <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
- <div className={`font-mono font-bold text-sm ${changeColor}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <div className={`font-mono font-bold md:text-sm text-[12px] ${changeColor}`}>
  {changeSign}{data.change1d.toFixed(2)}%
  </div>
  </div>
  
  {/* 1D Performance */}
- <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
- <span className={`font-bold text-xs uppercase tracking-widest ${perf1d.color}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perf1d.color}`}>
  {perf1d.status}
  </span>
  </div>
  
  {/* 5D Performance */}
- <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
- <span className={`font-bold text-xs uppercase tracking-widest ${perf5d.color}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perf5d.color}`}>
  {perf5d.status}
  </span>
  </div>
  
  {/* 13D Performance */}
- <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
- <span className={`font-bold text-xs uppercase tracking-widest ${perf13d.color}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perf13d.color}`}>
  {perf13d.status}
  </span>
  </div>
  
  {/* 21D Performance */}
- <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
- <span className={`font-bold text-xs uppercase tracking-widest ${perf21d.color}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perf21d.color}`}>
  {perf21d.status}
  </span>
  </div>
  
  {/* YTD Performance */}
- <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
- <span className={`font-bold text-xs uppercase tracking-widest ${perfYTD.color}`}>
+ <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+ <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perfYTD.color}`}>
  {perfYTD.status}
  </span>
  </div>
@@ -12496,8 +13143,15 @@ export default function TradingViewChart({
  )}
  </div>
  );
- }; // Enhanced Market Regimes Panel Component with advanced analytics
- const RegimesPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
+ }; 
+ 
+ // Enhanced Market Regimes Panel Component with advanced analytics
+ const RegimesPanel = ({ activeTab, setActiveTab, highlightFilter, setHighlightFilter }: { 
+   activeTab: string, 
+   setActiveTab: (tab: string) => void,
+   highlightFilter: 'all' | 'gold' | 'purple' | 'highlights',
+   setHighlightFilter: (filter: 'all' | 'gold' | 'purple' | 'highlights') => void
+ }) => {
  
  const getCurrentTimeframeData = () => {
  if (!marketRegimeData) {
@@ -12505,34 +13159,30 @@ export default function TradingViewChart({
  }
  
  let data;
- switch (activeTab) {
- case 'Life':
- data = marketRegimeData.life;
- break;
- case 'Developing':
- data = marketRegimeData.developing;
- break;
- case 'Momentum':
- data = marketRegimeData.momentum;
- break;
- default:
- data = marketRegimeData.life;
- }
- 
- return data;
+   switch (activeTab.toLowerCase()) {
+     case 'life':
+       data = marketRegimeData.life;
+       break;
+     case 'developing':
+       data = marketRegimeData.developing;
+       break;
+     case 'momentum':
+       data = marketRegimeData.momentum;
+       break;
+     default:
+       data = marketRegimeData.life;
+   }
+   
+   return data;
  };
-
+ 
  const timeframeData = getCurrentTimeframeData();
- const bullishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bullish').slice(0, 20) || [];
- const bearishIndustries = timeframeData?.industries.filter(industry => industry.trend === 'bearish').slice(0, 20) || [];
-
+ const bullishIndustries = timeframeData?.industries?.filter((industry: any) => industry.trend === 'bullish').slice(0, 20) || [];
+ const bearishIndustries = timeframeData?.industries?.filter((industry: any) => industry.trend === 'bearish').slice(0, 20) || [];
+ 
  return (
- <div className="h-full flex flex-col" style={{
- background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 25%, #111111 50%, #0a0a0a 75%, #000000 100%)',
- borderLeft: '1px solid rgba(255, 102, 0, 0.3)'
- }}>
- {/* Premium Bloomberg-Style Header */}
- <div style={{
+ <>
+ <div className="h-screen overflow-auto" style={{
  background: '#000000',
  borderBottom: '2px solid rgba(255, 102, 0, 0.4)',
  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
@@ -12643,6 +13293,65 @@ export default function TradingViewChart({
  })}
  </div>
  </div>
+ 
+ {/* Highlight Filter Buttons */}
+ <div className="px-6 pb-4">
+ <div className="flex gap-2">
+ <button
+ onClick={() => setHighlightFilter('all')}
+ className="px-4 py-2 font-mono text-sm font-bold uppercase tracking-wider transition-all duration-200"
+ style={{
+ background: highlightFilter === 'all' ? '#ff6600' : '#000000',
+ color: highlightFilter === 'all' ? '#000000' : '#666666',
+ border: highlightFilter === 'all' ? '2px solid #ff6600' : '2px solid #333333',
+ borderRadius: '6px'
+ }}
+ >
+ All Industries
+ </button>
+ <button
+ onClick={() => setHighlightFilter('gold')}
+ className="px-6 py-3 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2"
+ style={{
+ background: highlightFilter === 'gold' ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+ color: highlightFilter === 'gold' ? '#000000' : '#FFD700',
+ border: highlightFilter === 'gold' ? '2px solid #FFD700' : '2px solid rgba(255, 215, 0, 0.3)',
+ borderRadius: '8px',
+ fontSize: '1.1rem',
+ boxShadow: highlightFilter === 'gold' ? '0 6px 20px rgba(255, 215, 0, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
+ }}
+ >
+ <TbTrendingUp size={20} /> Best of the Frame
+ </button>
+ <button
+ onClick={() => setHighlightFilter('purple')}
+ className="px-6 py-3 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2"
+ style={{
+ background: highlightFilter === 'purple' ? 'linear-gradient(135deg, #8A2BE2 0%, #9370DB 50%, #8A2BE2 100%)' : 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+ color: highlightFilter === 'purple' ? '#000000' : '#8A2BE2',
+ border: highlightFilter === 'purple' ? '2px solid #8A2BE2' : '2px solid rgba(138, 43, 226, 0.3)',
+ borderRadius: '8px',
+ fontSize: '1.1rem',
+ boxShadow: highlightFilter === 'purple' ? '0 6px 20px rgba(138, 43, 226, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
+ }}
+ >
+ <TbChartBar size={20} /> Industry Pick
+ </button>
+ <button
+ onClick={() => setHighlightFilter('highlights')}
+ className="px-6 py-3 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2"
+ style={{
+ background: highlightFilter === 'highlights' ? '#CD7F32' : 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+ color: highlightFilter === 'highlights' ? '#000000' : '#ffffff',
+ border: highlightFilter === 'highlights' ? '2px solid #CD7F32' : '2px solid #333333',
+ borderRadius: '8px',
+ fontSize: '1.1rem',
+ boxShadow: highlightFilter === 'highlights' ? '0 6px 20px rgba(205, 127, 50, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
+ }}
+ >
+ <TbFilter size={20} /> All Highlights
+ </button>
+ </div>
  </div>
  
  {/* Premium Progress Bar */}
@@ -12711,9 +13420,238 @@ export default function TradingViewChart({
  </div>
  )}
  
- {/* Premium Industry Analysis Grid */}
+ {/* Conditional Rendering: Highlights View or Industry Grid */}
+ {highlightFilter !== 'all' ? (
  <div className="px-6 pb-6">
+ <div className="text-center mb-6">
+ <h2 className="font-bold font-mono" style={{
+ fontSize: '2.4rem',
+ color: highlightFilter === 'gold' ? '#FFD700' : highlightFilter === 'purple' ? '#8A2BE2' : '#ff6600'
+ }}>
+ {highlightFilter === 'gold' ? '🥇 Best Overall Trades' : highlightFilter === 'purple' ? '👑 Top Industry Leaders' : '⭐ All Highlighted Trades'}
+ </h2>
+ </div>
+ 
  <div className="grid grid-cols-2 gap-6">
+ {/* Bullish Column */}
+ <div>
+ <div className="mb-4 text-center">
+ <h3 className="font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-2" style={{ 
+ color: '#00ff00', 
+ fontSize: '1.32rem',
+ textShadow: '0 1px 0 #000, 0 2px 3px rgba(0, 0, 0, 0.8), 0 -1px 0 rgba(0, 255, 0, 0.5), inset 0 -2px 5px rgba(0, 0, 0, 0.5)',
+ filter: 'drop-shadow(0 2px 4px rgba(0, 255, 0, 0.4))'
+ }}>
+ <TbTrendingUp size={28} /> BULLISH
+ </h3>
+ </div>
+ <div className="space-y-3">
+ {(() => {
+ // Combine highlights from all tabs (keep all tab-specific entries)
+ const allTabsHighlights: Array<[string, any]> = [];
+ Object.keys(highlightedTradesCache).forEach(tab => {
+ Object.entries(highlightedTradesCache[tab] || {}).forEach(([symbol, trade]) => {
+ allTabsHighlights.push([symbol, trade]);
+ });
+ });
+ 
+ const filtered = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
+ const matchesFilter = highlightFilter === 'gold' ? trade.highlightType === 'gold' : 
+ highlightFilter === 'purple' ? trade.highlightType === 'purple' : true;
+ return matchesFilter && trade.optionType?.toLowerCase() === 'call';
+ });
+ 
+ return filtered.map(([symbol, trade]: [string, any], idx) => {
+ const isGold = trade.highlightType === 'gold';
+ const tickerColor = isGold ? '#FFD700' : '#8A2BE2';
+ const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
+ 
+ // Get tab label and color from trade's sourceTab
+ const tradeTab = trade.sourceTab;
+ if (!tradeTab) {
+ console.log(`⚠️ WARNING: Bullish ${symbol} missing sourceTab:`, trade);
+ }
+ const tabColor = tradeTab === 'life' ? '#00ff00' : 
+ tradeTab === 'developing' ? '#0000ff' : '#8b00ff';
+ 
+ return (
+ <div
+ key={uniqueKey}
+ className="p-4 rounded-lg cursor-pointer transition-all duration-200 hover:scale-[1.02]"
+ style={{
+ background: '#000000',
+ border: '2px solid #4ade80',
+ boxShadow: '0 4px 15px rgba(74, 222, 128, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+ }}
+ onClick={() => {
+ setSelectedTradeForModal(trade);
+ setShowTradeModal(true);
+ }}
+ >
+ <div className="flex items-center justify-between mb-2">
+ <div className="flex items-center">
+ <span className="font-mono font-bold" style={{ 
+ color: tickerColor, 
+ fontSize: '2rem',
+ textShadow: `0 1px 0 rgba(0, 0, 0, 0.8), 0 2px 4px rgba(0, 0, 0, 0.6), 0 -1px 0 ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.6)' : 'rgba(138, 43, 226, 0.6)'}, inset 0 -2px 5px rgba(0, 0, 0, 0.4)`,
+ filter: `drop-shadow(0 3px 6px ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.5)' : 'rgba(138, 43, 226, 0.5)'})`
+ }}>
+ {symbol}
+ </span>
+ <span className="font-mono" style={{ fontSize: '0.9rem' }}>
+ {'   '}
+ <span style={{ color: '#ffffff' }}>{trade.industry}</span>
+ {'  '}
+ <span style={{ color: tabColor }}>
+ {tradeTab === 'life' ? '(Life - Short Term Trend)' : 
+ tradeTab === 'developing' ? '(Developing - Medium Term Trend)' : '(Momentum - Long Term Trend)'}
+ </span>
+ </span>
+ </div>
+ <div className="font-mono font-bold" style={{ color: '#ff6600', fontSize: '1.6rem' }}>
+ {trade.score}%
+ </div>
+ </div>
+ <div className="font-mono text-white font-medium" style={{ fontSize: '1rem' }}>
+ <span style={{ color: '#ff6600' }}>Trade Pick:</span> ${trade.strike?.toFixed(0)} {trade.optionType?.charAt(0).toUpperCase() + trade.optionType?.slice(1).toLowerCase()}s • {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
+ </div>
+ </div>
+ );
+ });
+ })()}
+ {Object.entries(highlightedTrades || {}).filter(([symbol, trade]: [string, any]) => {
+ const matchesFilter = highlightFilter === 'gold' ? trade.highlightType === 'gold' : 
+ highlightFilter === 'purple' ? trade.highlightType === 'purple' : true;
+ return matchesFilter && trade.optionType?.toLowerCase() === 'call';
+ }).length === 0 && (
+ <div className="text-center py-8">
+ <div className="text-gray-500 font-mono text-sm">No bullish trades</div>
+ </div>
+ )}
+ </div>
+ </div>
+ 
+ {/* Bearish Column */}
+ <div>
+ <div className="mb-4 text-center">
+ <h3 className="font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-2" style={{ 
+ color: '#ff0000', 
+ fontSize: '1.32rem',
+ textShadow: '0 1px 0 #000, 0 2px 3px rgba(0, 0, 0, 0.8), 0 -1px 0 rgba(255, 0, 0, 0.5), inset 0 -2px 5px rgba(0, 0, 0, 0.5)',
+ filter: 'drop-shadow(0 2px 4px rgba(255, 0, 0, 0.4))'
+ }}>
+ <TbTrendingDown size={28} /> BEARISH
+ </h3>
+ </div>
+ <div className="space-y-3">
+ {(() => {
+ // Combine highlights from all tabs (keep all tab-specific entries)
+ const allTabsHighlights: Array<[string, any]> = [];
+ Object.keys(highlightedTradesCache).forEach(tab => {
+ Object.entries(highlightedTradesCache[tab] || {}).forEach(([symbol, trade]) => {
+ allTabsHighlights.push([symbol, trade]);
+ });
+ });
+ 
+ const filtered = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
+ const matchesFilter = highlightFilter === 'gold' ? trade.highlightType === 'gold' : 
+ highlightFilter === 'purple' ? trade.highlightType === 'purple' : true;
+ return matchesFilter && trade.optionType?.toLowerCase() === 'put';
+ });
+ 
+ return filtered.map(([symbol, trade]: [string, any], idx) => {
+ const isGold = trade.highlightType === 'gold';
+ const tickerColor = isGold ? '#FFD700' : '#8A2BE2';
+ const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
+ 
+ // Get tab label and color from trade's sourceTab
+ const tradeTab = trade.sourceTab;
+ if (!tradeTab) {
+ console.log(`⚠️ WARNING: Bearish ${symbol} missing sourceTab:`, trade);
+ }
+ const tabColor = tradeTab === 'life' ? '#00ff00' : 
+ tradeTab === 'developing' ? '#0000ff' : '#8b00ff';
+ 
+ return (
+ <div
+ key={uniqueKey}
+ className="p-4 rounded-lg cursor-pointer transition-all duration-200 hover:scale-[1.02]"
+ style={{
+ background: '#000000',
+ border: '2px solid #f87171',
+ boxShadow: '0 4px 15px rgba(248, 113, 113, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+ }}
+ onClick={() => {
+ setSelectedTradeForModal(trade);
+ setShowTradeModal(true);
+ }}
+ >
+ <div className="flex items-center justify-between mb-2">
+ <div className="flex items-center">
+ <span className="font-mono font-bold" style={{ 
+ color: tickerColor, 
+ fontSize: '2rem',
+ textShadow: `0 1px 0 rgba(0, 0, 0, 0.8), 0 2px 4px rgba(0, 0, 0, 0.6), 0 -1px 0 ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.6)' : 'rgba(138, 43, 226, 0.6)'}, inset 0 -2px 5px rgba(0, 0, 0, 0.4)`,
+ filter: `drop-shadow(0 3px 6px ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.5)' : 'rgba(138, 43, 226, 0.5)'})`
+ }}>
+ {symbol}
+ </span>
+ <span className="font-mono" style={{ fontSize: '0.9rem' }}>
+ {'   '}
+ <span style={{ color: '#ffffff' }}>{trade.industry}</span>
+ {'  '}
+ <span style={{ color: tabColor }}>
+ {tradeTab === 'life' ? '(Life - Short Term Trend)' : 
+ tradeTab === 'developing' ? '(Developing - Medium Term Trend)' : '(Momentum - Long Term Trend)'}
+ </span>
+ </span>
+ </div>
+ <div className="font-mono font-bold" style={{ color: '#ff6600', fontSize: '1.6rem' }}>
+ {trade.score}%
+ </div>
+ </div>
+ <div className="font-mono text-white font-medium" style={{ fontSize: '1rem' }}>
+ <span style={{ color: '#ff6600' }}>Trade Pick:</span> ${trade.strike?.toFixed(0)} {trade.optionType?.charAt(0).toUpperCase() + trade.optionType?.slice(1).toLowerCase()}s • {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
+ </div>
+ </div>
+ );
+ });
+ })()}
+ {Object.entries(highlightedTrades || {}).filter(([symbol, trade]: [string, any]) => {
+ const matchesFilter = highlightFilter === 'gold' ? trade.highlightType === 'gold' : 
+ highlightFilter === 'purple' ? trade.highlightType === 'purple' : true;
+ return matchesFilter && trade.optionType?.toLowerCase() === 'put';
+ }).length === 0 && (
+ <div className="text-center py-8">
+ <div className="text-gray-500 font-mono text-sm">No bearish trades</div>
+ </div>
+ )}
+ </div>
+ </div>
+ </div>
+ </div>
+ ) : (
+ <>
+ {/* Premium Industry Analysis Grid */}
+ <div className="px-6 pb-6 relative">
+ {/* Loading Overlay */}
+ {isCalculatingTrades && (
+ <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black bg-opacity-90">
+ <div className="text-center">
+ <div className="text-orange-400 font-mono font-bold text-3xl mb-4">
+ {Math.round((Object.keys(highlightedTrades).length / Math.max(bullishIndustries.length + bearishIndustries.length, 1)) * 100)}%
+ </div>
+ <div className="w-64 h-2 bg-gray-800 rounded-full overflow-hidden">
+ <div 
+ className="h-full bg-gradient-to-r from-orange-500 to-orange-400 transition-all duration-300"
+ style={{ width: `${(Object.keys(highlightedTrades).length / Math.max(bullishIndustries.length + bearishIndustries.length, 1)) * 100}%` }}
+ />
+ </div>
+ </div>
+ </div>
+ )}
+ 
+ <div className="grid grid-cols-2 gap-6" style={{ opacity: isCalculatingTrades ? 0.3 : 1 }}>
  {/* Premium Bullish Industries Section */}
  <div>
  <div className="flex items-center justify-between mb-4">
@@ -12733,7 +13671,7 @@ export default function TradingViewChart({
  </div>
  
  <div className="space-y-3">
- {bullishIndustries.length > 0 ? bullishIndustries.map((industry, index) => (
+ {bullishIndustries.length > 0 ? bullishIndustries.map((industry: any, index: number) => (
  <div 
  key={industry.symbol} 
  className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
@@ -12791,39 +13729,77 @@ export default function TradingViewChart({
  Top 3 Performers
  </div>
  <div className="space-y-1">
- {industry.topPerformers.slice(0, 3).map((stock) => (
- <div 
- key={stock.symbol} 
- className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200"
- style={{
- background: 'rgba(0, 0, 0, 0.3)',
- border: '1px solid rgba(76, 175, 80, 0.1)'
- }}
- onClick={(e: React.MouseEvent<HTMLDivElement>) => {
- e.stopPropagation();
+ {industry.topPerformers.slice(0, 3).map((stock: any) => {
+ // Check if this stock is highlighted
+ const tradeData = highlightedTrades[stock.symbol];
+ const isHighlighted = !!tradeData;
+ const isGold = tradeData?.highlightType === 'gold';
+ const isPurple = tradeData?.highlightType === 'purple';
+                    
+                    // Determine colors and borders
+                    let bgColor = 'rgba(0, 0, 0, 0.3)';
+                    let borderColor = 'rgba(76, 175, 80, 0.1)';
+                    let textColor = 'text-white';
+                    let hoverBg = 'rgba(76, 175, 80, 0.1)';
+                    let hoverBorder = 'rgba(76, 175, 80, 0.3)';
+                    
+                    if (isGold) {
+                      bgColor = 'rgba(255, 215, 0, 0.15)';
+                      borderColor = 'rgba(255, 215, 0, 0.5)';
+                      textColor = 'text-yellow-300';
+                      hoverBg = 'rgba(255, 215, 0, 0.25)';
+                      hoverBorder = 'rgba(255, 215, 0, 0.7)';
+                    } else if (isPurple) {
+                      bgColor = 'rgba(138, 43, 226, 0.15)';
+                      borderColor = 'rgba(138, 43, 226, 0.5)';
+                      textColor = 'text-purple-300';
+                      hoverBg = 'rgba(138, 43, 226, 0.25)';
+                      hoverBorder = 'rgba(138, 43, 226, 0.7)';
+                    }
+                    
+                    return (
+                      <div 
+                        key={stock.symbol} 
+                        className={`flex justify-between items-center py-2 px-3 rounded transition-all duration-200 ${isHighlighted ? 'cursor-pointer' : 'cursor-pointer'}`}
+                        style={{
+                          background: bgColor,
+                          border: `1px solid ${borderColor}`,
+                          boxShadow: isHighlighted ? `0 0 12px ${borderColor}` : 'none'
+                        }}
+                        onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+                          e.stopPropagation();
+ 
+ if (isHighlighted && tradeData) {
+ // Show modal with trade details
+ setSelectedTradeForModal(tradeData);
+ setShowTradeModal(true);
+ } else {
+ // Just switch chart
  console.log(`?? Switching chart to ${stock.symbol} from bullish industry`);
  if (onSymbolChange) {
  onSymbolChange(stock.symbol);
  }
  setConfig(prev => ({ ...prev, symbol: stock.symbol }));
+ }
  }}
  onMouseEnter={(e) => {
- e.currentTarget.style.background = 'rgba(76, 175, 80, 0.1)';
- e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.3)';
+ e.currentTarget.style.background = hoverBg;
+ e.currentTarget.style.borderColor = hoverBorder;
  }}
  onMouseLeave={(e) => {
- e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
- e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.1)';
+ e.currentTarget.style.background = bgColor;
+ e.currentTarget.style.borderColor = borderColor;
  }}
  >
- <span className="text-white font-mono font-medium text-lg">
+ <span className={`${textColor} font-mono font-medium text-lg`}>
  {stock.symbol}
  </span>
  <span className="text-green-400 font-mono font-bold text-lg">
  +{stock.relativePerformance.toFixed(1)}%
  </span>
  </div>
- ))}
+ );
+ })}
  </div>
  </div>
  )}
@@ -12857,7 +13833,7 @@ export default function TradingViewChart({
  </div>
  
  <div className="space-y-3">
- {bearishIndustries.length > 0 ? bearishIndustries.map((industry, index) => (
+ {bearishIndustries.length > 0 ? bearishIndustries.map((industry: any, index: number) => (
  <div 
  key={industry.symbol} 
  className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
@@ -12915,39 +13891,77 @@ export default function TradingViewChart({
  Worst 3 Performers
  </div>
  <div className="space-y-1">
- {industry.worstPerformers.slice(0, 3).map((stock) => (
+ {industry.worstPerformers.slice(0, 3).map((stock: any) => {
+ // Check if this stock is highlighted
+ const tradeData = highlightedTrades[stock.symbol];
+ const isHighlighted = !!tradeData;
+ const isGold = tradeData?.highlightType === 'gold';
+ const isPurple = tradeData?.highlightType === 'purple';
+ 
+ // Determine colors and borders
+ let bgColor = 'rgba(0, 0, 0, 0.3)';
+ let borderColor = 'rgba(244, 67, 54, 0.1)';
+ let textColor = 'text-white';
+ let hoverBg = 'rgba(244, 67, 54, 0.1)';
+ let hoverBorder = 'rgba(244, 67, 54, 0.3)';
+ 
+ if (isGold) {
+ bgColor = 'rgba(255, 215, 0, 0.15)';
+ borderColor = 'rgba(255, 215, 0, 0.5)';
+ textColor = 'text-yellow-300';
+ hoverBg = 'rgba(255, 215, 0, 0.25)';
+ hoverBorder = 'rgba(255, 215, 0, 0.7)';
+ } else if (isPurple) {
+ bgColor = 'rgba(138, 43, 226, 0.15)';
+ borderColor = 'rgba(138, 43, 226, 0.5)';
+ textColor = 'text-purple-300';
+ hoverBg = 'rgba(138, 43, 226, 0.25)';
+ hoverBorder = 'rgba(138, 43, 226, 0.7)';
+ }
+ 
+ return (
  <div 
  key={stock.symbol} 
- className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200"
+ className={`flex justify-between items-center py-2 px-3 rounded transition-all duration-200 ${isHighlighted ? 'cursor-pointer' : 'cursor-pointer'}`}
  style={{
- background: 'rgba(0, 0, 0, 0.3)',
- border: '1px solid rgba(244, 67, 54, 0.1)'
+ background: bgColor,
+ border: `1px solid ${borderColor}`,
+ boxShadow: isHighlighted ? `0 0 12px ${borderColor}` : 'none'
  }}
  onClick={(e: React.MouseEvent<HTMLDivElement>) => {
  e.stopPropagation();
+ 
+ if (isHighlighted && tradeData) {
+ // Show modal with trade details
+ setSelectedTradeForModal(tradeData);
+ setShowTradeModal(true);
+ } else {
+ // Just switch chart
  console.log(`?? Switching chart to ${stock.symbol} from bearish industry`);
  if (onSymbolChange) {
  onSymbolChange(stock.symbol);
  }
  setConfig(prev => ({ ...prev, symbol: stock.symbol }));
+ }
  }}
  onMouseEnter={(e) => {
- e.currentTarget.style.background = 'rgba(244, 67, 54, 0.1)';
- e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.3)';
+ e.currentTarget.style.background = hoverBg;
+ e.currentTarget.style.borderColor = hoverBorder;
  }}
  onMouseLeave={(e) => {
- e.currentTarget.style.background = 'rgba(0, 0, 0, 0.3)';
- e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.1)';
+ e.currentTarget.style.background = bgColor;
+ e.currentTarget.style.borderColor = borderColor;
  }}
  >
- <span className="text-white font-mono font-medium text-lg">
+ <span className={`${textColor} font-mono font-medium text-lg`}>
  {stock.symbol}
  </span>
  <span className="text-red-400 font-mono font-bold text-lg">
  {stock.relativePerformance.toFixed(1)}%
  </span>
  </div>
- ))}
+ );
+ })}
  </div>
  </div>
  )}
@@ -12963,505 +13977,200 @@ export default function TradingViewChart({
  </div>
  </div>
  </div>
+ </>
+ )}
  </div>
  )}
  </div>
  </div>
- );
- };
- const ChatPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
- // Add state for chat visibility and category collapse/expand
- const [showChat, setShowChat] = useState(true);
- const [showEmojiPicker, setShowEmojiPicker] = useState(false);
- const [currentMessage, setCurrentMessage] = useState('');
- const [expandedCategories, setExpandedCategories] = useState<{[key: string]: boolean}>({
- 'start-here': true,
- 'education': true, 
- 'market-insights': true,
- 'trade-center': true,
- 'traders-den': true
- });
 
- const toggleCategory = (categoryId: string) => {
- setExpandedCategories(prev => ({
- ...prev,
- [categoryId]: !prev[categoryId]
- }));
- };
-
- // Structured categories matching Discord layout
- const channelCategories = [
- {
- id: 'start-here',
- name: 'START HERE',
- channels: [
- { id: 'announcements', name: 'Announcement', emoji: '?', adminOnly: true },
- { id: 'testimonials', name: 'Testimonials', emoji: '?', adminOnly: false },
- { id: 'rules-disclaimers', name: 'Rules-Disclaimers', emoji: '?', adminOnly: false },
- { id: 'contact-us', name: 'Contact-Us', emoji: '??', adminOnly: false },
- { id: 'start-here-channel', name: 'Start-Here', emoji: '?', adminOnly: false }
- ]
- },
- {
- id: 'education', 
- name: 'Education',
- emoji: '??',
- channels: [
- { id: 'live-recordings', name: 'Live-Recordings', emoji: '??', adminOnly: false },
- { id: 'lesson', name: 'Lesson', emoji: '?', adminOnly: false },
- { id: 'application', name: 'Application', emoji: '?', adminOnly: false },
- { id: 'result-upload', name: 'Result-Upload', emoji: '?', adminOnly: false },
- { id: 'traders-code', name: 'The-Traders-Code', emoji: '?', adminOnly: false },
- { id: 'zaks-market-moves', name: 'Zak\'s-Market-Moves', emoji: '??', adminOnly: false }
- ]
- },
- {
- id: 'market-insights',
- name: 'Market Insights', 
- emoji: '??',
- channels: [
- { id: 'cyclical', name: 'Cyclical', emoji: '?', adminOnly: false },
- { id: 'monthly', name: 'Monthly', emoji: '??', adminOnly: false },
- { id: 'chart-track-trade', name: 'Chart-Track-Trade', emoji: '?', adminOnly: false },
- { id: 'gex-ideas', name: 'GEX-Ideas', emoji: '?', adminOnly: false },
- { id: 'insiders-congress', name: 'Insiders-Congress', emoji: '???', adminOnly: false },
- { id: 'notable-flow', name: 'Notable-Flow', emoji: '??', adminOnly: false }
- ]
- },
- {
- id: 'trade-center',
- name: 'Trade Center',
- emoji: '??',
- channels: [
- { id: 'dividend-portfolio', name: 'Dividend-Portfolio', emoji: '??', adminOnly: false },
- { id: '100k-portfolio', name: '100K-Portfolio', emoji: '?', adminOnly: false },
- { id: '25k-portfolio', name: '25K-Portfolio', emoji: '??', adminOnly: false },
- { id: '5k-portfolio', name: '5K-Portfolio', emoji: '??', adminOnly: false },
- { id: 'weekly-snapshot', name: 'Weekly-Snapshot', emoji: '?', adminOnly: false },
- { id: 'swing-trades', name: 'Swing-Trades', emoji: '??', adminOnly: false },
- { id: 'stock-chat', name: 'Stock-Chat', emoji: '?', adminOnly: false },
- { id: 'flow-analyst', name: 'Flow-Analyst', emoji: '??', adminOnly: false }
- ]
- },
- {
- id: 'traders-den',
- name: 'Trader\'s Den',
- emoji: '?',
- channels: [
- { id: 'feedback-hub', name: 'Feedback-Hub', emoji: '?', adminOnly: false },
- { id: 'all-flow', name: 'ALL-FLOW', emoji: '??', adminOnly: false },
- { id: 'calendar', name: 'Calendar', emoji: '???', adminOnly: false },
- { id: 'motiversity', name: 'Motiversity', emoji: '??', adminOnly: false },
- { id: 'mentorship', name: 'Mentorship', emoji: '????', adminOnly: false },
- { id: 'chill-chat', name: 'Chill-Chat', emoji: '?', adminOnly: false }
- ]
- }
- ];
-
- const takeScreenshot = async () => {
- try {
- const canvas = chartCanvasRef.current;
- if (canvas) {
- const dataURL = canvas.toDataURL('image/png');
- const newScreenshot = {
- id: Date.now().toString(),
- url: dataURL,
- timestamp: new Date(),
- notes: ''
- };
- setScreenshots(prev => [newScreenshot, ...prev]);
- }
- } catch (error) {
- console.error('Failed to capture screenshot:', error);
- }
- };
-
- const addNote = () => {
- const newNote = {
- id: Date.now().toString(),
- title: 'New Note',
- content: '',
- timestamp: new Date(),
- color: '#3b82f6'
- };
- setNotes(prev => [newNote, ...prev]);
- };
-
- const addReminder = () => {
- const newReminder = {
- id: Date.now().toString(),
- title: 'New Reminder',
- datetime: new Date(Date.now() + 3600000), // 1 hour from now
- completed: false
- };
- setReminders(prev => [newReminder, ...prev]);
- };
-
- // File upload handler
- const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
- const files = event.target.files;
- if (!files) return;
- 
- Array.from(files).forEach(file => {
- const reader = new FileReader();
- reader.onload = (e) => {
- const fileData = {
- id: Date.now().toString() + Math.random().toString(36),
- name: file.name,
- type: file.type,
- url: e.target?.result as string,
- size: file.size
- };
- 
- setUploadedFiles(prev => [...prev, fileData]);
- 
- // Send file as message
- const fileMessage = {
- id: Date.now().toString(),
- user: 'You',
- message: `?? **${file.name}** (${(file.size / 1024 / 1024).toFixed(2)} MB)`,
- timestamp: new Date(),
- userType: 'user',
- fileData: fileData
- };
- 
- setChatMessages(prev => ({
- ...prev,
- [activeTab]: [...(prev[activeTab] || []), fileMessage]
- }));
- };
- 
- if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
- reader.readAsDataURL(file);
- } else {
- reader.readAsText(file);
- }
- });
- 
- // Reset file input
- event.target.value = '';
- };
-
- // Enhanced Stock Market Emoji Collection
- const emojis = [
- // Bullish Emojis (Green/Up Movement)
- '?', '?', '?', '?', '?', '??', '?', '??', '?', '?',
- '??', '?', '?', '??', '?', '??', '??', '?', '??', '?',
- 
- // Bearish Emojis (Red/Down Movement) 
- '?', '?', '?', '?', '??', '??', '??', '??', '?', '?',
- '??', '?', '?', '?', '?', '?', '?', '?', '??', '??',
- 
- // Market Sentiment & Trading
- '?', '?', '?', '??', '??', '?', '?', '?', '?', '?',
- '?', '?', '??', '??', '??', '?', '??', '??', '??', '??',
- 
- // General Reactions
- '?', '?', '?', '?', '?', '?', '?', '??', '??', '??',
- '??', '??', '??', '??', '??', '??', '??', '??', '??', '?',
- 
- // Action & Confirmation
- '?', '?', '??', '??', '??', '??', '??', '??', '??', '??'
- ];
-
- // Add emoji to message
- const addEmoji = (emoji: string) => {
- setCurrentMessage(prev => prev + emoji);
- setShowEmojiPicker(false);
- };
-
- const sendMessage = (e?: React.FormEvent) => {
- if (e) e.preventDefault();
- if (!currentMessage.trim()) return;
- 
- const newMessage = {
- id: Date.now().toString(),
- user: 'You',
- message: currentMessage.trim(),
- timestamp: new Date(),
- userType: 'user'
- };
- 
- setChatMessages(prev => ({
- ...prev,
- [activeTab]: [...(prev[activeTab] || []), newMessage]
- }));
- 
- setCurrentMessage('');
- };
-
- const handleKeyPress = (e: React.KeyboardEvent) => {
- if (e.key === 'Enter' && !e.shiftKey) {
- e.preventDefault();
- sendMessage();
- }
- };
-
- return (
- <div className="h-full bg-black overflow-hidden">
- {/* Chat Content */}
- {true ? (
- <div className="flex flex-1 h-full max-h-full overflow-hidden">
- {/* Left Sidebar - Discord Style Navigation */}
- <div className="w-80 bg-gradient-to-b from-gray-900 via-gray-800 to-black border-r border-gray-700/50 flex flex-col shadow-2xl backdrop-blur-md min-h-0">
- {/* Server Header */}
- <div className="p-3 border-b border-gray-700/50 bg-gradient-to-r from-gray-800 to-gray-700 flex-shrink-0">
- <div className="flex items-center space-x-3">
- <div className="w-12 h-12 bg-gradient-to-br from-blue-500 via-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
- <span className="text-white font-black text-xl">EFI</span>
- </div>
- <div>
- <div className="text-white font-black text-lg tracking-wide">EFI Trading</div>
- <div className="text-green-400 text-sm font-semibold flex items-center">
- <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
- Live Market Session
- </div>
- </div>
- </div>
- </div>
-
- {/* Categories and Channels */}
- <div className="flex-1 p-3 overflow-y-auto custom-scrollbar space-y-4 min-h-0">
- {channelCategories.map((category) => (
- <div key={category.id} className="space-y-3">
- {/* Category Header */}
- <button
- onClick={() => toggleCategory(category.id)}
- className="w-full flex items-center space-x-3 px-3 py-2 text-left hover:bg-black/40 rounded-xl transition-all duration-300 group"
+ {/* Premium Trade Details Modal */}
+ {showTradeModal && selectedTradeForModal && (
+ <div 
+ className="fixed inset-0 z-50 flex items-center justify-center"
+ style={{ background: 'rgba(0, 0, 0, 0.85)' }}
+ onClick={() => setShowTradeModal(false)}
  >
- <div className="flex items-center space-x-3">
- <span className="text-white font-bold text-lg">
- {expandedCategories[category.id] ? '?' : '?'}
- </span>
- <span className="font-bold text-xl uppercase tracking-wider text-orange-500">
- {category.name}
- </span>
- </div>
- </button>
-
- {/* Channels in Category */}
- {expandedCategories[category.id] && (
- <div className="ml-2 mt-3 space-y-2">
- {category.channels.map((channel) => (
- <button
- key={channel.id}
- onClick={() => setActiveTab(channel.id)}
- className={`w-full flex items-center space-x-4 px-4 py-3 rounded-lg text-left transition-all duration-300 group shadow-sm ${
- activeTab === channel.id
- ? 'bg-gradient-to-r from-gray-700 to-gray-600 text-white shadow-lg scale-105 border border-blue-400/50'
- : 'bg-black/60 text-gray-300 hover:bg-black/80 hover:text-white hover:scale-102 border border-gray-700/50'
- }`}
- >
- <span className="text-lg font-semibold text-white">
- {channel.name}
- </span>
- {channel.adminOnly && (
- <div className="ml-auto">
- <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-lg"></div>
- </div>
- )}
- </button>
- ))}
- </div>
- )}
- </div>
- ))}
- </div>
-
- {/* Voice Call Section */}
- <div className="p-4 border-t border-gray-700">
- <button className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200">
- <TbPhoneCall size={20} />
- <span className="font-medium">Live Trading Call</span>
- </button>
- </div>
- </div>
-
- {/* Main Chat Area - Right Side */}
- <div className="flex-1 flex flex-col bg-black relative min-h-0 overflow-hidden">
- {/* Channel Header */}
- <div className="flex-shrink-0 p-6 border-b border-gray-700 bg-gradient-to-r from-gray-900 to-gray-800">
- <div className="flex items-center space-x-4">
- <h3 className="text-white font-bold text-2xl">
- {channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.name || 'Channel'}
- </h3>
- {channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.adminOnly && (
- <div className="px-3 py-2 bg-red-500/20 text-red-300 text-sm rounded-full font-bold border border-red-500/30 animate-pulse">
- ADMIN ONLY
- </div>
- )}
- </div>
- </div>
-
- {/* Messages Area */}
- <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar min-h-0">
- {chatMessages[activeTab]?.length === 0 ? (
- <div className="flex flex-col items-center justify-center h-full text-gray-500">
- <p className="text-lg">No messages yet in this channel</p>
- <p className="text-sm">Start the conversation!</p>
- </div>
- ) : (
- chatMessages[activeTab]?.map((message) => {
- const formatTime = (date: Date) => {
- const now = new Date();
- const diff = now.getTime() - date.getTime();
- const minutes = Math.floor(diff / 60000);
- const hours = Math.floor(diff / 3600000);
- const days = Math.floor(diff / 86400000);
- 
- if (minutes < 1) return 'just now';
- if (minutes < 60) return `${minutes}m ago`;
- if (hours < 24) return `${hours}h ago`;
- return `${days}d ago`;
- };
-
- return (
- <div key={message.id} className="flex space-x-3 group hover:bg-gray-900/20 p-3 rounded-lg transition-colors duration-200">
- <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
- <span className="text-white font-semibold text-sm">
- {message.user.charAt(0).toUpperCase()}
- </span>
- </div>
- <div className="flex-1 min-w-0">
- <div className="flex items-baseline space-x-2 mb-1">
- <span className="font-semibold text-white text-sm">{message.user}</span>
- {(message as any).userType === 'admin' && (
- <span className="text-xs px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full font-medium">
- ADMIN
- </span>
- )}
- <span className="text-gray-400 text-xs">{formatTime(message.timestamp)}</span>
- </div>
- <div className="text-gray-300 text-sm leading-relaxed break-words">
- {message.message}
- </div>
- </div>
- </div>
- );
- })
- )}
- </div>
-
- {/* Message Input Area */}
- <div className="relative bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 border-t border-gray-700/50 backdrop-blur-sm">
- {/* Emoji Picker */}
- {showEmojiPicker && (
- <div className="absolute bottom-full left-8 right-8 mb-2 bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-2xl backdrop-blur-lg z-50">
- <div className="grid grid-cols-10 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
- {[
- // Enhanced Stock Market Emoji Collection - Bullish Emojis (Green/Up Movement)
- '??', '??', '??', '??', '??', '??', '??', '?', '??', '?',
- '??', '??', '??', '??', '??', '??', '??', '??', '??', '??',
- 
- // Bearish Emojis (Red/Down Movement) 
- '??', '??', '??', '??', '??', '??', '??', '??', '?',
- 
- // General Reactions & Trading
- '??', '??', '??', '??', '??', '??', '??', '?', '?', '??',
- '??', '??', '??', '??', '??', '??', '??', '??', '??', '??'
- ].map((emoji, index) => (
- <button
- key={index}
- onClick={() => {
- setCurrentMessage(prev => prev + emoji);
- setShowEmojiPicker(false);
+ <div 
+ className="relative rounded-xl p-8 max-w-2xl w-full mx-4 overflow-y-auto max-h-[90vh]"
+ style={{
+ background: '#000000',
+ border: '2px solid rgba(255, 255, 255, 0.3)'
  }}
- className="text-2xl hover:bg-gray-800 p-2 rounded-lg transition-all duration-200 hover:scale-110"
+ onClick={(e) => e.stopPropagation()}
  >
- {emoji}
+ {/* Close Button */}
+ <button
+ onClick={() => setShowTradeModal(false)}
+ className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+ >
+ <TbX size={24} />
  </button>
- ))}
+ 
+ {/* Header */}
+ <div className="mb-6">
+ <div className="flex items-start justify-between">
+ <div className="flex items-center space-x-2">
+ <div 
+ className="px-3 py-1 font-mono font-bold text-2xl"
+ style={{
+ background: '#000000',
+ color: selectedTradeForModal.highlightType === 'gold' ? '#FFD700' : selectedTradeForModal.highlightType === 'purple' ? '#8A2BE2' : '#ffffff'
+ }}
+ >
+ {selectedTradeForModal.symbol}
  </div>
  </div>
- )}
+ <div className="flex-1 text-center font-mono text-base" style={{ color: '#ffffff' }}>
+ {selectedTradeForModal.industry} • {selectedTradeForModal.industrySymbol}
+ </div>
+ </div>
+ </div>
+ 
+ {/* Trade Pick */}
+ <div className="mb-8 p-5 rounded-lg" style={{
+ background: '#000000',
+ border: '1px solid rgba(255, 102, 0, 0.8)',
+ boxShadow: '0 4px 15px rgba(255, 102, 0, 0.3)'
+ }}>
+ <div className="text-white font-mono text-2xl font-bold text-center">
+ <span style={{ color: '#ff6600' }}>Trade Pick :</span> ${selectedTradeForModal.strike?.toFixed(0)} {selectedTradeForModal.optionType.charAt(0).toUpperCase() + selectedTradeForModal.optionType.slice(1).toLowerCase()}s {new Date(selectedTradeForModal.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+ </div>
+ </div>
 
- {/* Input Container */}
- <div className="flex-shrink-0 bg-gray-900 border-t border-gray-700">
- <form onSubmit={sendMessage} className="flex items-center p-6 space-x-4">
- <input
- type="text"
- value={currentMessage}
- onChange={(e) => setCurrentMessage(e.target.value)}
- onKeyPress={handleKeyPress}
- placeholder={`Message ${channelCategories.flatMap(cat => cat.channels).find(c => c.id === activeTab)?.name || 'channel'}...`}
- className="flex-1 bg-gray-800/80 text-white px-6 py-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 font-medium text-lg backdrop-blur-sm border border-gray-600 focus:border-blue-500 transition-all duration-200 shadow-lg"
- autoFocus
+ {/* AI Score + Current Price + Relative Strength + IV */}
+ <div className="grid grid-cols-4 gap-4 mb-8">
+ {/* Strength Score */}
+ <div className="p-4 rounded-lg" style={{
+ background: '#000000',
+ border: '2px solid #ff6600'
+ }}>
+ <div className="font-mono text-xs uppercase tracking-wide mb-2 text-center" style={{ color: '#ff6600' }}>
+ Strength Score
+ </div>
+ <div className="text-white font-mono text-2xl font-bold mb-2 text-center">
+ {selectedTradeForModal.score}%
+ </div>
+ <div className="h-2 rounded-full overflow-hidden" style={{
+ background: '#000000'
+ }}>
+ <div 
+ className="h-full transition-all duration-1000 rounded-full"
+ style={{
+ width: `${selectedTradeForModal.score}%`,
+ background: 'linear-gradient(90deg, #ff6600 0%, #ff9933 100%)'
+ }}
  />
-
- {/* Emoji Button */}
- <div className="relative emoji-picker-container">
- <button 
- type="button"
- onClick={() => setShowEmojiPicker(!showEmojiPicker)}
- className="group p-3 bg-gray-800 border border-gray-600 text-gray-400 hover:text-orange-400 hover:border-orange-400 transition-all duration-200 hover:bg-orange-500/10 rounded-xl"
- title="Add emoji"
+ </div>
+ </div>
+ 
+ {/* Current Price */}
+ <div className="p-4 rounded-lg" style={{
+ background: '#000000',
+ border: '2px solid #ffffff'
+ }}>
+ <div className="font-mono text-xs uppercase tracking-wide mb-1 text-center" style={{ color: '#ffffff' }}>
+ Current Price
+ </div>
+ <div className="text-white font-mono text-2xl font-bold text-center">
+ ${selectedTradeForModal.currentPrice?.toFixed(2)}
+ </div>
+ </div>
+ 
+ {/* Relative Strength */}
+ <div className="p-4 rounded-lg" style={{
+ background: '#000000',
+ border: `2px solid ${selectedTradeForModal.relativePerformance > 0 ? '#4caf50' : '#f44336'}`
+ }}>
+ <div className="font-mono text-xs uppercase tracking-wide mb-1 text-center" style={{ color: '#ff6600' }}>
+ Relative Strength
+ </div>
+ <div 
+ className="font-mono text-2xl font-bold text-center"
+ style={{ color: selectedTradeForModal.relativePerformance > 0 ? '#4caf50' : '#f44336' }}
  >
- <span className="text-2xl group-hover:scale-110 transition-transform inline-block">??</span>
- </button>
- </div>
-
- <button
- type="submit"
- disabled={!currentMessage.trim()}
- className={`group p-3 rounded-2xl transition-all duration-200 relative overflow-hidden ${
- currentMessage.trim()
- ? 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg hover:shadow-blue-500/25 transform hover:scale-105'
- : 'bg-gray-700 text-gray-400 cursor-not-allowed'
- }`}
- title="Send message"
- >
- <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="group-hover:scale-110 transition-transform relative z-10">
- <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z"/>
- </svg>
- </button>
- </form>
+ {selectedTradeForModal.relativePerformance > 0 ? '+' : ''}{selectedTradeForModal.relativePerformance?.toFixed(2)}%
  </div>
  </div>
+ 
+ {/* IV */}
+ {selectedTradeForModal.impliedVolatility && (
+ <div className="p-4 rounded-lg" style={{
+ background: '#000000',
+ border: '2px solid #ff6600'
+ }}>
+ <div className="font-mono text-xs uppercase tracking-wide mb-1 text-center" style={{ color: '#ff6600' }}>
+ IV
+ </div>
+ <div className="text-white font-mono text-2xl font-bold text-center">
+ {selectedTradeForModal.impliedVolatility}%
  </div>
  </div>
- ) : (
- <div className="flex-1 overflow-y-auto custom-scrollbar bg-black">
- {/* Personal Hub Content */}
- <div className="p-6 border-b border-gray-800">
- <div className="flex items-center space-x-3 mb-6">
- <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-500 rounded-xl flex items-center justify-center">
- <TbUser className="text-white" size={18} />
+ )}
  </div>
- <h4 className="text-white font-bold text-lg">Personal Hub</h4>
+ 
+ {/* Score Breakdown */}
+ {selectedTradeForModal.details && (
+ <div className="p-6 rounded-lg" style={{
+ background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #ff6600',
+ boxShadow: '0 8px 25px rgba(255, 102, 0, 0.5), inset 0 2px 8px rgba(255, 102, 0, 0.2)'
+ }}>
+ <div className="text-center font-mono text-lg uppercase tracking-wide mb-5" style={{ 
+ color: '#ff6600'
+ }}>
+ 9-Factor Score Breakdown
  </div>
- <div className="grid grid-cols-3 gap-4">
- <button
- onClick={takeScreenshot}
- className="bg-gradient-to-br from-blue-600 to-cyan-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
- >
- <TbPhoto size={24} className="mb-2 group-hover:scale-110 transition-transform" />
- <div>Screenshot</div>
- </button>
- <button
- onClick={addNote}
- className="bg-gradient-to-br from-emerald-600 to-green-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
- >
- <TbNews size={24} className="mb-2 group-hover:scale-110 transition-transform" />
- <div>Note</div>
- </button>
- <button
- onClick={addReminder}
- className="bg-gradient-to-br from-violet-600 to-purple-600 text-white p-4 rounded-2xl hover:shadow-lg transition-all text-sm font-semibold group transform hover:scale-105"
- >
- <TbBellRinging size={24} className="mb-2 group-hover:scale-110 transition-transform" />
- <div>Reminder</div>
- </button>
+ <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
+ <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#FFD700' }}>Persistence:</span>
+ <span className="font-bold" style={{ color: '#FFD700' }}>{selectedTradeForModal.details.persistence}/20</span>
+ </div>
+ <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#FF6B6B' }}>Regression:</span>
+ <span className="font-bold" style={{ color: '#FF6B6B' }}>{selectedTradeForModal.details.regression?.toFixed(1)}/15</span>
+ </div>
+ <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#4ECDC4' }}>Efficiency:</span>
+ <span className="font-bold" style={{ color: '#4ECDC4' }}>{selectedTradeForModal.details.efficiency?.toFixed(1)}/15</span>
+ </div>
+ <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#95E1D3' }}>Fractal/Hurst:</span>
+ <span className="font-bold" style={{ color: '#95E1D3' }}>{selectedTradeForModal.details.fractal?.toFixed(1)}/10</span>
+ </div>
+ <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#F38181' }}>Vol-Adjusted:</span>
+ <span className="font-bold" style={{ color: '#F38181' }}>{selectedTradeForModal.details.volAdjusted?.toFixed(1)}/10</span>
+ </div>
+ <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#AA96DA' }}>Drawdown:</span>
+ <span className="font-bold" style={{ color: '#AA96DA' }}>{selectedTradeForModal.details.drawdown?.toFixed(1)}/10</span>
+ </div>
+ <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#FCBAD3' }}>Skewness:</span>
+ <span className="font-bold" style={{ color: '#FCBAD3' }}>{selectedTradeForModal.details.skewness?.toFixed(1)}/10</span>
+ </div>
+ <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#FFFFD2' }}>Regime:</span>
+ <span className="font-bold" style={{ color: '#FFFFD2' }}>{selectedTradeForModal.details.regime?.toFixed(1)}/10</span>
+ </div>
+ <div className="flex items-center col-span-2 justify-center p-2 rounded" style={{ background: '#000000' }}>
+ <span style={{ color: '#A8DADC' }}>Breadth:</span>
+ <span className="font-bold ml-2" style={{ color: '#A8DADC' }}>{selectedTradeForModal.details.breadth?.toFixed(1)}/10</span>
  </div>
  </div>
  </div>
  )}
  </div>
+ </div>
+ )}
+ </>
  );
  };
 
+ // Main component return with all UI elements
  return (
  <>
- {/* Advanced CSS for Premium Navigation and 3D Effects */}
  <style dangerouslySetInnerHTML={{
  __html: `
  .text-shadow-carved {
@@ -15855,105 +16564,149 @@ export default function TradingViewChart({
 
  {/* Chart Container with Sidebar */}
  <div className="flex flex-1 bg-[#0a0a0a]">
- {/* Animated 3D Sidebar */}
- <div className="sidebar-container w-[70px] md:w-[70px] sm:w-[53px] bg-gradient-to-b from-[#000000] via-[#0a0a0a] to-[#000000] border-r border-[#1a1a1a] shadow-2xl relative overflow-hidden mobile-sidebar">
- {/* Subtle background pattern */}
- <div className="absolute inset-0 opacity-5">
- <div className="absolute top-0 left-0 w-full h-full" style={{ background: 'linear-gradient(to bottom right, rgba(255,255,255,0.05), transparent, rgba(255,255,255,0.03))' }}></div>
- <div className="absolute w-6 h-6 bg-white bg-opacity-3 rounded-full animate-pulse" style={{ top: '25%', left: '25%' }}></div>
- <div className="absolute w-4 h-4 bg-white bg-opacity-2 rounded-full animate-pulse" style={{ bottom: '33.333%', right: '25%', animationDelay: '2000ms' }}></div>
- </div>
+ {/* Clean Professional Sidebar */}
+ <div className="sidebar-container w-[100px] md:w-[100px] sm:w-[80px] bg-black/95 border-r border-gray-800/50 backdrop-blur-sm relative overflow-y-auto mobile-sidebar">
  
- <div className="relative z-10 flex flex-col items-center py-4 h-full gap-2">
+ <div className="relative z-10 flex flex-col items-center py-3 h-full gap-4">
  {/* Sidebar Buttons */}
  {[
- { id: 'liquid', icon: TbBoxMultiple, label: 'Liquid', accent: 'orange' },
- { id: 'watchlist', icon: TbChartLine, label: 'Watch', accent: 'blue' },
- { id: 'regimes', icon: TbTrendingUp, label: 'Markets', accent: 'emerald' },
- { id: 'news', icon: TbNews, label: 'News', accent: 'amber' },
- { id: 'alerts', icon: TbBellRinging, label: 'Alerts', accent: 'red' },
- { id: 'calc', icon: TbCalculator, label: 'Calc', accent: 'cyan' },
- { id: 'chain', icon: TbLink, label: 'Chain', accent: 'cyan' },
- { id: 'plan', icon: TbChartLine, label: 'Plan', accent: 'purple' },
- { id: 'chat', icon: TbMessageCircle, label: 'Chat', accent: 'violet' },
- { id: 'trades', icon: TbActivity, label: 'Trades', accent: 'green' },
- { id: 'research', icon: TbChartBar, label: 'Research', accent: 'indigo' },
- { id: 'calendar', icon: TbCalendar, label: 'Calendar', accent: 'pink' },
- { id: 'flow', icon: TbArrowsShuffle, label: 'Flow', accent: 'lime' },
- { id: 'screeners', icon: TbFilter, label: 'Screeners', accent: 'teal' },
+ { id: 'liquid', icon: TbBoxMultiple, label: 'LIQUID', accent: 'orange' },
+ { id: 'watchlist', icon: TbChartLine, label: 'WATCH', accent: 'blue' },
+ { id: 'regimes', icon: TbTrendingUp, label: 'MARKETS', accent: 'emerald' },
+ { id: 'news', icon: TbNews, label: 'NEWS', accent: 'amber' },
+ { id: 'alerts', icon: TbBellRinging, label: 'ALERTS', accent: 'red' },
+ { id: 'calc', icon: TbCalculator, label: 'CALC', accent: 'cyan' },
+ { id: 'chain', icon: TbLink, label: 'CHAIN', accent: 'cyan' },
+ { id: 'plan', icon: TbChartLine, label: 'PLAN', accent: 'purple' },
+ { id: 'trades', icon: TbActivity, label: 'TRADES', accent: 'green' },
+ { id: 'research', icon: TbChartBar, label: 'RESEARCH', accent: 'indigo' },
+ { id: 'calendar', icon: TbCalendar, label: 'CALENDAR', accent: 'pink' },
+ { id: 'flow', icon: TbArrowsShuffle, label: 'FLOW', accent: 'lime' },
+ { id: 'screeners', icon: TbFilter, label: 'SCREENERS', accent: 'teal' },
  { id: 'rrg', icon: TbChartDots, label: 'RRG', accent: 'rose' }
  ].map((item, index) => {
  const IconComponent = item.icon;
  const accentColors: { [key: string]: string } = {
- blue: 'text-blue-400 group-hover:text-blue-300',
- emerald: 'text-emerald-400 group-hover:text-emerald-300',
- amber: 'text-amber-400 group-hover:text-amber-300',
- red: 'text-red-400 group-hover:text-red-300',
- violet: 'text-violet-400 group-hover:text-violet-300',
- cyan: 'text-cyan-400 group-hover:text-cyan-300',
- purple: 'text-purple-400 group-hover:text-purple-300',
- orange: 'text-orange-400 group-hover:text-orange-300',
- green: 'text-green-400 group-hover:text-green-300',
- indigo: 'text-indigo-400 group-hover:text-indigo-300',
- pink: 'text-pink-400 group-hover:text-pink-300',
- lime: 'text-lime-400 group-hover:text-lime-300',
- teal: 'text-teal-400 group-hover:text-teal-300',
- rose: 'text-rose-400 group-hover:text-rose-300'
+ blue: 'text-blue-400',
+ emerald: 'text-emerald-400',
+ amber: 'text-amber-400',
+ red: 'text-red-400',
+ violet: 'text-violet-400',
+ cyan: 'text-cyan-400',
+ purple: 'text-purple-400',
+ orange: 'text-orange-400',
+ green: 'text-green-400',
+ indigo: 'text-indigo-400',
+ pink: 'text-pink-400',
+ lime: 'text-lime-400',
+ teal: 'text-teal-400',
+ rose: 'text-rose-400'
  };
  return (
- <div key={item.id} className="flex flex-col items-center w-full px-1">
+ <div key={item.id} className="flex flex-col items-center w-full px-2 mb-3">
  <button
- className="group relative w-full h-20 rounded-lg flex flex-col items-center justify-center gap-1.5
- transition-all duration-150 active:scale-[0.98] hover:scale-[1.01] transform"
+ className="group relative w-full py-5 flex flex-col items-center justify-center gap-1.5
+ transition-all duration-300 ease-out active:scale-95 rounded-xl overflow-hidden"
  style={{
- animation: `fadeInSlide 0.3s ease-out ${index * 0.05}s both`,
- background: 'linear-gradient(145deg, #000000, #000000)',
- boxShadow: `
- 8px 8px 16px #000000,
- -8px -8px 16px #0f0f0f,
- inset 1px 1px 2px rgba(255, 255, 255, 0.05)
+ background: 'linear-gradient(145deg, #0f0f0f, #050505)',
+ boxShadow: activeSidebarPanel === item.id 
+ ? `
+ inset 2px 2px 5px rgba(0, 0, 0, 0.8),
+ inset -2px -2px 5px rgba(30, 30, 30, 0.4),
+ 3px 3px 8px rgba(0, 0, 0, 0.9),
+ -1px -1px 4px rgba(40, 40, 40, 0.2),
+ 0 0 0 2px rgba(249, 115, 22, 0.6)
+ `
+ : `
+ inset 2px 2px 5px rgba(0, 0, 0, 0.8),
+ inset -2px -2px 5px rgba(30, 30, 30, 0.4),
+ 3px 3px 8px rgba(0, 0, 0, 0.9),
+ -1px -1px 4px rgba(40, 40, 40, 0.2)
  `,
- border: '1px solid rgba(255, 255, 255, 0.1)'
+ border: activeSidebarPanel === item.id 
+ ? '2px solid rgb(249, 115, 22)' 
+ : '1px solid rgba(40, 40, 40, 0.5)',
+ position: 'relative'
  }}
  onMouseEnter={(e) => {
+ if (activeSidebarPanel !== item.id) {
+ e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a, #0a0a0a)';
  e.currentTarget.style.boxShadow = `
- 10px 10px 20px #000000,
- -10px -10px 20px #1a1a1a,
- inset 1px 1px 3px rgba(255, 255, 255, 0.08)
+ inset 2px 2px 6px rgba(0, 0, 0, 0.9),
+ inset -2px -2px 6px rgba(40, 40, 40, 0.5),
+ 4px 4px 10px rgba(0, 0, 0, 0.95),
+ -2px -2px 6px rgba(50, 50, 50, 0.3)
  `;
+ e.currentTarget.style.border = '1px solid rgba(60, 60, 60, 0.6)';
+ }
  }}
  onMouseLeave={(e) => {
+ if (activeSidebarPanel !== item.id) {
+ e.currentTarget.style.background = 'linear-gradient(145deg, #0f0f0f, #050505)';
  e.currentTarget.style.boxShadow = `
- 8px 8px 16px #000000,
- -8px -8px 16px #0f0f0f,
- inset 1px 1px 2px rgba(255, 255, 255, 0.05)
+ inset 2px 2px 5px rgba(0, 0, 0, 0.8),
+ inset -2px -2px 5px rgba(30, 30, 30, 0.4),
+ 3px 3px 8px rgba(0, 0, 0, 0.9),
+ -1px -1px 4px rgba(40, 40, 40, 0.2)
  `;
+ e.currentTarget.style.border = '1px solid rgba(40, 40, 40, 0.5)';
+ }
  }}
  onClick={() => handleSidebarClick(item.id)}
  title={item.label}
  >
+ {/* Glossy overlay */}
+ <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/20 pointer-events-none rounded-xl"></div>
+ 
+ {/* Top highlight */}
+ <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
+ 
  {/* Icon with accent color */}
- <span className={`text-3xl transition-all duration-150 group-hover:scale-110 ${accentColors[item.accent]}`}>
+ <span 
+ className={`relative text-3xl transition-all duration-300 group-hover:scale-110 ${accentColors[item.accent]}`}
+ >
  <IconComponent strokeWidth={2.5} />
  </span>
  
- {/* Label - 100% opacity white */}
- <span className="text-[11px] text-white font-bold uppercase tracking-wider transition-all duration-150">
+{/* Label with text shadow - Hidden on mobile */}
+                <span 
+                  className="relative text-[10px] text-gray-300 group-hover:text-white font-bold uppercase tracking-wider transition-all duration-300 hidden md:block"
+ style={{
+ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8), 0 0 10px rgba(255, 255, 255, 0.1)'
+ }}
+ >
  {item.label}
  </span>
+ 
+ {/* Carved bottom edge */}
+ <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-black/40 to-transparent"></div>
  </button>
  </div>
  );
  })}
  
- {/* Decorative elements */}
+ {/* Bottom spacer */}
  <div className="flex-1"></div>
- <div className="w-8 h-px bg-gradient-to-r from-transparent via-white via-opacity-10 to-transparent mb-2"></div>
- <div className="text-xs text-white text-opacity-40 font-mono tracking-wider">EFI</div>
- </div>
  
- {/* Subtle side accent */}
- <div className="absolute top-0 right-0 w-px h-full" style={{ background: 'linear-gradient(to bottom, transparent, rgba(255,255,255,0.1), transparent)' }}></div>
+ {/* Bottom branding - 3D carved */}
+ <div className="pb-3 flex flex-col items-center gap-2">
+ <div 
+ className="w-16 h-px rounded-full" 
+ style={{
+ background: 'linear-gradient(to right, transparent, rgba(80, 80, 80, 0.4), transparent)',
+ boxShadow: '0 1px 0 rgba(0, 0, 0, 0.8), 0 -1px 0 rgba(60, 60, 60, 0.3)'
+ }}
+ ></div>
+ <span 
+ className="text-[8px] text-gray-500 font-mono tracking-widest font-bold"
+ style={{
+ textShadow: '0 -1px 1px rgba(0, 0, 0, 0.9), 0 1px 1px rgba(60, 60, 60, 0.3)'
+ }}
+ >
+ EFI
+ </span>
+ </div>
+ </div>
  </div>
 
  {/* Main Chart Area */}
@@ -16076,7 +16829,8 @@ export default function TradingViewChart({
  activeTool ? 'crosshair' : 
  isDragging ? 'grabbing' : 'crosshair',
  transition: 'cursor 0.1s ease',
- outline: 'none'
+ outline: 'none',
+ touchAction: 'pan-x pan-y pinch-zoom'
  }}
  onMouseDown={handleUnifiedMouseDown}
  onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -16124,6 +16878,32 @@ export default function TradingViewChart({
  handleUnifiedMouseDown(mouseEvent);
  }}
  onTouchMove={(e: React.TouchEvent<HTMLCanvasElement>) => {
+ // Handle pinch-to-zoom gesture
+ if (e.touches.length === 2) {
+ e.preventDefault();
+ const touch1 = e.touches[0];
+ const touch2 = e.touches[1];
+ 
+ // Calculate distance between two touches
+ const dx = touch2.clientX - touch1.clientX;
+ const dy = touch2.clientY - touch1.clientY;
+ const distance = Math.sqrt(dx * dx + dy * dy);
+ 
+ if (lastTouchDistance !== null) {
+ // Calculate zoom factor based on distance change
+ const distanceChange = distance - lastTouchDistance;
+ const scaleFactor = distanceChange > 0 ? 0.95 : 1.05;
+ 
+ const newCount = Math.max(20, Math.min(300, Math.round(visibleCandleCount * scaleFactor)));
+ setVisibleCandleCount(newCount);
+ }
+ 
+ setLastTouchDistance(distance);
+ return;
+ }
+ 
+ // Single touch - pan/draw
+ setLastTouchDistance(null);
  e.preventDefault();
  const touch = e.touches[0];
  if (!touch) return;
@@ -16143,6 +16923,7 @@ export default function TradingViewChart({
  }}
  onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
  e.preventDefault();
+ setLastTouchDistance(null);
  handleMouseUp();
  }}
  // Enhanced zoom support
@@ -16492,25 +17273,15 @@ export default function TradingViewChart({
  {/* Sidebar Panels */}
  {activeSidebarPanel && (
  <div 
-   className={`fixed top-32 bottom-4 left-16 ${activeSidebarPanel === 'liquid' ? 'w-[calc(100vw-5rem)]' : 'w-[1200px]'} bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}
+   className={`fixed top-40 bottom-4 left-0 md:left-[100px] w-full md:w-[1200px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}
    data-sidebar-panel={activeSidebarPanel}
  >
 {/* Sidebar panel debugging */}
- {/* Panel Header */}
- <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
- <h3 className="text-white font-medium capitalize">{activeSidebarPanel}</h3>
- <button 
- onClick={() => setActiveSidebarPanel(null)}
- className="text-white text-opacity-60 hover:text-white transition-colors p-1"
- >
- <TbX size={18} />
- </button>
- </div>
 
  {/* Panel Content */}
- <div className="h-[calc(100%-3rem)] overflow-y-auto">
+ <div className="h-full overflow-y-auto">
  {activeSidebarPanel === 'liquid' && (
- <DealerAttraction />
+ <DealerAttraction onClose={() => setActiveSidebarPanel(null)} />
  )}
  {activeSidebarPanel === 'watchlist' && (
  <WatchlistPanel 
@@ -16521,13 +17292,50 @@ export default function TradingViewChart({
  {activeSidebarPanel === 'regimes' && (
  <RegimesPanel 
  activeTab={regimesTab} 
- setActiveTab={setRegimesTab} 
+ setActiveTab={setRegimesTab}
+ highlightFilter={highlightFilter}
+ setHighlightFilter={setHighlightFilter}
  />
  )}
  {activeSidebarPanel === 'news' && (
- <NewsPanel symbol={config.symbol} />
+ <NewsPanel symbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} />
  )}
  {activeSidebarPanel === 'alerts' && (
+ <div className="h-full flex flex-col bg-black">
+ {/* Mobile Title and X Button */}
+ <div className="md:hidden px-6 py-1 border-b border-gray-800 bg-black relative">
+ <button
+ onClick={() => setActiveSidebarPanel(null)}
+ className="absolute top-1 right-3 text-gray-400 hover:text-white transition-colors z-50"
+ aria-label="Close panel"
+ >
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+ <line x1="18" y1="6" x2="6" y2="18"></line>
+ <line x1="6" y1="6" x2="18" y2="18"></line>
+ </svg>
+ </button>
+ <div className="text-center">
+ <h1 className="font-black text-white tracking-wider uppercase" 
+ style={{
+ fontSize: '45px',
+ lineHeight: '1',
+ marginBottom: '5px',
+ textShadow: `
+ 2px 2px 0px rgba(0, 0, 0, 0.9),
+ -1px -1px 0px rgba(255, 255, 255, 0.1),
+ 0px -2px 0px rgba(255, 255, 255, 0.05),
+ 0px 2px 0px rgba(0, 0, 0, 0.8),
+ inset 0 2px 4px rgba(0, 0, 0, 0.5)
+ `,
+ background: 'linear-gradient(to bottom, #ffffff 0%, #cccccc 50%, #999999 100%)',
+ WebkitBackgroundClip: 'text',
+ WebkitTextFillColor: 'transparent',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif'
+ }}>
+ Alerts
+ </h1>
+ </div>
+ </div>
  <div className="p-4 space-y-4" style={{ 
  maxHeight: '100%', 
  overflow: 'auto',
@@ -16875,21 +17683,19 @@ export default function TradingViewChart({
  </div>
  )}
  </div>
+ </div>
  )}
  {activeSidebarPanel === 'calc' && (
- <OptionsCalculator initialSymbol={config.symbol} />
+ <OptionsCalculator initialSymbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} />
  )}
  {activeSidebarPanel === 'chain' && (
- <OptionsChain symbol={config.symbol} currentPrice={0} />
+ <OptionsChain symbol={config.symbol} currentPrice={0} onClose={() => setActiveSidebarPanel(null)} />
  )}
  {activeSidebarPanel === 'plan' && (
  <TradingPlan />
  )}
- {activeSidebarPanel === 'chat' && (
- <ChatPanel 
- activeTab={chatTab} 
- setActiveTab={setChatTab} 
- />
+ {activeSidebarPanel === 'trades' && (
+ <div className="p-6 text-gray-400">AI Trade Recommendations removed</div>
  )}
  </div>
  </div>
@@ -18364,3 +19170,4 @@ export default function TradingViewChart({
  </>
  );
 }
+

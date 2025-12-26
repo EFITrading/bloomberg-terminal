@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { AlmanacService, IndexSeasonalData } from '../../lib/almanacService';
+import AlmanacCalendar from './AlmanacCalendar';
+import WeeklyScanTable from './WeeklyScanTable';
 
 interface AlmanacDailyChartProps {
   month?: number; // 0-11
@@ -25,6 +27,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   const [selectedMonth, setSelectedMonth] = useState(month);
   const [showRecentYears, setShowRecentYears] = useState(true);
   const [showPostElectionYears, setShowPostElectionYears] = useState(true);
+  const [activeView, setActiveView] = useState<'chart' | 'calendar' | 'table'>('chart');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -115,7 +118,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     canvas.style.height = `${height}px`;
     ctx.scale(dpr, dpr);
     
-    const padding = { top: 60, right: 30, bottom: 80, left: 60 };
+    const padding = { top: 15, right: 8, bottom: 20, left: 60 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
     
@@ -261,21 +264,6 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       }
     });
     
-    // Draw title
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 16px "Inter", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(
-      `${MONTH_NAMES[selectedMonth]} Market Performance`,
-      width / 2,
-      25
-    );
-    
-    // Draw X-axis title
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 16px "Inter", sans-serif';
-    ctx.fillText(`Trading Day: Date ${year}`, width / 2, height - 10);
-    
     // Draw annotations for key patterns
     drawAnnotations(ctx, width, height, padding, getX, getY, maxTradingDays);
   };
@@ -311,6 +299,22 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               <option key={i} value={i}>{name}</option>
             ))}
           </select>
+          
+          <button 
+            className={`toggle-btn ${activeView === 'calendar' ? 'active' : ''}`}
+            onClick={() => setActiveView(activeView === 'calendar' ? 'chart' : 'calendar')}
+            style={{ marginLeft: '12px' }}
+          >
+            Calendar
+          </button>
+          
+          <button 
+            className={`toggle-btn ${activeView === 'table' ? 'active' : ''}`}
+            onClick={() => setActiveView(activeView === 'table' ? 'chart' : 'table')}
+            style={{ marginLeft: '8px' }}
+          >
+            SeasonalTable
+          </button>
         </div>
         
         {/* Toggle Buttons and Legend */}
@@ -355,7 +359,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           </div>
         )}
         
-        <canvas ref={canvasRef} />
+        {activeView === 'chart' && <canvas ref={canvasRef} />}
+        {activeView === 'calendar' && <AlmanacCalendar month={selectedMonth} year={new Date().getFullYear()} />}
+        {activeView === 'table' && <WeeklyScanTable />}
       </div>
     </div>
   );

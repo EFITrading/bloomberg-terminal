@@ -20,17 +20,40 @@ interface SeasonaxControlsProps {
  onSettingsChange: (settings: Partial<ChartSettings>) => void;
  onRefresh?: () => void;
  onCompareStock?: (symbol: string) => void;
+ hideToggleButtons?: boolean;
+ selectedElectionPeriod?: string;
+ onElectionPeriodSelect?: (period: string) => void;
+ isElectionMode?: boolean;
+ onElectionModeToggle?: (isElectionMode: boolean) => void;
+ hideCompareButton?: boolean;
+ showOnlyElectionAndYear?: boolean;
 }
 
 const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({ 
  settings, 
  onSettingsChange,
  onRefresh,
- onCompareStock
+ onCompareStock,
+ hideToggleButtons = false,
+ selectedElectionPeriod = 'Normal Mode',
+ onElectionPeriodSelect,
+ isElectionMode = false,
+ onElectionModeToggle,
+ hideCompareButton = true,
+ showOnlyElectionAndYear = false
 }) => {
  const [chartType, setChartType] = useState<'line' | 'bar' | 'candle'>('line');
  const [showCompareDialog, setShowCompareDialog] = useState(false);
  const [compareSymbol, setCompareSymbol] = useState('');
+ const [isElectionDropdownOpen, setIsElectionDropdownOpen] = useState(false);
+
+ const electionPeriods = [
+ 'Normal Mode',
+ 'Election Year',
+ 'Post-Election',
+ 'Mid-Term',
+ 'Pre-Election'
+ ];
 
  // Compare functions
  const handleCompare = () => {
@@ -48,6 +71,22 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
  const handleRemoveCompareStock = (symbolToRemove: string) => {
  const updatedSymbols = settings.comparisonSymbols.filter(symbol => symbol !== symbolToRemove);
  onSettingsChange({ comparisonSymbols: updatedSymbols });
+ };
+
+ const handleElectionClick = () => {
+ setIsElectionDropdownOpen(!isElectionDropdownOpen);
+ setShowCompareDialog(false);
+ };
+
+ const handleElectionPeriodSelect = (period: string) => {
+ setIsElectionDropdownOpen(false);
+ 
+ if (period === 'Normal Mode') {
+ onElectionModeToggle?.(false);
+ } else {
+ onElectionModeToggle?.(true);
+ onElectionPeriodSelect?.(period);
+ }
  };
 
  // Chart type toggles
@@ -71,15 +110,61 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
  console.log('Refreshing data...');
  };
 
- // Export functions
- const handleExport = () => {
- console.log('Exporting chart...');
- // Add export functionality here
- };
+ // If showOnlyElectionAndYear is true, only render election and year selector
+ if (showOnlyElectionAndYear) {
+ return (
+ <div className="seasonax-controls">
+ {/* Election dropdown */}
+ <div className="election-dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
+ <button 
+ className={`election-btn ${isElectionMode ? 'active' : 'inactive'}`}
+ onClick={handleElectionClick}
+ >
+ <span className="election-text">{selectedElectionPeriod}</span>
+ <span className="dropdown-arrow">▼</span>
+ </button>
+ {isElectionDropdownOpen && (
+ <div className="election-dropdown">
+ {electionPeriods.map((period) => (
+ <div
+ key={period}
+ className={`election-option ${selectedElectionPeriod === period ? 'selected' : ''}`}
+ onClick={() => handleElectionPeriodSelect(period)}
+ >
+ {period}
+ </div>
+ ))}
+ </div>
+ )}
+ </div>
+
+ {/* Date range selector */}
+ <div className="date-range">
+ <select 
+ value={`${settings.yearsOfData} years`}
+ onChange={(e) => {
+ const years = parseInt(e.target.value.split(' ')[0]);
+ onSettingsChange({ yearsOfData: Math.min(years, 20) });
+ }}
+ className="date-select"
+ title="Select data period"
+ >
+ <option value="1 years">1 year</option>
+ <option value="3 years">3 years</option>
+ <option value="5 years">5 years</option>
+ <option value="10 years">10 years</option>
+ <option value="15 years">15 years</option>
+ <option value="20 years">20 years</option>
+ </select>
+ </div>
+ </div>
+ );
+ }
 
  return (
  <div className="seasonax-controls">
  {/* Compare controls */}
+ {!hideCompareButton && (
  <div className="compare-controls">
  <button 
  className="compare-btn" 
@@ -88,6 +173,31 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
  >
  + Compare
  </button>
+
+ {/* Election dropdown */}
+ <div className="election-dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
+ <button 
+ className={`election-btn ${isElectionMode ? 'active' : 'inactive'}`}
+ onClick={handleElectionClick}
+ >
+ <span className="election-text">{selectedElectionPeriod}</span>
+ <span className="dropdown-arrow">▼</span>
+ </button>
+ {isElectionDropdownOpen && (
+ <div className="election-dropdown">
+ {electionPeriods.map((period) => (
+ <div
+ key={period}
+ className={`election-option ${selectedElectionPeriod === period ? 'selected' : ''}`}
+ onClick={() => handleElectionPeriodSelect(period)}
+ >
+ {period}
+ </div>
+ ))}
+ </div>
+ )}
+ </div>
+
  {settings.comparisonSymbols.length > 0 && (
  <div className="comparison-tags">
  {settings.comparisonSymbols.map((symbol, index) => (
@@ -132,8 +242,10 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
  </div>
  )}
  </div>
+ )}
 
  {/* Chart controls */}
+ {!hideToggleButtons && (
  <div className="chart-controls">
  <button 
  className={`control-btn smooth-btn ${settings.smoothing ? 'active' : ''}`}
@@ -169,6 +281,7 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
  </svg>
  </button>
  </div>
+ )}
 
  {/* Date range selector */}
  <div className="date-range">
@@ -186,7 +299,7 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
  <option value="5 years">5 years</option>
  <option value="10 years">10 years</option>
  <option value="15 years">15 years</option>
- <option value="20 years">20 years (Max)</option>
+ <option value="20 years">20 years</option>
  </select>
  </div>
 

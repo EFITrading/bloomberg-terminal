@@ -108,9 +108,10 @@ const calculateTheta = (S: number, K: number, r: number, sigma: number, T: numbe
 
 interface OptionsCalculatorProps {
  initialSymbol?: string;
+ onClose?: () => void;
 }
 
-const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = 'SPY' }) => {
+const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = 'SPY', onClose }) => {
  console.log('?? OPTIONS CALCULATOR COMPONENT RENDERING with symbol:', initialSymbol);
  const [symbol, setSymbol] = useState(initialSymbol);
  const [userManuallyEnteredSymbol, setUserManuallyEnteredSymbol] = useState(false);
@@ -1014,6 +1015,42 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  
  return (
  <div className="h-full bg-black text-white overflow-y-auto">
+ {/* Mobile Title and X Button */}
+ <div className="md:hidden px-6 py-1 border-b border-gray-800 bg-black relative">
+ {onClose && (
+ <button
+ onClick={onClose}
+ className="absolute top-1 right-3 text-gray-400 hover:text-white transition-colors z-50"
+ aria-label="Close panel"
+ >
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+ <line x1="18" y1="6" x2="6" y2="18"></line>
+ <line x1="6" y1="6" x2="18" y2="18"></line>
+ </svg>
+ </button>
+ )}
+ <div className="text-center">
+ <h1 className="font-black text-white tracking-wider uppercase" 
+ style={{
+ fontSize: '45px',
+ lineHeight: '1',
+ marginBottom: '5px',
+ textShadow: `
+ 2px 2px 0px rgba(0, 0, 0, 0.9),
+ -1px -1px 0px rgba(255, 255, 255, 0.1),
+ 0px -2px 0px rgba(255, 255, 255, 0.05),
+ 0px 2px 0px rgba(0, 0, 0, 0.8),
+ inset 0 2px 4px rgba(0, 0, 0, 0.5)
+ `,
+ background: 'linear-gradient(to bottom, #ffffff 0%, #cccccc 50%, #999999 100%)',
+ WebkitBackgroundClip: 'text',
+ WebkitTextFillColor: 'transparent',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif'
+ }}>
+ Calculator
+ </h1>
+ </div>
+ </div>
  <div className="p-4">
 
  {/* BLOOMBERG PROFESSIONAL TERMINAL INTERFACE */}
@@ -1034,7 +1071,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <div className="col-span-2">
  <div className="bg-black border border-gray-700 shadow-lg">
  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
- <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">SYMBOL</label>
+ <label className="text-orange-500 text-[13px] md:text-[18px] font-bold uppercase tracking-wider">SYMBOL</label>
  </div>
  <div className="p-2 bg-black">
  <input
@@ -1053,7 +1090,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <div className="col-span-2">
  <div className="bg-black border border-gray-700 shadow-lg">
  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
- <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">STRIKE</label>
+ <label className="text-orange-500 text-[13px] md:text-[18px] font-bold uppercase tracking-wider">STRIKE</label>
  </div>
  <div className="p-2 bg-black">
  <select
@@ -1083,7 +1120,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <div className="col-span-2">
  <div className="bg-black border border-gray-700 shadow-lg relative z-10">
  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
- <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">TYPE</label>
+ <label className="text-orange-500 text-[13px] md:text-[18px] font-bold uppercase tracking-wider">TYPE</label>
  </div>
  <div className="p-2 flex gap-1 bg-black relative z-20">
  <button
@@ -1096,7 +1133,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  setSelectedStrike(null);
  setCustomPremium(null);
  }}
- className={`flex-1 py-1 px-2 text-[18px] font-bold uppercase border cursor-pointer transition-all duration-200 relative z-30 ${
+ className={`flex-1 py-1 px-2 text-[12px] md:text-[18px] font-bold uppercase border cursor-pointer transition-all duration-200 relative z-30 ${
  optionType === 'call'
  ? 'bg-gradient-to-r from-gray-800 to-gray-700 border-gray-500 text-green-500 shadow-lg shadow-white/10'
  : 'bg-black border-gray-700 text-gray-400 hover:border-gray-500 hover:shadow-md hover:shadow-white/5'
@@ -1114,7 +1151,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  setSelectedStrike(null);
  setCustomPremium(null);
  }}
- className={`flex-1 py-1 px-2 text-[18px] font-bold uppercase border cursor-pointer transition-all duration-200 relative z-30 ${
+ className={`flex-1 py-1 px-2 text-[12px] md:text-[18px] font-bold uppercase border cursor-pointer transition-all duration-200 relative z-30 ${
  optionType === 'put'
  ? 'bg-gradient-to-r from-gray-800 to-gray-700 border-gray-500 text-red-500 shadow-lg shadow-white/10'
  : 'bg-black border-gray-700 text-gray-400 hover:border-gray-500 hover:shadow-md hover:shadow-white/5'
@@ -1130,7 +1167,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <div className="col-span-2">
  <div className="bg-black border border-gray-700 shadow-lg">
  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
- <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">EXPIRY</label>
+ <label className="text-orange-500 text-[13px] md:text-[18px] font-bold uppercase tracking-wider">EXPIRY</label>
  </div>
  <div className="p-2 bg-black">
  {availableExpirations.length > 0 ? (
@@ -1169,7 +1206,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <div className="col-span-2">
  <div className="bg-black border border-gray-700 shadow-lg">
  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
- <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">PREMIUM</label>
+ <label className="text-orange-500 text-[13px] md:text-[18px] font-bold uppercase tracking-wider">PREMIUM</label>
  </div>
  <div className="p-2 bg-black">
  <input
@@ -1189,7 +1226,7 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  <div className="col-span-2">
  <div className="bg-black border border-gray-700 shadow-lg">
  <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
- <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">OTM</label>
+ <label className="text-orange-500 text-[13px] md:text-[18px] font-bold uppercase tracking-wider">OTM</label>
  </div>
  <div className="p-2 bg-black">
  <select 
@@ -1484,36 +1521,36 @@ const OptionsCalculator: React.FC<OptionsCalculatorProps> = ({ initialSymbol = '
  const realOption = realOptionsData[key];
  
  return (
- <div className="mb-4 bg-gradient-to-r from-gray-900 to-black rounded-xl p-4 border border-gray-600 shadow-lg">
- <div className="grid grid-cols-4 gap-4">
- <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-3 border border-gray-700 shadow-xl">
- <div className="flex items-center justify-between">
- <span className="text-green-500 text-sm font-bold uppercase tracking-wider">Delta</span>
- <span className="text-green-500 text-xl font-bold">
+ <div className="mb-4 bg-gradient-to-r from-gray-900 to-black rounded-xl p-2 md:p-4 border border-gray-600 shadow-lg">
+ <div className="grid grid-cols-4 gap-2 md:gap-4">
+ <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-0 md:p-3 border border-gray-700 shadow-xl h-[20px] md:h-auto" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+ <div className="flex items-center justify-between w-full px-1" style={{ transform: 'translateY(-10px)' }}>
+ <span className="text-green-500 text-[8px] md:text-sm font-bold uppercase tracking-wider leading-none">Delta</span>
+ <span className="text-green-500 text-[10px] md:text-xl font-bold leading-none">
  {realOption?.delta !== null && realOption?.delta !== undefined ? realOption.delta.toFixed(3) : '--'}
  </span>
  </div>
  </div>
- <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-3 border border-gray-700 shadow-xl">
- <div className="flex items-center justify-between">
- <span className="text-yellow-500 text-sm font-bold uppercase tracking-wider">Gamma</span>
- <span className="text-yellow-500 text-xl font-bold">
+ <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-0 md:p-3 border border-gray-700 shadow-xl h-[20px] md:h-auto" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+ <div className="flex items-center justify-between w-full px-1" style={{ transform: 'translateY(-10px)' }}>
+ <span className="text-yellow-500 text-[8px] md:text-sm font-bold uppercase tracking-wider leading-none">Gamma</span>
+ <span className="text-yellow-500 text-[10px] md:text-xl font-bold leading-none">
  {realOption?.gamma !== null && realOption?.gamma !== undefined ? realOption.gamma.toFixed(4) : '--'}
  </span>
  </div>
  </div>
- <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-3 border border-gray-700 shadow-xl">
- <div className="flex items-center justify-between">
- <span className="text-red-500 text-sm font-bold uppercase tracking-wider">Theta</span>
- <span className="text-red-500 text-xl font-bold">
+ <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-0 md:p-3 border border-gray-700 shadow-xl h-[20px] md:h-auto" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+ <div className="flex items-center justify-between w-full px-1" style={{ transform: 'translateY(-10px)' }}>
+ <span className="text-red-500 text-[8px] md:text-sm font-bold uppercase tracking-wider leading-none">Theta</span>
+ <span className="text-red-500 text-[10px] md:text-xl font-bold leading-none">
  {realOption?.theta !== null && realOption?.theta !== undefined ? realOption.theta.toFixed(2) : '--'}
  </span>
  </div>
  </div>
- <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-3 border border-gray-700 shadow-xl">
- <div className="flex items-center justify-between">
- <span className="text-blue-500 text-sm font-bold uppercase tracking-wider">IV</span>
- <span className="text-blue-500 text-xl font-bold">
+ <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-0 md:p-3 border border-gray-700 shadow-xl h-[20px] md:h-auto" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+ <div className="flex items-center justify-between w-full px-1" style={{ transform: 'translateY(-10px)' }}>
+ <span className="text-blue-500 text-[8px] md:text-sm font-bold uppercase tracking-wider leading-none">IV</span>
+ <span className="text-blue-500 text-[10px] md:text-xl font-bold leading-none">
  {realOption?.impliedVolatility && realOption.impliedVolatility > 0 ? `${(realOption.impliedVolatility * 100).toFixed(1)}%` : '--'}
  </span>
  </div>

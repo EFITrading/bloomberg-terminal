@@ -167,14 +167,14 @@
 }
 
 .metric-value {
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 700;
   font-family: 'Roboto Mono', monospace;
   margin-bottom: 4px;
 }
 
 .metric.primary .metric-value {
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .metric-value.positive {

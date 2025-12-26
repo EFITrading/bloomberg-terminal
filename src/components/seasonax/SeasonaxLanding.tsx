@@ -195,56 +195,14 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
 
  {/* Hero Section */}
  <HeroSection 
- onScreenerStart={handleScreenerStart}
+  onScreenerStart={handleScreenerStart}
+  timePeriod={timePeriod}
+  onTimePeriodChange={setTimePeriod}
+  progressStats={progressStats}
+  opportunitiesCount={opportunities.length}
+  loading={loading}
+  timePeriodOptions={timePeriodOptions}
  />
-
- {/* Controls Bar */}
- <div className="pro-controls-bar">
- <div className="control-group">
- <label className="control-label">Analysis Period</label>
- <select
- value={timePeriod}
- onChange={(e) => setTimePeriod(e.target.value)}
- className="pro-select"
- disabled={loading}
- >
- {timePeriodOptions.map((option) => (
- <option key={option.id} value={option.id}>
- {option.name}
- </option>
- ))}
- </select>
- </div>
- 
- <div className="scan-stats">
- <div className="stat-item">
- <span className="stat-value">{progressStats.processed}</span>
- <span className="stat-label">Scanned</span>
- </div>
- <div className="stat-item">
- <span className="stat-value">{opportunities.length}</span>
- <span className="stat-label">Opportunities</span>
- </div>
- </div>
- </div>
-
- {/* Progress Section */}
- {streamStatus && (
- <div className="pro-progress">
- <div className="progress-header">
- <span className="progress-text">{streamStatus}</span>
- <span className="progress-percentage">
- {((progressStats.processed / progressStats.total) * 100).toFixed(0)}%
- </span>
- </div>
- <div className="progress-track">
- <div 
- className="progress-bar-fill" 
- style={{ width: `${(progressStats.processed / progressStats.total) * 100}%` }}
- />
- </div>
- </div>
- )}
 
  {/* Results Grid */}
  <div className="pro-results">

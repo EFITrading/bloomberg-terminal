@@ -4,7 +4,7 @@ const path = require('path');
 
 class ParallelOptionsFlowProcessor {
   constructor() {
-    this.numWorkers = Math.min(os.cpus().length * 2, 32); // Use 2x cores up to 32 workers for I/O bound work
+    this.numWorkers = Math.min(os.cpus().length * 4, 64); // Use 4x cores up to 64 workers for maximum I/O parallelization
     
     // 🎯 PERFORMANCE: Initialize benchmarking system
     this.benchmarks = {

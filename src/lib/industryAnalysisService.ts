@@ -145,13 +145,13 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'BOTZ',
  name: 'Automation & Robotics',
  category: 'AI/Robotics',
- holdings: ['NVDA', 'TSLA', 'ABB', 'FANUC', 'ISRG', 'ROK', 'EMR', 'HON', 'ASML', 'ADSK']
+ holdings: ['NVDA', 'TSLA', 'ISRG', 'ROK', 'EMR', 'HON', 'ADSK', 'TER', 'KLAC', 'AMAT']
  },
  {
  symbol: 'ROBO',
  name: 'Robotics & AI',
  category: 'AI/Robotics',
- holdings: ['NVDA', 'ISRG', 'ABB', 'FANUC', 'ROK', 'EMR', 'HON', 'ASML', 'ADSK', 'TER']
+ holdings: ['NVDA', 'ISRG', 'ROK', 'EMR', 'HON', 'ADSK', 'TER', 'KLAC', 'AMAT', 'LRCX']
  },
  {
  symbol: 'ARKK',
@@ -183,19 +183,13 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'ICLN',
  name: 'Clean Energy',
  category: 'Clean Energy',
- holdings: ['ENPH', 'FSLR', 'PLUG', 'ORSTED', 'NEE', 'EIX', 'IBERDROLA', 'RUN', 'BE', 'SEDG']
+ holdings: ['ENPH', 'FSLR', 'PLUG', 'NEE', 'EIX', 'RUN', 'BE', 'SEDG', 'ALB', 'MP']
  },
  {
  symbol: 'ACES',
  name: 'Clean Energy',
  category: 'Clean Energy',
  holdings: ['TSLA', 'ENPH', 'FSLR', 'PLUG', 'BE', 'RUN', 'SEDG', 'NOVA', 'ALB', 'MP']
- },
- {
- symbol: 'FAN',
- name: 'Wind Energy',
- category: 'Clean Energy',
- holdings: ['VESTAS', 'ORSTED', 'GE', 'SIEMENS GAMESA', 'NORDEX', 'EDP RENOVAVEIS', 'XINJIANG GOLDWIND', 'MING YANG', 'SUZLON', 'SENVION']
  },
  {
  symbol: 'CTEC',
@@ -237,13 +231,13 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'AMLP',
  name: 'Master Limited Partnerships',
  category: 'Energy',
- holdings: ['EPD', 'ET', 'KMI', 'MPLX', 'WMB', 'ONEOK', 'ENB', 'TRP', 'TC', 'PAGP']
+ holdings: ['EPD', 'ET', 'KMI', 'MPLX', 'WMB', 'ONEOK', 'PAGP', 'OKE', 'MMP', 'PAA']
  },
  {
  symbol: 'EMLP',
  name: 'Energy Infrastructure',
  category: 'Energy',
- holdings: ['EPD', 'ET', 'KMI', 'MPLX', 'WMB', 'ONEOK', 'ENB', 'TRP', 'TC', 'PAGP']
+ holdings: ['EPD', 'ET', 'KMI', 'MPLX', 'WMB', 'ONEOK', 'PAGP', 'OKE', 'MMP', 'PAA']
  },
 
  // Nuclear & Uranium
@@ -271,7 +265,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'XME',
  name: 'Mining & Metals',
  category: 'Materials',
- holdings: ['FCX', 'NEM', 'VALE', 'SCCO', 'GOLD', 'AA', 'X', 'CLF', 'STLD', 'NUE']
+ holdings: ['FCX', 'NEM', 'SCCO', 'GOLD', 'AA', 'X', 'CLF', 'STLD', 'NUE', 'AEM']
  },
  {
  symbol: 'SIL',
@@ -283,7 +277,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'SLX',
  name: 'Steel',
  category: 'Materials',
- holdings: ['NUE', 'STLD', 'CLF', 'X', 'MT', 'VALE', 'PKX', 'RS', 'SID', 'GGB']
+ holdings: ['NUE', 'STLD', 'CLF', 'X', 'RS', 'CMC', 'ATI', 'ZEUS', 'WOR', 'TX']
  },
  {
  symbol: 'LIT',
@@ -301,7 +295,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'REMX',
  name: 'Rare Earth Metals',
  category: 'Materials',
- holdings: ['MP', 'LYNAS', 'ILUKA', 'ALKANE', 'NORTHERN', 'CHINA RARE EARTH', 'RISING NONFERROUS', 'ARAFURA', 'HASTINGS', 'PEAK RARE EARTHS']
+ holdings: ['MP', 'LAC', 'ALB', 'SQM', 'PLL', 'LTHM', 'LPI', 'AREC', 'UEC', 'LEU']
  },
  {
  symbol: 'VAW',
@@ -517,7 +511,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'BDRY',
  name: 'Dry Bulk Shipping',
  category: 'Transportation',
- holdings: ['VALE', 'BHP', 'RIO', 'STLD', 'NUE', 'CLF', 'X', 'SID', 'GGB', 'PKX']
+ holdings: ['STLD', 'NUE', 'CLF', 'X', 'FCX', 'NEM', 'SCCO', 'GOLD', 'AA', 'RS']
  },
  {
  symbol: 'BOAT',
@@ -561,7 +555,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'CARZ',
  name: 'Automobiles',
  category: 'Consumer',
- holdings: ['TSLA', 'GM', 'F', 'RACE', 'HMC', 'TM', 'BMW', 'DAI', 'VOW3', 'STLA']
+ holdings: ['TSLA', 'GM', 'F', 'RIVN', 'LCID', 'APTV', 'BWA', 'ADNT', 'GT', 'ALV']
  },
 
  // Food & Agriculture
@@ -603,7 +597,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'CUT',
  name: 'Timber & Forestry',
  category: 'Natural Resources',
- holdings: ['WY', 'PCH', 'RYN', 'UPM', 'STORA', 'SMDS', 'BILF', 'CANF', 'WFG', 'IFP']
+ holdings: ['WY', 'PCH', 'RYN', 'CUT', 'RYAM', 'UFS', 'STOR', 'TREE', 'PLL', 'LSF']
  },
  {
  symbol: 'IGE',
@@ -615,7 +609,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'HAP',
  name: 'Commodities Producers',
  category: 'Natural Resources',
- holdings: ['XOM', 'CVX', 'COP', 'EOG', 'FCX', 'NEM', 'VALE', 'SLB', 'PSX', 'VLO']
+ holdings: ['XOM', 'CVX', 'COP', 'EOG', 'FCX', 'NEM', 'SLB', 'PSX', 'VLO', 'MPC']
  },
 
  // Utilities
@@ -665,19 +659,19 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'EEM',
  name: 'Emerging Markets',
  category: 'International',
- holdings: ['TSM', 'TCEHY', 'ASML', 'BABA', 'TM', 'Samsung', 'INFY', 'HDB', 'IBN', 'PDD']
+ holdings: ['TSM', 'BABA', 'PDD', 'JD', 'NTES', 'BIDU', 'VALE', 'IBN', 'HDB', 'INFY']
  },
  {
  symbol: 'KWEB',
  name: 'China Internet',
  category: 'International',
- holdings: ['BABA', 'TCEHY', 'PDD', 'JD', 'NTES', 'BIDU', 'TME', 'BILI', 'IQ', 'VIPS']
+ holdings: ['BABA', 'PDD', 'JD', 'NTES', 'BIDU', 'TME', 'BILI', 'IQ', 'VIPS', 'DIDI']
  },
  {
  symbol: 'PXH',
  name: 'Emerging Markets',
  category: 'International',
- holdings: ['TSM', 'TCEHY', 'ASML', 'BABA', 'TM', 'Samsung', 'INFY', 'HDB', 'IBN', 'PDD']
+ holdings: ['TSM', 'BABA', 'PDD', 'JD', 'NTES', 'BIDU', 'VALE', 'IBN', 'HDB', 'INFY']
  },
 
  // Infrastructure
@@ -685,13 +679,13 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
  symbol: 'IGF',
  name: 'Global Infrastructure',
  category: 'Infrastructure',
- holdings: ['NEE', 'AMT', 'CCI', 'EQIX', 'UNP', 'CSX', 'NSC', 'EPD', 'KMI', 'TC']
+ holdings: ['NEE', 'AMT', 'CCI', 'EQIX', 'UNP', 'CSX', 'NSC', 'EPD', 'KMI', 'WMB']
  },
  {
  symbol: 'GII',
  name: 'Global Infrastructure',
  category: 'Infrastructure',
- holdings: ['NEE', 'AMT', 'CCI', 'EQIX', 'UNP', 'CSX', 'NSC', 'EPD', 'KMI', 'TC']
+ holdings: ['NEE', 'AMT', 'CCI', 'EQIX', 'UNP', 'CSX', 'NSC', 'EPD', 'KMI', 'WMB']
  },
  {
  symbol: 'GRID',
@@ -1134,24 +1128,23 @@ export class IndustryAnalysisService {
  const completedTasks = { count: 0, total: 3 };
  
  const trackablePromises = [
- this.analyzeTimeframe(4, 'Life').then(result => {
- completedTasks.count++;
- if (progressCallback) {
- const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
- progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
- }
- return result;
- }),
- this.analyzeTimeframe(16, 'Developing').then(result => {
- completedTasks.count++;
- if (progressCallback) {
- const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
- progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
- }
- return result;
- }),
- this.analyzeTimeframe(23, 'Momentum').then(result => {
- completedTasks.count++;
+       this.analyzeTimeframe(5, 'Life').then(result => {
+         completedTasks.count++;
+         if (progressCallback) {
+           const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
+           progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
+         }
+         return result;
+       }),
+       this.analyzeTimeframe(21, 'Developing').then(result => {
+         completedTasks.count++;
+         if (progressCallback) {
+           const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
+           progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
+         }
+         return result;
+       }),
+       this.analyzeTimeframe(80, 'Momentum').then(result => {
  if (progressCallback) {
  const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
  progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
@@ -1193,11 +1186,11 @@ export class IndustryAnalysisService {
  
  // Analysis configurations - use more calendar days to ensure sufficient trading days
  const timeframes = [
- { days: 4, name: 'life' as keyof MarketRegimeData, label: 'Life' },
- { days: 16, name: 'developing' as keyof MarketRegimeData, label: 'Developing' },
- { days: 23, name: 'momentum' as keyof MarketRegimeData, label: 'Momentum' }
+     { days: 5, name: 'life' as keyof MarketRegimeData, label: 'Life' },
+     { days: 21, name: 'developing' as keyof MarketRegimeData, label: 'Developing' },
+     { days: 80, name: 'momentum' as keyof MarketRegimeData, label: 'Momentum' }
  ];
-
+ 
  // Execute analyses sequentially to prevent resource exhaustion
  const completedAnalyses: any[] = [];
  

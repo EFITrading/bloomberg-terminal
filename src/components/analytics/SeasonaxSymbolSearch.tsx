@@ -109,33 +109,6 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
 
  return (
  <div className="seasonax-symbol-search" ref={searchRef}>
- <div className="symbol-display">
- <div className="symbol-main">
- <span className="symbol-ticker">{searchTerm}</span>
- <div className="election-dropdown-container">
- <button 
- className={`election-btn ${isElectionMode ? 'active' : 'inactive'}`}
- onClick={handleElectionClick}
- >
- <span className="election-text">{selectedElectionPeriod}</span>
- <span className="dropdown-arrow">▼</span>
- </button>
- {isElectionDropdownOpen && (
- <div className="election-dropdown">
- {electionPeriods.map((period) => (
- <div
- key={period}
- className={`election-option ${selectedElectionPeriod === period ? 'selected' : ''}`}
- onClick={() => handleElectionPeriodSelect(period)}
- >
- {period}
- </div>
- ))}
- </div>
- )}
- </div>
- </div>
- </div>
  
  <div className="search-input-container">
  <input

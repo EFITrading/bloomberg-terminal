@@ -52,14 +52,12 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
 
   return (
     <div className="space-y-8">
-      {/* Unified Control Bar - All Controls in One Place */}
+      {/* Unified Control Bar - 2 Rows × 3 Columns Grid */}
       <div style={{
-        display: 'flex',
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: '16px',
-        alignItems: 'center',
-        padding: '20px 24px',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, minmax(0, max-content))',
+        gap: '8px',
+        padding: '12px',
         background: '#000000',
         borderRadius: '12px',
         border: '1px solid #333333',
@@ -72,8 +70,7 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
         position: 'relative' as const,
         zIndex: 100,
         transform: 'translateZ(0)',
-        backdropFilter: 'blur(20px)',
-        overflow: 'visible' as const
+        backdropFilter: 'blur(20px)'
       }}>
         {/* 3D Highlight Effect */}
         <div style={{
@@ -87,64 +84,49 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
           pointerEvents: 'none' as const
         }} />
         
-        {/* Expiration Selector */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          zIndex: 1
-        }}>
-          <select
-            value={sharedExpiration}
-            onChange={(e) => setSharedExpiration(e.target.value)}
-            style={{
-              background: '#000000',
-              border: '1px solid #333333',
-              borderRadius: '8px',
-              color: '#ffffff',
-              padding: '10px 14px',
-              fontSize: '14px',
-              fontWeight: '500',
-              minWidth: '85px',
-              outline: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-              boxShadow: `
-                inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                0 1px 0 rgba(255, 255, 255, 0.1)
-              `,
-              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
-            }}
-          >
-            <option key="45-days" value="45-days" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
-              45 Days (All)
+        {/* Row 1, Col 1: Expiration Selector */}
+        <select
+          value={sharedExpiration}
+          onChange={(e) => setSharedExpiration(e.target.value)}
+          style={{
+            background: '#000000',
+            border: '1px solid #333333',
+            borderRadius: '8px',
+            color: '#ffffff',
+            padding: '8px 10px',
+            fontSize: '11px',
+            fontWeight: '500',
+            outline: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+            boxShadow: `
+              inset 0 2px 4px rgba(0, 0, 0, 0.6),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+              0 1px 0 rgba(255, 255, 255, 0.1)
+            `,
+            textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+            zIndex: 1
+          }}
+        >
+          <option key="45-days" value="45-days" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
+            45 Days (All)
+          </option>
+          {expirationDates.map(date => (
+            <option key={date} value={date} style={{ background: '#000000', color: '#ffffff' }}>
+              {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })}
             </option>
-            {expirationDates.map(date => (
-              <option key={date} value={date} style={{ background: '#000000', color: '#ffffff' }}>
-                {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })}
-              </option>
-            ))}
-          </select>
-        </div>
+          ))}
+        </select>
 
-        {/* Divider */}
-        <div style={{
-          width: '1px',
-          height: '30px',
-          background: 'linear-gradient(180deg, transparent, #333333, transparent)',
-          margin: '0 8px',
-          zIndex: 1
-        }} />
-
-        {/* 90% Range P/C Display */}
+        {/* Row 1, Col 2: 90% Range P/C Display */}
         <div style={{
           display: 'flex',
           flexDirection: 'column' as const,
           alignItems: 'center',
+          justifyContent: 'center',
           gap: '2px',
-          padding: '10px 14px',
+          padding: '6px 8px',
           background: '#000000',
           borderRadius: '8px',
           border: '1px solid #333333',
@@ -157,7 +139,7 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
         }}>
           <div style={{
             color: '#ff6600',
-            fontSize: '10px',
+            fontSize: '9px',
             fontWeight: '600',
             letterSpacing: '0.5px',
             textTransform: 'uppercase' as const
@@ -166,21 +148,22 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
           </div>
           <div style={{
             color: '#ffffff',
-            fontSize: '13px',
+            fontSize: '11px',
             fontWeight: '600',
             fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
           }}>
-            {expectedRangePCRatio || 'Calculating...'}
+            {expectedRangePCRatio || 'Calc...'}
           </div>
         </div>
 
-        {/* 45D P/C Display */}
+        {/* Row 1, Col 3: 45D P/C Display */}
         <div style={{
           display: 'flex',
           flexDirection: 'column' as const,
           alignItems: 'center',
+          justifyContent: 'center',
           gap: '2px',
-          padding: '10px 14px',
+          padding: '6px 8px',
           background: '#000000',
           borderRadius: '8px',
           border: '1px solid #333333',
@@ -193,7 +176,7 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
         }}>
           <div style={{
             color: '#ff6600',
-            fontSize: '10px',
+            fontSize: '9px',
             fontWeight: '600',
             letterSpacing: '0.5px',
             textTransform: 'uppercase' as const
@@ -202,75 +185,28 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
           </div>
           <div style={{
             color: '#ffffff',
-            fontSize: '13px',
+            fontSize: '11px',
             fontWeight: '600',
             fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
           }}>
-            {cumulativePCRatio45Days || 'Calculating...'}
+            {cumulativePCRatio45Days || 'Calc...'}
           </div>
         </div>
 
-        {/* Divider */}
-        <div style={{
-          width: '1px',
-          height: '30px',
-          background: 'linear-gradient(180deg, transparent, #333333, transparent)',
-          margin: '0 8px',
-          zIndex: 1
-        }} />
-
-        {/* AI Button - Detects and Shows Towers */}
-        <button
-          onClick={() => setShowAITowers(!showAITowers)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '10px 16px',
-            background: showAITowers ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#000000',
-            border: showAITowers ? '1px solid #667eea' : '1px solid #333333',
-            borderRadius: '8px',
-            color: '#ffffff',
-            fontSize: '13px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-            boxShadow: showAITowers ? '0 4px 12px rgba(102, 126, 234, 0.4)' : `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
-            textTransform: 'uppercase' as const,
-            letterSpacing: '0.5px',
-            zIndex: 1
-          }}
-          onMouseEnter={(e) => {
-            if (showAITowers) {
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.6)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = showAITowers ? '0 4px 12px rgba(102, 126, 234, 0.4)' : 'none';
-          }}
-        >
-          👑 AI
-        </button>
-
-        {/* Premium Toggle Button - Affects Both Charts */}
+        {/* Row 2, Col 1: Premium Button */}
         <button
           onClick={() => setShowPremium(!showPremium)}
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            padding: '10px 16px',
+            justifyContent: 'center',
+            gap: '4px',
+            padding: '8px 10px',
             background: showPremium ? 'rgba(255, 170, 0, 0.2)' : '#000000',
             border: showPremium ? '1px solid #ffaa00' : '1px solid #333333',
             borderRadius: '8px',
             color: showPremium ? '#ffaa00' : '#ffffff',
-            fontSize: '13px',
+            fontSize: '11px',
             fontWeight: '600',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
@@ -287,21 +223,58 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
           💰 Premium
         </button>
 
-        {/* Divider */}
-        <div style={{
-          width: '1px',
-          height: '30px',
-          background: 'linear-gradient(180deg, transparent, #333333, transparent)',
-          margin: '0 8px',
-          zIndex: 1
-        }} />
+        {/* Row 2, Col 2: AI Button */}
+        <button
+          onClick={() => setShowAITowers(!showAITowers)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            padding: '8px 10px',
+            background: showAITowers ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#000000',
+            border: showAITowers ? '1px solid #667eea' : '1px solid #333333',
+            borderRadius: '8px',
+            color: '#ffffff',
+            fontSize: '11px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            boxShadow: showAITowers ? '0 4px 12px rgba(102, 126, 234, 0.4)' : `
+              inset 0 2px 4px rgba(0, 0, 0, 0.6),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+              0 1px 0 rgba(255, 255, 255, 0.1)
+            `,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.5px',
+            zIndex: 1
+          }}
+        >
+          👑 AI
+        </button>
 
-        {/* Calls/Puts Dropdown */}
+        {/* Row 2, Col 3: Combined OI & GEX Dropdown */}
         <select
-          value={showNetOI ? 'net' : (showCalls && showPuts ? 'both' : (showCalls ? 'calls' : 'puts'))}
+          value={
+            showNetOI ? 'net-oi' :
+            showNetGamma ? 'net-gex' :
+            (showCalls && showPuts && showPositiveGamma && showNegativeGamma) ? 'both' :
+            (showCalls && showPuts) ? 'oi-both' :
+            showCalls ? 'calls' :
+            showPuts ? 'puts' :
+            showPositiveGamma ? 'positive' :
+            'negative'
+          }
           onChange={(e) => {
             const value = e.target.value;
             if (value === 'both') {
+              setShowCalls(true);
+              setShowPuts(true);
+              setShowNetOI(false);
+              setShowPositiveGamma(true);
+              setShowNegativeGamma(true);
+              setShowNetGamma(false);
+            } else if (value === 'oi-both') {
               setShowCalls(true);
               setShowPuts(true);
               setShowNetOI(false);
@@ -313,58 +286,10 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
               setShowCalls(false);
               setShowPuts(true);
               setShowNetOI(false);
-            } else if (value === 'net') {
+            } else if (value === 'net-oi') {
               setShowNetOI(true);
               setShowCalls(false);
               setShowPuts(false);
-            }
-          }}
-          style={{
-            background: '#000000',
-            border: '1px solid #333333',
-            borderRadius: '8px',
-            color: '#ffffff',
-            padding: '10px 14px',
-            fontSize: '13px',
-            fontWeight: '500',
-            minWidth: '60px',
-            outline: 'none',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-            fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-            boxShadow: `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
-            textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-            zIndex: 1
-          }}
-        >
-          <option value="both" style={{ background: '#000000', color: '#ffffff' }}>OI</option>
-          <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>Calls Only</option>
-          <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>Puts Only</option>
-          <option value="net" style={{ background: '#000000', color: '#ffffff' }}>Net OI</option>
-        </select>
-
-        {/* Divider */}
-        <div style={{
-          width: '1px',
-          height: '30px',
-          background: 'linear-gradient(180deg, transparent, #333333, transparent)',
-          margin: '0 8px',
-          zIndex: 1
-        }} />
-
-        {/* Gamma Dropdown */}
-        <select
-          value={showNetGamma ? 'net' : (showPositiveGamma && showNegativeGamma ? 'both' : (showPositiveGamma ? 'positive' : 'negative'))}
-          onChange={(e) => {
-            const value = e.target.value;
-            if (value === 'both') {
-              setShowPositiveGamma(true);
-              setShowNegativeGamma(true);
-              setShowNetGamma(false);
             } else if (value === 'positive') {
               setShowPositiveGamma(true);
               setShowNegativeGamma(false);
@@ -373,7 +298,7 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
               setShowPositiveGamma(false);
               setShowNegativeGamma(true);
               setShowNetGamma(false);
-            } else if (value === 'net') {
+            } else if (value === 'net-gex') {
               setShowNetGamma(true);
               setShowPositiveGamma(false);
               setShowNegativeGamma(false);
@@ -384,10 +309,9 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
             border: '1px solid #333333',
             borderRadius: '8px',
             color: '#ffffff',
-            padding: '10px 14px',
-            fontSize: '13px',
+            padding: '8px 10px',
+            fontSize: '11px',
             fontWeight: '500',
-            minWidth: '65px',
             outline: 'none',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
@@ -401,39 +325,60 @@ const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
             zIndex: 1
           }}
         >
-          <option value="both" style={{ background: '#000000', color: '#ffffff' }}>GEX</option>
-          <option value="positive" style={{ background: '#000000', color: '#ffffff' }}>Positive Only</option>
-          <option value="negative" style={{ background: '#000000', color: '#ffffff' }}>Negative Only</option>
-          <option value="net" style={{ background: '#000000', color: '#ffffff' }}>Net GEX</option>
+          <optgroup label="━━━ OI Options ━━━" style={{ background: '#000000', color: '#ff6600' }}>
+            <option value="oi-both" style={{ background: '#000000', color: '#ffffff' }}>OI: Both</option>
+            <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>OI: Calls Only</option>
+            <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>OI: Puts Only</option>
+            <option value="net-oi" style={{ background: '#000000', color: '#ffffff' }}>OI: Net</option>
+          </optgroup>
+          <optgroup label="━━━ GEX Options ━━━" style={{ background: '#000000', color: '#667eea' }}>
+            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>GEX: Both</option>
+            <option value="positive" style={{ background: '#000000', color: '#ffffff' }}>GEX: Positive</option>
+            <option value="negative" style={{ background: '#000000', color: '#ffffff' }}>GEX: Negative</option>
+            <option value="net-gex" style={{ background: '#000000', color: '#ffffff' }}>GEX: Net</option>
+          </optgroup>
         </select>
       </div>
 
-      <DealerOpenInterestChart 
-        selectedTicker={selectedTicker}
-        compactMode={true}
-        selectedExpiration={sharedExpiration}
-        hideAllControls={true}
-        oiViewMode={showPremium ? 'premium' : 'contracts'}
-        showCalls={showCalls}
-        showPuts={showPuts}
-        showNetOI={showNetOI}
-        showTowers={showAITowers}
-        onExpectedRangePCRatioChange={setExpectedRangePCRatio}
-        onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days}
-        onExpectedRange90Change={setExpectedRange90}
-      />
-      <DealerGEXChart 
-        selectedTicker={selectedTicker}
-        compactMode={true}
-        selectedExpiration={sharedExpiration}
-        hideAllControls={true}
-        gexViewMode={showPremium ? 'premium' : 'gex'}
-        showPositiveGamma={showPositiveGamma}
-        showNegativeGamma={showNegativeGamma}
-        showNetGamma={showNetGamma}
-        showAttrax={showAITowers}
-        expectedRange90={expectedRange90}
-      />
+      <div className="w-full md:w-auto" style={{ 
+        transform: typeof window !== 'undefined' && window.innerWidth < 768 ? 'scale(0.65)' : 'scale(1)',
+        transformOrigin: 'top left',
+        width: typeof window !== 'undefined' && window.innerWidth < 768 ? '154%' : '100%',
+        marginBottom: typeof window !== 'undefined' && window.innerWidth < 768 ? '-18%' : '0'
+      }}>
+        <DealerOpenInterestChart 
+          selectedTicker={selectedTicker}
+          compactMode={true}
+          selectedExpiration={sharedExpiration}
+          hideAllControls={true}
+          oiViewMode={showPremium ? 'premium' : 'contracts'}
+          showCalls={showCalls}
+          showPuts={showPuts}
+          showNetOI={showNetOI}
+          showTowers={showAITowers}
+          onExpectedRangePCRatioChange={setExpectedRangePCRatio}
+          onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days}
+          onExpectedRange90Change={setExpectedRange90}
+        />
+      </div>
+      <div className="w-full md:w-auto" style={{ 
+        transform: typeof window !== 'undefined' && window.innerWidth < 768 ? 'scale(0.65)' : 'scale(1)',
+        transformOrigin: 'top left',
+        width: typeof window !== 'undefined' && window.innerWidth < 768 ? '154%' : '100%'
+      }}>
+        <DealerGEXChart 
+          selectedTicker={selectedTicker}
+          compactMode={true}
+          selectedExpiration={sharedExpiration}
+          hideAllControls={true}
+          gexViewMode={showPremium ? 'premium' : 'gex'}
+          showPositiveGamma={showPositiveGamma}
+          showNegativeGamma={showNegativeGamma}
+          showNetGamma={showNetGamma}
+          showAttrax={showAITowers}
+          expectedRange90={expectedRange90}
+        />
+      </div>
     </div>
   );
 };
@@ -532,6 +477,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
   
   // State for Strike Risk table expiration selector
   const [strikeRiskExpiration, setStrikeRiskExpiration] = useState<string>('');
+  const [strikeTableTab, setStrikeTableTab] = useState<'mm' | 'risk'>('mm');
   
   // Filter to 45-day expirations only
   const mmExpirations = useMemo(() => {
@@ -1255,12 +1201,12 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       {/* Stability Index Gauge - Now hidden, moved to Trading Signal section */}
 
       {/* Trading Signal Gauge */}
-      <div className="bg-black border border-gray-600 p-8">
+      <div className="bg-black border border-gray-600 md:p-8 p-0 md:pt-8 pt-2">
         
         {/* Two Gauges Side by Side */}
-        <div className="grid grid-cols-2 gap-8 mb-8">
+        <div className="grid grid-cols-2 md:gap-8 gap-2 md:mb-8 mb-2">
           {/* Intensity Gauge (Left) */}
-          <div className="relative w-full h-96">
+          <div className="relative w-full md:h-96 h-48">
             {/* SVG Gauge */}
             <svg className="w-full h-full" viewBox="0 0 400 250">
             {/* Gradient Definition */}
@@ -1406,8 +1352,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </svg>
           
           {/* Center Value Display */}
-          <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-center">
-            <div className={`text-3xl font-bold ${
+          <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
+            <div className={`md:text-3xl text-lg font-bold ${
               metrics.signal.includes('BUY') ? 'text-green-400' :
               metrics.signal.includes('SELL') ? 'text-red-400' :
               'text-yellow-400'
@@ -1417,12 +1363,12 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </div>
           
           {/* Side Labels */}
-          <div className="absolute bottom-8 left-4 text-lg text-red-400 font-bold">SELL</div>
-          <div className="absolute bottom-8 right-4 text-lg text-green-400 font-bold">BUY</div>
+          <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">SELL</div>
+          <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">BUY</div>
           </div>
           
           {/* Stability Gauge (Right) */}
-          <div className="relative w-full h-96">
+          <div className="relative w-full md:h-96 h-48">
             {/* SVG Gauge */}
             <svg className="w-full h-full" viewBox="0 0 400 250">
               {/* Gradient Definition */}
@@ -1568,8 +1514,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             </svg>
             
             {/* Center Value Display */}
-            <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-center">
-              <div className={`text-3xl font-bold ${
+            <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
+              <div className={`md:text-3xl text-lg font-bold ${
                 siMetrics.siNorm > 2 ? 'text-green-400' :
                 siMetrics.siNorm < -2 ? 'text-red-400' :
                 'text-yellow-400'
@@ -1579,17 +1525,17 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             </div>
             
             {/* Side Labels */}
-            <div className="absolute bottom-8 left-4 text-lg text-red-400 font-bold">VOLATILE</div>
-            <div className="absolute bottom-8 right-4 text-lg text-green-400 font-bold">STABLE</div>
+            <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">VOLATILE</div>
+            <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">STABLE</div>
           </div>
         </div>
         
         {/* Market Interpretation */}
-        <div className="bg-black border border-gray-700 p-5 rounded-lg mb-8 text-sm shadow-lg">
-          <div className="grid grid-cols-3 gap-6">
+        <div className="bg-black border border-gray-700 p-3 md:p-5 rounded-lg mb-2 md:mb-8 text-xs md:text-sm shadow-lg">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-6">
             <div>
-              <div className="text-blue-400 font-bold text-base mb-2">Dealer Behavior</div>
-              <div className="text-white">
+              <div className="text-blue-400 font-bold md:text-base text-xs mb-1">Dealer Behavior</div>
+              <div className="text-white md:text-sm text-[11px]">
                 {siMetrics.siNorm >= 2.0
                   ? "Dealers are pinning the price near strike levels with concentrated gamma positions. Strong mean reversion expected."
                   : siMetrics.siNorm >= 0.5
@@ -1602,8 +1548,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               </div>
             </div>
             <div>
-              <div className="text-purple-400 font-bold text-base mb-2">Market Behavior</div>
-              <div className="text-white">
+              <div className="text-purple-400 font-bold md:text-base text-xs mb-1">Market Behavior</div>
+              <div className="text-white md:text-sm text-[11px]">
                 {siMetrics.siNorm >= 2.0
                   ? "Price shows strong tendency to revert to key levels. Low volatility, high stability environment."
                   : siMetrics.siNorm >= 0.5
@@ -1617,8 +1563,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             </div>
             {metrics.signalExplanation && (
               <div>
-                <div className="text-green-400 font-bold text-base mb-2">Trading Signal</div>
-                <div className="text-white">{metrics.signalExplanation}</div>
+                <div className="text-green-400 font-bold md:text-base text-xs mb-1">Trading Signal</div>
+                <div className="text-white md:text-sm text-[11px]">{metrics.signalExplanation}</div>
               </div>
             )}
           </div>
@@ -1632,7 +1578,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-0">
         
         {/* Max Pain Compact Display */}
-        <div className="bg-black border border-gray-600 p-3">
+        <div className="hidden md:block bg-black border border-gray-600 p-3">
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="text-red-400" size={16} />
             <h3 className="text-white font-bold uppercase text-[10px] tracking-wider">Max Pain</h3>
@@ -1971,14 +1917,36 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         </div>
       </div>
 
-      {/* Side-by-Side Tables Grid */}
-      <div className="grid grid-cols-2 gap-4 mt-6">
-        
-        {/* Detailed Strike Table */}
-        <div className="bg-black border border-gray-600">
-          <div className="bg-black px-6 py-4 border-b border-gray-600">
-            <h3 className="text-white font-black uppercase text-lg tracking-widest">MM BY STRIKE</h3>
-          </div>
+      {/* Tabbed Strike Tables */}
+      <div className="mt-6">
+        {/* Tab Headers */}
+        <div className="flex border-b border-gray-600 mb-0">
+          <button
+            onClick={() => setStrikeTableTab('mm')}
+            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
+              strikeTableTab === 'mm'
+                ? 'bg-black text-white border-b-2 border-orange-500'
+                : 'bg-gray-900 text-gray-400 hover:text-white'
+            }`}
+          >
+            MM BY STRIKE
+          </button>
+          <button
+            onClick={() => setStrikeTableTab('risk')}
+            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
+              strikeTableTab === 'risk'
+                ? 'bg-black text-white border-b-2 border-orange-500'
+                : 'bg-gray-900 text-gray-400 hover:text-white'
+            }`}
+          >
+            STRIKE-LEVEL RISK
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {strikeTableTab === 'mm' ? (
+          /* Detailed Strike Table */
+          <div className="bg-black border border-gray-600 border-t-0">
           
           <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '500px' }}>
             <table className="w-full">
@@ -2040,12 +2008,9 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </table>
         </div>
       </div>
-      
-      {/* Max Pain Strike Risk Analysis - Second Column */}
-      <div className="bg-black border border-gray-600">
-        <div className="bg-black px-6 py-4 border-b border-gray-600">
-          <h3 className="text-white font-black uppercase text-lg tracking-widest">STRIKE-LEVEL RISK</h3>
-        </div>
+        ) : (
+          /* Max Pain Strike Risk Analysis */
+          <div className="bg-black border border-gray-600 border-t-0">
         
         {/* Expiration Selector */}
         <div className="bg-black/50 border-b border-gray-700 px-4 py-3">
@@ -2167,8 +2132,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </table>
         </div>
       </div>
-      
-      </div> {/* End Side-by-Side Tables Grid */}
+        )}
+      </div> {/* End Tabbed Strike Tables */}
 
     </div>
   );
@@ -3835,7 +3800,11 @@ const calculateVanna = (strike: number, spotPrice: number, T: number, impliedVol
   return vanna;
 };
 
-const DealerAttraction = () => {
+interface DealerAttractionProps {
+  onClose?: () => void;
+}
+
+const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [data, setData] = useState<GEXData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3868,7 +3837,10 @@ const DealerAttraction = () => {
   const [liveOIProgress, setLiveOIProgress] = useState(0);
   const [showVEX, setShowVEX] = useState(false);
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
-  const [useBloombergTheme, setUseBloombergTheme] = useState(false); // Bloomberg Terminal theme toggle
+  const [useBloombergTheme, setUseBloombergTheme] = useState(() => {
+    // Default to true on mobile
+    return typeof window !== 'undefined' && window.innerWidth < 768;
+  }); // Bloomberg Terminal theme toggle
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'MAXPAIN'>('MM');
 
@@ -5408,7 +5380,7 @@ const DealerAttraction = () => {
             <div className="bg-black border-y border-gray-800">
               <div className="px-4 md:px-8 py-3 md:py-6">
                 {/* Main Tabs */}
-                <div className="flex gap-0 w-full mb-4">
+                <div className="flex gap-0 w-full mb-4 relative">
                   <button 
                     onClick={() => setActiveTab('WORKBENCH')}
                     className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${
@@ -5433,7 +5405,17 @@ const DealerAttraction = () => {
                     {activeTab === 'ATTRACTION' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>}
                     <span className="relative" style={activeTab === 'ATTRACTION' ? { textShadow: '0 2px 4px rgba(0,0,0,0.8)' } : {}}>GREEK SUITE</span>
                   </button>
-
+                  
+                  {/* Close Button - Only show when onClose prop exists */}
+                  {onClose && (
+                    <button
+                      onClick={onClose}
+                      className="absolute -top-2 -right-2 w-8 h-8 flex items-center justify-center bg-black border-2 border-orange-500 hover:bg-orange-500 hover:text-black text-orange-500 transition-all rounded"
+                      style={{ zIndex: 10 }}
+                    >
+                      <span className="text-xl font-bold leading-none">×</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Only show these controls for GREEK SUITE tab */}
@@ -5694,7 +5676,8 @@ const DealerAttraction = () => {
                             }}
                           />
                           <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showVEX ? '#eab308' : '#c084fc', textShadow: showVEX ? '0 0 8px rgba(234, 179, 8, 0.5)' : 'none' }}>
-                            VOLATILITY
+                            <span className="hidden md:inline">VOLATILITY</span>
+                            <span className="md:hidden">VEX</span>
                           </span>
                         </div>
                         
@@ -6128,8 +6111,8 @@ const DealerAttraction = () => {
             <>
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
               
-              {/* Show multiple tables/charts side by side when multiple modes are enabled */}
-              {(showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) || (showOI && (showGEX || showDealer || showFlowGEX)) ? (
+              {/* Show multiple tables/charts side by side when multiple modes are enabled OR when OI is selected alone */}
+              {showOI || (showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) ? (
                 <div className="flex overflow-x-auto" style={{ gap: '1px' }}>
                   {/* OI/GEX Charts - Show when OI checkbox is active */}
                   {showOI && (
@@ -6152,19 +6135,47 @@ const DealerAttraction = () => {
                       tableWidths.push('887px', '887px', '886px');
                     }
                     
+                    // Mobile detection - needed for getTableWidth function
+                    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+                    
                     let currentTableIndex = 0;
                     const getTableWidth = () => {
+                      // On mobile, don't use fixed widths - let tables size naturally based on content
+                      if (isMobile) {
+                        return undefined;
+                      }
                       if (tableWidths.length > 0 && currentTableIndex < tableWidths.length) {
                         return { width: tableWidths[currentTableIndex], minWidth: tableWidths[currentTableIndex++] };
                       }
                       return undefined;
                     };
                     
+                    // Mobile expiration splitting: show fewer expirations per table to fit on screen
+                    const mobileStrikeWidth = isMobile ? 45 : workbenchStrikeWidth;
+                    const mobileExpWidth = isMobile ? 60 : 90;
+                    let table1Expirations = expirations;
+                    let table2Expirations = expirations;
+                    let table3Expirations = expirations;
+                    
+                    if (isMobile) {
+                      if (activeTableCount === 3) {
+                        // 3 tables on mobile: each gets 1 expiration
+                        table1Expirations = expirations.slice(0, 1);
+                        table2Expirations = expirations.slice(0, 1);
+                        table3Expirations = expirations.slice(0, 1);
+                      } else if (activeTableCount === 2) {
+                        // 2 tables on mobile: each gets 2 expirations
+                        table1Expirations = expirations.slice(0, 2);
+                        table2Expirations = expirations.slice(0, 2);
+                        table3Expirations = expirations.slice(0, 2);
+                      }
+                    }
+                    
                     return (
                       <>
-                  {/* NORMAL (Net GEX) Table - conditionally rendered */}
-                  {showGEX && (
-                    <div key={`normal-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
+                    {/* GEX/NORMAL TABLE */}
+                    {showGEX && (
+                      <div className="flex-shrink-0" style={getTableWidth()}>
                       <div className={`${useBloombergTheme 
                         ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
                         : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
@@ -6178,14 +6189,14 @@ const DealerAttraction = () => {
                         </div>
                       </div>
                       <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                        <table style={{ minWidth: `${mobileStrikeWidth + (table1Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
                       <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                         <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                          <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
+                          <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
                             <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                           </th>
-                          {expirations.map(exp => (
-                            <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                          {table1Expirations.map(exp => (
+                            <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
                               <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                 {formatDate(exp)}
                               </div>
@@ -6207,7 +6218,7 @@ const DealerAttraction = () => {
                           // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
                           let hasMagnetCell = false;
                           let hasPivotCell = false;
-                          expirations.forEach(exp => {
+                          table1Expirations.forEach(exp => {
                             const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
                             const gexValue = calculatedRow?.[exp] as any;
                             const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
@@ -6226,10 +6237,10 @@ const DealerAttraction = () => {
                                 isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
                               }`}
                             >
-                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                width: `${workbenchStrikeWidth}px`,
-                                minWidth: `${workbenchStrikeWidth}px`,
-                                maxWidth: `${workbenchStrikeWidth}px`
+                              <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                width: `${mobileStrikeWidth}px`,
+                                minWidth: `${mobileStrikeWidth}px`,
+                                maxWidth: `${mobileStrikeWidth}px`
                               }}>
                                 <div className={`text-base font-mono font-bold ${
                                   hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
@@ -6239,7 +6250,7 @@ const DealerAttraction = () => {
                                   {row.strike.toFixed(1)}
                                 </div>
                               </td>
-                              {expirations.map(exp => {
+                              {table1Expirations.map(exp => {
                                 // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
                                 const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
                                 const gexValue = calculatedRow?.[exp] as any;
@@ -6247,7 +6258,7 @@ const DealerAttraction = () => {
                                 const cellStyle = getCellStyle(displayValue, false, row.strike, exp, gexTopValues);
                                 
                                 // DEBUG: Log first few cells for NORMAL mode
-                                if (idx < 2 && expirations.indexOf(exp) < 2) {
+                                if (idx < 2 && table1Expirations.indexOf(exp) < 2) {
                                   console.log(`🔍 NORMAL Cell [${row.strike}, ${exp}]:`, {
                                     displayValue,
                                     callValue: gexValue?.call,
@@ -6298,14 +6309,14 @@ const DealerAttraction = () => {
                         </div>
                       </div>
                       <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                        <table style={{ minWidth: `${mobileStrikeWidth + (table2Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
                       <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                         <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                          <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
+                          <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
                             <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                           </th>
-                          {expirations.map(exp => (
-                            <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                          {table2Expirations.map(exp => (
+                            <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
                               <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                 {formatDate(exp)}
                               </div>
@@ -6327,7 +6338,7 @@ const DealerAttraction = () => {
                           // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
                           let hasMagnetCell = false;
                           let hasPivotCell = false;
-                          expirations.forEach(exp => {
+                          table2Expirations.forEach(exp => {
                             const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
                             const dealerValue = calculatedRow?.[exp] as any;
                             const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
@@ -6346,10 +6357,10 @@ const DealerAttraction = () => {
                                 isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
                               }`}
                             >
-                              <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                width: `${workbenchStrikeWidth}px`,
-                                minWidth: `${workbenchStrikeWidth}px`,
-                                maxWidth: `${workbenchStrikeWidth}px`
+                              <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                width: `${mobileStrikeWidth}px`,
+                                minWidth: `${mobileStrikeWidth}px`,
+                                maxWidth: `${mobileStrikeWidth}px`
                               }}>
                                 <div className={`text-base font-mono font-bold ${
                                   hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
@@ -6359,7 +6370,7 @@ const DealerAttraction = () => {
                                   {row.strike.toFixed(1)}
                                 </div>
                               </td>
-                              {expirations.map(exp => {
+                              {table2Expirations.map(exp => {
                                 // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
                                 const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
                                 const dealerValue = calculatedRow?.[exp] as any;
@@ -6367,7 +6378,7 @@ const DealerAttraction = () => {
                                 const cellStyle = getCellStyle(displayValue, false, row.strike, exp, dealerTopValues);
                                 
                                 // DEBUG: Log first few cells
-                                if (idx < 2 && expirations.indexOf(exp) < 2) {
+                                if (idx < 2 && table2Expirations.indexOf(exp) < 2) {
                                   console.log(`🔍 MM ACTIVITY Cell [${row.strike}, ${exp}]:`, {
                                     displayValue,
                                     highest: dealerTopValues.highest,
@@ -6414,14 +6425,14 @@ const DealerAttraction = () => {
                         </div>
                       </div>
                       <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
+                        <table style={{ minWidth: `${mobileStrikeWidth + (table3Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
                         <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                           <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                            <th className={`px-3 py-4 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
+                            <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
                               <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
                             </th>
-                            {expirations.map(exp => (
-                              <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                            {table3Expirations.map(exp => (
+                              <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
                                 <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
                                   {formatDate(exp)}
                                 </div>
@@ -6443,7 +6454,7 @@ const DealerAttraction = () => {
                             // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
                             let hasMagnetCell = false;
                             let hasPivotCell = false;
-                            expirations.forEach(exp => {
+                            table3Expirations.forEach(exp => {
                               const value = row[exp] as any;
                               const displayValue = value?.flowNet || 0;
                               if (displayValue > 0 && Math.abs(displayValue - flowTopValues.highestPositive) < 0.01) {
@@ -6461,10 +6472,10 @@ const DealerAttraction = () => {
                                   isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
                                 }`}
                               >
-                                <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                  width: `${workbenchStrikeWidth}px`,
-                                  minWidth: `${workbenchStrikeWidth}px`,
-                                  maxWidth: `${workbenchStrikeWidth}px`
+                                <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                  width: `${mobileStrikeWidth}px`,
+                                  minWidth: `${mobileStrikeWidth}px`,
+                                  maxWidth: `${mobileStrikeWidth}px`
                                 }}>
                                   <div className={`text-base font-mono font-bold ${
                                     hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
@@ -6474,7 +6485,7 @@ const DealerAttraction = () => {
                                     {row.strike.toFixed(1)}
                                   </div>
                                 </td>
-                                {expirations.map(exp => {
+                                {table3Expirations.map(exp => {
                                   const value = row[exp] as any;
                                   const displayValue = (value?.flowNet || 0);
                                   const cellStyle = getCellStyle(displayValue, false, row.strike, exp, flowTopValues);

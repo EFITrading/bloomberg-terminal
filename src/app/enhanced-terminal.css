@@ -2399,4 +2399,57 @@
     }
 }
 
+/* Mobile-only Watchlist Sidebar Panel Adjustments */
+@media (max-width: 768px) {
+    /* Reduce column header font sizes (Symbol, Price, Change, 1D, 5D, etc.) */
+    div[data-sidebar-panel="watchlist"] .bg-black.shadow-inner span {
+        font-size: 0.6rem !important;
+    }
 
+    /* Hide full company names in symbol column, show only tickers */
+    div[data-sidebar-panel="watchlist"] .font-mono.font-bold + * {
+        display: none !important;
+    }
+
+    /* Reduce ticker symbol font size */
+    div[data-sidebar-panel="watchlist"] .font-mono.font-bold.text-white {
+        font-size: 0.7rem !important;
+    }
+
+    /* Reduce status text font size (NEUTRAL, FALLING, RISING, KING, LEADER, etc.) */
+    div[data-sidebar-panel="watchlist"] .text-center span[class*="text-"],
+    div[data-sidebar-panel="watchlist"] span[class*="glow-"],
+    div[data-sidebar-panel="watchlist"] .text-yellow-400,
+    div[data-sidebar-panel="watchlist"] .text-green-400,
+    div[data-sidebar-panel="watchlist"] .text-red-400,
+    div[data-sidebar-panel="watchlist"] .text-lime-400,
+    div[data-sidebar-panel="watchlist"] .text-rose-400,
+    div[data-sidebar-panel="watchlist"] .text-emerald-400 {
+        font-size: 0.55rem !important;
+    }
+
+    /* Reduce padding in cells */
+    div[data-sidebar-panel="watchlist"] .grid-cols-8 > div {
+        padding: 0.4rem 0.25rem !important;
+    }
+
+    /* Reduce price and change column font sizes */
+    div[data-sidebar-panel="watchlist"] .font-mono:not(.font-bold) {
+        font-size: 0.65rem !important;
+    }
+
+    /* Reduce ALL text globally */
+    div[data-sidebar-panel="watchlist"] * {
+        font-size: 10px !important;
+    }
+
+    /* Column headers even smaller */
+    div[data-sidebar-panel="watchlist"] .drop-shadow-lg {
+        font-size: 9px !important;
+    }
+
+    /* Hide company names - target the span after ticker */
+    div[data-sidebar-panel="watchlist"] .font-mono.font-bold.text-white ~ span {
+        display: none !important;
+    }
+}

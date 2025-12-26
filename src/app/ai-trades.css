@@ -1,0 +1,284 @@
+/* AI Trades - Bloomberg/Goldman Sachs Terminal Theme */
+
+.ai-trades-container {
+  background: #000000;
+  color: #FFFFFF;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+.bloomberg-header {
+  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+  border-bottom: 2px solid #FF6600;
+  box-shadow: 0 4px 20px rgba(255, 102, 0, 0.3);
+}
+
+.goldman-title {
+  font-family: 'Arial', sans-serif;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.terminal-input {
+  background: #000000;
+  border: 2px solid #333333;
+  color: #00FF00;
+  font-family: 'SF Mono', monospace;
+  font-size: 18px;
+  transition: all 0.3s ease;
+}
+
+.terminal-input:focus {
+  border-color: #FF6600;
+  box-shadow: 0 0 20px rgba(255, 102, 0, 0.5);
+  outline: none;
+}
+
+.terminal-button {
+  background: linear-gradient(135deg, #FF6600 0%, #FF8833 100%);
+  border: none;
+  color: white;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(255, 102, 0, 0.4);
+}
+
+.terminal-button:hover {
+  background: linear-gradient(135deg, #FF8833 0%, #FFAA55 100%);
+  box-shadow: 0 6px 25px rgba(255, 102, 0, 0.6);
+  transform: translateY(-2px);
+}
+
+.terminal-button:disabled {
+  background: #333333;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.analysis-log {
+  background: #0a0a0a;
+  border: 1px solid #222222;
+  font-family: 'SF Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.analysis-log::-webkit-scrollbar {
+  width: 8px;
+}
+
+.analysis-log::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+.analysis-log::-webkit-scrollbar-thumb {
+  background: #FF6600;
+  border-radius: 4px;
+}
+
+.trade-card {
+  background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+  border: 2px solid #FF6600;
+  box-shadow: 0 8px 32px rgba(255, 102, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.trade-card:hover {
+  box-shadow: 0 12px 48px rgba(255, 102, 0, 0.5);
+  transform: translateY(-4px);
+}
+
+.metric-card {
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid #333333;
+  transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+  border-color: #FF6600;
+  box-shadow: 0 4px 16px rgba(255, 102, 0, 0.3);
+}
+
+.signal-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.signal-bullish {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22C55E;
+  border: 1px solid #22C55E;
+}
+
+.signal-bearish {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+  border: 1px solid #EF4444;
+}
+
+.signal-neutral {
+  background: rgba(234, 179, 8, 0.2);
+  color: #EAB308;
+  border: 1px solid #EAB308;
+}
+
+.confidence-meter {
+  height: 8px;
+  background: #222222;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.confidence-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #EF4444 0%, #EAB308 50%, #22C55E 100%);
+  transition: width 0.5s ease;
+}
+
+.data-grid {
+  display: grid;
+  gap: 1px;
+  background: #222222;
+}
+
+.data-cell {
+  background: #0a0a0a;
+  padding: 12px;
+  transition: all 0.2s ease;
+}
+
+.data-cell:hover {
+  background: #1a1a1a;
+}
+
+.status-live {
+  color: #22C55E;
+  font-weight: 700;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    text-shadow: 0 0 5px #22C55E, 0 0 10px #22C55E;
+  }
+  50% {
+    text-shadow: 0 0 10px #22C55E, 0 0 20px #22C55E;
+  }
+}
+
+.price-flash-up {
+  animation: flash-green 0.5s ease;
+}
+
+@keyframes flash-green {
+  0%, 100% { background: transparent; }
+  50% { background: rgba(34, 197, 94, 0.3); }
+}
+
+.price-flash-down {
+  animation: flash-red 0.5s ease;
+}
+
+@keyframes flash-red {
+  0%, 100% { background: transparent; }
+  50% { background: rgba(239, 68, 68, 0.3); }
+}
+
+.terminal-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.terminal-table th {
+  background: #1a1a1a;
+  color: #FF6600;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 12px;
+  border-bottom: 2px solid #FF6600;
+  text-align: left;
+}
+
+.terminal-table td {
+  background: #0a0a0a;
+  padding: 12px;
+  border-bottom: 1px solid #222222;
+  font-family: 'SF Mono', monospace;
+}
+
+.terminal-table tr:hover td {
+  background: #1a1a1a;
+}
+
+.risk-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.risk-low {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22C55E;
+}
+
+.risk-medium {
+  background: rgba(234, 179, 8, 0.2);
+  color: #EAB308;
+}
+
+.risk-high {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
+
+.bloomberg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.terminal-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, #FF6600 50%, transparent 100%);
+  margin: 24px 0;
+}
+
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  background: #22C55E;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}

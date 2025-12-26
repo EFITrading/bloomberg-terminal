@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
+import { useMarketRegime } from '@/contexts/MarketRegimeContext';
 
 
 
 export default function Navigation() {
  const { data: session } = useSession();
+ const { regimes } = useMarketRegime();
  const [currentTime, setCurrentTime] = useState('');
  const [isAuthenticated, setIsAuthenticated] = useState(false);
  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -161,6 +163,36 @@ export default function Navigation() {
 
          {/* Desktop Status and Auth */}
          <div className="desktop-nav-right">
+           {/* Market Regime Alerts */}
+           {regimes.length > 0 && (
+             <div style={{ display: 'flex', gap: '8px', marginRight: '16px', alignItems: 'center' }}>
+               {regimes.map(({period, regime}) => (
+                 <div
+                   key={period}
+                   style={{
+                     padding: '6px 12px',
+                     borderRadius: '6px',
+                     fontWeight: 'bold',
+                     fontSize: '13px',
+                     display: 'flex',
+                     flexDirection: 'column',
+                     alignItems: 'center',
+                     gap: '2px',
+                     background: regime === 'RISK ON' ? 'rgba(0, 255, 0, 0.15)' : regime === 'DEFENSIVE' ? 'rgba(255, 0, 0, 0.15)' : 'rgba(0, 100, 255, 0.15)',
+                     border: `2px solid ${regime === 'RISK ON' ? '#00ff00' : regime === 'DEFENSIVE' ? '#ff0000' : '#0064ff'}`,
+                     boxShadow: `0 0 15px ${regime === 'RISK ON' ? 'rgba(0, 255, 0, 0.6)' : regime === 'DEFENSIVE' ? 'rgba(255, 0, 0, 0.6)' : 'rgba(0, 100, 255, 0.6)'}`,
+                     animation: 'pulse 2s ease-in-out infinite',
+                     color: regime === 'RISK ON' ? '#00ff00' : regime === 'DEFENSIVE' ? '#ff0000' : '#0064ff',
+                     textShadow: `0 0 10px ${regime === 'RISK ON' ? 'rgba(0, 255, 0, 0.8)' : regime === 'DEFENSIVE' ? 'rgba(255, 0, 0, 0.8)' : 'rgba(0, 100, 255, 0.8)'}`
+                   }}
+                 >
+                   <span style={{ fontSize: '11px', opacity: 0.9 }}>{period}</span>
+                   <span>{regime}</span>
+                 </div>
+               ))}
+             </div>
+           )}
+           
            {isClient && (
              <>
                {isAuthenticated ? (

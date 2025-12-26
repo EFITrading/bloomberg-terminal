@@ -23,6 +23,7 @@ interface OptionContract {
 interface OptionsChainProps {
   symbol: string;
   currentPrice?: number;
+  onClose?: () => void;
 }
 
 interface WatchlistOption {
@@ -43,7 +44,7 @@ interface WatchlistOption {
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
-export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0 }: OptionsChainProps) {
+export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, onClose }: OptionsChainProps) {
   const [symbol, setSymbol] = useState(initialSymbol);
   const [searchInput, setSearchInput] = useState(initialSymbol);
   const [expirationDates, setExpirationDates] = useState<string[]>([]);
@@ -408,6 +409,42 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0 }
 
   return (
     <div className="h-full flex flex-col bg-black text-white">
+      {/* Mobile Title and X Button */}
+      <div className="md:hidden px-6 py-1 border-b border-gray-800 bg-black relative">
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="absolute top-1 right-3 text-gray-400 hover:text-white transition-colors z-50"
+            aria-label="Close panel"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        )}
+        <div className="text-center">
+          <h1 className="font-black text-white tracking-wider uppercase" 
+            style={{
+              fontSize: '45px',
+              lineHeight: '1',
+              marginBottom: '5px',
+              textShadow: `
+                2px 2px 0px rgba(0, 0, 0, 0.9),
+                -1px -1px 0px rgba(255, 255, 255, 0.1),
+                0px -2px 0px rgba(255, 255, 255, 0.05),
+                0px 2px 0px rgba(0, 0, 0, 0.8),
+                inset 0 2px 4px rgba(0, 0, 0, 0.5)
+              `,
+              background: 'linear-gradient(to bottom, #ffffff 0%, #cccccc 50%, #999999 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif'
+            }}>
+            Options Chain
+          </h1>
+        </div>
+      </div>
       {/* Enhanced Header */}
       <div className="flex-shrink-0 border-b border-orange-900/30 bg-black shadow-lg">
         {/* Top Bar */}

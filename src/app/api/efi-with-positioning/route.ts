@@ -211,37 +211,56 @@ async function fetchCurrentOptionPrices(trades: any[]): Promise<Record<string, n
   
   console.log(`📊 Fetching current option prices for ${trades.length} EFI trades...`);
   
-  for (const trade of trades) {
-    try {
-      const expiry = trade.expiry.replace(/-/g, '').slice(2);
-      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-      const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-      
-      const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
-      
-      const response = await fetch(snapshotUrl, {
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.results && data.results.last_quote) {
-          const bid = data.results.last_quote.bid || 0;
-          const ask = data.results.last_quote.ask || 0;
-          const currentPrice = (bid + ask) / 2;
+  // Batch in parallel groups of 100
+  const BATCH_SIZE = 100;
+  const batches = [];
+  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+    batches.push(trades.slice(i, i + BATCH_SIZE));
+  }
+  
+  for (const batch of batches) {
+    const results = await Promise.all(
+      batch.map(async (trade, index) => {
+        // Minimal stagger 5ms per trade in batch
+        await new Promise(resolve => setTimeout(resolve, index * 5));
+        
+        try {
+          const expiry = trade.expiry.replace(/-/g, '').slice(2);
+          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
           
-          if (currentPrice > 0) {
-            pricesUpdate[optionTicker] = currentPrice;
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+          
+          const response = await fetch(snapshotUrl, {
+            signal: AbortSignal.timeout(3000)
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.results && data.results.last_quote) {
+              const bid = data.results.last_quote.bid || 0;
+              const ask = data.results.last_quote.ask || 0;
+              const currentPrice = (bid + ask) / 2;
+              
+              if (currentPrice > 0) {
+                return { optionTicker, price: currentPrice };
+              }
+            }
           }
+        } catch (error) {
+          // Silent fail
         }
-      }
-    } catch (error) {
-      console.error(`Failed to fetch price for ${trade.ticker}:`, error);
-    }
+        return null;
+      })
+    );
     
-    // Add small delay to avoid rate limiting
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Aggregate results
+    results.forEach(result => {
+      if (result) {
+        pricesUpdate[result.optionTicker] = result.price;
+      }
+    });
   }
   
   console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} option prices`);
@@ -253,25 +272,45 @@ async function fetchCurrentStockPrices(tickers: string[]): Promise<Record<string
   
   console.log(`📊 Fetching current stock prices for ${tickers.length} tickers...`);
   
-  for (const ticker of tickers) {
-    try {
-      const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_API_KEY}`;
-      
-      const response = await fetch(snapshotUrl, {
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.ticker && data.ticker.lastTrade && data.ticker.lastTrade.p) {
-          pricesUpdate[ticker] = data.ticker.lastTrade.p;
+  // Batch in parallel groups of 50
+  const BATCH_SIZE = 50;
+  const batches = [];
+  for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+    batches.push(tickers.slice(i, i + BATCH_SIZE));
+  }
+  
+  for (const batch of batches) {
+    const results = await Promise.all(
+      batch.map(async (ticker, index) => {
+        // Minimal stagger 10ms per ticker in batch
+        await new Promise(resolve => setTimeout(resolve, index * 10));
+        
+        try {
+          const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_API_KEY}`;
+          
+          const response = await fetch(snapshotUrl, {
+            signal: AbortSignal.timeout(3000)
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.ticker && data.ticker.lastTrade && data.ticker.lastTrade.p) {
+              return { ticker, price: data.ticker.lastTrade.p };
+            }
+          }
+        } catch (error) {
+          // Silent fail
         }
-      }
-    } catch (error) {
-      console.error(`Failed to fetch stock price for ${ticker}:`, error);
-    }
+        return null;
+      })
+    );
     
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Aggregate results
+    results.forEach(result => {
+      if (result) {
+        pricesUpdate[result.ticker] = result.price;
+      }
+    });
   }
   
   console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} stock prices`);
@@ -283,44 +322,64 @@ async function calculateHistoricalStdDevs(tickers: string[]): Promise<Map<string
   
   console.log(`📊 Calculating historical std devs for ${tickers.length} tickers...`);
   
-  for (const ticker of tickers) {
-    try {
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setMonth(startDate.getMonth() - 1);
-      
-      const formattedEnd = endDate.toISOString().split('T')[0];
-      const formattedStart = startDate.toISOString().split('T')[0];
-      
-      const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${formattedStart}/${formattedEnd}?adjusted=true&sort=asc&limit=50000&apikey=${POLYGON_API_KEY}`;
-      
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.results && data.results.length > 1) {
-          const returns = [];
-          for (let i = 1; i < data.results.length; i++) {
-            const prevClose = data.results[i - 1].c;
-            const currClose = data.results[i].c;
-            const dailyReturn = ((currClose - prevClose) / prevClose) * 100;
-            returns.push(dailyReturn);
+  // Batch in parallel groups of 50
+  const BATCH_SIZE = 50;
+  const batches = [];
+  for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+    batches.push(tickers.slice(i, i + BATCH_SIZE));
+  }
+  
+  for (const batch of batches) {
+    const results = await Promise.all(
+      batch.map(async (ticker, index) => {
+        // Minimal stagger 10ms per ticker in batch
+        await new Promise(resolve => setTimeout(resolve, index * 10));
+        
+        try {
+          const endDate = new Date();
+          const startDate = new Date();
+          startDate.setMonth(startDate.getMonth() - 1);
+          
+          const formattedEnd = endDate.toISOString().split('T')[0];
+          const formattedStart = startDate.toISOString().split('T')[0];
+          
+          const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${formattedStart}/${formattedEnd}?adjusted=true&sort=asc&limit=50000&apikey=${POLYGON_API_KEY}`;
+          
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(3000)
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.results && data.results.length > 1) {
+              const returns = [];
+              for (let i = 1; i < data.results.length; i++) {
+                const prevClose = data.results[i - 1].c;
+                const currClose = data.results[i].c;
+                const dailyReturn = ((currClose - prevClose) / prevClose) * 100;
+                returns.push(dailyReturn);
+              }
+              
+              const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+              const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
+              const stdDev = Math.sqrt(variance);
+              
+              return { ticker, stdDev };
+            }
           }
-          
-          const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-          const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
-          const stdDev = Math.sqrt(variance);
-          
-          stdDevs.set(ticker, stdDev);
+        } catch (error) {
+          // Silent fail
         }
-      }
-    } catch (error) {
-      console.error(`Failed to calculate std dev for ${ticker}:`, error);
-    }
+        return null;
+      })
+    );
     
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Aggregate results
+    results.forEach(result => {
+      if (result) {
+        stdDevs.set(result.ticker, result.stdDev);
+      }
+    });
   }
   
   console.log(`✅ Calculated ${stdDevs.size} std devs`);

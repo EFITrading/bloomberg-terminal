@@ -93,9 +93,10 @@ interface TrendingTopic {
 
 interface NewsTabProps {
  symbol?: string;
+ onClose?: () => void;
 }
 
-const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '' }) => {
+const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '', onClose }) => {
  const [articles, setArticles] = useState<NewsArticle[]>([]);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
@@ -251,200 +252,190 @@ const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '' }) => {
  return (
  <div className="h-full flex flex-col bg-black">
  {/* Header */}
- <div className="p-6 border-b border-gray-800 bg-black">
- <div className="flex items-center justify-between mb-6">
- <div className="flex items-center gap-3">
- <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl shadow-lg">
- <TbBolt className="w-6 h-6 text-white" />
- </div>
- <div>
- <h2 className="text-2xl font-bold text-white tracking-tight">Market News</h2>
- <p className="text-sm text-orange-400 font-medium">Real-time Financial Intelligence</p>
- </div>
- </div>
- 
- <div className="flex items-center gap-3">
- {loading && (
- <div className="flex items-center gap-2 px-3 py-2 bg-black rounded-lg border border-gray-700">
- <div className="w-3 h-3 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
- <span className="text-xs text-orange-400 font-bold tracking-wide">LIVE</span>
- </div>
+ <div className="px-6 py-1 md:py-5 border-b border-gray-800 bg-black relative">
+ {/* Close button - mobile only */}
+ {onClose && (
+ <button
+ onClick={onClose}
+ className="absolute top-1 right-3 md:top-3 md:hidden text-gray-400 hover:text-white transition-colors z-50"
+ aria-label="Close panel"
+ >
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+ <line x1="18" y1="6" x2="6" y2="18"></line>
+ <line x1="6" y1="6" x2="18" y2="18"></line>
+ </svg>
+ </button>
  )}
- <div className="flex items-center gap-2 px-3 py-2 bg-black rounded-lg border border-gray-700">
- <TbClock className="w-4 h-4 text-orange-400" />
- <span className="text-xs text-gray-300 font-mono">{lastRefresh.toLocaleTimeString()}</span>
- </div>
- <button
- onClick={() => fetchNews(searchTicker, selectedCategory)}
- className="flex items-center justify-center w-10 h-10 bg-black hover:bg-gray-900 rounded-xl border border-gray-700 hover:border-orange-500 transition-all duration-200 group"
- title="Refresh News Feed"
- >
- <TbRefresh className={`w-5 h-5 text-gray-400 group-hover:text-orange-400 transition-colors ${loading ? 'animate-spin' : ''}`} />
- </button>
- </div>
- </div>
-
- {/* Category Filters and Search Bar */}
- <div className="space-y-4">
- {/* First Row - 3 buttons */}
- <div className="grid grid-cols-3 gap-3">
- {categories.slice(0, 3).map((cat) => {
- const IconComponent = cat.icon;
- const isActive = selectedCategory === cat.id;
- return (
- <button
- key={cat.id}
- onClick={() => setSelectedCategory(cat.id)}
- className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
- isActive
- ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-black shadow-lg shadow-orange-500/30 border border-orange-400'
- : 'bg-black text-gray-300 hover:bg-gray-900 hover:text-white border border-gray-700 hover:border-orange-500/50'
- }`}
- >
- <IconComponent className={`w-4 h-4 ${isActive ? 'text-black' : 'text-orange-400'}`} />
- <span className="tracking-wide">{cat.label}</span>
- </button>
- );
- })}
+ {/* Centered 3D Carved Title */}
+ <div className="text-center">
+ <h1 className="font-black text-white tracking-wider uppercase" 
+ style={{
+ fontSize: window.innerWidth < 768 ? '45px' : '3rem',
+ lineHeight: window.innerWidth < 768 ? '1' : 'normal',
+ marginBottom: window.innerWidth < 768 ? '5px' : '20px',
+ textShadow: `
+ 2px 2px 0px rgba(0, 0, 0, 0.9),
+ -1px -1px 0px rgba(255, 255, 255, 0.1),
+ 0px -2px 0px rgba(255, 255, 255, 0.05),
+ 0px 2px 0px rgba(0, 0, 0, 0.8),
+ inset 0 2px 4px rgba(0, 0, 0, 0.5)
+ `,
+ background: 'linear-gradient(to bottom, #ffffff 0%, #cccccc 50%, #999999 100%)',
+ WebkitBackgroundClip: 'text',
+ WebkitTextFillColor: 'transparent',
+ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif'
+ }}>
+ Market News
+ </h1>
  </div>
 
- {/* Second Row - 2 buttons + Search Bar */}
- <div className="flex items-center gap-3">
- <div className="flex gap-3">
- {categories.slice(3, 5).map((cat) => {
- const IconComponent = cat.icon;
- const isActive = selectedCategory === cat.id;
- return (
- <button
- key={cat.id}
- onClick={() => setSelectedCategory(cat.id)}
- className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
- isActive
- ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-black shadow-lg shadow-orange-500/30 border border-orange-400'
- : 'bg-black text-gray-300 hover:bg-gray-900 hover:text-white border border-gray-700 hover:border-orange-500/50'
- }`}
- >
- <IconComponent className={`w-4 h-4 ${isActive ? 'text-black' : 'text-orange-400'}`} />
- <span className="tracking-wide">{cat.label}</span>
- </button>
- );
- })}
- </div>
-
- {/* Search Bar */}
- <form onSubmit={handleSearch} className="flex-1">
- <div className="flex items-center bg-black border border-gray-700 rounded-xl focus-within:border-orange-500 focus-within:ring-2 focus-within:ring-orange-500/20 transition-all duration-200">
- <div className="pl-4 pr-2">
+ {/* Single Row: Search + All Buttons + Refresh */}
+ <div className="flex items-center gap-2">
+ {/* Ticker Search Bar - 50% smaller again */}
+ <form onSubmit={handleSearch} className="w-16 md:w-64">
+ <div className="flex items-center bg-black border border-gray-700 rounded-lg focus-within:border-orange-500 transition-all">
+ <div className="pl-2 pr-1">
  <TbSearch className="text-orange-400 w-4 h-4" />
  </div>
  <input
  type="text"
  value={searchTicker}
  onChange={(e) => setSearchTicker(e.target.value)}
- placeholder="Enter ticker symbols: AAPL, MSFT, TSLA..."
- className="flex-1 px-2 py-3 bg-transparent text-white placeholder-gray-500 focus:outline-none font-mono text-sm tracking-wide"
+ placeholder="SPY"
+ className="flex-1 px-1 py-2 bg-transparent text-white placeholder-white/60 focus:outline-none font-mono text-sm"
  />
  </div>
  </form>
- </div>
+
+ {/* Category Buttons - Smaller */}
+ {categories.map((cat) => {
+ const IconComponent = cat.icon;
+ const isActive = selectedCategory === cat.id;
+ return (
+ <button
+ key={cat.id}
+ onClick={() => setSelectedCategory(cat.id)}
+ className={`flex items-center gap-1 px-2 py-2 md:px-5 md:py-3 rounded-lg text-xs md:text-base font-bold whitespace-nowrap transition-all ${
+ isActive
+ ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-black shadow-lg'
+ : 'bg-black text-white hover:bg-gray-900 border border-gray-700 hover:border-orange-500/50'
+ }`}
+ >
+ <IconComponent className={`w-4 h-4 md:w-5 md:h-5 ${isActive ? 'text-black' : 'text-orange-400'}`} />
+ <span>{cat.label}</span>
+ </button>
+ );
+ })}
+
+ {/* Refresh Button */}
+ <button
+ onClick={() => fetchNews(searchTicker, selectedCategory)}
+ className="flex items-center justify-center w-8 h-8 md:w-10 md:h-10 bg-black hover:bg-gray-900 rounded-lg border border-gray-700 hover:border-orange-500 transition-all group"
+ title="Refresh News Feed"
+ >
+ <TbRefresh className={`w-4 h-4 md:w-5 md:h-5 text-gray-400 group-hover:text-orange-400 transition-colors ${loading ? 'animate-spin' : ''}`} />
+ </button>
  </div>
  </div>
 
  {/* Market Sentiment Panel */}
  {marketSentiment && showSentimentPanel && (
- <div className="border-b border-gray-800 bg-black">
+ <div className="border-b border-gray-700/30 bg-black/95">
  <div className="p-6">
- <div className="flex items-center justify-between mb-4">
- <div className="flex items-center gap-3">
- <div className="flex items-center justify-center w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg">
- <TbChartBar className="w-4 h-4 text-white" />
- </div>
- <h3 className="text-lg font-bold text-white tracking-tight">Market Sentiment</h3>
- </div>
+ {/* Header */}
+ <div className="flex items-center justify-between mb-5">
+ <h3 className="text-sm font-semibold text-white uppercase tracking-widest">Market Sentiment</h3>
  <button
  onClick={() => setShowSentimentPanel(false)}
- className="flex items-center justify-center w-8 h-8 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-700 hover:border-gray-600 transition-all duration-200"
+ className="flex items-center justify-center w-6 h-6 hover:bg-gray-800 rounded transition-colors"
  >
  <TbX className="w-4 h-4 text-gray-400 hover:text-white" />
  </button>
  </div>
 
- <div className="grid grid-cols-2 gap-4 mb-3">
  {/* Overall Sentiment */}
- <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-800">
- <div className="flex items-center justify-between mb-1">
- <span className="text-xs text-gray-400">Overall</span>
- <div className={`flex items-center gap-1 ${
+ <div className="mb-5">
+ <div className="flex items-center justify-between mb-2.5">
+ <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">Overall</span>
+ <div className={`flex items-center gap-2 px-2.5 py-1 rounded ${
  marketSentiment.overall_sentiment === 'bullish' 
- ? 'text-green-400' 
+ ? 'bg-emerald-500/15 text-emerald-400' 
  : marketSentiment.overall_sentiment === 'bearish' 
- ? 'text-red-400' 
- : 'text-gray-400'
+ ? 'bg-rose-500/15 text-rose-400' 
+ : 'bg-gray-500/15 text-gray-300'
  }`}>
  {marketSentiment.overall_sentiment === 'bullish' ? (
- <TbTrendingUp className="w-3 h-3" />
+ <TbTrendingUp className="w-3.5 h-3.5" />
  ) : marketSentiment.overall_sentiment === 'bearish' ? (
- <TbTrendingDown className="w-3 h-3" />
+ <TbTrendingDown className="w-3.5 h-3.5" />
  ) : (
- <div className="w-3 h-3 rounded-full bg-gray-400"></div>
+ <div className="w-3.5 h-3.5 rounded-full bg-gray-400"></div>
  )}
- <span className="text-xs font-medium capitalize">
+ <span className="text-xs font-bold uppercase tracking-wide">
  {marketSentiment.overall_sentiment}
  </span>
  </div>
  </div>
- <div className="w-full bg-gray-800 rounded-full h-1.5">
+ <div className="relative w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
  <div 
- className={`h-1.5 rounded-full transition-all duration-300 ${
- marketSentiment.sentiment_score > 0 ? 'bg-green-400' : 'bg-red-400'
+ className={`absolute h-full transition-all duration-500 ${
+ marketSentiment.sentiment_score > 0 
+ ? 'bg-emerald-500' 
+ : 'bg-rose-500'
  }`}
  style={{ 
  width: `${Math.abs(marketSentiment.sentiment_score) * 100}%`,
- marginLeft: marketSentiment.sentiment_score < 0 ? `${100 - Math.abs(marketSentiment.sentiment_score) * 100}%` : '0'
+ left: marketSentiment.sentiment_score < 0 ? 'auto' : '0',
+ right: marketSentiment.sentiment_score < 0 ? '0' : 'auto'
  }}
  ></div>
  </div>
  </div>
 
  {/* Confidence */}
- <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-800">
- <div className="flex items-center justify-between mb-1">
- <span className="text-xs text-gray-400">Confidence</span>
- <span className="text-xs font-medium text-blue-400">
+ <div className="mb-5">
+ <div className="flex items-center justify-between mb-2.5">
+ <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">Confidence</span>
+ <span className="text-xs font-bold text-cyan-400">
  {(marketSentiment.confidence_level * 100).toFixed(0)}%
  </span>
  </div>
- <div className="w-full bg-gray-800 rounded-full h-1.5">
+ <div className="relative w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
  <div 
- className="h-1.5 rounded-full bg-blue-400 transition-all duration-300"
+ className="absolute h-full bg-cyan-500 transition-all duration-500"
  style={{ width: `${marketSentiment.confidence_level * 100}%` }}
  ></div>
- </div>
  </div>
  </div>
 
  {/* Trending Topics */}
  {marketSentiment.trending_topics.length > 0 && (
- <div className="mb-3">
- <div className="flex items-center gap-2 mb-2">
- <TbFlame className="w-3 h-3 text-orange-400" />
- <span className="text-xs font-medium text-gray-300">Trending Topics</span>
+ <div className="mb-5">
+ <div className="flex items-center gap-2 mb-2.5">
+ <TbFlame className="w-3.5 h-3.5 text-orange-500" />
+ <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">Trending</span>
  </div>
- <div className="flex flex-wrap gap-1">
- {marketSentiment.trending_topics.slice(0, 6).map((topic) => (
- <span
+ <div className="flex flex-wrap gap-1.5">
+ {marketSentiment.trending_topics.slice(0, 8).map((topic) => (
+ <div
  key={topic.keyword}
- className={`px-2 py-1 rounded text-xs ${
- topic.sentiment_score > 0.1 
- ? 'bg-green-500/20 text-green-400' 
- : topic.sentiment_score < -0.1 
- ? 'bg-red-500/20 text-red-400'
- : 'bg-gray-500/20 text-gray-400'
- }`}
+ className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-gray-800/80 border border-gray-700/50 hover:border-gray-600/80 transition-colors"
  title={`${topic.mentions} mentions • ${topic.related_tickers.join(', ')}`}
  >
- {topic.keyword} ({topic.mentions})
+ <span className="text-xs text-white/90 font-medium">
+ {topic.keyword}
  </span>
+ <span className="text-[10px] text-gray-500">
+ {topic.mentions}
+ </span>
+ {topic.sentiment_score > 0.1 ? (
+ <div className="w-1 h-1 rounded-full bg-emerald-400"></div>
+ ) : topic.sentiment_score < -0.1 ? (
+ <div className="w-1 h-1 rounded-full bg-rose-400"></div>
+ ) : (
+ <div className="w-1 h-1 rounded-full bg-gray-500"></div>
+ )}
+ </div>
  ))}
  </div>
  </div>
@@ -453,23 +444,28 @@ const NewsPanel: React.FC<NewsTabProps> = ({ symbol = '' }) => {
  {/* Market Events */}
  {marketSentiment.market_moving_events.length > 0 && (
  <div>
- <div className="flex items-center gap-2 mb-2">
- <TbTarget className="w-3 h-3 text-yellow-400" />
- <span className="text-xs font-medium text-gray-300">Market Events</span>
+ <div className="flex items-center gap-2 mb-2.5">
+ <TbTarget className="w-3.5 h-3.5 text-amber-500" />
+ <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">Events</span>
  </div>
- <div className="space-y-1">
+ <div className="space-y-1.5">
  {marketSentiment.market_moving_events.slice(0, 3).map((event, index) => (
- <div key={index} className="flex items-center justify-between bg-gray-900/50 rounded px-2 py-1 border border-gray-800">
- <div className="flex items-center gap-2">
- <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs">
+ <div 
+ key={index} 
+ className="flex items-center justify-between px-3 py-2.5 rounded bg-gray-800/60 border border-gray-700/40 hover:border-gray-600/60 transition-colors"
+ >
+ <div className="flex items-center gap-2.5 flex-1 min-w-0">
+ <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-[10px] font-bold uppercase tracking-wider">
  {event.ticker}
  </span>
- <span className="text-xs text-gray-300 truncate">
- {event.title.slice(0, 40)}...
+ <span className="text-xs text-gray-300 truncate flex-1">
+ {event.title.slice(0, 55)}{event.title.length > 55 ? '...' : ''}
  </span>
  </div>
- <div className={`text-xs font-medium ${
- event.estimated_price_impact > 0 ? 'text-green-400' : 'text-red-400'
+ <div className={`text-xs font-bold px-2 py-0.5 rounded ml-2 ${
+ event.estimated_price_impact > 0 
+ ? 'text-emerald-400 bg-emerald-500/15' 
+ : 'text-rose-400 bg-rose-500/15'
  }`}>
  {event.estimated_price_impact > 0 ? '+' : ''}{event.estimated_price_impact.toFixed(1)}%
  </div>

@@ -11021,7 +11021,7 @@ export default function TradingViewChart({
                 )}
               </div>
 
- {/* Technalysis Button */}}
+ {/* Technalysis Button */}
  <div className="ml-4 relative">
  <button
  ref={technalysisButtonRef}
@@ -11661,9 +11661,8 @@ export default function TradingViewChart({
  };
  return (
  <div key={item.id} className="flex flex-col items-center mb-3">
- {/* Title above button */}
- <span className="text-xs text-white text-opacity-40 font-medium mb-1 tracking-wide text-center">
- {item.label}
+                {/* Title above button - Hidden on mobile */}
+                <span className="text-xs text-white text-opacity-40 font-medium mb-1 tracking-wide text-center hidden md:block">
  </span>
  
  <button
@@ -11933,23 +11932,13 @@ export default function TradingViewChart({
 
  {/* Sidebar Panels */}
  {activeSidebarPanel && (
- <div className={`fixed top-32 bottom-4 left-16 ${activeSidebarPanel === 'liquid' ? 'w-[calc(100vw-5rem)]' : 'w-[1200px]'} bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}>
+ <div className={`fixed top-32 bottom-4 left-0 md:left-16 ${activeSidebarPanel === 'liquid' ? 'w-full md:w-[calc(100vw-5rem)]' : 'w-full md:w-[1200px]'} bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}>
 {/* Sidebar panel debugging */}
- {/* Panel Header */}
- <div className="h-12 border-b border-[#1a1a1a] flex items-center justify-between px-4">
- <h3 className="text-white font-medium capitalize">{activeSidebarPanel}</h3>
- <button 
- onClick={() => setActiveSidebarPanel(null)}
- className="text-white text-opacity-60 hover:text-white transition-colors p-1"
- >
- <TbX size={18} />
- </button>
- </div>
 
  {/* Panel Content */}
- <div className="h-[calc(100%-3rem)] overflow-y-auto">
+ <div className="h-full overflow-y-auto">
  {activeSidebarPanel === 'liquid' && (
- <DealerAttraction />
+ <DealerAttraction onClose={() => setActiveSidebarPanel(null)} />
  )}
  {activeSidebarPanel === 'watchlist' && (
  <WatchlistPanel 

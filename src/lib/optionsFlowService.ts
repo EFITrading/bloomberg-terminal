@@ -771,60 +771,38 @@ export class OptionsFlowService {
   }
 
   private filterAndClassifyTrades(trades: ProcessedTrade[], targetTicker?: string): ProcessedTrade[] {
-    console.log(`🔍 Filtering ${trades.length} individual trades${targetTicker ? ` for ${targetTicker}` : ''}`);
+    // Reduce logging for performance
     
     let filtered = trades;
     
     // Filter by ticker if specified (but not for 'ALL' requests)
     if (targetTicker && targetTicker.toLowerCase() !== 'all' && targetTicker !== 'ALL_EXCLUDE_ETF_MAG7') {
       filtered = filtered.filter(trade => trade.underlying_ticker === targetTicker);
-      console.log(`📊 After ticker filter: ${filtered.length} trades`);
-    } else if (targetTicker && (targetTicker.toLowerCase() === 'all' || targetTicker === 'ALL_EXCLUDE_ETF_MAG7')) {
-      console.log(`📊 ALL ticker request - no ticker filtering applied`);
     }
     
     // Skip classification if trades are already classified (have trade_type)
     const alreadyClassified = filtered.every(t => t.trade_type !== undefined);
     if (!alreadyClassified) {
-      // SWEEP DETECTION: Detect trades across multiple exchanges within time windows
-      console.log(`🔍 SWEEP DETECTION: Analyzing ${filtered.length} trades for sweep patterns...`);
+      // SWEEP DETECTION
       filtered = this.detectSweeps(filtered);
-      console.log(`🧹 After sweep detection: ${filtered.length} trades with sweep classification`);
       
-      // MULTI-LEG DETECTION: Detect complex options strategies
-      console.log(`🔍 MULTI-LEG DETECTION: Analyzing ${filtered.length} trades for multi-leg patterns...`);
+      // MULTI-LEG DETECTION
       filtered = this.detectMultiLegTrades(filtered);
-      console.log(`🦵 After multi-leg detection: ${filtered.length} trades with multi-leg classification`);
-    } else {
-      console.log(`⏩ Trades already classified - skipping sweep/multi-leg detection`);
     }
     
-    // Count puts vs calls before institutional filtering
-    const putsBeforeFilter = filtered.filter(t => t.type === 'put').length;
-    const callsBeforeFilter = filtered.filter(t => t.type === 'call').length;
-    console.log(`📊 Before institutional filter: ${putsBeforeFilter} puts, ${callsBeforeFilter} calls`);
-
     // YOUR ACTUAL CRITERIA - Use existing institutional tiers system
     filtered = filtered.filter(trade => this.passesInstitutionalCriteria(trade));
-    
-    // Count puts vs calls after institutional filtering
-    const putsAfterFilter = filtered.filter(t => t.type === 'put').length;
-    const callsAfterFilter = filtered.filter(t => t.type === 'call').length;
-    console.log(`🎯 After YOUR tier criteria filter: ${filtered.length} trades (${putsAfterFilter} puts, ${callsAfterFilter} calls)`);
 
     // Classify trade types ONLY if not already classified
     if (!alreadyClassified) {
       filtered = filtered.map(trade => this.classifyTradeType(trade));
-      console.log(`🏷️ After trade type classification: ${filtered.length} trades`);
     }
 
     // Filter out after-hours trades (market hours: 9:30 AM - 4:00 PM ET)
     filtered = filtered.filter(trade => this.isWithinMarketHours(trade.trade_timestamp));
-    console.log(`🕘 After market hours filter: ${filtered.length} trades`);
 
     // YOUR ITM FILTER: Only 5% ITM max + all OTM contracts
     filtered = filtered.filter(trade => this.isWithinTradeableRange(trade));
-    console.log(`💰 After 5% ITM max filter: ${filtered.length} trades`);
 
     // Sort by timestamp (newest first) and total premium (largest first)
     filtered.sort((a, b) => {
@@ -835,6 +813,7 @@ export class OptionsFlowService {
       return b.trade_timestamp.getTime() - a.trade_timestamp.getTime();
     });
     
+    console.log(`✅ Filtered: ${filtered.length} trades passed all criteria`);
     return filtered;
   }
 

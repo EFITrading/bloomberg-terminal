@@ -9,6 +9,8 @@ import SeasonaxMainChart from './SeasonaxMainChart';
 import SeasonaxStatistics from './SeasonaxStatistics';
 import SeasonaxControls from './SeasonaxControls';
 import HorizontalMonthlyReturns from './HorizontalMonthlyReturns';
+import AlmanacDailyChart from './AlmanacDailyChart';
+import SeasonaxLanding from '../seasonax/SeasonaxLanding';
 
 // Types for Polygon API data
 interface PolygonDataPoint {
@@ -1005,22 +1007,38 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
 
  return (
   <div className="seasonax-container">
-   {/* Header with symbol search, monthly returns, and controls */}
+   {/* Header with all elements in one row */}
    {!hideControls && (
    <div className="seasonax-header">
-    <SeasonaxSymbolSearch 
-     onSymbolSelect={handleSymbolChange} 
-     initialSymbol={selectedSymbol}
+    {/* Group 1: Search + Compare */}
+    <div className="header-group search-compare-group">
+     <SeasonaxSymbolSearch 
+      onSymbolSelect={handleSymbolChange} 
+      initialSymbol={selectedSymbol}
+      onElectionPeriodSelect={handleElectionPeriodSelect}
+      onElectionModeToggle={handleElectionModeToggle}
+     />
+     <button className="compare-btn" onClick={() => {}}>+ COMPARE</button>
+    </div>
+
+    {/* Election and Year Selector without wrapping box */}
+    <SeasonaxControls 
+     settings={{...chartSettings, smoothing: true, detrend: true, showCurrentDate: true}}
+     onSettingsChange={handleSettingsChange}
+     onRefresh={handleRefresh}
+     hideToggleButtons={true}
+     selectedElectionPeriod={displayElectionPeriod}
      onElectionPeriodSelect={handleElectionPeriodSelect}
+     isElectionMode={isElectionMode}
      onElectionModeToggle={handleElectionModeToggle}
+     hideCompareButton={true}
+     showOnlyElectionAndYear={true}
     />
-    {/* Sweet Spot / Pain Point Buttons */}
+
     <div className="sweet-pain-buttons">
      <button className="sweet-spot-btn compare-btn" onClick={handleSweetSpotClick}>Sweet Spot</button>
      <button className="pain-point-btn compare-btn" onClick={handlePainPointClick}>Pain Point</button>
     </div>
-    
-    {/* Show monthly returns based on current mode */}
     {(isElectionMode ? electionData?.spyComparison?.monthlyData : seasonalData?.spyComparison?.monthlyData) && (
      <HorizontalMonthlyReturns 
       monthlyData={isElectionMode ? electionData!.spyComparison!.monthlyData : seasonalData!.spyComparison!.monthlyData}
@@ -1029,11 +1047,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
       onMonthClick={handleMonthClick}
      />
     )}
-    <SeasonaxControls 
-     settings={chartSettings}
-     onSettingsChange={handleSettingsChange}
-     onRefresh={handleRefresh}
-    />
    </div>
    )}
 
@@ -1054,47 +1067,75 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
    )}
 
    {error && (
-    <div className="seasonax-error">
-     <div className="error-content">
-      <h3>Error Loading Data</h3>
-      <p>{error}</p>
-      <button 
-       onClick={() => {
-        if (isElectionMode) {
-         loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
-        } else {
-         loadSeasonalAnalysis(selectedSymbol);
-        }
-       }}
-       className="retry-button"
-      >
-       Retry
-      </button>
+    <div style={{ display: 'grid', gridTemplateColumns: '51% 48%', gap: '1%', width: '100%' }}>
+     <div className="seasonax-error">
+      <div className="error-content">
+       <h3>Error Loading Data</h3>
+       <p>{error}</p>
+       <button 
+        onClick={() => {
+         if (isElectionMode) {
+          loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
+         } else {
+          loadSeasonalAnalysis(selectedSymbol);
+         }
+        }}
+        className="retry-button"
+       >
+        Retry
+       </button>
+      </div>
      </div>
+     <div style={{ minWidth: 0 }}></div>
     </div>
    )}
 
    {loading && (
-    <div className="seasonax-loading">
-     <div className="loading-spinner"></div>
-     <p>Loading {isElectionMode ? 'election cycle' : 'seasonal'} analysis for {selectedSymbol}...</p>
+    <div style={{ display: 'grid', gridTemplateColumns: '51% 48%', gap: '1%', width: '100%' }}>
+     <div className="seasonax-loading">
+      <div className="loading-spinner"></div>
+      <p>Loading {isElectionMode ? 'election cycle' : 'seasonal'} analysis for {selectedSymbol}...</p>
+     </div>
+     <div style={{ minWidth: 0 }}></div>
     </div>
    )}
 
    {/* Show data based on current mode */}
    {((isElectionMode && electionData) || (!isElectionMode && seasonalData)) && !loading && (
-    <div className="seasonax-content full-width">
-     {/* Main Chart Area - Full Width */}
-     <div className="seasonax-charts full-width">
-      <SeasonaxMainChart
-       data={(isElectionMode ? electionData : seasonalData) as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
-       settings={chartSettings}
-       sweetSpotPeriod={sweetSpotPeriod}
-       painPointPeriod={painPointPeriod}
-       selectedMonth={monthlyViewActive ? selectedMonthIndex : null}
-      />
+    <>
+    <div style={{ display: 'grid', gridTemplateColumns: '50.3% 48%', gap: '1%', width: '100%', marginTop: '-20px' }}>
+     {/* Left column: Charts */}
+     <div style={{ minWidth: 0, width: '100%', overflow: 'hidden' }}>
+      <div style={{ width: '100%' }}>
+       {/* Main Chart Area - Override CSS max-width */}
+       <div style={{ width: '100%', maxHeight: '650px', height: '650px', position: 'relative', marginTop: '-20px' }}>
+        <SeasonaxMainChart
+         data={(isElectionMode ? electionData : seasonalData) as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
+         settings={chartSettings}
+         sweetSpotPeriod={sweetSpotPeriod}
+         painPointPeriod={painPointPeriod}
+         selectedMonth={monthlyViewActive ? selectedMonthIndex : null}
+        />
+       </div>
+      </div>
+      
+      {/* Monthly Analysis Chart below seasonal chart */}
+      <div style={{ width: '100%', position: 'relative', top: '-10px', paddingRight: 0 }}>
+       <div style={{ height: '650px', paddingRight: 0 }}>
+        <AlmanacDailyChart 
+         month={new Date().getMonth()} 
+         showPostElection={true} 
+        />
+       </div>
+      </div>
+     </div>
+     
+     {/* Right column: Screener */}
+     <div style={{ minWidth: 0, marginTop: '-90px' }}>
+      <SeasonaxLanding />
      </div>
     </div>
+    </>
    )}
 
    {/* Monthly View Modal */}

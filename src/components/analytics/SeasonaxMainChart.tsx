@@ -156,17 +156,7 @@ const drawSeasonalLine = (
  });
  ctx.stroke();
  
- // Add symbol label at the end of the line
- if (dataPoints.length > 0) {
- const lastPoint = dataPoints[dataPoints.length - 1];
- const x = getX(lastPoint);
- const y = containerHeight - padding.bottom - ((lastPoint.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
- 
- ctx.fillStyle = color;
- ctx.font = 'bold 12px "Roboto Mono", monospace';
- ctx.textAlign = 'left';
- ctx.fillText(symbol, x + 5, y - 5);
- }
+ // Symbol label at end of line removed to save space
 };
 
 const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings, sweetSpotPeriod, painPointPeriod, selectedMonth = null }) => {
@@ -304,7 +294,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  // Clear canvas
  ctx.clearRect(0, 0, containerWidth, containerHeight);
 
- const padding = { top: 15, right: 60, bottom: 60, left: 60 };
+ const padding = { top: 40, right: 8, bottom: 60, left: 60 };
  const chartWidth = containerWidth - padding.left - padding.right;
  const chartHeight = containerHeight - padding.top - padding.bottom;
 
@@ -640,7 +630,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  <div className="seasonax-main-chart" ref={containerRef} style={{ 
  width: '100%', 
  height: '100%', 
- minHeight: '500px',
+ minHeight: '650px',
  minWidth: '300px',
  position: 'relative',
  overflow: 'hidden'

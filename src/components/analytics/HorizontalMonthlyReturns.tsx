@@ -74,9 +74,9 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
    display: 'flex', 
    flexDirection: 'row', 
    width: 'fit-content', 
-   padding: '10px 80px 10px 20px',
+   padding: '10px 2px 10px 2px',
    alignItems: 'center',
-   marginLeft: '1px'
+   marginLeft: '0px'
  }}>
  {/* Left side - Dropdowns (only show if controls are enabled) */}
  {showControls && (
@@ -202,36 +202,10 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
  {/* Left column - BULLISH 30-day period */}
  <div className="period-column left-column" style={{ flexShrink: 0 }}>
  {best30DayPeriod && (
- <div className="period-item bullish-period" style={{
-   minWidth: '140px',
-   maxWidth: '140px',
-   padding: '10px 8px',
-   borderRadius: '12px',
-   border: '2px solid #00FF00',
-   background: '#000',
-   textAlign: 'center'
- }}>
- <div className="period-label bullish-label" style={{ 
-   fontSize: '11px', 
-   fontWeight: '800',
-   color: '#00FF00',
-   marginBottom: '6px',
-   letterSpacing: '0.8px'
- }}>BULLISH</div>
- <div className="period-date" style={{ 
-   fontSize: '11px',
-   color: '#fff',
-   marginBottom: '6px',
-   lineHeight: '1.2'
- }}>{formatDateRange(best30DayPeriod.period)}</div>
- <div className="period-return bullish" style={{
-   fontSize: '16px',
-   fontWeight: '900',
-   color: '#00FF00',
-   padding: '6px 8px',
-   borderRadius: '6px',
-   background: 'rgba(0, 255, 0, 0.1)'
- }}>{formatPercentage(best30DayPeriod.return)}</div>
+ <div className="period-item bullish-period">
+ <div className="period-label bullish-label">BULLISH</div>
+ <div className="period-date">{best30DayPeriod.startDate} - {best30DayPeriod.endDate}</div>
+ <div className="period-return bullish">{formatPercentage(best30DayPeriod.return)}</div>
  </div>
  )}
  </div>
@@ -345,36 +319,10 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
  {/* Right column - BEARISH 30-day period */}
  <div className="period-column right-column" style={{ flexShrink: 0 }}>
  {worst30DayPeriod && (
- <div className="period-item bearish-period" style={{
-   minWidth: '140px',
-   maxWidth: '140px',
-   padding: '10px 8px',
-   borderRadius: '12px',
-   border: '2px solid #FF0000',
-   background: '#000',
-   textAlign: 'center'
- }}>
- <div className="side-subtitle bearish-label" style={{ 
-   fontSize: '11px', 
-   fontWeight: '800',
-   color: '#FF0000',
-   marginBottom: '6px',
-   letterSpacing: '0.8px'
- }}>BEARISH</div>
- <div className="period-date" style={{ 
-   fontSize: '11px',
-   color: '#fff',
-   marginBottom: '6px',
-   lineHeight: '1.2'
- }}>{formatDateRange(worst30DayPeriod.period)}</div>
- <div className="period-return bearish" style={{
-   fontSize: '16px',
-   fontWeight: '900',
-   color: '#FF0000',
-   padding: '6px 8px',
-   borderRadius: '6px',
-   background: 'rgba(255, 0, 0, 0.1)'
- }}>{formatPercentage(worst30DayPeriod.return)}</div>
+ <div className="period-item bearish-period">
+ <div className="period-label bearish-label">BEARISH</div>
+ <div className="period-date">{worst30DayPeriod.startDate} - {worst30DayPeriod.endDate}</div>
+ <div className="period-return bearish">{formatPercentage(worst30DayPeriod.return)}</div>
  </div>
  )}
  </div>

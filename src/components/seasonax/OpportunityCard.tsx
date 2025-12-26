@@ -133,20 +133,6 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
  </div>
  <div className="metric-label-small" style={{ fontSize: '12px' }}>Win Rate</div>
  </div>
- 
- <div className="metric-card">
- <div className={`metric-value ${correlation >= 50 ? 'positive' : correlation >= 35 ? 'neutral' : 'negative'}`}>
- {correlation}%
- </div>
- <div className="metric-label-small correlation-label" style={{ fontSize: '12px' }}>Correlation</div>
- </div>
- 
- <div className="metric-card">
- <div className="metric-value neutral">
- {pattern.years}Y
- </div>
- <div className="metric-label-small" style={{ fontSize: '12px' }}>History</div>
- </div>
  </div>
  
  {/* Timing Information */}

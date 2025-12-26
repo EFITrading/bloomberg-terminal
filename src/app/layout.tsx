@@ -4,6 +4,7 @@ import ConditionalNavigation from '@/components/ConditionalNavigation'
 import Background from '@/components/terminal/Background'
 import ClientSessionProvider from '@/components/ClientSessionProvider'
 import { AuthGuard } from '@/components/AuthGuard'
+import { MarketRegimeProvider } from '@/contexts/MarketRegimeContext'
 
 import './globals.css'
 
@@ -26,6 +27,7 @@ export default function RootLayout({
  <html lang="en">
  <body className={`${inter.variable} antialiased`}>
  <ClientSessionProvider>
+ <MarketRegimeProvider>
  <AuthGuard>
  <div className="terminal-app">
  <Background />
@@ -35,6 +37,7 @@ export default function RootLayout({
  </main>
  </div>
  </AuthGuard>
+ </MarketRegimeProvider>
  </ClientSessionProvider>
  </body>
  </html>
