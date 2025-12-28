@@ -13,21 +13,101 @@ interface SeasonaxLandingProps {
 }
 
 const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
- const [activeMarket, setActiveMarket] = useState('SP500');
+ const [activeMarket, setActiveMarket] = useState('S&P 500');
  const [timePeriod, setTimePeriod] = useState('15Y'); // Changed default from 5Y to 15Y
  const [opportunities, setOpportunities] = useState<SeasonalPattern[]>([]);
- const [loading, setLoading] = useState(true); // Always start with loading
+ const [loading, setLoading] = useState(false); // Don't auto-load
  const [error, setError] = useState<string | null>(null);
  const [streamStatus, setStreamStatus] = useState<string>('');
- const [showWebsite, setShowWebsite] = useState(false);
+ const [showWebsite, setShowWebsite] = useState(true); // Show UI immediately
  const [progressStats, setProgressStats] = useState({ processed: 0, total: 1000, found: 0 });
+ const [hasScanned, setHasScanned] = useState(false); // Track if user has clicked scan
+ const [filters, setFilters] = useState({ highWinRate: false, startingSoon: false, fiftyTwoWeek: false });
 
+ const displayedOpportunities = React.useMemo(() => {
+   let filtered = [...opportunities];
+   if (filters.highWinRate) {
+     filtered = filtered.filter(opp => opp.winRate >= 60);
+   }
+   if (filters.startingSoon) {
+     filtered = filtered.filter(opp => {
+       const daysUntilStart = (opp as any).daysUntilStart || 0;
+       return daysUntilStart >= 1 && daysUntilStart <= 3;
+     });
+   }
+   if (filters.fiftyTwoWeek) {
+     // Filter only opportunities that have 52-week high/low status
+     filtered = filtered.filter(opp => (opp as any).fiftyTwoWeekStatus);
+   }
+   return filtered;
+ }, [opportunities, filters]);
+
+ const handleFilterChange = (newFilters: { highWinRate: boolean; startingSoon: boolean; fiftyTwoWeek: boolean }) => {
+   setFilters(newFilters);
+ };
 
  const marketTabs = [
  { id: 'SP500', name: 'S&P 500' },
  { id: 'NASDAQ100', name: 'NASDAQ 100' },
  { id: 'DOWJONES', name: 'Dow Jones' }
  ];
+
+ // Function to check 52-week high/low status
+ const check52WeekStatus = async (opportunities: any[]) => {
+   console.log('🔍 Checking 52-week high/low status for opportunities...');
+   
+   // Import PolygonService to use its configured API key
+   const polygonService = new PolygonService();
+   
+   const enrichedOpportunities = await Promise.all(
+     opportunities.map(async (opp) => {
+       try {
+         // Get 52-week data using PolygonService
+         const toDate = new Date().toISOString().split('T')[0];
+         const fromDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+         
+         const data = await polygonService.getHistoricalData(opp.symbol, fromDate, toDate);
+         
+         if (data?.results && data.results.length > 0) {
+           const highs = data.results.map((bar: any) => bar.h);
+           const lows = data.results.map((bar: any) => bar.l);
+           const currentPrice = data.results[data.results.length - 1].c;
+           
+           const fiftyTwoWeekHigh = Math.max(...highs);
+           const fiftyTwoWeekLow = Math.min(...lows);
+           
+           // Check if within 5% of 52-week high or low
+           const distanceFromHigh = ((fiftyTwoWeekHigh - currentPrice) / fiftyTwoWeekHigh) * 100;
+           const distanceFromLow = ((currentPrice - fiftyTwoWeekLow) / fiftyTwoWeekLow) * 100;
+           
+           let fiftyTwoWeekStatus = null;
+           
+           if (distanceFromHigh <= 5) {
+             fiftyTwoWeekStatus = '52 High';
+           } else if (distanceFromLow <= 5) {
+             fiftyTwoWeekStatus = '52 Low';
+           }
+           
+           return {
+             ...opp,
+             currentPrice,
+             fiftyTwoWeekHigh,
+             fiftyTwoWeekLow,
+             fiftyTwoWeekStatus
+           };
+         }
+         
+         return opp;
+       } catch (error) {
+         console.warn(`Error checking 52-week status for ${opp.symbol}:`, error);
+         return opp;
+       }
+     })
+   );
+   
+   console.log(`✅ 52-week status check complete. Found ${enrichedOpportunities.filter(o => o.fiftyTwoWeekStatus).length} near 52-week extremes`);
+   return enrichedOpportunities;
+ };
 
  // Debug state changes
  useEffect(() => {
@@ -39,26 +119,28 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  { id: '20Y', name: '20 Years', years: 20, description: 'Maximum depth - Full cycles' }
  ];
 
- useEffect(() => {
- // Load fresh data every time
- loadMarketData();
- }, [timePeriod]); // React to time period changes
-
- const loadMarketData = async () => {
+ const loadMarketData = async (selectedMarket?: string) => {
  try {
  // Load fresh data directly from SeasonalScreenerService
  console.log('📊 Loading fresh seasonal data...');
  
- // Import and use the real service
+ // Import market indices and service
  const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService');
+ const { getMarketStocks } = await import('@/lib/marketIndices');
  const seasonalService = new SeasonalScreenerService();
  
+ // Get market-specific stocks
+ const market = selectedMarket || activeMarket;
+ const marketStocks = getMarketStocks(market);
+ console.log(`📊 Scanning ${market}: ${marketStocks.length} stocks`);
+ 
+ setHasScanned(true);
  setLoading(true);
  setError(null);
  setShowWebsite(false);
  setOpportunities([]);
- setStreamStatus('⚡ Loading real seasonal data from 1000 stocks with worker-based processing...');
- setProgressStats({ processed: 0, total: 1000, found: 0 });
+ setStreamStatus(`⚡ Loading real seasonal data from ${market} (${marketStocks.length} stocks)...`);
+ setProgressStats({ processed: 0, total: marketStocks.length, found: 0 });
  
  const selectedPeriod = timePeriodOptions.find(p => p.id === timePeriod);
  const years = selectedPeriod?.years || 15; // FULL years as requested - no limits
@@ -72,8 +154,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  
  const realOpportunities = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
  years, 
- 1000, // Process 1000 stocks in batches of 10
- 50, // Parameter unused - batching is now fixed at 10
+ marketStocks.length, // Use market-specific count
+ 50,
  (processed, total, foundOpportunities, currentSymbol) => {
  // Throttle updates to prevent UI overwhelming (update every 100ms max)
  const now = Date.now();
@@ -122,12 +204,16 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  if (realOpportunities && realOpportunities.length > 0) {
  console.log(`✅ Completed! Found ${realOpportunities.length} seasonal opportunities`);
  
+ // Check 52-week high/low status for all opportunities to display badges
+ setStreamStatus('🔍 Checking 52-week high/low status...');
+ const enrichedOpportunities = await check52WeekStatus(realOpportunities);
+ 
  // Final sort and display
- const finalSorted = realOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+ const finalSorted = enrichedOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
  setOpportunities(finalSorted as unknown as SeasonalPattern[]);
  setLoading(false);
  setStreamStatus('✅ Processing completed!');
- setProgressStats({ processed: 1000, total: 1000, found: realOpportunities.length });
+ setProgressStats({ processed: 1000, total: 1000, found: enrichedOpportunities.length });
  } else {
  throw new Error('No seasonal opportunities found');
  }
@@ -147,7 +233,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
 
  const handleScreenerStart = (market: string) => {
  console.log(`Starting screener for ${market}`);
- // Screener is now always visible, no navigation needed
+ setActiveMarket(market);
+ loadMarketData(market);
  };
 
  const handleTabChange = (tabId: string) => {
@@ -183,7 +270,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  <div className="error-icon"></div>
  <h2>API Connection Error</h2>
  <p>{error}</p>
- <button onClick={loadMarketData} className="retry-button">
+ <button onClick={() => loadMarketData()} className="retry-button">
  Retry API Connection
  </button>
  </div>
@@ -191,7 +278,15 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  }
 
  return (
- <div className="seasonax-container">
+ <div className="seasonax-container" style={{ marginTop: '-20px' }}>
+ {/* Hide scrollbars CSS */}
+ <style>
+ {`
+ .results-grid-split::-webkit-scrollbar {
+ display: none;
+ }
+ `}
+ </style>
 
  {/* Hero Section */}
  <HeroSection 
@@ -199,19 +294,29 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
   timePeriod={timePeriod}
   onTimePeriodChange={setTimePeriod}
   progressStats={progressStats}
-  opportunitiesCount={opportunities.length}
+  opportunitiesCount={displayedOpportunities.length}
   loading={loading}
   timePeriodOptions={timePeriodOptions}
+  onFilterChange={handleFilterChange}
  />
 
  {/* Results Grid */}
  <div className="pro-results">
- {opportunities.length > 0 ? (
- <div className="split-results-container">
+ {!hasScanned ? (
+ <div className="pro-empty-state"></div>
+ ) : displayedOpportunities.length > 0 ? (
+ <div className="split-results-container" style={{
+   border: '3px solid #FFD700',
+   borderRadius: '12px',
+   height: '80vh',
+   overflow: 'hidden',
+   boxShadow: '0 4px 20px rgba(255, 215, 0, 0.3)',
+   display: 'flex'
+ }}>
  {(() => {
  // Split opportunities into bullish and bearish
- const bullishOpps = opportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) >= 0);
- const bearishOpps = opportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) < 0);
+ const bullishOpps = displayedOpportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) >= 0);
+ const bearishOpps = displayedOpportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) < 0);
  
  const topBullish = bullishOpps.length > 0 ? 
  bullishOpps.reduce((prev, curr) => {
@@ -230,7 +335,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  return (
  <>
  {/* Bullish Section - Left Side */}
- <div className="bullish-section">
+ <div className="bullish-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
  <div className="section-header-split bullish-header">
  <div className="section-title">
  <span className="bull-icon"></span>
@@ -238,7 +343,15 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  <span className="count">({bullishOpps.length})</span>
  </div>
  </div>
- <div className="results-grid-split">
+ <div className="results-grid-split" style={{
+   overflowY: 'auto',
+   overflowX: 'hidden',
+   height: 'calc(80vh - 70px)',
+   paddingRight: '8px',
+   scrollbarWidth: 'none',
+   msOverflowStyle: 'none',
+   WebkitOverflowScrolling: 'touch'
+ } as React.CSSProperties & { scrollbarWidth?: string; msOverflowStyle?: string; WebkitOverflowScrolling?: string }}>
  {bullishOpps.map((opportunity, index) => {
  const isTopBullish = topBullish ? opportunity.symbol === topBullish.symbol : false;
  return (
@@ -263,7 +376,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  </div>
 
  {/* Bearish Section - Right Side */}
- <div className="bearish-section">
+ <div className="bearish-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
  <div className="section-header-split bearish-header">
  <div className="section-title">
  <span className="bear-icon">🩸</span>
@@ -271,7 +384,15 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = () => {
  <span className="count">({bearishOpps.length})</span>
  </div>
  </div>
- <div className="results-grid-split">
+ <div className="results-grid-split" style={{
+   overflowY: 'auto',
+   overflowX: 'hidden',
+   height: 'calc(80vh - 70px)',
+   paddingRight: '8px',
+   scrollbarWidth: 'none',
+   msOverflowStyle: 'none',
+   WebkitOverflowScrolling: 'touch'
+ } as React.CSSProperties & { scrollbarWidth?: string; msOverflowStyle?: string; WebkitOverflowScrolling?: string }}>
  {bearishOpps.map((opportunity, index) => {
  const isTopBearish = topBearish ? opportunity.symbol === topBearish.symbol : false;
  return (

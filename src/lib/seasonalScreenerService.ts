@@ -51,13 +51,23 @@ class SeasonalScreenerService {
  async screenSeasonalOpportunitiesWithWorkers(
  years: number = 15,
  maxStocks: number = 500,
- maxConcurrent: number = 50, onProgress?: (processed: number, total: number, found: SeasonalOpportunity[], currentSymbol?: string) => void
+ maxConcurrent: number = 50,
+ onProgress?: (processed: number, total: number, found: SeasonalOpportunity[], currentSymbol?: string) => void,
+ marketSymbols?: string[] // NEW: Optional market-specific symbols
  ): Promise<SeasonalOpportunity[]> {
  console.log(` PROFESSIONAL BULK API: Fetch-all-then-process approach for 5-10 second completion!`);
  
  const opportunities: SeasonalOpportunity[] = [];
- const actualMaxStocks = Math.min(maxStocks, TOP1800_BY_MARKET_CAP.length);
- const stocksToProcess = TOP1800_BY_MARKET_CAP.slice(0, actualMaxStocks);
+ 
+ // Use market-specific symbols if provided, otherwise use default list
+ const symbolList = marketSymbols && marketSymbols.length > 0 
+   ? marketSymbols.map(symbol => ({ symbol, name: symbol }))
+   : TOP1800_BY_MARKET_CAP;
+ 
+ const actualMaxStocks = Math.min(maxStocks, symbolList.length);
+ const stocksToProcess = symbolList.slice(0, actualMaxStocks);
+ 
+ console.log(` Processing ${stocksToProcess.length} stocks${marketSymbols ? ' (market-specific)' : ' (default list)'}...`);
  
  try {
  // PHASE 1: Bulk fetch ALL historical data in 2-3 seconds
@@ -293,7 +303,7 @@ class SeasonalScreenerService {
  averageReturn: bestPeriod.return,
  winRate: seasonalData.statistics.winRate,
  years: seasonalData.statistics.yearsOfData,
- daysUntilStart: this.parseSeasonalDate(bestPeriod.startDate) - this.getDayOfYear(new Date()),
+ daysUntilStart: this.calculateDaysUntilStart(bestPeriod.startDate),
  isCurrentlyActive: true
  };
  } else {
@@ -308,7 +318,7 @@ class SeasonalScreenerService {
  averageReturn: worstPeriod.return,
  winRate: bearishWinRate,
  years: seasonalData.statistics.yearsOfData,
- daysUntilStart: this.parseSeasonalDate(worstPeriod.startDate) - this.getDayOfYear(new Date()),
+ daysUntilStart: this.calculateDaysUntilStart(worstPeriod.startDate),
  isCurrentlyActive: true
  };
  }
@@ -326,7 +336,7 @@ class SeasonalScreenerService {
  averageReturn: bestPeriod.return,
  winRate: seasonalData.statistics.winRate,
  years: seasonalData.statistics.yearsOfData,
- daysUntilStart: this.parseSeasonalDate(bestPeriod.startDate) - this.getDayOfYear(new Date()),
+ daysUntilStart: this.calculateDaysUntilStart(bestPeriod.startDate),
  isCurrentlyActive: true
  };
  } else {
@@ -341,7 +351,7 @@ class SeasonalScreenerService {
  averageReturn: worstPeriod.return,
  winRate: bearishWinRate,
  years: seasonalData.statistics.yearsOfData,
- daysUntilStart: this.parseSeasonalDate(worstPeriod.startDate) - this.getDayOfYear(new Date()),
+ daysUntilStart: this.calculateDaysUntilStart(worstPeriod.startDate),
  isCurrentlyActive: true
  };
  }
@@ -400,7 +410,7 @@ class SeasonalScreenerService {
  averageReturn: bullish.return,
  winRate: analysis.statistics.winRate,
  years: analysis.statistics.yearsOfData,
- daysUntilStart: this.parseSeasonalDate(bullish.startDate) - this.getDayOfYear(new Date()),
+ daysUntilStart: this.calculateDaysUntilStart(bullish.startDate),
  isCurrentlyActive: true
  };
  
@@ -424,7 +434,7 @@ class SeasonalScreenerService {
  averageReturn: bearish.return,
  winRate: bearishWinRate,
  years: analysis.statistics.yearsOfData,
- daysUntilStart: this.parseSeasonalDate(bearish.startDate) - this.getDayOfYear(new Date()),
+ daysUntilStart: this.calculateDaysUntilStart(bearish.startDate),
  isCurrentlyActive: true
  };
  
@@ -496,7 +506,7 @@ class SeasonalScreenerService {
  averageReturn: bullish.return,
  winRate: analysis.statistics.winRate,
  years: analysis.statistics.yearsOfData,
- daysUntilStart: this.parseSeasonalDate(bullish.startDate) - this.getDayOfYear(new Date()),
+ daysUntilStart: this.calculateDaysUntilStart(bullish.startDate),
  isCurrentlyActive: true
  };
  
@@ -520,7 +530,7 @@ class SeasonalScreenerService {
  averageReturn: bearish.return,
  winRate: bearishWinRate,
  years: analysis.statistics.yearsOfData,
- daysUntilStart: this.parseSeasonalDate(bearish.startDate) - this.getDayOfYear(new Date()),
+ daysUntilStart: this.calculateDaysUntilStart(bearish.startDate),
  isCurrentlyActive: true
  };
  
@@ -564,26 +574,51 @@ class SeasonalScreenerService {
  return this.getDayOfYear(date);
  }
 
+ // Calculate actual days until start date (handles year wrapping)
+ private calculateDaysUntilStart(startDate: string): number {
+ const today = new Date();
+ const currentYear = today.getFullYear();
+ 
+ // Parse the seasonal start date
+ let seasonalDate = new Date(`${startDate}, ${currentYear}`);
+ 
+ // If the parsed date is more than 180 days in the past, it's probably next year
+ const daysDiff = (seasonalDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+ if (daysDiff < -180) {
+ seasonalDate = new Date(`${startDate}, ${currentYear + 1}`);
+ }
+ 
+ // Calculate actual days difference
+ return Math.round((seasonalDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+ }
+
  private getDayOfYear(date: Date): number {
  const start = new Date(date.getFullYear(), 0, 0);
  const diff = date.getTime() - start.getTime();
  return Math.floor(diff / (1000 * 60 * 60 * 24));
  }
 
- // Check if a seasonal opportunity is currently active (within 5-day window)
+ // Check if a seasonal opportunity is currently active (within tight window for actionable trades)
  private isSeasonalCurrentlyActive(startDate: string): boolean {
  const today = new Date(); // Use current date
- const todayDayOfYear = this.getDayOfYear(today);
+ const currentYear = today.getFullYear();
  
- // Parse the seasonal start date (e.g., "Sep 10" -> day of year)
- const seasonalStartDay = this.parseSeasonalDate(startDate);
+ // Parse the seasonal start date (e.g., "Sep 10" or "Jan 1")
+ let seasonalDate = new Date(`${startDate}, ${currentYear}`);
  
- // Check if seasonal starts within reasonable timeframe (show upcoming opportunities)
- const daysDifference = seasonalStartDay - todayDayOfYear;
+ // If the parsed date is more than 180 days in the past, it's probably next year
+ // (e.g., if today is Dec 27 and seasonal is Jan 1, it should be next year)
+ const daysDiff = (seasonalDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+ if (daysDiff < -180) {
+ // This date is likely next year
+ seasonalDate = new Date(`${startDate}, ${currentYear + 1}`);
+ }
  
- // Show seasonals that start in 30 days AND keep showing for 30 days after start
- return daysDifference >= 1 && daysDifference <= 30 || // Upcoming (1-30 days)
- daysDifference >= -30 && daysDifference <= 0; // Recently started (0-30 days ago)
+ // Calculate actual days difference
+ const actualDaysDifference = Math.round((seasonalDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+ 
+ // Show seasonals that started 10 days ago or starting in the next 20 days
+ return actualDaysDifference >= -10 && actualDaysDifference <= 20;
  }
 
  // Find all 30-day windows throughout the year

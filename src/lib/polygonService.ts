@@ -67,6 +67,7 @@ interface SeasonalPattern {
  category: 'Bullish' | 'Bearish';
  description: string;
  riskLevel: 'Low' | 'Medium' | 'High';
+ daysUntilStart?: number;
  marketCap?: string;
  volume?: number;
  beta?: number;
@@ -89,6 +90,9 @@ interface SeasonalPattern {
  technicalRating?: string;
  fundamentalRating?: string;
  esgScore?: number;
+ fiftyTwoWeekHigh?: number;
+ fiftyTwoWeekLow?: number;
+ fiftyTwoWeekStatus?: '52 High' | '52 Low' | null;
  news?: Array<{
  title: string;
  url: string;

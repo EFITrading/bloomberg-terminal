@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import PolygonService from '../../lib/polygonService';
 import ElectionCycleService, { ElectionCycleData } from '../../lib/electionCycleService';
 import GlobalDataCache from '../../lib/GlobalDataCache';
@@ -967,6 +967,25 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
  return rawCorrelation >= 0 ? adjusted : -adjusted;
  };
 
+ // Pass selected symbol to monthly chart so it updates when ticker changes
+ const memoizedMonthlyChart = useMemo(() => (
+  <div style={{ width: '100%', position: 'relative', top: '-10px', paddingRight: 0, overflow: 'visible' }}>
+   <div style={{ paddingRight: 0, overflow: 'visible' }}>
+    <AlmanacDailyChart 
+     month={new Date().getMonth()} 
+     showPostElection={true}
+     symbol={selectedSymbol}
+    />
+   </div>
+  </div>
+ ), [selectedSymbol]); // Re-render when symbol changes
+
+ const memoizedScreener = useMemo(() => (
+  <div style={{ minWidth: 0, marginTop: '-90px' }}>
+   <SeasonaxLanding />
+  </div>
+ ), []); // Empty dependency array - only mount once
+
  if (!seasonalData || !selectedSymbol) {
  return (
  <div className="seasonality-chart-container">
@@ -1105,7 +1124,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
     <>
     <div style={{ display: 'grid', gridTemplateColumns: '50.3% 48%', gap: '1%', width: '100%', marginTop: '-20px' }}>
      {/* Left column: Charts */}
-     <div style={{ minWidth: 0, width: '100%', overflow: 'hidden' }}>
+     <div style={{ minWidth: 0, width: '100%', overflow: 'visible' }}>
       <div style={{ width: '100%' }}>
        {/* Main Chart Area - Override CSS max-width */}
        <div style={{ width: '100%', maxHeight: '650px', height: '650px', position: 'relative', marginTop: '-20px' }}>
@@ -1120,20 +1139,11 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
       </div>
       
       {/* Monthly Analysis Chart below seasonal chart */}
-      <div style={{ width: '100%', position: 'relative', top: '-10px', paddingRight: 0 }}>
-       <div style={{ height: '650px', paddingRight: 0 }}>
-        <AlmanacDailyChart 
-         month={new Date().getMonth()} 
-         showPostElection={true} 
-        />
-       </div>
-      </div>
+      {memoizedMonthlyChart}
      </div>
      
      {/* Right column: Screener */}
-     <div style={{ minWidth: 0, marginTop: '-90px' }}>
-      <SeasonaxLanding />
-     </div>
+     {memoizedScreener}
     </div>
     </>
    )}

@@ -147,7 +147,6 @@ const INDICES = [
   { symbol: 'DIA', name: 'DJIA', color: '#000000', dashColor: '#000000' },
   { symbol: 'SPY', name: 'S&P 500', color: '#00C853', dashColor: '#00C853' },
   { symbol: 'QQQ', name: 'NASDAQ', color: '#2196F3', dashColor: '#2196F3' },
-  { symbol: 'IWB', name: 'Russell 1000', color: '#9C27B0', dashColor: '#9C27B0' },
   { symbol: 'IWM', name: 'Russell 2000', color: '#FF5722', dashColor: '#FF5722' },
 ];
 
@@ -270,6 +269,26 @@ export class AlmanacService {
     }
     
     return results;
+  }
+  
+  async getSingleStockMonthlyData(symbol: string, month: number, yearsBack: number = 20): Promise<IndexSeasonalData[]> {
+    const currentYear = new Date().getFullYear();
+    const startYear = currentYear - yearsBack;
+    
+    try {
+      const dailyData = await this.calculateDailySeasonalPattern(symbol, month, startYear, currentYear);
+      
+      return [{
+        symbol: symbol,
+        name: symbol,
+        color: '#00C853',
+        dashColor: '#00C853',
+        dailyData
+      }];
+    } catch (error) {
+      console.error(`Error fetching data for ${symbol}:`, error);
+      return [];
+    }
   }
   
   private async calculateDailySeasonalPattern(

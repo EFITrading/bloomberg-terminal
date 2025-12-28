@@ -145,7 +145,8 @@ body {
   display: flex;
   flex-direction: column;
   padding: 0;
-  margin: 0;
+  padding-top: 0;
+  margin: -120px 0 0 0;
 }
 
 /* CRISPY TEXT OVERRIDES - REMOVE ALL BLUR EFFECTS */
@@ -812,6 +813,8 @@ body * {
   flex-direction: column;
   position: relative;
   overflow: hidden;
+  padding-top: 0;
+  margin-top: 0;
 }
 
 .seasonax-header {
@@ -4068,7 +4071,7 @@ h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
 .pro-hero {
   background: var(--premium-gradient-bg);
   border-bottom: 1px solid var(--premium-border);
-  padding: 24px 0;
+  padding: 0;
   position: relative;
   overflow: hidden;
   margin-top: 0;
@@ -4350,11 +4353,19 @@ h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
   gap: 0;
   animation: fadeInUp 0.8s ease;
   position: relative;
+  border: 3px solid rgba(255, 215, 0, 0.6) !important;
+  border-radius: 12px;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3), inset 0 0 30px rgba(255, 215, 0, 0.05);
 }
 
 .bullish-section, .bearish-section {
   flex: 1;
   padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  max-height: 75vh;
 }
 
 .bullish-section {
@@ -4426,8 +4437,40 @@ h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
 
 .results-grid-split {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(180px, 220px));
   gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+  justify-content: center;
+  grid-auto-rows: max-content;
+  align-content: start;
+}
+
+/* Custom scrollbar for results grid */
+.results-grid-split::-webkit-scrollbar {
+  width: 8px;
+}
+
+.results-grid-split::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+.results-grid-split::-webkit-scrollbar-thumb {
+  background: rgba(255, 215, 0, 0.5);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+.results-grid-split::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 215, 0, 0.8);
+}
+
+/* Firefox scrollbar */
+.results-grid-split {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 215, 0, 0.5) rgba(0, 0, 0, 0.3);
 }
 
 /* GOLDEN SEPARATOR */
@@ -5312,4 +5355,326 @@ h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
 button, .clickable, .interactive {
   min-height: 44px; /* WCAG AA minimum touch target */
   min-width: 44px;
+}
+
+/* ============================================ */
+/* MOBILE-ONLY CUSTOMIZATION FOR DATA-DRIVEN PAGE */
+/* Desktop layout remains completely untouched */
+/* ============================================ */
+
+/* Desktop: Show normal view, hide mobile tabs */
+.desktop-view {
+  display: block;
+}
+
+.mobile-view {
+  display: none;
+}
+
+/* Mobile: Hide desktop view, show tabs */
+@media (max-width: 768px) {
+  .desktop-view {
+    display: none !important;
+  }
+
+  .mobile-view {
+    display: block !important;
+  }
+
+  /* Mobile tabs styling */
+  .mobile-tabs-list {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.4) !important;
+    border: 1px solid rgba(255, 102, 0, 0.3);
+    padding: 4px;
+    height: auto !important;
+    margin-bottom: 8px;
+  }
+
+  .mobile-tab-trigger {
+    font-size: 11px !important;
+    padding: 8px 4px !important;
+    color: #9ca3af !important;
+    font-weight: 600;
+    background: transparent;
+  }
+
+  .mobile-tab-trigger[data-state="active"] {
+    background: #FF6600 !important;
+    color: white !important;
+  }
+
+  .mobile-tab-content {
+    margin-top: 0 !important;
+    padding: 0px;
+  }
+
+  /* Mobile Seasonality Chart Customization */
+  .mobile-seasonality-wrapper .seasonax-container {
+    padding: 0 !important;
+  }
+
+  /* ROW 1: ALL controls in ONE row - LEFT aligned */
+  .mobile-seasonality-wrapper .header-group.search-compare-group,
+  .mobile-seasonality-wrapper .seasonax-header > div:nth-child(2),
+  .mobile-seasonality-wrapper .sweet-pain-buttons {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    gap: 3px !important;
+    align-items: center !important;
+    vertical-align: middle !important;
+  }
+
+  /* Force header row 1 to be single line - ALL CONTROLS IN ONE ROW */
+  .mobile-seasonality-wrapper .seasonax-header {
+    display: block !important;
+    padding: 4px 2px !important;
+    margin-bottom: 4px;
+    white-space: nowrap !important;
+    text-align: left !important;
+  }
+
+  /* Make first row a single flex container - LEFT aligned */
+  .mobile-seasonality-wrapper .seasonax-header > div:first-child,
+  .mobile-seasonality-wrapper .seasonax-header > div:nth-child(2),
+  .mobile-seasonality-wrapper .seasonax-header > div:nth-child(3) {
+    display: inline-flex !important;
+    width: auto !important;
+    margin: 0 !important;
+    margin-right: 2px !important;
+    vertical-align: middle !important;
+    justify-content: flex-start !important;
+  }
+
+  /* Force all row 1 items inline and left-aligned */
+  .mobile-seasonality-wrapper .header-group.search-compare-group > *,
+  .mobile-seasonality-wrapper .seasonax-header > div:nth-child(2) > *,
+  .mobile-seasonality-wrapper .sweet-pain-buttons > * {
+    display: inline-block !important;
+    margin: 0 2px 0 0 !important;
+    float: none !important;
+  }
+
+  /* Make search bar same size as other controls */
+  .mobile-seasonality-wrapper .seasonax-symbol-search {
+    max-width: 70px !important;
+  }
+
+  .mobile-seasonality-wrapper .seasonax-symbol-search input {
+    font-size: 9px !important;
+    padding: 2px 4px !important;
+    height: 22px !important;
+    width: 70px !important;
+  }
+
+  /* Hide "COMPARE" text, show only "+" - same size as search */
+  .mobile-seasonality-wrapper .compare-btn {
+    padding: 0 8px !important;
+    font-size: 0 !important;
+    min-width: 30px !important;
+    height: 22px !important;
+    max-height: 22px !important;
+    min-height: 22px !important;
+    line-height: 22px !important;
+    text-indent: -9999px !important;
+    overflow: hidden !important;
+    position: relative !important;
+    vertical-align: middle !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .mobile-seasonality-wrapper .compare-btn::before {
+    content: '+' !important;
+    font-size: 14px !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    text-indent: 0 !important;
+    line-height: 1 !important;
+  }
+
+  /* ALL controls same exact size - dropdowns, buttons */
+  .mobile-seasonality-wrapper .election-dropdown,
+  .mobile-seasonality-wrapper .years-selector select,
+  .mobile-seasonality-wrapper .election-dropdown button,
+  .mobile-seasonality-wrapper .election-dropdown select,
+  .mobile-seasonality-wrapper select,
+  .mobile-seasonality-wrapper button {
+    font-size: 9px !important;
+    padding: 2px 4px !important;
+    height: 22px !important;
+    line-height: 18px !important;
+    max-width: none !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Force election mode button specifically to match */
+  .mobile-seasonality-wrapper .seasonax-controls button,
+  .mobile-seasonality-wrapper .seasonax-controls select,
+  .mobile-seasonality-wrapper .seasonax-controls .election-mode-btn,
+  .mobile-seasonality-wrapper [class*="election"] button,
+  .mobile-seasonality-wrapper [class*="election"] select {
+    font-size: 8px !important;
+    padding: 2px 3px !important;
+    height: 22px !important;
+    line-height: 18px !important;
+    min-height: 22px !important;
+    max-height: 22px !important;
+    max-width: 125px !important;
+    width: auto !important;
+  }
+
+  .mobile-seasonality-wrapper .sweet-spot-btn,
+  .mobile-seasonality-wrapper .pain-point-btn {
+    font-size: 0 !important;
+    padding: 2px 5px !important;
+    height: 22px !important;
+    line-height: 18px !important;
+    white-space: nowrap;
+    text-indent: -9999px !important;
+    overflow: hidden !important;
+    position: relative !important;
+  }
+
+  /* Change button text to "Sweet" and "Pain" */
+  .mobile-seasonality-wrapper .sweet-spot-btn::before {
+    content: 'Sweet' !important;
+    font-size: 9px !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    text-indent: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  .mobile-seasonality-wrapper .pain-point-btn::before {
+    content: 'Pain' !important;
+    font-size: 9px !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    text-indent: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  /* ROW 2: Monthly returns - SEPARATE ROW below buttons, LEFT aligned */
+  .mobile-seasonality-wrapper .horizontal-monthly-returns {
+    width: 100% !important;
+    margin: 10px 0 8px 0 !important;
+    padding: 0 !important;
+    transform: scale(0.55);
+    transform-origin: top left !important;
+    width: 182% !important;
+    position: static !important;
+    display: block !important;
+    clear: both !important;
+    left: 0 !important;
+    top: auto !important;
+  }
+
+  /* Reduce gap between bullish 30d and monthly boxes */
+  .mobile-seasonality-wrapper .horizontal-monthly-returns > div {
+    gap: 0px !important;
+  }
+
+  .mobile-seasonality-wrapper .horizontal-monthly-returns [style*="display: flex"] {
+    gap: 0px !important;
+  }
+
+  /* Ensure monthly returns stay in header, never overlay chart */
+  .mobile-seasonality-wrapper .seasonax-header .horizontal-monthly-returns {
+    position: static !important;
+    margin-bottom: 8px !important;
+    float: none !important;
+  }
+
+  /* Ensure chart starts below header */
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child {
+    clear: both !important;
+    margin-top: 8px !important;
+  }
+
+  /* Target the grid layout and force single column */
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Hide the second child which is the screener column */
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child > div:nth-child(2) {
+    display: none !important;
+  }
+
+  /* Make first column (charts) full width */
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child > div:first-child {
+    width: 100% !important;
+    min-width: 100% !important;
+  }
+
+  /* Hide the second div inside first column (monthly almanac chart) */
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child > div:first-child > div:nth-child(2) {
+    display: none !important;
+  }
+
+  /* Make main chart taller */
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child > div:first-child > div:first-child > div {
+    max-height: 550px !important;
+    height: 550px !important;
+    width: 100% !important;
+  }
+
+  /* Compact spacing */
+  .data-driven-container {
+    padding: 4px !important;
+  }
+}
+
+/* Extra small mobile devices */
+@media (max-width: 480px) {
+  .mobile-tab-trigger {
+    font-size: 10px !important;
+    padding: 6px 3px !important;
+  }
+
+  .mobile-seasonality-wrapper .seasonax-symbol-search input {
+    font-size: 9px !important;
+    padding: 3px 5px !important;
+    height: 22px !important;
+  }
+
+  .mobile-seasonality-wrapper .compare-btn {
+    font-size: 11px !important;
+    padding: 3px 6px !important;
+    height: 22px !important;
+  }
+
+  .mobile-seasonality-wrapper .sweet-spot-btn,
+  .mobile-seasonality-wrapper .pain-point-btn {
+    font-size: 8px !important;
+    padding: 3px 6px !important;
+    height: 22px !important;
+  }
+
+  .mobile-seasonality-wrapper .horizontal-monthly-returns {
+    transform: scale(0.6);
+    width: 167% !important;
+  }
+
+  .mobile-seasonality-wrapper .seasonax-container > div:last-child > div:first-child > div:first-child > div {
+    max-height: 480px !important;
+    height: 480px !important;
+  }
+
+  .data-driven-container {
+    padding: 2px !important;
+  }
 }

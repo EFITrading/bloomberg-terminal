@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface DailySeasonalData {
  dayOfYear: number;
@@ -126,22 +126,30 @@ const drawSeasonalLine = (
  lineWidth: number,
  symbol: string,
  isMonthlyView: boolean,
- allDataPoints: DailySeasonalData[]
+ allDataPoints: DailySeasonalData[],
+ zoomLevel: number,
+ panOffset: number
 ) => {
  ctx.strokeStyle = color;
  ctx.lineWidth = lineWidth;
  ctx.beginPath();
 
- // Calculate x position based on view mode
+ // Calculate x position based on view mode with zoom and pan
  const getX = (dayData: DailySeasonalData) => {
+ let baseX: number;
  if (isMonthlyView && allDataPoints.length > 0) {
  const firstDay = allDataPoints[0].dayOfYear;
  const lastDay = allDataPoints[allDataPoints.length - 1].dayOfYear;
  const dayRange = lastDay - firstDay + 1;
- return padding.left + ((dayData.dayOfYear - firstDay) / dayRange) * chartWidth;
+ baseX = ((dayData.dayOfYear - firstDay) / dayRange);
  } else {
- return padding.left + (dayData.dayOfYear / 365) * chartWidth;
+ baseX = (dayData.dayOfYear / 365);
  }
+ 
+ // Apply zoom and pan
+ const chartCenter = 0.5;
+ const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+ return padding.left + zoomedX * chartWidth;
  };
 
  dataPoints.forEach((dayData, index) => {
@@ -162,7 +170,12 @@ const drawSeasonalLine = (
 const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings, sweetSpotPeriod, painPointPeriod, selectedMonth = null }) => {
  const canvasRef = useRef<HTMLCanvasElement>(null);
  const containerRef = useRef<HTMLDivElement>(null);
-
+ const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+ const [zoomLevel, setZoomLevel] = useState(1);
+ const [panOffset, setPanOffset] = useState(0);
+ const [isDragging, setIsDragging] = useState(false);
+ const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null);
+ 
  useEffect(() => {
  console.log('SeasonaxMainChart useEffect triggered', { 
  hasData: !!data, 
@@ -234,6 +247,83 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  isResizing = false;
  };
  }, [data]);
+
+ useEffect(() => {
+ const canvas = canvasRef.current;
+ if (!canvas) return;
+
+ const handleMouseMove = (e: MouseEvent) => {
+ const rect = canvas.getBoundingClientRect();
+ const x = e.clientX - rect.left;
+ const y = e.clientY - rect.top;
+ 
+ if (isDragging && dragStart) {
+ const deltaX = x - dragStart.x;
+ const maxPan = (zoomLevel - 1) * 0.5;
+ const newOffset = Math.max(-maxPan, Math.min(maxPan, dragStart.offset + deltaX / canvas.width));
+ setPanOffset(newOffset);
+ } else {
+ setMousePos({ x, y });
+ }
+ };
+
+ const handleMouseDown = (e: MouseEvent) => {
+ const rect = canvas.getBoundingClientRect();
+ const x = e.clientX - rect.left;
+ setIsDragging(true);
+ setDragStart({ x, offset: panOffset });
+ canvas.style.cursor = 'grabbing';
+ };
+
+ const handleMouseUp = () => {
+ setIsDragging(false);
+ setDragStart(null);
+ canvas.style.cursor = 'grab';
+ };
+
+ const handleWheel = (e: WheelEvent) => {
+ e.preventDefault();
+ const zoomSpeed = 0.001;
+ const delta = -e.deltaY * zoomSpeed;
+ const newZoom = Math.max(1, Math.min(5, zoomLevel + delta));
+ 
+ if (newZoom === 1) {
+ setPanOffset(0);
+ }
+ 
+ setZoomLevel(newZoom);
+ };
+
+ const handleMouseLeave = () => {
+ setMousePos(null);
+ if (isDragging) {
+ setIsDragging(false);
+ setDragStart(null);
+ canvas.style.cursor = 'grab';
+ }
+ };
+
+ canvas.addEventListener('mousemove', handleMouseMove);
+ canvas.addEventListener('mousedown', handleMouseDown);
+ canvas.addEventListener('mouseup', handleMouseUp);
+ canvas.addEventListener('mouseleave', handleMouseLeave);
+ canvas.addEventListener('wheel', handleWheel, { passive: false });
+ canvas.style.cursor = 'grab';
+
+ return () => {
+ canvas.removeEventListener('mousemove', handleMouseMove);
+ canvas.removeEventListener('mousedown', handleMouseDown);
+ canvas.removeEventListener('mouseup', handleMouseUp);
+ canvas.removeEventListener('mouseleave', handleMouseLeave);
+ canvas.removeEventListener('wheel', handleWheel);
+ };
+ }, [isDragging, zoomLevel, panOffset, dragStart]);
+
+ useEffect(() => {
+ if (data) {
+ drawCharts();
+ }
+ }, [mousePos, zoomLevel, panOffset, data, comparisonData, settings]);
 
  const drawCharts = () => {
  drawMainSeasonalChart();
@@ -327,7 +417,22 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  }
 
  // Get data bounds from processed data and comparison data
- let allCumulativeReturns = processedData.map(d => d.cumulativeReturn);
+ // Filter to only visible data points based on zoom and pan
+ const getVisibleDataPoints = (data: DailySeasonalData[]) => {
+ if (zoomLevel === 1) return data;
+ 
+ const chartCenter = 0.5;
+ const visibleStart = Math.max(0, (0 - panOffset - chartCenter) / zoomLevel + chartCenter);
+ const visibleEnd = Math.min(1, (1 - panOffset - chartCenter) / zoomLevel + chartCenter);
+ 
+ return data.filter(d => {
+ const normalizedPos = d.dayOfYear / 365;
+ return normalizedPos >= visibleStart && normalizedPos <= visibleEnd;
+ });
+ };
+ 
+ const visibleData = getVisibleDataPoints(processedData);
+ let allCumulativeReturns = visibleData.length > 0 ? visibleData.map(d => d.cumulativeReturn) : processedData.map(d => d.cumulativeReturn);
  
  // Include comparison data in bounds calculation
  comparisonData.forEach(compData => {
@@ -342,7 +447,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  compProcessedData = detrendData(compProcessedData);
  }
  
- const compReturns = compProcessedData.map(d => d.cumulativeReturn);
+ const visibleCompData = getVisibleDataPoints(compProcessedData);
+ const compReturns = visibleCompData.length > 0 ? visibleCompData.map(d => d.cumulativeReturn) : compProcessedData.map(d => d.cumulativeReturn);
  allCumulativeReturns = allCumulativeReturns.concat(compReturns);
  }
  });
@@ -356,18 +462,24 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  const paddedMax = maxReturn + returnRange * 0.1;
  const paddedRange = paddedMax - paddedMin;
 
- // Helper function to calculate X position
+ // Helper function to calculate X position with zoom and pan
  const getXPosition = (dataPoint: DailySeasonalData) => {
+ let baseX: number;
  if (selectedMonth !== null && selectedMonth !== undefined && processedData.length > 0) {
  // Monthly view - scale to fit the month's data range
  const firstDay = processedData[0].dayOfYear;
  const lastDay = processedData[processedData.length - 1].dayOfYear;
  const dayRange = lastDay - firstDay + 1;
- return padding.left + ((dataPoint.dayOfYear - firstDay) / dayRange) * chartWidth;
+ baseX = ((dataPoint.dayOfYear - firstDay) / dayRange);
  } else {
  // Full year view - use standard scaling
- return padding.left + (dataPoint.dayOfYear / 365) * chartWidth;
+ baseX = (dataPoint.dayOfYear / 365);
  }
+ 
+ // Apply zoom and pan
+ const chartCenter = 0.5;
+ const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+ return padding.left + zoomedX * chartWidth;
  };
 
  // Draw background
@@ -391,11 +503,18 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]; // Day of year for each month
  if (selectedMonth === null || selectedMonth === undefined) {
  monthStarts.forEach(dayOfYear => {
- const x = padding.left + (dayOfYear / 365) * chartWidth;
+ const chartCenter = 0.5;
+ const baseX = dayOfYear / 365;
+ const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+ const x = padding.left + zoomedX * chartWidth;
+ 
+ // Only draw if within visible area
+ if (x >= padding.left && x <= containerWidth - padding.right) {
  ctx.beginPath();
  ctx.moveTo(x, padding.top);
  ctx.lineTo(x, containerHeight - padding.bottom);
  ctx.stroke();
+ }
  });
  }
 
@@ -492,7 +611,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
 
  // Draw main seasonal line with processed data
  const isMonthlyView = selectedMonth !== null && selectedMonth !== undefined;
- drawSeasonalLine(ctx, processedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, '#ffffff', 3, data.symbol, isMonthlyView, processedData);
+ drawSeasonalLine(ctx, processedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, '#ffffff', 3, data.symbol, isMonthlyView, processedData, zoomLevel, panOffset);
 
  // Draw comparison lines
  const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000'];
@@ -509,7 +628,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  }
  
  const color = comparisonColors[index % comparisonColors.length];
- drawSeasonalLine(ctx, compProcessedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, color, 2, compData.symbol, false, compProcessedData);
+ drawSeasonalLine(ctx, compProcessedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, color, 2, compData.symbol, false, compProcessedData, zoomLevel, panOffset);
  }
  });
 
@@ -605,12 +724,86 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
  } else {
  // Full year view - show month names
  const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+ 
+ // Mobile detection: show only 4 months
+ const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+ const monthsToShow = isMobile ? [0, 3, 6, 9] : Array.from({ length: 12 }, (_, i) => i); // Jan, Apr, Jul, Oct on mobile
+ 
  monthStarts.forEach((dayOfYear, index) => {
- if (index < monthNames.length) {
- const x = padding.left + (dayOfYear / 365) * chartWidth;
+ if (index < monthNames.length && monthsToShow.includes(index)) {
+ const chartCenter = 0.5;
+ const baseX = dayOfYear / 365;
+ const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+ const x = padding.left + zoomedX * chartWidth;
+ 
+ // Only draw if within visible area
+ if (x >= padding.left - 20 && x <= containerWidth - padding.right + 20) {
  ctx.fillText(monthNames[index], x, containerHeight - padding.bottom + 15);
  }
+ }
  });
+ }
+
+ // Draw crosshair
+ if (mousePos) {
+ const { x: mouseX, y: mouseY } = mousePos;
+ 
+ // Check if mouse is within chart area
+ if (mouseX >= padding.left && mouseX <= containerWidth - padding.right &&
+ mouseY >= padding.top && mouseY <= containerHeight - padding.bottom) {
+ 
+ // Draw vertical line
+ ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+ ctx.lineWidth = 1;
+ ctx.setLineDash([5, 5]);
+ ctx.beginPath();
+ ctx.moveTo(mouseX, padding.top);
+ ctx.lineTo(mouseX, containerHeight - padding.bottom);
+ ctx.stroke();
+ 
+ // Draw horizontal line
+ ctx.beginPath();
+ ctx.moveTo(padding.left, mouseY);
+ ctx.lineTo(containerWidth - padding.right, mouseY);
+ ctx.stroke();
+ ctx.setLineDash([]);
+ 
+ // Calculate date from mouse position accounting for zoom and pan
+ const chartCenter = 0.5;
+ const normalizedX = (mouseX - padding.left) / chartWidth;
+ const unzoomedX = (normalizedX - panOffset - chartCenter) / zoomLevel + chartCenter;
+ const dayOfYear = Math.round(unzoomedX * 365);
+ const dataPoint = data.dailyData.find(d => Math.abs(d.dayOfYear - dayOfYear) < 2);
+ 
+ // Calculate percentage from mouse position using the padded range
+ const percentage = paddedMax - ((mouseY - padding.top) / chartHeight) * paddedRange;
+ 
+ // Draw X-axis tooltip (date)
+ if (dataPoint) {
+ const dateText = `${dataPoint.monthName} ${dataPoint.day}`;
+ ctx.font = '900 14px "JetBrains Mono", monospace';
+ const textWidth = ctx.measureText(dateText).width;
+ 
+ ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+ ctx.fillRect(mouseX - textWidth / 2 - 6, containerHeight - padding.bottom + 2, textWidth + 12, 20);
+ 
+ ctx.fillStyle = '#ff6600';
+ ctx.textAlign = 'center';
+ ctx.fillText(dateText, mouseX, containerHeight - padding.bottom + 15);
+ }
+ 
+ // Draw Y-axis tooltip (percentage)
+ const percentText = `${percentage.toFixed(2)}%`;
+ ctx.font = '900 14px "JetBrains Mono", monospace';
+ const percentWidth = ctx.measureText(percentText).width;
+ 
+ ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+ ctx.fillRect(padding.left - percentWidth - 18, mouseY - 10, percentWidth + 12, 20);
+ 
+ ctx.fillStyle = '#ff6600';
+ ctx.textAlign = 'right';
+ ctx.fillText(percentText, padding.left - 8, mouseY + 4);
+ }
  }
 
  } catch (error) {

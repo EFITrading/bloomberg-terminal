@@ -91,54 +91,62 @@
   font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: auto;
+  min-height: 760px;
+  overflow: visible;
 }
 
 /* Header row containing controls and legend */
 .almanac-daily-chart .chart-header-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 20px;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 0px;
   padding-bottom: 0px;
   border-bottom: none;
   flex-shrink: 0;
+  flex-wrap: nowrap;
 }
 
 .almanac-daily-chart .chart-controls-row {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .almanac-daily-chart .month-selector {
-  background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%);
+  background: linear-gradient(145deg, #0a1520 0%, #05090f 50%, #030508 100%);
+  background-color: #05090f !important;
   color: #ff6600 !important;
-  border: 1px solid #ff6600;
-  border-radius: 4px;
-  padding: 14px 24px;
-  font-size: 15px;
+  border: 1px solid #0d1826;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 10px;
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
   cursor: pointer;
   outline: none;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
+  line-height: 20px;
   box-shadow: 
-    inset 0 1px 0 rgba(255,255,255,0.05),
-    inset 0 0 30px rgba(255, 102, 0, 0.08),
-    0 4px 12px rgba(0,0,0,0.5),
-    0 0 20px rgba(255, 102, 0, 0.15);
-  transition: all 0.15s ease;
+    inset 0 1px 2px rgba(255,255,255,0.15),
+    inset 0 -1px 2px rgba(0,0,0,0.5),
+    0 4px 12px rgba(0,0,0,0.7);
+  transition: all 0.2s ease;
   -webkit-appearance: none;
   appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff6600' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
-  background-position: right 14px center;
-  background-size: 16px;
-  padding-right: 45px;
+  background-position: right 12px center;
+  background-size: 12px;
+  padding-right: 36px;
   position: relative;
+  min-width: 110px;
+  height: 40px;
 }
 
 .almanac-daily-chart .month-selector::before {
@@ -147,31 +155,32 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
   pointer-events: none;
+  border-radius: 6px 6px 0 0;
 }
 
 .almanac-daily-chart .month-selector:hover {
-  border-color: #ff6600;
-  background: linear-gradient(180deg, #222222 0%, #111111 50%, #050505 100%);
+  border-color: #0d1826;
+  background: linear-gradient(145deg, #0d1826 0%, #08121d 50%, #05090f 100%);
   box-shadow: 
-    inset 0 1px 0 rgba(255,255,255,0.08),
-    0 6px 16px rgba(0,0,0,0.6),
-    0 0 25px rgba(255, 102, 0, 0.2);
+    inset 0 1px 2px rgba(255,255,255,0.2),
+    inset 0 -1px 2px rgba(0,0,0,0.5),
+    0 4px 12px rgba(0,0,0,0.7);
   transform: translateY(-1px);
 }
 
 .almanac-daily-chart .month-selector:focus {
-  border-color: #ff6600;
+  border-color: #0d1826;
   box-shadow: 
-    inset 0 1px 0 rgba(255,255,255,0.08),
-    inset 0 0 30px rgba(255, 102, 0, 0.1),
-    0 0 25px rgba(255, 102, 0, 0.3);
+    inset 0 1px 2px rgba(255,255,255,0.2),
+    inset 0 -1px 2px rgba(0,0,0,0.5),
+    0 4px 12px rgba(0,0,0,0.7);
 }
 
 .almanac-daily-chart .month-selector option {
-  background: #000000;
+  background: #05090f;
   color: #ffffff;
   padding: 12px;
   font-size: 14px;
@@ -225,26 +234,42 @@
 /* Toggle buttons */
 .almanac-daily-chart .toggle-buttons {
   display: flex;
-  gap: 6px;
-  margin-right: 10px;
+  gap: 4px;
+  margin-right: 8px;
+  margin-left: 0px;
 }
 
 .almanac-daily-chart .toggle-btn {
-  background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
-  color: #555555;
-  border: 1px solid #2a2a2a;
-  border-radius: 3px;
-  padding: 10px 18px;
-  font-size: 10px;
-  font-weight: 600;
+  background: linear-gradient(145deg, #0a1520 0%, #05090f 50%, #030508 100%);
+  color: #ff6600;
+  border: 1px solid #0d1826;
+  border-radius: 6px;
+  padding: 0 14px;
+  font-size: 9px;
+  font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.8px;
   cursor: pointer;
-  transition: all 0.15s ease;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), 0 2px 6px rgba(0,0,0,0.4);
+  transition: all 0.2s ease;
+  box-shadow: 
+    inset 0 1px 2px rgba(255,255,255,0.15),
+    inset 0 -1px 2px rgba(0,0,0,0.5),
+    0 4px 12px rgba(0,0,0,0.7);
   position: relative;
   overflow: hidden;
+  transform-style: preserve-3d;
+  min-width: 100px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+/* Calendar, SeasonalTable, and Events buttons - always orange text */
+.almanac-daily-chart .chart-controls-row .toggle-btn {
+  color: #ff6600 !important;
 }
 
 .almanac-daily-chart .toggle-btn::before {
@@ -253,21 +278,37 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  border-radius: 6px 6px 0 0;
 }
 
 .almanac-daily-chart .toggle-btn:hover {
-  background: linear-gradient(180deg, #222222 0%, #111111 100%);
-  border-color: #3a3a3a;
-  color: #888888;
+  background: linear-gradient(145deg, #0d1826 0%, #08121d 50%, #05090f 100%);
+  border-color: #0d1826;
+  color: #ff6600;
+  box-shadow: 
+    inset 0 1px 2px rgba(255,255,255,0.2),
+    inset 0 -1px 2px rgba(0,0,0,0.5),
+    0 4px 12px rgba(0,0,0,0.7);
+  transform: translateY(-1px);
+}
+
+.almanac-daily-chart .chart-controls-row .toggle-btn:hover {
+  color: #ff6600 !important;
 }
 
 .almanac-daily-chart .toggle-btn.active {
-  background: linear-gradient(180deg, #0d0d0d 0%, #000000 100%);
+  background: linear-gradient(145deg, #030508 0%, #05090f 50%, #0a1520 100%);
   color: #ff6600;
-  border-color: #ff6600;
-  box-shadow: inset 0 0 20px rgba(255, 102, 0, 0.08), 0 0 12px rgba(255, 102, 0, 0.15);
+  border-color: #0d1826;
+  box-shadow: 
+    inset 0 2px 4px rgba(0,0,0,0.6),
+    0 4px 12px rgba(0,0,0,0.7);
+}
+
+.almanac-daily-chart .chart-controls-row .toggle-btn.active {
+  color: #ff6600 !important;
 }
 
 .almanac-daily-chart .toggle-btn.active::after {
@@ -276,9 +317,9 @@
   bottom: 0;
   left: 20%;
   right: 20%;
-  height: 2px;
-  background: #ff6600;
-  box-shadow: 0 0 8px rgba(255, 102, 0, 0.6);
+  height: 0px;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Compact inline legend */
@@ -286,9 +327,12 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 15px;
-  font-size: 11px;
-  margin-left: auto;
+  gap: 10px;
+  font-size: 10px;
+  margin-left: 20px;
+  margin-right: 80px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .almanac-daily-chart .legend-group {
@@ -368,10 +412,15 @@
 .almanac-daily-chart .chart-container {
   position: relative;
   width: 100%;
-  height: 650px;
+  height: 640px;
+  min-height: 640px;
+  flex-shrink: 0;
   background: #000000;
   border: none;
   border-radius: 0px;
+  overflow: visible;
+  padding: 0;
+  margin: 0;
 }
 
 .almanac-daily-chart .chart-container canvas {
@@ -397,8 +446,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 15px;
-  padding-top: 15px;
+  margin-top: 0px; /* Remove top margin */
+  padding-top: 0px; /* Remove top padding */
   border-top: 1px solid #222222;
   font-size: 10px;
   color: #666666;

@@ -254,20 +254,20 @@ class SeasonalScreenerService {
  return Math.floor(diff / (1000 * 60 * 60 * 24));
  }
 
- // Check if a seasonal opportunity is currently active (within 5-day window)
+ // Check if a seasonal opportunity is currently active (within 30-day window)
  private isSeasonalCurrentlyActive(startDate: string): boolean {
- const today = new Date('2025-09-04'); // Current date from context
+ const today = new Date(); // Use current date
  const todayDayOfYear = this.getDayOfYear(today);
  
  // Parse the seasonal start date (e.g., "Sep 10" -> day of year)
  const seasonalStartDay = this.parseSeasonalDate(startDate);
  
- // Check if seasonal starts within 5 days (before or after today)
+ // Check if seasonal started 10 days ago or starting in next 20 days
  const daysDifference = seasonalStartDay - todayDayOfYear;
  
- // Show seasonals that start between -3 days and +6 days from today
- // This gives us the 5-day window: 8/27/25 to 9/10/25
- return daysDifference >= -3 && daysDifference <= 6;
+ // Show seasonals that started 10 days ago or starting in the next 20 days
+ // This gives us the 30-day window: -10 to +20 days from today
+ return daysDifference >= -10 && daysDifference <= 20;
  }
 
  // Main screening function with bulk requests and configurable batch size

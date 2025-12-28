@@ -28,6 +28,7 @@ interface CalendarDay {
 interface AlmanacCalendarProps {
   month?: number;
   year?: number;
+  symbol?: string;
 }
 
 const MONTH_NAMES = [
@@ -277,8 +278,11 @@ function getSpecialEvents(year: number, month: number, day: number): string[] {
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
+// Post-election years to exclude from normal years calculation
+const POST_ELECTION_YEARS = [1953, 1957, 1961, 1965, 1969, 1973, 1977, 1981, 1985, 1989, 1993, 1997, 2001, 2005, 2009, 2013, 2017, 2021, 2025];
+
 // Fetch real historical daily stats from Polygon API
-async function fetchDailyHistoricalStats(month: number): Promise<{ [tradingDay: number]: DailyStats }> {
+async function fetchDailyHistoricalStats(month: number, symbol: string = 'SPY'): Promise<{ [tradingDay: number]: DailyStats }> {
   const stats: { [tradingDay: number]: DailyStats } = {};
   
   try {
@@ -288,7 +292,7 @@ async function fetchDailyHistoricalStats(month: number): Promise<{ [tradingDay: 
     const endDate = `${currentYear}-12-31`;
     
     const response = await fetch(
-      `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+      `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
       { signal: AbortSignal.timeout(30000) }
     );
     
@@ -359,7 +363,8 @@ async function fetchDailyHistoricalStats(month: number): Promise<{ [tradingDay: 
 
 const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
   month: propMonth = new Date().getMonth(),
-  year: propYear = new Date().getFullYear()
+  year: propYear = new Date().getFullYear(),
+  symbol = 'SPY'
 }) => {
   const month = propMonth;
   const year = propYear;
@@ -373,7 +378,7 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
     const loadData = async () => {
       setLoading(true);
       const [stats, events] = await Promise.all([
-        fetchDailyHistoricalStats(month),
+        fetchDailyHistoricalStats(month, symbol),
         fetchEconomicEvents(year, month)
       ]);
       setDailyStats(stats);
@@ -381,7 +386,7 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
       setLoading(false);
     };
     loadData();
-  }, [month, year]);
+  }, [month, year, symbol]);
   
   useEffect(() => {
     if (!loading) {
@@ -497,7 +502,7 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
     return (
       <div className="almanac-calendar loading">
         <div className="loading-spinner"></div>
-        <p>Loading real historical data...</p>
+        <p>Loading data...</p>
       </div>
     );
   }
@@ -545,7 +550,7 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
                 
                 {day.isCurrentMonth && !day.isHoliday && day.stats && (
                   <div className={`win-rate ${isBullish ? 'bullish' : isBearish ? 'bearish' : 'neutral'}`}>
-                    S&P 500 Up {day.stats.upYears} of Last {day.stats.totalYears} ({day.stats.winRate}%)
+                    {symbol} Up {day.stats.upYears} of Last {day.stats.totalYears} ({day.stats.winRate}%)
                   </div>
                 )}
               </div>

@@ -10,6 +10,7 @@ interface HeroSectionProps {
  opportunitiesCount?: number;
  loading?: boolean;
  timePeriodOptions?: Array<{ id: string; name: string; years: number; description: string }>;
+ onFilterChange?: (filters: { highWinRate: boolean; startingSoon: boolean; fiftyTwoWeek: boolean }) => void;
 }
 
 const HeroSection: React.FC<HeroSectionProps> = ({ 
@@ -19,15 +20,34 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   progressStats = { processed: 0, total: 1000, found: 0 },
   opportunitiesCount = 0,
   loading = false,
-  timePeriodOptions = []
+  timePeriodOptions = [],
+  onFilterChange
 }) => {
  const [selectedMarket, setSelectedMarket] = useState('S&P 500');
+ const [highWinRateFilter, setHighWinRateFilter] = useState(false);
+ const [startingSoonFilter, setStartingSoonFilter] = useState(false);
+ const [fiftyTwoWeekFilter, setFiftyTwoWeekFilter] = useState(false);
+
+ const handleFilterToggle = (filterType: 'highWinRate' | 'startingSoon' | 'fiftyTwoWeek') => {
+   if (filterType === 'highWinRate') {
+     const newValue = !highWinRateFilter;
+     setHighWinRateFilter(newValue);
+     onFilterChange?.({ highWinRate: newValue, startingSoon: startingSoonFilter, fiftyTwoWeek: fiftyTwoWeekFilter });
+   } else if (filterType === 'startingSoon') {
+     const newValue = !startingSoonFilter;
+     setStartingSoonFilter(newValue);
+     onFilterChange?.({ highWinRate: highWinRateFilter, startingSoon: newValue, fiftyTwoWeek: fiftyTwoWeekFilter });
+   } else {
+     const newValue = !fiftyTwoWeekFilter;
+     setFiftyTwoWeekFilter(newValue);
+     onFilterChange?.({ highWinRate: highWinRateFilter, startingSoon: startingSoonFilter, fiftyTwoWeek: newValue });
+   }
+ };
 
  const markets = [
  'S&P 500',
  'NASDAQ 100',
- 'DOW JONES',
- 'RUSSELL 2000'
+ 'DOW JONES'
  ];
 
  const handleStartScreener = () => {
@@ -39,9 +59,70 @@ const HeroSection: React.FC<HeroSectionProps> = ({
  return (
  <div className="pro-hero">
   <div className="hero-container">
-   <div className="hero-header">
+   <div className="hero-header" style={{ marginTop: '15px' }}>
     <h1 className="hero-title">SEASONAL PATTERNS</h1>
-    <div className="hero-subtitle">Real-Time Market Intelligence</div>
+    <div style={{ display: 'flex', gap: '12px', marginTop: '12px', justifyContent: 'center' }}>
+     <button
+      onClick={() => handleFilterToggle('highWinRate')}
+      style={{
+       background: '#000000',
+       color: '#fff',
+       border: '1px solid #333333',
+       padding: '8px 16px',
+       fontSize: '13px',
+       fontWeight: '600',
+       borderRadius: '4px',
+       cursor: 'pointer',
+       transition: 'all 0.3s ease',
+       outline: 'none',
+       fontFamily: 'monospace',
+       boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+       textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+      }}
+     >
+      {highWinRateFilter ? '✓ ' : ''}60%+ Win Rate
+     </button>
+     <button
+      onClick={() => handleFilterToggle('startingSoon')}
+      style={{
+       background: '#000000',
+       color: '#fff',
+       border: '1px solid #333333',
+       padding: '8px 16px',
+       fontSize: '13px',
+       fontWeight: '600',
+       borderRadius: '4px',
+       cursor: 'pointer',
+       transition: 'all 0.3s ease',
+       outline: 'none',
+       fontFamily: 'monospace',
+       boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+       textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+      }}
+     >
+      {startingSoonFilter ? '✓ ' : ''}Starting in 1-3 Days
+     </button>
+     <button
+      onClick={() => handleFilterToggle('fiftyTwoWeek')}
+      style={{
+       background: '#000000',
+       color: '#fff',
+       border: '1px solid #333333',
+       padding: '8px 16px',
+       fontSize: '13px',
+       fontWeight: '600',
+       borderRadius: '4px',
+       cursor: 'pointer',
+       transition: 'all 0.3s ease',
+       outline: 'none',
+       fontFamily: 'monospace',
+       boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+       textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+      }}
+     >
+      {fiftyTwoWeekFilter ? '✓ ' : ''}52WK H/L
+     </button>
+    </div>
    </div>
    
    <div className="hero-controls">
