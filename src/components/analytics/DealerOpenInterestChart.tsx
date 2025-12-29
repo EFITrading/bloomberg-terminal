@@ -17,6 +17,7 @@ interface DealerOpenInterestChartProps {
   hideExpirationSelector?: boolean;
   hideAllControls?: boolean;
   compactMode?: boolean;
+  chartWidth?: number;
   // Controlled props from unified bar
   oiViewMode?: 'contracts' | 'premium';
   showCalls?: boolean;
@@ -35,6 +36,7 @@ export default function DealerOpenInterestChart({
   hideExpirationSelector = false,
   hideAllControls = false,
   compactMode = false,
+  chartWidth = 1120,
   oiViewMode: propViewMode,
   showCalls: propShowCalls,
   showPuts: propShowPuts,
@@ -824,8 +826,8 @@ export default function DealerOpenInterestChart({
     svg.selectAll('*').remove();
 
     const margin = { top: 50, right: 20, bottom: 60, left: 80 };
-    const width = 1120 - margin.left - margin.right;
-    const height = 555 - margin.top - margin.bottom;
+    const width = chartWidth - margin.left - margin.right;
+    const height = 605 - margin.top - margin.bottom;
 
     const container = svg
       .append('g')
@@ -2121,15 +2123,15 @@ export default function DealerOpenInterestChart({
 
       {/* Chart */}
       {loading ? (
-        <div className="flex items-center justify-center h-[555px]">
+        <div className="flex items-center justify-center h-[605px]">
           <div className="text-orange-400 text-lg font-bold animate-pulse">Loading...</div>
         </div>
       ) : error ? (
-        <div className="flex items-center justify-center h-[555px]">
+        <div className="flex items-center justify-center h-[605px]">
           <div className="text-red-500 text-lg font-bold">{error}</div>
         </div>
       ) : (
-        <svg ref={svgRef} width={1120} height={555} className="bg-black"></svg>
+        <svg ref={svgRef} width={chartWidth} height={605} className="bg-black"></svg>
       )}
     </div>
   );

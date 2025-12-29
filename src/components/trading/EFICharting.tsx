@@ -35,7 +35,8 @@ import {
  TbFilter,
  TbChartDots,
  TbArrowUp,
- TbArrowDown
+ TbArrowDown,
+ TbArrowsSort
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 import PolygonService from '../../lib/polygonService';
@@ -4669,6 +4670,7 @@ export default function TradingViewChart({
  const [selectedIndustry, setSelectedIndustry] = useState<IndustryPerformance | null>(null);
  const [allRegimesLoaded, setAllRegimesLoaded] = useState(false);
  const [highlightFilter, setHighlightFilter] = useState<'all' | 'gold' | 'purple' | 'highlights'>('all');
+ const [sortByPercentage, setSortByPercentage] = useState(true); // true = highest first, false = lowest first
 
  // Switch regime tabs instantly from cache
  useEffect(() => {
@@ -13430,6 +13432,21 @@ calculateHighlightedTrades();
  }}>
  {highlightFilter === 'gold' ? '🥇 Best Overall Trades' : highlightFilter === 'purple' ? '👑 Top Industry Leaders' : '⭐ All Highlighted Trades'}
  </h2>
+ 
+ {/* Sort Button */}
+ <button
+ onClick={() => setSortByPercentage(!sortByPercentage)}
+ className="mt-4 px-6 py-2 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2 mx-auto"
+ style={{
+ background: '#000000',
+ color: '#ff6600',
+ border: '2px solid #ff6600',
+ borderRadius: '8px',
+ boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(30, 30, 30, 0.4), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2)'
+ }}
+ >
+ <TbArrowsSort size={20} /> {sortByPercentage ? 'Highest % First' : 'Lowest % First'}
+ </button>
  </div>
  
  <div className="grid grid-cols-2 gap-6">
@@ -13461,7 +13478,14 @@ calculateHighlightedTrades();
  return matchesFilter && trade.optionType?.toLowerCase() === 'call';
  });
  
- return filtered.map(([symbol, trade]: [string, any], idx) => {
+ // Sort by percentage
+ const sorted = filtered.sort((a, b) => {
+ const scoreA = a[1].score || 0;
+ const scoreB = b[1].score || 0;
+ return sortByPercentage ? scoreB - scoreA : scoreA - scoreB;
+ });
+ 
+ return sorted.map(([symbol, trade]: [string, any], idx) => {
  const isGold = trade.highlightType === 'gold';
  const tickerColor = isGold ? '#FFD700' : '#8A2BE2';
  const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
@@ -13481,7 +13505,7 @@ calculateHighlightedTrades();
  style={{
  background: '#000000',
  border: '2px solid #4ade80',
- boxShadow: '0 4px 15px rgba(74, 222, 128, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+ boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(30, 30, 30, 0.4), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2)'
  }}
  onClick={() => {
  setSelectedTradeForModal(trade);
@@ -13493,16 +13517,16 @@ calculateHighlightedTrades();
  <span className="font-mono font-bold" style={{ 
  color: tickerColor, 
  fontSize: '2rem',
- textShadow: `0 1px 0 rgba(0, 0, 0, 0.8), 0 2px 4px rgba(0, 0, 0, 0.6), 0 -1px 0 ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.6)' : 'rgba(138, 43, 226, 0.6)'}, inset 0 -2px 5px rgba(0, 0, 0, 0.4)`,
- filter: `drop-shadow(0 3px 6px ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.5)' : 'rgba(138, 43, 226, 0.5)'})`
+ textShadow: 'none',
+ filter: 'none'
  }}>
  {symbol}
  </span>
  <span className="font-mono" style={{ fontSize: '0.9rem' }}>
  {'   '}
- <span style={{ color: '#ffffff' }}>{trade.industry}</span>
+ <span style={{ color: '#ffffff', opacity: 1 }}>{trade.industry}</span>
  {'  '}
- <span style={{ color: tabColor }}>
+ <span style={{ color: tabColor, opacity: 1 }}>
  {tradeTab === 'life' ? '(Life - Short Term Trend)' : 
  tradeTab === 'developing' ? '(Developing - Medium Term Trend)' : '(Momentum - Long Term Trend)'}
  </span>
@@ -13559,7 +13583,14 @@ calculateHighlightedTrades();
  return matchesFilter && trade.optionType?.toLowerCase() === 'put';
  });
  
- return filtered.map(([symbol, trade]: [string, any], idx) => {
+ // Sort by percentage
+ const sorted = filtered.sort((a, b) => {
+ const scoreA = a[1].score || 0;
+ const scoreB = b[1].score || 0;
+ return sortByPercentage ? scoreB - scoreA : scoreA - scoreB;
+ });
+ 
+ return sorted.map(([symbol, trade]: [string, any], idx) => {
  const isGold = trade.highlightType === 'gold';
  const tickerColor = isGold ? '#FFD700' : '#8A2BE2';
  const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
@@ -13579,7 +13610,7 @@ calculateHighlightedTrades();
  style={{
  background: '#000000',
  border: '2px solid #f87171',
- boxShadow: '0 4px 15px rgba(248, 113, 113, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+ boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(30, 30, 30, 0.4), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2)'
  }}
  onClick={() => {
  setSelectedTradeForModal(trade);
@@ -13591,16 +13622,16 @@ calculateHighlightedTrades();
  <span className="font-mono font-bold" style={{ 
  color: tickerColor, 
  fontSize: '2rem',
- textShadow: `0 1px 0 rgba(0, 0, 0, 0.8), 0 2px 4px rgba(0, 0, 0, 0.6), 0 -1px 0 ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.6)' : 'rgba(138, 43, 226, 0.6)'}, inset 0 -2px 5px rgba(0, 0, 0, 0.4)`,
- filter: `drop-shadow(0 3px 6px ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.5)' : 'rgba(138, 43, 226, 0.5)'})`
+ textShadow: 'none',
+ filter: 'none'
  }}>
  {symbol}
  </span>
  <span className="font-mono" style={{ fontSize: '0.9rem' }}>
  {'   '}
- <span style={{ color: '#ffffff' }}>{trade.industry}</span>
+ <span style={{ color: '#ffffff', opacity: 1 }}>{trade.industry}</span>
  {'  '}
- <span style={{ color: tabColor }}>
+ <span style={{ color: tabColor, opacity: 1 }}>
  {tradeTab === 'life' ? '(Life - Short Term Trend)' : 
  tradeTab === 'developing' ? '(Developing - Medium Term Trend)' : '(Momentum - Long Term Trend)'}
  </span>
@@ -17273,7 +17304,7 @@ calculateHighlightedTrades();
  {/* Sidebar Panels */}
  {activeSidebarPanel && (
  <div 
-   className={`fixed top-40 bottom-4 left-0 md:left-[100px] w-full md:w-[1200px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}
+   className={`fixed top-32 md:top-45 bottom-4 left-0 md:left-[100px] w-full md:w-[1200px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}
    data-sidebar-panel={activeSidebarPanel}
  >
 {/* Sidebar panel debugging */}

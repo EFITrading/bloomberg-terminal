@@ -2,9 +2,34 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { RefreshCw, AlertCircle, TrendingUp, Activity, Target, BarChart3, Gauge } from 'lucide-react';
 import DealerOpenInterestChart from './DealerOpenInterestChart';
 import DealerGEXChart from './DealerGEXChart';
+import DealerAttractionOIMobile from './DealerAttractionOIMobile';
+import DealerAttractionOIDesktop from './DealerAttractionOIDesktop';
 
-// Unified OI/GEX Tab Component with shared expiration state
-const OIGEXTab: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
+// Unified OI/GEX Tab Component - now delegates to mobile/desktop specific components
+const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> = ({ selectedTicker, activeTableCount = 0 }) => {
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+
+  // Detect mobile on mount and resize
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(typeof window !== 'undefined' && window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Render mobile or desktop component based on screen size
+  if (isMobile) {
+    return <DealerAttractionOIMobile selectedTicker={selectedTicker} />;
+  }
+  
+  return <DealerAttractionOIDesktop selectedTicker={selectedTicker} activeTableCount={activeTableCount} />;
+};
+
+// Legacy OIGEXTab content removed - replaced by separate mobile/desktop components above
+const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
   const [sharedExpiration, setSharedExpiration] = useState<string>('');
   const [expirationDates, setExpirationDates] = useState<string[]>([]);
   
@@ -1917,10 +1942,10 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         </div>
       </div>
 
-      {/* Tabbed Strike Tables */}
+      {/* Tabbed Strike Tables - Side by Side on Desktop */}
       <div className="mt-6">
-        {/* Tab Headers */}
-        <div className="flex border-b border-gray-600 mb-0">
+        {/* Mobile: Tabs (hidden on desktop) */}
+        <div className="flex md:hidden border-b border-gray-600 mb-0">
           <button
             onClick={() => setStrikeTableTab('mm')}
             className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
@@ -1943,8 +1968,10 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </button>
         </div>
 
-        {/* Tab Content */}
-        {strikeTableTab === 'mm' ? (
+        {/* Desktop: Side by Side / Mobile: Tab Content */}
+        <div className="md:grid md:grid-cols-2 md:gap-4">
+        {/* Tab Content - Mobile: Only show selected tab */}
+        <div className={`${strikeTableTab === 'mm' ? 'block' : 'hidden'} md:block`}>
           /* Detailed Strike Table */
           <div className="bg-black border border-gray-600 border-t-0">
           
@@ -2008,9 +2035,10 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </table>
         </div>
       </div>
-        ) : (
+        </div>
+        <div className={`${strikeTableTab === 'risk' ? 'block' : 'hidden'} md:block`}>
           /* Max Pain Strike Risk Analysis */
-          <div className="bg-black border border-gray-600 border-t-0">
+          <div className="bg-black border border-gray-600 md:border-t">
         
         {/* Expiration Selector */}
         <div className="bg-black/50 border-b border-gray-700 px-4 py-3">
@@ -2132,7 +2160,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           </table>
         </div>
       </div>
-        )}
+        </div>
+        </div> {/* End grid for side-by-side tables */}
       </div> {/* End Tabbed Strike Tables */}
 
     </div>
@@ -3861,27 +3890,36 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   
   React.useEffect(() => {
     // Find the parent sidebar panel and update its width ONLY if it's the dealer attraction panel
-    const sidebarPanel = document.querySelector('.fixed.top-32.bottom-4.left-16[data-sidebar-panel="liquid"]') as HTMLElement;
+    const sidebarPanel = document.querySelector('[data-sidebar-panel="liquid"]') as HTMLElement;
+    console.log('🔍 Panel expansion debug:', {
+      showOI,
+      activeTableCount,
+      panelFound: !!sidebarPanel
+    });
     if (sidebarPanel) {
       // Count total items: OI chart (if enabled) + tables
       const oiCount = showOI ? 1 : 0;
       const totalItems = oiCount + activeTableCount;
+      console.log('📐 Setting panel width:', { totalItems, oiCount, activeTableCount });
       
       if (totalItems === 0 || totalItems === 1) {
         // 0 items OR 1 item (OI only OR 1 table only) - 1200px
+        console.log('✅ Panel width: 1200px (single item)');
         sidebarPanel.style.width = '1200px';
       } else if (totalItems === 2) {
         if (showOI && activeTableCount === 1) {
-          // OI + 1 table: 1150px + 900px = 2050px
-          sidebarPanel.style.width = '2050px';
+          // OI + 1 table: 1200px + 900px = 2100px
+          console.log('✅ Panel width: 2100px (OI + 1 table)');
+          sidebarPanel.style.width = '2100px';
         } else {
           // 2 tables (no OI) - 1775px
+          console.log('✅ Panel width: 1775px (2 tables)');
           sidebarPanel.style.width = '1775px';
         }
       } else if (totalItems === 3) {
         if (showOI && activeTableCount === 2) {
-          // OI + 2 tables: 1150px + 1775px = 2925px
-          sidebarPanel.style.width = '2925px';
+          // OI + 2 tables: 1100px + 895px + 895px + gaps = 2940px
+          sidebarPanel.style.width = '2940px';
         } else {
           // 3 tables (no OI) - 2662px
           sidebarPanel.style.width = '2662px';
@@ -5348,6 +5386,16 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           .dealer-attraction-container {
             padding-top: 30px !important;
           }
+          
+          /* Hide scrollbars on mobile while keeping functionality */
+          .table-scroll-container {
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE and Edge */
+          }
+          
+          .table-scroll-container::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+          }
         }
         
         /* Bloomberg Terminal Theme Styles */
@@ -5373,7 +5421,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         }
       `}</style>
       <div className="p-6 pt-24 md:pt-6 dealer-attraction-container">
-        <div className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[95vw]'} px-4 mx-auto`}>
+        <div className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[95vw]'} px-4 mx-auto`}>
           {/* Bloomberg Terminal Header */}
           <div className="mb-6 bg-black border border-gray-600/40">
             {/* Control Panel */}
@@ -6113,10 +6161,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               
               {/* Show multiple tables/charts side by side when multiple modes are enabled OR when OI is selected alone */}
               {showOI || (showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) ? (
-                <div className="flex overflow-x-auto" style={{ gap: '1px' }}>
+                <div className="flex overflow-x-auto" style={{ gap: typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px' }}>
                   {/* OI/GEX Charts - Show when OI checkbox is active */}
                   {showOI && (
-                    <div className="flex-shrink-0" style={{ width: '1150px', minWidth: '1150px' }}>
+                    <div className="flex-shrink-0" style={{ 
+                      width: activeTableCount === 2 ? '1100px' : '1200px', 
+                      minWidth: activeTableCount === 2 ? '1100px' : '1200px' 
+                    }}>
                       <OIGEXTab selectedTicker={selectedTicker} />
                     </div>
                   )}
@@ -6124,9 +6175,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                     // Calculate table width based on context
                     const tableWidths: string[] = [];
                     
-                    if (showOI && activeTableCount === 2) {
-                      // OI + 2 tables: split 1775px between 2 tables
-                      tableWidths.push('887px', '887px');
+                    if (showOI && activeTableCount === 1) {
+                      // OI + 1 table: table gets 900px
+                      tableWidths.push('900px');
+                    } else if (showOI && activeTableCount === 2) {
+                      // OI + 2 tables: each table gets 895px
+                      tableWidths.push('895px', '895px');
                     } else if (!showOI && activeTableCount === 2) {
                       // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
                       tableWidths.push('887px', '887px');
@@ -6188,7 +6242,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
                         </div>
                       </div>
-                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 400px)', overflowX: 'auto' }}>
                         <table style={{ minWidth: `${mobileStrikeWidth + (table1Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
                       <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                         <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
@@ -6308,7 +6362,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
                         </div>
                       </div>
-                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 400px)', overflowX: 'auto' }}>
                         <table style={{ minWidth: `${mobileStrikeWidth + (table2Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
                       <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                         <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
@@ -6424,7 +6478,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
                         </div>
                       </div>
-                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 400px)', overflowX: 'auto' }}>
                         <table style={{ minWidth: `${mobileStrikeWidth + (table3Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
                         <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                           <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
@@ -6517,7 +6571,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 </div>
               ) : (
                 /* Original single table when only one mode is active */
-                <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: typeof window !== 'undefined' && window.innerWidth < 768 ? 'calc(100vh - 250px)' : 'calc(100vh - 400px)', overflowX: 'auto' }}>
                   <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
                     <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}>
                       <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>

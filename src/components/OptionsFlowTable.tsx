@@ -478,7 +478,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
  weekly: boolean;
  premium100k: boolean;
  sweep: boolean;
- }>({ otm: false, weekly: false, premium100k: false, sweep: false });
+ block: boolean;
+ }>({ otm: false, weekly: false, premium100k: false, sweep: false, block: false });
  const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false);
  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
  const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
@@ -1207,6 +1208,9 @@ Stock Reaction: ${scores.stockReaction}/15`;
  }
  if (quickFilters.sweep) {
  filtered = filtered.filter(trade => trade.trade_type === 'SWEEP');
+ }
+ if (quickFilters.block) {
+ filtered = filtered.filter(trade => trade.trade_type === 'BLOCK');
  }
  
  // Expiration date range filter
@@ -2134,6 +2138,26 @@ Stock Reaction: ${scores.stockReaction}/15`;
  }}
  >
  SWEEP
+ </button>
+ <button
+ onClick={() => {
+ setQuickFilters(prev => ({ ...prev, block: !prev.block }));
+ }}
+ className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+ style={{
+ height: '48px',
+ background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+ border: '2px solid #2a2a2a',
+ borderRadius: '4px',
+ fontSize: '12px',
+ letterSpacing: '1px',
+ fontWeight: '900',
+ boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+ outline: 'none',
+ color: '#a855f7'
+ }}
+ >
+ BLOCK
  </button>
  {efiHighlightsActive && (
  <button

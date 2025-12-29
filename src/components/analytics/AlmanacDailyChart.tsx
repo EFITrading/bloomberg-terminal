@@ -12,6 +12,13 @@ interface AlmanacDailyChartProps {
   symbol?: string;
 }
 
+interface PriceData {
+  date: Date;
+  close: number;
+  high: number;
+  low: number;
+}
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
@@ -539,7 +546,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         return;
       }
       
-      const prices = data.results.map((r: any) => ({
+      const prices: PriceData[] = data.results.map((r: any) => ({
         date: new Date(r.t),
         close: r.c,
         high: r.h,
@@ -1596,8 +1603,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                         display: 'block',
                         width: '100%',
                         padding: '6px 12px',
-                        background: selectedPattern === pattern.label ? '#00CED1' : 'transparent',
-                        color: selectedPattern === pattern.label ? '#000' : '#fff',
+                        background: selectedPattern.includes(pattern.label) ? '#00CED1' : 'transparent',
+                        color: selectedPattern.includes(pattern.label) ? '#000' : '#fff',
                         border: 'none',
                         textAlign: 'left',
                         cursor: 'pointer',
@@ -1605,12 +1612,12 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                         fontFamily: '"JetBrains Mono", monospace'
                       }}
                       onMouseEnter={(e) => {
-                        if (selectedPattern !== pattern.label) {
+                        if (!selectedPattern.includes(pattern.label)) {
                           e.currentTarget.style.background = '#1a2530';
                         }
                       }}
                       onMouseLeave={(e) => {
-                        if (selectedPattern !== pattern.label) {
+                        if (!selectedPattern.includes(pattern.label)) {
                           e.currentTarget.style.background = 'transparent';
                         }
                       }}

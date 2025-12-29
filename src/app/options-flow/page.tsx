@@ -454,7 +454,10 @@ export default function OptionsFlowPage() {
  break;
  
  case 'complete':
- // CLOSE STREAM FIRST to prevent errors
+ // SET COMPLETE FLAG FIRST to prevent error handler from firing
+ setIsStreamComplete(true);
+ 
+ // CLOSE STREAM to prevent errors
  console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades`);
  eventSource.close();
  
@@ -472,7 +475,6 @@ export default function OptionsFlowPage() {
  setStreamingProgress(null);
  setStreamError('');
  setRetryCount(0);
- setIsStreamComplete(true);
  
  // ACCUMULATE trades - don't replace, add new ones to existing
  if (completeTrades.length > 0) {
@@ -531,6 +533,21 @@ export default function OptionsFlowPage() {
  };
  
           eventSource.onerror = (error) => {
+            // Don't log or process errors if stream already completed successfully
+            if (isStreamComplete) {
+              eventSource.close();
+              return;
+            }
+            
+            // Check if this is just a normal close after completion
+            if (eventSource.readyState === 2) { // CLOSED state
+              console.log('ℹ️ Stream closed normally');
+              eventSource.close();
+              setStreamingStatus('');
+              setLoading(false);
+              return;
+            }
+            
             console.error('EventSource error:', error);
             console.error('EventSource readyState:', eventSource.readyState);
             console.error('EventSource url:', eventSource.url);
@@ -542,24 +559,6 @@ export default function OptionsFlowPage() {
                 eventPhase: error.eventPhase,
                 type: error.type
               });
-            }
-            
-            // Don't retry if stream completed successfully
-            if (isStreamComplete) {
-              console.log('✅ Stream completed successfully, ignoring final disconnect');
-              eventSource.close();
-              setStreamingStatus('');
-              setLoading(false);
-              return;
-            }
-            
-            // Check if this is just a normal close after completion
-            if (eventSource.readyState === 2) { // CLOSED state
-              console.log('ℹ️ Stream closed normally');
-              eventSource.close();
-              setStreamingStatus('');
-              setLoading(false);
-              return;
             }
             
             // Only show error if connection truly failed during connection phase
