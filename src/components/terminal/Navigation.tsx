@@ -165,29 +165,133 @@ export default function Navigation() {
          <div className="desktop-nav-right">
            {/* Market Regime Alerts */}
            {regimes.length > 0 && (
-             <div style={{ display: 'flex', gap: '8px', marginRight: '16px', alignItems: 'center' }}>
+             <div style={{ display: 'flex', gap: '12px', marginRight: '16px', alignItems: 'center' }}>
                {regimes.map(({period, regime}) => (
                  <div
                    key={period}
+                   className="regime-indicator"
+                   data-regime={regime}
                    style={{
-                     padding: '6px 12px',
-                     borderRadius: '6px',
-                     fontWeight: 'bold',
+                     position: 'relative',
+                     padding: '12px 20px 12px 48px',
+                     borderRadius: '12px',
+                     fontWeight: '600',
                      fontSize: '13px',
                      display: 'flex',
                      flexDirection: 'column',
-                     alignItems: 'center',
+                     alignItems: 'flex-start',
                      gap: '2px',
-                     background: regime === 'RISK ON' ? 'rgba(0, 255, 0, 0.15)' : regime === 'DEFENSIVE' ? 'rgba(255, 0, 0, 0.15)' : 'rgba(0, 100, 255, 0.15)',
-                     border: `2px solid ${regime === 'RISK ON' ? '#00ff00' : regime === 'DEFENSIVE' ? '#ff0000' : '#0064ff'}`,
-                     boxShadow: `0 0 15px ${regime === 'RISK ON' ? 'rgba(0, 255, 0, 0.6)' : regime === 'DEFENSIVE' ? 'rgba(255, 0, 0, 0.6)' : 'rgba(0, 100, 255, 0.6)'}`,
-                     animation: 'pulse 2s ease-in-out infinite',
-                     color: regime === 'RISK ON' ? '#00ff00' : regime === 'DEFENSIVE' ? '#ff0000' : '#0064ff',
-                     textShadow: `0 0 10px ${regime === 'RISK ON' ? 'rgba(0, 255, 0, 0.8)' : regime === 'DEFENSIVE' ? 'rgba(255, 0, 0, 0.8)' : 'rgba(0, 100, 255, 0.8)'}`
+                     minWidth: '140px',
+                     background: regime === 'RISK ON' 
+                       ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.08) 100%)'
+                       : regime === 'DEFENSIVE' 
+                       ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.08) 100%)'
+                       : 'linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%)',
+                     border: `2px solid ${regime === 'RISK ON' ? 'rgba(16, 185, 129, 0.6)' : regime === 'DEFENSIVE' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(251, 191, 36, 0.6)'}`,
+                     boxShadow: regime === 'RISK ON'
+                       ? '0 8px 32px rgba(16, 185, 129, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+                       : regime === 'DEFENSIVE'
+                       ? '0 8px 32px rgba(239, 68, 68, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+                       : '0 8px 32px rgba(251, 191, 36, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                     color: regime === 'RISK ON' ? '#10b981' : regime === 'DEFENSIVE' ? '#ef4444' : '#fbbf24',
+                     backdropFilter: 'blur(12px)',
+                     transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                     overflow: 'visible',
+                     cursor: 'pointer'
                    }}
                  >
-                   <span style={{ fontSize: '11px', opacity: 0.9 }}>{period}</span>
-                   <span>{regime}</span>
+                   {/* 3D Animated Icon Container */}
+                   <div style={{
+                     position: 'absolute',
+                     left: '10px',
+                     top: '50%',
+                     transform: 'translateY(-50%)',
+                     width: '32px',
+                     height: '32px',
+                     display: 'flex',
+                     alignItems: 'center',
+                     justifyContent: 'center'
+                   }}>
+                     {regime === 'DEFENSIVE' && (
+                       <div className="regime-icon-defensive">
+                         {/* 3D Alert Icon */}
+                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.6))' }}>
+                           <path d="M12 2L2 19.5h20L12 2z" fill="url(#defensiveGradient)" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                           <path d="M12 9v4M12 17h.01" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"/>
+                           <defs>
+                             <linearGradient id="defensiveGradient" x1="12" y1="2" x2="12" y2="19.5">
+                               <stop offset="0%" stopColor="#ef4444" stopOpacity="0.9"/>
+                               <stop offset="100%" stopColor="#dc2626" stopOpacity="0.7"/>
+                             </linearGradient>
+                           </defs>
+                         </svg>
+                         <div className="siren-light"></div>
+                       </div>
+                     )}
+                     {regime === 'RISK ON' && (
+                       <div className="regime-icon-risk-on">
+                         {/* 3D Rocket Icon */}
+                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ filter: 'drop-shadow(0 0 8px rgba(16, 185, 129, 0.6))' }}>
+                           <path d="M12 2c3.5 3.5 5 7 5 10.5 0 2.5-2 4.5-4.5 4.5S8 15 8 12.5C8 9 9.5 5.5 13 2h-1z" fill="url(#riskOnGradient)" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                           <path d="M7 17l-2 5h4l-2-5zM15 17l2 5h-4l2-5z" fill="#10b981" opacity="0.6"/>
+                           <circle cx="12" cy="10" r="1.5" fill="#fff"/>
+                           <defs>
+                             <linearGradient id="riskOnGradient" x1="12" y1="2" x2="12" y2="17">
+                               <stop offset="0%" stopColor="#10b981" stopOpacity="0.9"/>
+                               <stop offset="100%" stopColor="#059669" stopOpacity="0.7"/>
+                             </linearGradient>
+                           </defs>
+                         </svg>
+                         <div className="sparkle sparkle-1"></div>
+                         <div className="sparkle sparkle-2"></div>
+                         <div className="sparkle sparkle-3"></div>
+                       </div>
+                     )}
+                     {regime === 'VALUE' && (
+                       <div className="regime-icon-value">
+                         {/* 3D Coin Stack Icon */}
+                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ filter: 'drop-shadow(0 0 8px rgba(251, 191, 36, 0.6))' }}>
+                           <ellipse cx="12" cy="8" rx="7" ry="3" fill="url(#valueGradient1)" stroke="#fbbf24" strokeWidth="2"/>
+                           <ellipse cx="12" cy="12" rx="7" ry="3" fill="url(#valueGradient2)" stroke="#fbbf24" strokeWidth="2"/>
+                           <ellipse cx="12" cy="16" rx="7" ry="3" fill="url(#valueGradient3)" stroke="#fbbf24" strokeWidth="2"/>
+                           <text x="12" y="17" textAnchor="middle" fill="#000" fontSize="10" fontWeight="bold">$</text>
+                           <defs>
+                             <linearGradient id="valueGradient1" x1="12" y1="5" x2="12" y2="11">
+                               <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.9"/>
+                               <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.6"/>
+                             </linearGradient>
+                             <linearGradient id="valueGradient2" x1="12" y1="9" x2="12" y2="15">
+                               <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.8"/>
+                               <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.5"/>
+                             </linearGradient>
+                             <linearGradient id="valueGradient3" x1="12" y1="13" x2="12" y2="19">
+                               <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.9"/>
+                               <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.7"/>
+                             </linearGradient>
+                           </defs>
+                         </svg>
+                         <div className="coin-shine"></div>
+                       </div>
+                     )}
+                   </div>
+                   
+                   <span style={{ 
+                     fontSize: '9px', 
+                     opacity: 0.7,
+                     fontWeight: '600',
+                     letterSpacing: '1px',
+                     textTransform: 'uppercase',
+                     marginBottom: '2px'
+                   }}>{period}</span>
+                   <span style={{
+                     fontSize: '13px',
+                     fontWeight: '700',
+                     letterSpacing: '0.5px',
+                     textShadow: `0 2px 8px ${regime === 'RISK ON' ? 'rgba(16, 185, 129, 0.6)' : regime === 'DEFENSIVE' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(251, 191, 36, 0.6)'}`
+                   }}>{regime}</span>
+                   
+                   {/* Animated border overlay */}
+                   <div className="regime-border-glow"></div>
                  </div>
                ))}
              </div>

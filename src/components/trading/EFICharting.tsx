@@ -2850,9 +2850,6 @@ const renderTechnalysisIndicators = (
       ctx.lineTo(lastX, bottomY);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.font = 'bold 11px monospace';
-      ctx.fillStyle = fvg.type === 'bullish' ? '#ffd700' : '#ff00ff';
-      ctx.fillText('FVG', startX + 3, topY + 12);
     });
   }
   

@@ -12,8 +12,10 @@ import HVScreener from '../../components/HVScreener';
 import LeadershipScan from '../../components/LeadershipScan';
 import PerformanceDashboard from '../../components/charts/PerformanceDashboard';
 import MarketHeatmap from '../../components/analytics/MarketHeatmap';
+import CustomizableHUD from '../../components/CustomizableHUD';
 
 export default function AnalysisSuite() {
+ const [useCustomHUD, setUseCustomHUD] = useState(false);
  const [tickerInput, setTickerInput] = useState('');
  const [selectedTicker, setSelectedTicker] = useState('');
  const [sharedExpiration, setSharedExpiration] = useState<string>('');
@@ -74,18 +76,86 @@ export default function AnalysisSuite() {
 
  fetchExpirations();
  }, [selectedTicker]);
+
+ const hudPanels = [
+ { id: 'oigex', title: 'OI / GEX Charts', component: (
+ <><DealerOpenInterestChart selectedTicker={selectedTicker} compactMode={true} selectedExpiration={sharedExpiration} hideAllControls={true} oiViewMode={showPremium ? 'premium' : 'contracts'} showCalls={showCalls} showPuts={showPuts} showNetOI={showNetOI} showTowers={showAITowers} onExpectedRangePCRatioChange={setExpectedRangePCRatio} onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days} onExpectedRange90Change={setExpectedRange90} />
+ <div style={{marginTop:'20px'}}><DealerGEXChart selectedTicker={selectedTicker} compactMode={true} selectedExpiration={sharedExpiration} hideAllControls={true} gexViewMode={showPremium ? 'premium' : 'gex'} showPositiveGamma={showPositiveGamma} showNegativeGamma={showNegativeGamma} showNetGamma={showNetGamma} showAttrax={showAITowers} expectedRange90={expectedRange90} /></div></>
+ ), defaultLayout: { x:0, y:0, w:24, h:12, minW:12, minH:8 }},
+ { id: 'gexscreener', title: 'GEX Screener', component: <GEXScreener />, defaultLayout: { x:0, y:12, w:24, h:6, minW:12, minH:4 }},
+ { id: 'historicalvol', title: 'Historical Volatility', component: <div style={{padding:'20px'}}><HistoricalVolatilityChart /></div>, defaultLayout: { x:0, y:18, w:12, h:6, minW:8, minH:5 }},
+ { id: 'liquidation', title: 'Liquidation Screener', component: <LiquidationScreener />, defaultLayout: { x:12, y:18, w:12, h:6, minW:8, minH:4 }},
+ { id: 'rrg', title: 'RRG Analytics', component: <RRGAnalytics defaultTimeframe="14 weeks" defaultBenchmark="SPY" />, defaultLayout: { x:0, y:24, w:24, h:8, minW:12, minH:6 }},
+ { id: 'rsscreener', title: 'RS Screener', component: <RSScreener />, defaultLayout: { x:0, y:32, w:12, h:6, minW:8, minH:4 }},
+ { id: 'hvscreener', title: 'HV Screener', component: <HVScreener />, defaultLayout: { x:12, y:32, w:12, h:6, minW:8, minH:4 }},
+ { id: 'leadership', title: 'Leadership Scan', component: <LeadershipScan />, defaultLayout: { x:0, y:38, w:24, h:6, minW:12, minH:4 }},
+ { id: 'performance', title: 'Performance Dashboard', component: <PerformanceDashboard isVisible={true} />, defaultLayout: { x:0, y:44, w:24, h:8, minW:12, minH:6 }},
+ { id: 'heatmap', title: 'Market Heatmap', component: <MarketHeatmap />, defaultLayout: { x:0, y:52, w:24, h:8, minW:12, minH:6 }}
+ ];
+
  return (
+ <>
+ {/* CUSTOM HUD TOGGLE - ALWAYS VISIBLE */}
+ <button 
+ onClick={() => {
+ console.log('Toggle clicked, current:', useCustomHUD);
+ setUseCustomHUD(!useCustomHUD);
+ alert(`Custom HUD is now: ${!useCustomHUD ? 'ON' : 'OFF'}`);
+ }} 
+ style={{
+ position: 'fixed',
+ top: '10px',
+ right: '10px',
+ zIndex: 999999,
+ padding: '16px 32px', 
+ background: useCustomHUD ? '#667eea' : '#ff6600',
+ border: '3px solid #fff', 
+ borderRadius: '12px',
+ color: '#fff', 
+ fontSize: '16px', 
+ fontWeight: '900', 
+ cursor: 'pointer',
+ textTransform: 'uppercase', 
+ boxShadow: '0 0 30px rgba(255, 102, 0, 0.8)',
+ transition: 'all 0.3s ease'
+ }}>
+ {useCustomHUD ? '🎛️ CUSTOM HUD ON' : '📊 ENABLE CUSTOM HUD'}
+ </button>
+ 
  <div style={{ 
  background: 'transparent', 
  minHeight: '100vh', 
- padding: '20px',
+ padding: useCustomHUD ? '0' : '20px',
  color: 'white',
  fontFamily: '"Roboto Mono", monospace',
  position: 'relative',
  zIndex: 1
  }}>
- <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
  
+ <div style={{ 
+ maxWidth: useCustomHUD ? '100%' : '1400px', 
+ margin: '0 auto', 
+ paddingTop: useCustomHUD ? '0px' : '60px',
+ paddingLeft: useCustomHUD ? '20px' : '0',
+ paddingRight: useCustomHUD ? '20px' : '0',
+ width: '100%'
+ }}>
+ 
+ {useCustomHUD ? (
+ <>
+ <div style={{marginTop:'0px',marginBottom:'10px',padding:'12px 20px',background:'#000',borderRadius:'8px',border:'1px solid #333',display:'flex',gap:'12px',flexWrap:'wrap',alignItems:'center'}}>
+ <input type="text" value={tickerInput} onChange={(e)=>setTickerInput(e.target.value.toUpperCase())} onKeyDown={(e)=>{if(e.key==='Enter')setSelectedTicker(tickerInput)}} placeholder="Ticker" style={{background:'#000',border:'1px solid #333',borderRadius:'8px',color:'#fff',padding:'8px 12px',fontSize:'13px',width:'100px',textTransform:'uppercase'}} />
+ <select value={sharedExpiration} onChange={(e)=>setSharedExpiration(e.target.value)} style={{background:'#000',border:'1px solid #333',borderRadius:'8px',color:'#fff',padding:'8px 12px',fontSize:'13px',cursor:'pointer'}}>
+ <option value="45-days">45 Days (All)</option>
+ {expirationDates.map(d=><option key={d} value={d}>{new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'America/New_York'})}</option>)}
+ </select>
+ <button onClick={()=>setShowAITowers(!showAITowers)} style={{padding:'8px 14px',background:showAITowers?'linear-gradient(135deg, #667eea 0%, #764ba2 100%)':'#000',border:showAITowers?'1px solid #667eea':'1px solid #333',borderRadius:'8px',color:'#fff',fontSize:'12px',fontWeight:'600',cursor:'pointer'}}>👑 AI</button>
+ <button onClick={()=>setShowPremium(!showPremium)} style={{padding:'8px 14px',background:showPremium?'rgba(255,170,0,0.2)':'#000',border:showPremium?'1px solid #ffaa00':'1px solid #333',borderRadius:'8px',color:showPremium?'#ffaa00':'#fff',fontSize:'12px',fontWeight:'600',cursor:'pointer'}}>💰 Premium</button>
+ </div>
+ <CustomizableHUD panels={hudPanels} />
+ </>
+ ) : (
+ <>
  {/* OI/GEX Charts Section with Unified Control Bar */}
  <div style={{
  background: 'rgba(0, 0, 0, 0.95)',
@@ -499,7 +569,10 @@ export default function AnalysisSuite() {
  }}>
  <MarketHeatmap />
  </div>
+ </>
+ )}
  </div>
  </div>
+ </>
  );
 }

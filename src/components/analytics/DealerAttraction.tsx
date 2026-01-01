@@ -4181,9 +4181,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       setProgress(10);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
       
-      // Use working SPX endpoint for indices, regular endpoint for stocks
-      const apiEndpoint = selectedTicker.toUpperCase() === 'SPX' 
+      // Use working endpoints for indices, regular endpoint for stocks
+      const tickerUpper = selectedTicker.toUpperCase();
+      const apiEndpoint = tickerUpper === 'SPX' 
         ? `/api/spx-fix?ticker=${selectedTicker}` 
+        : tickerUpper === 'VIX'
+        ? `/api/vix-fix?ticker=${selectedTicker}`
         : `/api/options-chain?ticker=${selectedTicker}`;
       const optionsResponse = await fetch(apiEndpoint);
       const optionsResult = await optionsResponse.json();

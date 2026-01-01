@@ -247,7 +247,7 @@ export default function DealerGEXChart({
     const fetchExpirations = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`);
+        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`, { cache: 'no-store' });
         const result = await response.json();
         
         if (result.success && result.data) {
@@ -405,7 +405,7 @@ export default function DealerGEXChart({
         }
         
         // Normal single expiration fetch
-        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}&expiration=${selectedExpiration}`);
+        const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}&expiration=${selectedExpiration}`, { cache: 'no-store' });
         const result = await response.json();
         
         if (result.success && result.data && result.data[selectedExpiration]) {
