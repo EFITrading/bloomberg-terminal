@@ -31,7 +31,6 @@ declare global {
  }
 }
 import ChartDataCache from '../../lib/chartDataCache';
-import OptionsCalculator from '../calculator/OptionsCalculator';
 import NewsPanel from '../news/NewsPanel';
 import TradingPlan from './TradingPlan';
 import OptionsChain from './OptionsChain';
@@ -11955,9 +11954,6 @@ export default function TradingViewChart({
  <div className="p-4 text-center text-white text-opacity-50">
  Alerts section coming soon...
  </div>
- )}
- {activeSidebarPanel === 'calc' && (
- <OptionsCalculator initialSymbol={config.symbol} />
  )}
  {activeSidebarPanel === 'chain' && (
  <OptionsChain symbol={config.symbol} currentPrice={0} />

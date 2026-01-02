@@ -51,7 +51,6 @@ declare global {
  }
 }
 import ChartDataCache from '../../lib/chartDataCache';
-import OptionsCalculator from '../calculator/OptionsCalculator';
 import NewsPanel from '../news/NewsPanel';
 import TradingPlan from './TradingPlan';
 import OptionsChain from './OptionsChain';
@@ -16603,7 +16602,7 @@ calculateHighlightedTrades();
  { id: 'regimes', icon: TbTrendingUp, label: 'MARKETS', accent: 'emerald' },
  { id: 'news', icon: TbNews, label: 'NEWS', accent: 'amber' },
  { id: 'alerts', icon: TbBellRinging, label: 'ALERTS', accent: 'red' },
- { id: 'calc', icon: TbCalculator, label: 'CALC', accent: 'cyan' },
+
  { id: 'chain', icon: TbLink, label: 'CHAIN', accent: 'cyan' },
  { id: 'plan', icon: TbChartLine, label: 'PLAN', accent: 'purple' },
  { id: 'trades', icon: TbActivity, label: 'TRADES', accent: 'green' },
@@ -17712,9 +17711,6 @@ calculateHighlightedTrades();
  )}
  </div>
  </div>
- )}
- {activeSidebarPanel === 'calc' && (
- <OptionsCalculator initialSymbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} />
  )}
  {activeSidebarPanel === 'chain' && (
  <OptionsChain symbol={config.symbol} currentPrice={0} onClose={() => setActiveSidebarPanel(null)} />

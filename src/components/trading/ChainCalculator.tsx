@@ -837,36 +837,36 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
  const realOption = realOptionsData[key];
  
  return (
- <div className="mb-4 bg-gradient-to-r from-gray-900 to-black rounded-xl p-2 md:p-4 border border-gray-600 shadow-lg">
- <div className="grid grid-cols-4 gap-2 md:gap-4">
- <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-0 md:p-3 border border-gray-700 shadow-xl h-[20px] md:h-auto" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
- <div className="flex items-center justify-between w-full px-1" style={{ transform: 'translateY(-10px)' }}>
- <span className="text-green-500 text-[8px] md:text-sm font-bold uppercase tracking-wider leading-none">Delta</span>
- <span className="text-green-500 text-[10px] md:text-xl font-bold leading-none">
+ <div className="mb-4 bg-black border-2 border-orange-500/30 p-0">
+ <div className="grid grid-cols-4 gap-0">
+ <div className="bg-black border-r-2 border-orange-500/30 px-4 py-3">
+ <div className="flex flex-col">
+ <span className="text-green-500 text-xs font-bold uppercase tracking-wider mb-1">DELTA</span>
+ <span className="text-white text-lg font-bold font-mono">
  {realOption?.delta !== null && realOption?.delta !== undefined ? realOption.delta.toFixed(3) : '--'}
  </span>
  </div>
  </div>
- <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-0 md:p-3 border border-gray-700 shadow-xl h-[20px] md:h-auto" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
- <div className="flex items-center justify-between w-full px-1" style={{ transform: 'translateY(-10px)' }}>
- <span className="text-yellow-500 text-[8px] md:text-sm font-bold uppercase tracking-wider leading-none">Gamma</span>
- <span className="text-yellow-500 text-[10px] md:text-xl font-bold leading-none">
+ <div className="bg-black border-r-2 border-orange-500/30 px-4 py-3">
+ <div className="flex flex-col">
+ <span className="text-yellow-500 text-xs font-bold uppercase tracking-wider mb-1">GAMMA</span>
+ <span className="text-white text-lg font-bold font-mono">
  {realOption?.gamma !== null && realOption?.gamma !== undefined ? realOption.gamma.toFixed(4) : '--'}
  </span>
  </div>
  </div>
- <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-0 md:p-3 border border-gray-700 shadow-xl h-[20px] md:h-auto" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
- <div className="flex items-center justify-between w-full px-1" style={{ transform: 'translateY(-10px)' }}>
- <span className="text-red-500 text-[8px] md:text-sm font-bold uppercase tracking-wider leading-none">Theta</span>
- <span className="text-red-500 text-[10px] md:text-xl font-bold leading-none">
+ <div className="bg-black border-r-2 border-orange-500/30 px-4 py-3">
+ <div className="flex flex-col">
+ <span className="text-red-500 text-xs font-bold uppercase tracking-wider mb-1">THETA</span>
+ <span className="text-white text-lg font-bold font-mono">
  {realOption?.theta !== null && realOption?.theta !== undefined ? realOption.theta.toFixed(2) : '--'}
  </span>
  </div>
  </div>
- <div className="bg-gradient-to-br from-black via-gray-900 to-black rounded-lg p-0 md:p-3 border border-gray-700 shadow-xl h-[20px] md:h-auto" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
- <div className="flex items-center justify-between w-full px-1" style={{ transform: 'translateY(-10px)' }}>
- <span className="text-blue-500 text-[8px] md:text-sm font-bold uppercase tracking-wider leading-none">IV</span>
- <span className="text-blue-500 text-[10px] md:text-xl font-bold leading-none">
+ <div className="bg-black px-4 py-3">
+ <div className="flex flex-col">
+ <span className="text-blue-500 text-xs font-bold uppercase tracking-wider mb-1">IV</span>
+ <span className="text-white text-lg font-bold font-mono">
  {realOption?.impliedVolatility && realOption.impliedVolatility > 0 ? `${(realOption.impliedVolatility * 100).toFixed(1)}%` : '--'}
  </span>
  </div>

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { useMarketRegime } from '@/contexts/MarketRegimeContext';
+import FearGreedGauge from './FearGreedGauge';
 
 
 
@@ -163,8 +164,15 @@ export default function Navigation() {
 
          {/* Desktop Status and Auth */}
          <div className="desktop-nav-right">
-           {/* Market Regime Alerts */}
+           {/* Fear & Greed Gauge */}
            {regimes.length > 0 && (
+             <div style={{ display: 'flex', gap: '8px', marginRight: '12px', alignItems: 'center' }}>
+               <FearGreedGauge regimes={regimes} />
+             </div>
+           )}
+           
+           {/* OLD: Individual Regime Indicators (keeping for reference/toggle) */}
+           {false && regimes.length > 0 && (
              <div style={{ display: 'flex', gap: '12px', marginRight: '16px', alignItems: 'center' }}>
                {regimes.map(({period, regime}) => (
                  <div

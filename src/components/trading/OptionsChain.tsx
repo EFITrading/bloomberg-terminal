@@ -1095,23 +1095,6 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
                   </div>
                 )}
               </div>
-
-              {/* Calc Button */}
-              <button
-                onClick={() => setShowCalculator(true)}
-                className="rounded-lg px-5 py-3 text-base font-bold text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all cursor-pointer flex items-center gap-2"
-                style={{
-                  background: 'linear-gradient(145deg, #0a0a0a, #000000)',
-                  border: '1px solid rgba(34, 211, 238, 0.3)',
-                  boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.8), 0 4px 8px rgba(0, 0, 0, 0.5)',
-                  backdropFilter: 'blur(10px)'
-                }}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-                Calculator
-              </button>
             </div>
 
             {/* Right: Action Buttons */}
