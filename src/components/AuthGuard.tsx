@@ -16,7 +16,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     const authCookie = cookies.find(c => c.trim().startsWith('efi-auth='));
     if (authCookie) {
       const value = authCookie.split('=')[1];
-      setHasPasswordAccess(value === process.env.NEXT_PUBLIC_SITE_PASSWORD || value === '09272025');
+      setHasPasswordAccess(value === 'authenticated');
     }
   }, []);
 

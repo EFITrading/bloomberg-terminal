@@ -13499,9 +13499,9 @@ calculateHighlightedTrades();
  key={uniqueKey}
  className="p-4 rounded-lg cursor-pointer transition-all duration-200 hover:scale-[1.02]"
  style={{
- background: '#000000',
+ background: 'linear-gradient(145deg, #0d2818, #051610)',
  border: '2px solid #4ade80',
- boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(30, 30, 30, 0.4), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2)'
+ boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(74, 222, 128, 0.1), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2), 0 0 15px rgba(74, 222, 128, 0.15)'
  }}
  onClick={() => {
  setSelectedTradeForModal(trade);
@@ -13604,9 +13604,9 @@ calculateHighlightedTrades();
  key={uniqueKey}
  className="p-4 rounded-lg cursor-pointer transition-all duration-200 hover:scale-[1.02]"
  style={{
- background: '#000000',
+ background: 'linear-gradient(145deg, #2d0d0d, #180505)',
  border: '2px solid #f87171',
- boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(30, 30, 30, 0.4), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2)'
+ boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(248, 113, 113, 0.1), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2), 0 0 15px rgba(248, 113, 113, 0.15)'
  }}
  onClick={() => {
  setSelectedTradeForModal(trade);
@@ -19194,4 +19194,6 @@ calculateHighlightedTrades();
  </>
  );
 }
+
+
 

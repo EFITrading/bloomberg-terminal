@@ -4,9 +4,9 @@ import { getToken } from 'next-auth/jwt';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  
+
   console.log('🔒 MIDDLEWARE:', pathname);
-  
+
   // Allow public routes
   if (
     pathname.startsWith('/api/auth') ||
@@ -17,23 +17,27 @@ export async function middleware(request: NextRequest) {
   ) {
     return NextResponse.next();
   }
-  
+
   // Check authentication
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
   });
-  
+
   // Check password cookie
   const passwordCookie = request.cookies.get('efi-auth');
-  const hasPasswordAccess = passwordCookie?.value === process.env.SITE_PASSWORD;
-  
+  const hasPasswordAccess = passwordCookie?.value === 'authenticated';
+
+  console.log('🔍 Cookie value:', passwordCookie?.value);
+  console.log('🔍 Has password access:', hasPasswordAccess);
+  console.log('🔍 Token:', token);
+
   // Allow if authenticated
   if (token?.hasAccess || hasPasswordAccess) {
     console.log('✅ Access granted');
     return NextResponse.next();
   }
-  
+
   // Redirect to login
   console.log('❌ No access, redirecting to login');
   const url = request.nextUrl.clone();
