@@ -27,7 +27,7 @@
   transition: all 0.15s ease;
   position: relative;
   overflow: hidden;
-  box-shadow: 
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 4px 12px rgba(0, 0, 0, 0.5),
     0 2px 4px rgba(0, 0, 0, 0.3);
@@ -47,7 +47,7 @@
   color: #888888;
   background: linear-gradient(180deg, #222222 0%, #111111 50%, #050505 100%);
   border-color: #3a3a3a;
-  box-shadow: 
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 6px 16px rgba(0, 0, 0, 0.6),
     0 2px 4px rgba(0, 0, 0, 0.4);
@@ -58,7 +58,7 @@
   color: #ff6600 !important;
   background: linear-gradient(180deg, #0d0d0d 0%, #000000 50%, #000000 100%);
   border-color: #ff6600;
-  box-shadow: 
+  box-shadow:
     inset 0 0 30px rgba(255, 102, 0, 0.08),
     0 0 20px rgba(255, 102, 0, 0.15),
     0 4px 12px rgba(0, 0, 0, 0.5);
@@ -132,10 +132,10 @@
   text-transform: uppercase;
   letter-spacing: 1px;
   line-height: 20px;
-  box-shadow: 
-    inset 0 1px 2px rgba(255,255,255,0.15),
-    inset 0 -1px 2px rgba(0,0,0,0.5),
-    0 4px 12px rgba(0,0,0,0.7);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.15),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.7);
   transition: all 0.2s ease;
   -webkit-appearance: none;
   appearance: none;
@@ -164,23 +164,23 @@
 .almanac-daily-chart .month-selector:hover {
   border-color: #0d1826;
   background: linear-gradient(145deg, #0d1826 0%, #08121d 50%, #05090f 100%);
-  box-shadow: 
-    inset 0 1px 2px rgba(255,255,255,0.2),
-    inset 0 -1px 2px rgba(0,0,0,0.5),
-    0 4px 12px rgba(0,0,0,0.7);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.2),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.7);
   transform: translateY(-1px);
 }
 
 .almanac-daily-chart .month-selector:focus {
   border-color: #0d1826;
-  box-shadow: 
-    inset 0 1px 2px rgba(255,255,255,0.2),
-    inset 0 -1px 2px rgba(0,0,0,0.5),
-    0 4px 12px rgba(0,0,0,0.7);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.2),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.7);
 }
 
 .almanac-daily-chart .month-selector option {
-  background: #05090f;
+  background: #0a1628;
   color: #ffffff;
   padding: 12px;
   font-size: 14px;
@@ -199,7 +199,7 @@
   letter-spacing: 1.5px;
   cursor: pointer;
   transition: all 0.15s ease;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 8px rgba(0,0,0,0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.4);
   position: relative;
   overflow: hidden;
 }
@@ -211,19 +211,19 @@
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
 }
 
 .almanac-daily-chart .refresh-btn:hover:not(:disabled) {
   background: linear-gradient(180deg, #222222 0%, #111111 100%);
   color: #ffffff;
   border-color: #444444;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 .almanac-daily-chart .refresh-btn:active:not(:disabled) {
   background: linear-gradient(180deg, #0d0d0d 0%, #1a1a1a 100%);
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .almanac-daily-chart .refresh-btn:disabled {
@@ -252,10 +252,10 @@
   letter-spacing: 0.8px;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 
-    inset 0 1px 2px rgba(255,255,255,0.15),
-    inset 0 -1px 2px rgba(0,0,0,0.5),
-    0 4px 12px rgba(0,0,0,0.7);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.15),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.7);
   position: relative;
   overflow: hidden;
   transform-style: preserve-3d;
@@ -279,7 +279,7 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
   border-radius: 6px 6px 0 0;
 }
 
@@ -287,10 +287,10 @@
   background: linear-gradient(145deg, #0d1826 0%, #08121d 50%, #05090f 100%);
   border-color: #0d1826;
   color: #ff6600;
-  box-shadow: 
-    inset 0 1px 2px rgba(255,255,255,0.2),
-    inset 0 -1px 2px rgba(0,0,0,0.5),
-    0 4px 12px rgba(0,0,0,0.7);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.2),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.7);
   transform: translateY(-1px);
 }
 
@@ -302,9 +302,9 @@
   background: linear-gradient(145deg, #030508 0%, #05090f 50%, #0a1520 100%);
   color: #ff6600;
   border-color: #0d1826;
-  box-shadow: 
-    inset 0 2px 4px rgba(0,0,0,0.6),
-    0 4px 12px rgba(0,0,0,0.7);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.6),
+    0 4px 12px rgba(0, 0, 0, 0.7);
 }
 
 .almanac-daily-chart .chart-controls-row .toggle-btn.active {
@@ -446,8 +446,10 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0px; /* Remove top margin */
-  padding-top: 0px; /* Remove top padding */
+  margin-top: 0px;
+  /* Remove top margin */
+  padding-top: 0px;
+  /* Remove top padding */
   border-top: 1px solid #222222;
   font-size: 10px;
   color: #666666;
@@ -568,7 +570,7 @@
   border-right: 1px solid #333333;
   text-transform: uppercase;
   letter-spacing: 1px;
-  box-shadow: 
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     inset 0 -1px 0 rgba(0, 0, 0, 0.5),
     0 2px 4px rgba(0, 0, 0, 0.3);
@@ -1060,7 +1062,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ===== RESPONSIVE ADJUSTMENTS ===== */
@@ -1068,11 +1072,11 @@
   .almanac-calendar .calendar-day {
     min-height: 100px;
   }
-  
+
   .almanac-calendar .day-number {
     font-size: 16px;
   }
-  
+
   .almanac-calendar .stat-values {
     gap: 30px;
   }
@@ -1082,39 +1086,39 @@
   .almanac-calendar .calendar-title {
     font-size: 32px;
   }
-  
+
   .almanac-calendar .calendar-day {
     min-height: 80px;
     padding: 4px;
   }
-  
+
   .almanac-calendar .day-number {
     font-size: 14px;
   }
-  
+
   .almanac-calendar .day-icon {
     font-size: 12px;
   }
-  
+
   .almanac-calendar .day-economic-releases,
   .almanac-calendar .day-stats .stat {
     font-size: 8px;
   }
-  
+
   .almanac-calendar .stat-values {
     flex-direction: column;
     gap: 15px;
   }
-  
+
   .market-at-a-glance .index-prices {
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .almanac-daily-chart .chart-legend {
     flex-direction: column;
   }
-  
+
   .almanac-daily-chart .chart-container {
     height: 650px;
   }
@@ -1348,7 +1352,7 @@
     height: auto;
     min-height: calc(100vh - 60px);
   }
-  
+
   .almanac-section.chart-section,
   .almanac-section.calendar-section {
     flex: none;
@@ -1357,7 +1361,7 @@
     border-right: none;
     border-bottom: 1px solid #333333;
   }
-  
+
   .almanac-section.glance-section {
     flex: none;
     width: 100%;

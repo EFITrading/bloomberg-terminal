@@ -39,22 +39,26 @@ interface ProcessedTrade {
   related_trades?: string[];
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
+  trading_date?: string; // Format: "YYYY-MM-DD" for multi-day scans
 }
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   let ticker = searchParams.get('ticker');
-  
+  const timeframe = (searchParams.get('timeframe') || '1D') as '1D' | '3D' | '1W';
+
+  console.log(`🔥 ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`);
+
   // Validate ticker parameter - empty ticker causes EventSource connection issues
   if (ticker !== null && ticker.trim() === '') {
     console.warn('⚠️ Empty ticker parameter received, treating as undefined for market-wide scan');
     ticker = null; // Treat empty string as no ticker (market-wide scan)
   }
-  
+
   const polygonApiKey = process.env.POLYGON_API_KEY;
-  
+
   if (!polygonApiKey) {
-    return new Response('POLYGON_API_KEY not configured', { 
+    return new Response('POLYGON_API_KEY not configured', {
       status: 500,
       headers: {
         'Access-Control-Allow-Origin': '*',
@@ -85,11 +89,11 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
-      
+
       // Enhanced data sending with error handling
       const sendData = (data: any) => {
         if (!streamState.isActive) return;
-        
+
         try {
           const message = `data: ${JSON.stringify(data)}\n\n`;
           controller.enqueue(encoder.encode(message));
@@ -132,7 +136,7 @@ export async function GET(request: NextRequest) {
         const scanType = ticker || 'MARKET-WIDE';
         console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
         console.log(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
-        
+
         // Send initial status with connection confirmation
         sendData({
           type: 'status',
@@ -144,13 +148,13 @@ export async function GET(request: NextRequest) {
 
         // Initialize the options flow service with streaming callback
         const optionsFlowService = new OptionsFlowService(polygonApiKey);
-        
+
         // Create a streaming callback - ONLY send status, not progressive trades
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
           // ❌ DISABLED: Don't send progressive updates
           // Only send status messages to show scan progress
           if (!streamState.isActive) return; // Check if stream is still active
-          
+
           if (trades.length === 0) {
             sendData({
               type: 'status',
@@ -162,27 +166,46 @@ export async function GET(request: NextRequest) {
         };
 
         console.log('📊 Starting parallel flow scan...');
-        
-        // Start ultra-fast parallel flow scan with timeout protection
-        const scanPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(
-          ticker || undefined,
-          streamingCallback
-        );
-        
-        // Add timeout to prevent hanging (10 minutes max - enrichment needs time)
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Scan timeout after 10 minutes')), 600000)
-        );
-        
-        let finalTrades = await Promise.race([scanPromise, timeoutPromise]) as any[];
-        
-        console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
-        
-        // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
-        console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
-        finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-        console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
-        
+
+        let finalTrades: any[];
+
+        if (timeframe === '1D') {
+          // Single day: Use existing fast path
+          const scanPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(
+            ticker || undefined,
+            streamingCallback
+          );
+
+          // Add timeout to prevent hanging (10 minutes max - enrichment needs time)
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Scan timeout after 10 minutes')), 600000)
+          );
+
+          finalTrades = await Promise.race([scanPromise, timeoutPromise]) as any[];
+
+          console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
+
+          // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
+          console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
+          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
+          console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
+        } else {
+          // Multi-day: Use new multi-day flow method (already enriched)
+          console.log(`🔥 Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
+          const scanPromise = optionsFlowService.fetchMultiDayFlow(
+            ticker || undefined,
+            timeframe,
+            streamingCallback
+          );
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`${timeframe} scan timeout after 15 minutes`)), 900000)
+          );
+
+          finalTrades = await Promise.race([scanPromise, timeoutPromise]) as any[];
+          console.log(`✅ Multi-Day Scan Complete: ${finalTrades.length} trades found`);
+        }
+
         // DEBUG: Check if trades are enriched
         if (finalTrades.length > 0) {
           const sampleTrade = finalTrades[0];
@@ -230,13 +253,13 @@ export async function GET(request: NextRequest) {
         });
 
         console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed`);
-        
+
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         const errorStack = error instanceof Error ? error.stack : '';
         console.error('❌ STREAMING ERROR:', errorMessage);
         console.error('Stack trace:', errorStack);
-        
+
         // Send detailed error information
         if (streamState.isActive) {
           sendData({
@@ -255,7 +278,7 @@ export async function GET(request: NextRequest) {
           clearInterval(streamState.heartbeatInterval);
           streamState.heartbeatInterval = null;
         }
-        
+
         // Send final close message
         try {
           sendData({
@@ -270,7 +293,7 @@ export async function GET(request: NextRequest) {
         }
       }
     },
-    
+
     // Handle client disconnection
     cancel() {
       console.log('Client disconnected from options flow stream');
