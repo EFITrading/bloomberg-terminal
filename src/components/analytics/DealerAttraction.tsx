@@ -14,7 +14,7 @@ const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> 
     const checkMobile = () => {
       setIsMobile(typeof window !== 'undefined' && window.innerWidth < 768);
     };
-    
+
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -24,7 +24,7 @@ const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> 
   if (isMobile) {
     return <DealerAttractionOIMobile selectedTicker={selectedTicker} />;
   }
-  
+
   return <DealerAttractionOIDesktop selectedTicker={selectedTicker} activeTableCount={activeTableCount} />;
 };
 
@@ -32,20 +32,20 @@ const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> 
 const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
   const [sharedExpiration, setSharedExpiration] = useState<string>('');
   const [expirationDates, setExpirationDates] = useState<string[]>([]);
-  
+
   // OI Chart State
   const [showCalls, setShowCalls] = useState<boolean>(true);
   const [showPuts, setShowPuts] = useState<boolean>(true);
   const [showNetOI, setShowNetOI] = useState<boolean>(false);
   const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
   const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('');
-  const [expectedRange90, setExpectedRange90] = useState<{call: number, put: number} | null>(null);
-  
+  const [expectedRange90, setExpectedRange90] = useState<{ call: number, put: number } | null>(null);
+
   // GEX Chart State
   const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
   const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
   const [showNetGamma, setShowNetGamma] = useState<boolean>(true);
-  
+
   // Unified Controls (affect both charts)
   const [showPremium, setShowPremium] = useState<boolean>(false);
   const [showAITowers, setShowAITowers] = useState<boolean>(false);
@@ -53,16 +53,16 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
   // Fetch expiration dates once
   useEffect(() => {
     if (!selectedTicker) return;
-    
+
     const fetchExpirations = async () => {
       try {
         const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`);
         const result = await response.json();
-        
+
         if (result.success && result.data) {
           const dates = Object.keys(result.data).sort();
           setExpirationDates(dates);
-          
+
           if (dates.length > 0 && !sharedExpiration) {
             setSharedExpiration(dates[0]);
           }
@@ -108,7 +108,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
           borderRadius: '12px 12px 0 0',
           pointerEvents: 'none' as const
         }} />
-        
+
         {/* Row 1, Col 1: Expiration Selector */}
         <select
           value={sharedExpiration}
@@ -282,13 +282,13 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         <select
           value={
             showNetOI ? 'net-oi' :
-            showNetGamma ? 'net-gex' :
-            (showCalls && showPuts && showPositiveGamma && showNegativeGamma) ? 'both' :
-            (showCalls && showPuts) ? 'oi-both' :
-            showCalls ? 'calls' :
-            showPuts ? 'puts' :
-            showPositiveGamma ? 'positive' :
-            'negative'
+              showNetGamma ? 'net-gex' :
+                (showCalls && showPuts && showPositiveGamma && showNegativeGamma) ? 'both' :
+                  (showCalls && showPuts) ? 'oi-both' :
+                    showCalls ? 'calls' :
+                      showPuts ? 'puts' :
+                        showPositiveGamma ? 'positive' :
+                          'negative'
           }
           onChange={(e) => {
             const value = e.target.value;
@@ -365,13 +365,13 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         </select>
       </div>
 
-      <div className="w-full md:w-auto" style={{ 
+      <div className="w-full md:w-auto" style={{
         transform: typeof window !== 'undefined' && window.innerWidth < 768 ? 'scale(0.65)' : 'scale(1)',
         transformOrigin: 'top left',
         width: typeof window !== 'undefined' && window.innerWidth < 768 ? '154%' : '100%',
         marginBottom: typeof window !== 'undefined' && window.innerWidth < 768 ? '-18%' : '0'
       }}>
-        <DealerOpenInterestChart 
+        <DealerOpenInterestChart
           selectedTicker={selectedTicker}
           compactMode={true}
           selectedExpiration={sharedExpiration}
@@ -386,12 +386,12 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
           onExpectedRange90Change={setExpectedRange90}
         />
       </div>
-      <div className="w-full md:w-auto" style={{ 
+      <div className="w-full md:w-auto" style={{
         transform: typeof window !== 'undefined' && window.innerWidth < 768 ? 'scale(0.65)' : 'scale(1)',
         transformOrigin: 'top left',
         width: typeof window !== 'undefined' && window.innerWidth < 768 ? '154%' : '100%'
       }}>
-        <DealerGEXChart 
+        <DealerGEXChart
           selectedTicker={selectedTicker}
           compactMode={true}
           selectedExpiration={sharedExpiration}
@@ -410,7 +410,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
 
 interface GEXData {
   strike: number;
-  [key: string]: number | {call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number, callDelta?: number, putDelta?: number, flowCall?: number, flowPut?: number, flowNet?: number};
+  [key: string]: number | { call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number, callDelta?: number, putDelta?: number, flowCall?: number, flowPut?: number, flowNet?: number };
 }
 
 interface ServerGEXData {
@@ -469,8 +469,8 @@ interface MMData {
 interface MMDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callTheta?: number, putTheta?: number, callVega?: number, putVega?: number}}};
-  vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
+  gexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callTheta?: number, putTheta?: number, callVega?: number, putVega?: number } } };
+  vexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } };
   expirations: string[];
   strikeWidth?: number;
 }
@@ -478,43 +478,43 @@ interface MMDashboardProps {
 interface SIDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVega?: number, putVega?: number}}};
-  vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
+  gexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVega?: number, putVega?: number } } };
+  vexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } };
   expirations: string[];
 }
 
 interface MaxPainDashboardProps {
   selectedTicker: string;
   currentPrice: number;
-  gexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}};
-  vexByStrikeByExpiration: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}};
+  gexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } };
+  vexByStrikeByExpiration: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } };
   expirations: string[];
 }
 
 // MM Dashboard Component - Enhanced with Full Greeks
 const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations, strikeWidth = 75 }) => {
-  
+
   // Use dynamic strike width from props
   const strikeColumnWidth = strikeWidth;
-  
+
   // State for max pain expiration selector
   const [maxPainExpiration, setMaxPainExpiration] = useState<string>('');
-  
+
   // State for Strike Risk table expiration selector
   const [strikeRiskExpiration, setStrikeRiskExpiration] = useState<string>('');
   const [strikeTableTab, setStrikeTableTab] = useState<'mm' | 'risk'>('mm');
-  
+
   // Filter to 45-day expirations only
   const mmExpirations = useMemo(() => {
     const today = new Date();
     const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000)); // 45 days from now
-    
+
     return expirations.filter(exp => {
       const expDate = new Date(exp + 'T00:00:00Z');
       return expDate >= today && expDate <= maxDate; // FIX: Added >= today check
     }).sort();
   }, [expirations]);
-  
+
   // Initialize max pain expiration to first available
   useEffect(() => {
     if (mmExpirations.length > 0 && !maxPainExpiration) {
@@ -524,27 +524,27 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       setStrikeRiskExpiration(mmExpirations[0]);
     }
   }, [mmExpirations, maxPainExpiration, strikeRiskExpiration]);
-  
+
   // Quick Max Pain calculation for the compact display
   const quickMaxPain = useMemo(() => {
     if (!currentPrice || !maxPainExpiration || !gexByStrikeByExpiration[maxPainExpiration]) {
       return { maxPainStrike: 0, liquidityPivotStrike: 0, priceDistance: 0, dealerPressure: 'NEUTRAL' };
     }
-    
+
     const strikeData = gexByStrikeByExpiration[maxPainExpiration];
     const strikes = Object.keys(strikeData).map(Number).sort((a, b) => a - b);
-    
+
     // Simple max pain: find strike with minimum total dollar value at expiration
     let minPain = Infinity;
     let maxPainStrike = currentPrice;
-    
+
     strikes.forEach(testStrike => {
       let totalPain = 0;
       strikes.forEach(strike => {
         const data = strikeData[strike];
         const callOI = data?.callOI || 0;
         const putOI = data?.putOI || 0;
-        
+
         // Calculate value of options at test strike
         if (testStrike > strike) {
           totalPain += callOI * (testStrike - strike) * 100; // Calls ITM
@@ -553,13 +553,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           totalPain += putOI * (strike - testStrike) * 100; // Puts ITM
         }
       });
-      
+
       if (totalPain < minPain) {
         minPain = totalPain;
         maxPainStrike = testStrike;
       }
     });
-    
+
     // Find liquidity pivot (highest gamma strike)
     let maxGamma = 0;
     let liquidityPivotStrike = currentPrice;
@@ -568,23 +568,23 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       const totalGamma = Math.abs(data?.callGamma || 0) + Math.abs(data?.putGamma || 0);
       const totalOI = (data?.callOI || 0) + (data?.putOI || 0);
       const gammaExposure = totalGamma * totalOI;
-      
+
       if (gammaExposure > maxGamma) {
         maxGamma = gammaExposure;
         liquidityPivotStrike = strike;
       }
     });
-    
+
     const priceDistance = currentPrice - maxPainStrike;
-    const dealerPressure = Math.abs(priceDistance) < currentPrice * 0.01 
+    const dealerPressure = Math.abs(priceDistance) < currentPrice * 0.01
       ? 'PINNED'
-      : priceDistance > 0 
+      : priceDistance > 0
         ? 'DOWNWARD'
         : 'UPWARD';
-    
+
     return { maxPainStrike, liquidityPivotStrike, priceDistance, dealerPressure };
   }, [currentPrice, maxPainExpiration, gexByStrikeByExpiration]);
-  
+
   // Full Max Pain Analysis for Strike Risk table
   const maxPainAnalysis = useMemo(() => {
     if (!currentPrice || !strikeRiskExpiration || Object.keys(gexByStrikeByExpiration).length === 0) {
@@ -642,13 +642,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
     const testMin = Math.max(minStrike, currentPrice * 0.70);
     const testMax = Math.min(maxStrike, currentPrice * 1.30);
     const testStep = (testMax - testMin) / 100;
-    
+
     for (let price = testMin; price <= testMax; price += testStep) {
       testPrices.push(price);
     }
 
     let totalOI = 0;
-    const strikeRiskData: Array<{strike: number; risk: number; oi: number; callOI: number; putOI: number; distance: number}> = [];
+    const strikeRiskData: Array<{ strike: number; risk: number; oi: number; callOI: number; putOI: number; distance: number }> = [];
 
     const riskResults = testPrices.map(testPrice => {
       let totalRisk = 0;
@@ -712,13 +712,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       };
     }
 
-    const optimalResult = riskResults.reduce((min, current) => 
+    const optimalResult = riskResults.reduce((min, current) =>
       current.risk < min.risk ? current : min
     );
 
     let closestStrike = relevantStrikes[0] || currentPrice;
     let minDistance = Math.abs(closestStrike - optimalResult.testPrice);
-    
+
     relevantStrikes.forEach(strike => {
       const distance = Math.abs(strike - optimalResult.testPrice);
       if (distance < minDistance) {
@@ -767,11 +767,11 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
   // Calculate MM data with standard ±20% strike range
   const mmData = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) return [];
-    
+
     const strikeRange = currentPrice * 0.20; // ±20% standard range
     const minStrike = currentPrice - strikeRange;
     const maxStrike = currentPrice + strikeRange;
-    
+
     const allStrikes = new Set<number>();
     mmExpirations.forEach(exp => {
       if (gexByStrikeByExpiration[exp]) {
@@ -788,7 +788,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       let totalOI = 0;
       let avgDaysToExpiry = 0;
       let validExpirations = 0;
-      
+
       // Enhanced Greeks aggregation
       let totalCallDelta = 0, totalPutDelta = 0;
       let totalCallGamma = 0, totalPutGamma = 0;
@@ -803,22 +803,22 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           const expDate = new Date(exp + 'T00:00:00Z');
           const today = new Date();
           const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-          
+
           // Apply time decay weighting formula: (8 - Math.min(7, daysToExp)) / 7
           const dteWeight = daysToExp >= 0 ? (8 - Math.min(7, daysToExp)) / 7 : 1;
-          
+
           // Convert GEX to MM: MM = GEX / (Stock Price * 0.01) for 1% move
           const callMM = (strikeData.call / (currentPrice * 0.01)) * dteWeight;
           const putMM = (strikeData.put / (currentPrice * 0.01)) * dteWeight;
-          
+
           totalCallMM += callMM;
           totalPutMM += putMM;
           totalOI += (strikeData.callOI || 0) + (strikeData.putOI || 0);
-          
+
           // Aggregate Greeks with DTE weighting
           const callOI = strikeData.callOI || 0;
           const putOI = strikeData.putOI || 0;
-          
+
           // Delta: Approximate based on moneyness
           const moneyness = strike / currentPrice;
           let callDelta = 0, putDelta = 0;
@@ -828,22 +828,22 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           else if (moneyness > 0.95) { callDelta = 0.6; putDelta = -0.4; }
           else if (moneyness > 0.9) { callDelta = 0.7; putDelta = -0.3; }
           else { callDelta = 0.9; putDelta = -0.1; }
-          
+
           totalCallDelta += (callDelta * callOI * 100) * dteWeight;
           totalPutDelta += (putDelta * putOI * 100) * dteWeight;
-          
+
           // Gamma from GEX data
           totalCallGamma += ((strikeData.callGamma || 0) * callOI) * dteWeight;
           totalPutGamma += ((strikeData.putGamma || 0) * putOI) * dteWeight;
-          
+
           // Theta from GEX data
           totalCallTheta += ((strikeData.callTheta || 0) * callOI) * dteWeight;
           totalPutTheta += ((strikeData.putTheta || 0) * putOI) * dteWeight;
-          
+
           // Vega from GEX data (stored there during calculation)
           totalCallVega += ((strikeData.callVega || 0) * callOI) * dteWeight;
           totalPutVega += ((strikeData.putVega || 0) * putOI) * dteWeight;
-          
+
           avgDaysToExpiry += daysToExp;
           validExpirations++;
         }
@@ -858,7 +858,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       const netGamma = totalCallGamma + totalPutGamma;
       const netTheta = totalCallTheta + totalPutTheta;
       const netVega = totalCallVega + totalPutVega;
-      
+
       return {
         strike,
         netMM,
@@ -890,13 +890,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
     const totalNetMM = mmData.reduce((sum, item) => sum + item.netMM, 0);
     const maxCallWall = mmData.reduce((max, item) => item.callMM > max.callMM ? item : max, mmData[0] || { callMM: 0, strike: 0 });
     const maxPutFloor = mmData.reduce((max, item) => Math.abs(item.putMM) > Math.abs(max.putMM) ? item : max, mmData[0] || { putMM: 0, strike: 0 });
-    
+
     // Aggregate Greek exposures
     const totalNetDelta = mmData.reduce((sum, item) => sum + item.netDelta, 0);
     const totalNetGamma = mmData.reduce((sum, item) => sum + item.netGamma, 0);
     const totalNetTheta = mmData.reduce((sum, item) => sum + item.netTheta, 0);
     const totalNetVega = mmData.reduce((sum, item) => sum + item.netVega, 0);
-    
+
     // DEBUG: Log actual Greek totals before normalization
     console.log('🎯 GREEK TOTALS BEFORE NORMALIZATION:', {
       totalNetDelta,
@@ -905,56 +905,56 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       totalNetVega,
       mmDataCount: mmData.length
     });
-    
+
     // Calculate absolute exposure (total notional risk)
     const totalCallDelta = mmData.reduce((sum, item) => sum + Math.abs(item.callDelta), 0);
     const totalPutDelta = mmData.reduce((sum, item) => sum + Math.abs(item.putDelta), 0);
-    
+
     // Hedging pressure: How much dealers need to hedge
     const hedgingPressure = Math.abs(totalNetDelta) * currentPrice; // Dollar value of delta hedge
-    
+
     // Volatility risk: How sensitive to IV changes
     const volRisk = Math.abs(totalNetVega);
-    
+
     // === ADVANCED GREEK-BASED SIGNAL CALCULATION ===
     // Use ALL Greeks to determine true dealer positioning and market setup
-    
+
     // 1. DELTA SCORE: Directional bias (-100 to +100)
     // Greeks from API are PER CONTRACT, multiplied by OI already, need different normalization
     const deltaScore = Math.max(-100, Math.min(100, totalNetDelta / 100000)); // Adjusted normalization
-    
+
     // 2. GAMMA SCORE: Reflexivity (-100 to +100)
     const gammaScore = Math.max(-100, Math.min(100, totalNetGamma / 1000)); // Adjusted normalization
-    
+
     // 3. THETA SCORE: Time decay pressure (-100 to +100)
     // Theta values are typically in thousands, normalize accordingly
     const thetaScore = Math.max(-100, Math.min(100, totalNetTheta / 1000)); // Changed from 10000 to 1000
-    
+
     // 4. VEGA SCORE: Volatility positioning (-100 to +100)
     // Vega values are typically in thousands, normalize accordingly
     const vegaScore = Math.max(-100, Math.min(100, totalNetVega / 1000)); // Changed from 10000 to 1000
-    
+
     console.log('🎯 GREEK SCORES AFTER NORMALIZATION:', {
       deltaScore,
       gammaScore,
       thetaScore,
       vegaScore
     });
-    
+
     // === COMPOSITE SIGNAL ALGORITHM ===
     // Weight the Greeks based on their importance for trading decisions
     const DELTA_WEIGHT = 0.30;  // 30% - Direction matters most
     const GAMMA_WEIGHT = 0.35;  // 35% - Reflexivity is key for dealer behavior
     const THETA_WEIGHT = 0.20;  // 20% - Time decay creates urgency
     const VEGA_WEIGHT = 0.15;   // 15% - Vol exposure secondary
-    
+
     const compositeScore = (
       deltaScore * DELTA_WEIGHT +
       gammaScore * GAMMA_WEIGHT +
       thetaScore * THETA_WEIGHT +
       vegaScore * VEGA_WEIGHT
     );
-    
+
     console.log('🎯 COMPOSITE SCORE:', {
       compositeScore,
       breakdown: {
@@ -964,12 +964,12 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         vegaContribution: vegaScore * VEGA_WEIGHT
       }
     });
-    
+
     // === SIGNAL CLASSIFICATION ===
     let signal = 'WAIT';
     let signalColor = 'yellow';
     let signalExplanation = 'Mixed signals - no clear edge';
-    
+
     // STRONG BUY: Much more realistic thresholds
     if (compositeScore > 3) {
       signal = 'BUY SETUP';
@@ -1016,7 +1016,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         signalExplanation = 'Conflicting signals - Greeks not aligned for directional trade';
       }
     }
-    
+
     return {
       totalNetMM,
       maxCallWall,
@@ -1047,7 +1047,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
   const formatMM = (value: number) => {
     const absValue = Math.abs(value);
     const sign = value < 0 ? '-' : '+';
-    
+
     if (absValue >= 1e9) {
       return `${sign}$${(absValue / 1e9).toFixed(2)}B`;
     } else if (absValue >= 1e6) {
@@ -1099,34 +1099,34 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
   // 
   // Time Horizon: 45-day expirations only
   // ============================================================================
-  
+
   // Calculate SI metrics for the gauge - ACCURATE METHOD using raw Greeks
   const siMetrics = useMemo(() => {
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) {
       return { si: 0, gexTotal: 0, vexTotal: 0, dexTotal: 0, siNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data', stabilityColor: 'text-gray-400' };
     }
-    
+
     let totalGEX = 0;
-    let totalVEX = 0; 
+    let totalVEX = 0;
     let totalDEX = 0;
-    
+
     // Sum across 45-day expirations and strikes - CALCULATE from raw Greeks
     mmExpirations.forEach(exp => {
       const gexData = gexByStrikeByExpiration[exp];
       const vexData = vexByStrikeByExpiration[exp];
-      
+
       if (gexData) {
         Object.entries(gexData).forEach(([strike, data]) => {
           const strikePrice = parseFloat(strike);
-          
+
           const callOI = data.callOI || 0;
           const putOI = data.putOI || 0;
-          
+
           if (callOI > 0 || putOI > 0) {
             // Calculate GEX from raw gamma (stored in data)
             const callGamma = data.callGamma || 0;
             const putGamma = data.putGamma || 0;
-            
+
             if (callOI > 0 && callGamma !== 0) {
               const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100;
               totalGEX += callGEX;
@@ -1135,11 +1135,11 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100;
               totalGEX += putGEX;
             }
-            
+
             // Calculate VEX from raw vega stored in gexData (simple formula matching screener)
             const callVega = data.callVega || 0;
             const putVega = data.putVega || 0;
-            
+
             if (callOI > 0 && callVega !== 0) {
               const callVEX = callVega * callOI * 100;
               totalVEX += callVEX;
@@ -1148,12 +1148,12 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
               const putVEX = -putVega * putOI * 100;
               totalVEX += putVEX;
             }
-            
+
             // Calculate DEX using standardized delta approximation
             const moneyness = strikePrice / currentPrice;
             let callDelta = 0;
             let putDelta = 0;
-            
+
             if (moneyness > 1.05) { // OTM calls
               callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
             } else if (moneyness < 0.95) { // ITM calls
@@ -1161,28 +1161,28 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             } else { // ATM calls
               callDelta = 0.5;
             }
-            
+
             putDelta = callDelta - 1; // Put-call parity
-            
+
             // Calculate DEX
             const callDEX = callDelta * callOI * 100 * currentPrice;
             const putDEX = putDelta * putOI * 100 * currentPrice;
-            
+
             totalDEX += callDEX + putDEX;
           }
         });
       }
     });
-    
+
     // Calculate SI using the correct formula: SI = GEX_total / (|VEX_total| + |DEX_total|)
     const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
     const si = denominator !== 0 ? totalGEX / denominator : 0;
-    
+
     // Determine stability level and market behavior based on actual SI ranges
     let stability = '';
     let marketBehavior = '';
     let stabilityColor = '';
-    
+
     if (si >= 2.0) {
       stability = 'EXTREMELY STABLE';
       marketBehavior = 'Strong Mean Reversion';
@@ -1208,7 +1208,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
       marketBehavior = 'Highly Explosive';
       stabilityColor = 'text-red-500';
     }
-    
+
     return {
       si,
       gexTotal: totalGEX,
@@ -1227,171 +1227,170 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
       {/* Trading Signal Gauge */}
       <div className="bg-black border border-gray-600 md:p-8 p-0 md:pt-8 pt-2">
-        
+
         {/* Two Gauges Side by Side */}
         <div className="grid grid-cols-2 md:gap-8 gap-2 md:mb-8 mb-2">
           {/* Intensity Gauge (Left) */}
           <div className="relative w-full md:h-96 h-48">
             {/* SVG Gauge */}
             <svg className="w-full h-full" viewBox="0 0 400 250">
-            {/* Gradient Definition */}
-            <defs>
-              <linearGradient id="glossyBlackGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#1a1a1a" />
-                <stop offset="50%" stopColor="#000000" />
-                <stop offset="100%" stopColor="#0a0a0a" />
-              </linearGradient>
-              <linearGradient id="gaugeSellGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#EAB308" stopOpacity="0.4" />
-                <stop offset="50%" stopColor="#F97316" stopOpacity="0.4" />
-                <stop offset="100%" stopColor="#DC2626" stopOpacity="0.4" />
-              </linearGradient>
-              <linearGradient id="gaugeBuyGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#EAB308" stopOpacity="0.4" />
-                <stop offset="50%" stopColor="#3B82F6" stopOpacity="0.4" />
-                <stop offset="100%" stopColor="#22C55E" stopOpacity="0.4" />
-              </linearGradient>
-            </defs>
-            
-            {/* Title */}
-            <text x="200" y="15" fill="white" fontSize="16" fontWeight="bold" textAnchor="middle" letterSpacing="2">INTENSITY</text>
-            
-            {/* Background Arc */}
-            <path
-              d="M 40 200 A 160 160 0 0 1 360 200"
-              fill="none"
-              stroke="url(#glossyBlackGradient)"
-              strokeWidth="35"
-            />
-            
-            {/* Colored Progress Arc - Fills from center top */}
-            {metrics.compositeScore < 0 ? (
-              // Sell side - fill left from center
+              {/* Gradient Definition */}
+              <defs>
+                <linearGradient id="glossyBlackGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#1a1a1a" />
+                  <stop offset="50%" stopColor="#000000" />
+                  <stop offset="100%" stopColor="#0a0a0a" />
+                </linearGradient>
+                <linearGradient id="gaugeSellGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#EAB308" stopOpacity="0.4" />
+                  <stop offset="50%" stopColor="#F97316" stopOpacity="0.4" />
+                  <stop offset="100%" stopColor="#DC2626" stopOpacity="0.4" />
+                </linearGradient>
+                <linearGradient id="gaugeBuyGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#EAB308" stopOpacity="0.4" />
+                  <stop offset="50%" stopColor="#3B82F6" stopOpacity="0.4" />
+                  <stop offset="100%" stopColor="#22C55E" stopOpacity="0.4" />
+                </linearGradient>
+              </defs>
+
+              {/* Title */}
+              <text x="200" y="15" fill="white" fontSize="16" fontWeight="bold" textAnchor="middle" letterSpacing="2">INTENSITY</text>
+
+              {/* Background Arc */}
               <path
-                d="M 200 40 A 160 160 0 0 0 40 200"
+                d="M 40 200 A 160 160 0 0 1 360 200"
                 fill="none"
-                stroke="url(#gaugeSellGradient)"
+                stroke="url(#glossyBlackGradient)"
                 strokeWidth="35"
-                strokeDasharray={`${(Math.PI * 160) / 2} ${(Math.PI * 160) / 2}`}
-                strokeDashoffset={(Math.PI * 160) / 2 * (1 - Math.min(Math.abs(metrics.compositeScore), 20) / 20)}
+              />
+
+              {/* Colored Progress Arc - Fills from center top */}
+              {metrics.compositeScore < 0 ? (
+                // Sell side - fill left from center
+                <path
+                  d="M 200 40 A 160 160 0 0 0 40 200"
+                  fill="none"
+                  stroke="url(#gaugeSellGradient)"
+                  strokeWidth="35"
+                  strokeDasharray={`${(Math.PI * 160) / 2} ${(Math.PI * 160) / 2}`}
+                  strokeDashoffset={(Math.PI * 160) / 2 * (1 - Math.min(Math.abs(metrics.compositeScore), 20) / 20)}
+                  strokeLinecap="round"
+                  className="transition-all duration-500"
+                />
+              ) : (
+                // Buy side - fill right from center
+                <path
+                  d="M 200 40 A 160 160 0 0 1 360 200"
+                  fill="none"
+                  stroke="url(#gaugeBuyGradient)"
+                  strokeWidth="35"
+                  strokeDasharray={`${(Math.PI * 160) / 2} ${(Math.PI * 160) / 2}`}
+                  strokeDashoffset={(Math.PI * 160) / 2 * (1 - Math.min(metrics.compositeScore, 20) / 20)}
+                  strokeLinecap="round"
+                  className="transition-all duration-500"
+                />
+              )}
+
+              {/* White Outline - Inner Edge */}
+              <path
+                d="M 57.5 200 A 142.5 142.5 0 0 1 342.5 200"
+                fill="none"
+                stroke="#CD7F32"
+                strokeWidth="2"
+              />
+
+              {/* White Outline - Outer Edge */}
+              <path
+                d="M 22.5 200 A 177.5 177.5 0 0 1 377.5 200"
+                fill="none"
+                stroke="#CD7F32"
+                strokeWidth="2"
+              />
+
+              {/* Scale Labels - Positioned INSIDE the gauge arc stroke */}
+              {/* SELL SETUP (far left) */}
+              <text fill="#FF0000" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <tspan x="55" y="135" transform="rotate(-55 55 135)">BREAK</tspan>
+                <tspan x="55" y="144" transform="rotate(-55 55 144)">DOWN</tspan>
+              </text>
+
+              {/* STRONG SELL */}
+              <text fill="#FFA500" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <tspan x="87" y="90" transform="rotate(-40 87 90)">STRONG</tspan>
+                <tspan x="87" y="99" transform="rotate(-40 87 99)">SELL</tspan>
+              </text>
+
+              {/* SELL SETUP */}
+              <text fill="#FFFF00" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <tspan x="128" y="55" transform="rotate(-22 128 55)">SELL</tspan>
+                <tspan x="128" y="64" transform="rotate(-22 128 64)">SETUP</tspan>
+              </text>
+
+              {/* LEAN SELL */}
+              <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <tspan x="165" y="43" transform="rotate(-10 165 43)">LEAN</tspan>
+                <tspan x="165" y="52" transform="rotate(-10 165 52)">SELL</tspan>
+              </text>
+
+              {/* LEAN BUY */}
+              <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <tspan x="235" y="43" transform="rotate(10 235 43)">LEAN</tspan>
+                <tspan x="235" y="52" transform="rotate(10 235 52)">BUY</tspan>
+              </text>
+
+              {/* BUY SETUP */}
+              <text fill="#00FFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <tspan x="272" y="55" transform="rotate(22 272 55)">BUY</tspan>
+                <tspan x="272" y="64" transform="rotate(22 272 64)">SETUP</tspan>
+              </text>
+
+              {/* STRONG BUY */}
+              <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <tspan x="313" y="90" transform="rotate(40 313 90)">STRONG</tspan>
+                <tspan x="313" y="99" transform="rotate(40 313 99)">BUY</tspan>
+              </text>
+
+              {/* BUY SETUP (far right) */}
+              <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <tspan x="345" y="135" transform="rotate(55 345 135)">BREAK</tspan>
+                <tspan x="345" y="144" transform="rotate(55 345 144)">OUT</tspan>
+              </text>
+
+              {/* Needle */}
+              <line
+                x1="200"
+                y1="200"
+                x2="200"
+                y2="70"
+                stroke="white"
+                strokeWidth="5"
                 strokeLinecap="round"
                 className="transition-all duration-500"
+                style={{
+                  transformOrigin: '200px 200px',
+                  transform: `rotate(${-90 + ((Math.max(-20, Math.min(20, metrics.compositeScore)) + 20) / 40) * 180}deg)`
+                }}
               />
-            ) : (
-              // Buy side - fill right from center
-              <path
-                d="M 200 40 A 160 160 0 0 1 360 200"
-                fill="none"
-                stroke="url(#gaugeBuyGradient)"
-                strokeWidth="35"
-                strokeDasharray={`${(Math.PI * 160) / 2} ${(Math.PI * 160) / 2}`}
-                strokeDashoffset={(Math.PI * 160) / 2 * (1 - Math.min(metrics.compositeScore, 20) / 20)}
-                strokeLinecap="round"
-                className="transition-all duration-500"
-              />
-            )}
-            
-            {/* White Outline - Inner Edge */}
-            <path
-              d="M 57.5 200 A 142.5 142.5 0 0 1 342.5 200"
-              fill="none"
-              stroke="#CD7F32"
-              strokeWidth="2"
-            />
-            
-            {/* White Outline - Outer Edge */}
-            <path
-              d="M 22.5 200 A 177.5 177.5 0 0 1 377.5 200"
-              fill="none"
-              stroke="#CD7F32"
-              strokeWidth="2"
-            />
-            
-            {/* Scale Labels - Positioned INSIDE the gauge arc stroke */}
-            {/* SELL SETUP (far left) */}
-            <text fill="#FF0000" fontSize="9" fontWeight="bold" textAnchor="middle">
-              <tspan x="55" y="135" transform="rotate(-55 55 135)">BREAK</tspan>
-              <tspan x="55" y="144" transform="rotate(-55 55 144)">DOWN</tspan>
-            </text>
-            
-            {/* STRONG SELL */}
-            <text fill="#FFA500" fontSize="9" fontWeight="bold" textAnchor="middle">
-              <tspan x="87" y="90" transform="rotate(-40 87 90)">STRONG</tspan>
-              <tspan x="87" y="99" transform="rotate(-40 87 99)">SELL</tspan>
-            </text>
-            
-            {/* SELL SETUP */}
-            <text fill="#FFFF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-              <tspan x="128" y="55" transform="rotate(-22 128 55)">SELL</tspan>
-              <tspan x="128" y="64" transform="rotate(-22 128 64)">SETUP</tspan>
-            </text>
-            
-            {/* LEAN SELL */}
-            <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-              <tspan x="165" y="43" transform="rotate(-10 165 43)">LEAN</tspan>
-              <tspan x="165" y="52" transform="rotate(-10 165 52)">SELL</tspan>
-            </text>
-            
-            {/* LEAN BUY */}
-            <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-              <tspan x="235" y="43" transform="rotate(10 235 43)">LEAN</tspan>
-              <tspan x="235" y="52" transform="rotate(10 235 52)">BUY</tspan>
-            </text>
-            
-            {/* BUY SETUP */}
-            <text fill="#00FFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
-              <tspan x="272" y="55" transform="rotate(22 272 55)">BUY</tspan>
-              <tspan x="272" y="64" transform="rotate(22 272 64)">SETUP</tspan>
-            </text>
-            
-            {/* STRONG BUY */}
-            <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-              <tspan x="313" y="90" transform="rotate(40 313 90)">STRONG</tspan>
-              <tspan x="313" y="99" transform="rotate(40 313 99)">BUY</tspan>
-            </text>
-            
-            {/* BUY SETUP (far right) */}
-            <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
-              <tspan x="345" y="135" transform="rotate(55 345 135)">BREAK</tspan>
-              <tspan x="345" y="144" transform="rotate(55 345 144)">OUT</tspan>
-            </text>
-            
-            {/* Needle */}
-            <line
-              x1="200"
-              y1="200"
-              x2="200"
-              y2="70"
-              stroke="white"
-              strokeWidth="5"
-              strokeLinecap="round"
-              className="transition-all duration-500"
-              style={{
-                transformOrigin: '200px 200px',
-                transform: `rotate(${-90 + ((Math.max(-20, Math.min(20, metrics.compositeScore)) + 20) / 40) * 180}deg)`
-              }}
-            />
-            
-            {/* Center Dot */}
-            <circle cx="200" cy="200" r="10" fill="white" />
-          </svg>
-          
-          {/* Center Value Display */}
-          <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
-            <div className={`md:text-3xl text-lg font-bold ${
-              metrics.signal.includes('BUY') ? 'text-green-400' :
-              metrics.signal.includes('SELL') ? 'text-red-400' :
-              'text-yellow-400'
-            }`}>
-              {metrics.compositeScore > 0 ? '+' : ''}{metrics.compositeScore.toFixed(1)}
+
+              {/* Center Dot */}
+              <circle cx="200" cy="200" r="10" fill="white" />
+            </svg>
+
+            {/* Center Value Display */}
+            <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
+              <div className={`md:text-3xl text-lg font-bold ${metrics.signal.includes('BUY') ? 'text-green-400' :
+                  metrics.signal.includes('SELL') ? 'text-red-400' :
+                    'text-yellow-400'
+                }`}>
+                {metrics.compositeScore > 0 ? '+' : ''}{metrics.compositeScore.toFixed(1)}
+              </div>
             </div>
+
+            {/* Side Labels */}
+            <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">SELL</div>
+            <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">BUY</div>
           </div>
-          
-          {/* Side Labels */}
-          <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">SELL</div>
-          <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">BUY</div>
-          </div>
-          
+
           {/* Stability Gauge (Right) */}
           <div className="relative w-full md:h-96 h-48">
             {/* SVG Gauge */}
@@ -1414,10 +1413,10 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   <stop offset="100%" stopColor="#22C55E" stopOpacity="0.4" />
                 </linearGradient>
               </defs>
-              
+
               {/* Title */}
               <text x="200" y="15" fill="white" fontSize="16" fontWeight="bold" textAnchor="middle" letterSpacing="2">STABILITY</text>
-              
+
               {/* Background Arc */}
               <path
                 d="M 40 200 A 160 160 0 0 1 360 200"
@@ -1425,7 +1424,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 stroke="url(#siGlossyBlackGradient)"
                 strokeWidth="35"
               />
-              
+
               {/* Colored Progress Arc - Fills from center top */}
               {siMetrics.siNorm < 0 ? (
                 // Negative side - fill left from center
@@ -1452,7 +1451,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   className="transition-all duration-500"
                 />
               )}
-              
+
               {/* White Outline - Inner Edge */}
               <path
                 d="M 57.5 200 A 142.5 142.5 0 0 1 342.5 200"
@@ -1460,7 +1459,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 stroke="#E8E8E8"
                 strokeWidth="2"
               />
-              
+
               {/* White Outline - Outer Edge */}
               <path
                 d="M 22.5 200 A 177.5 177.5 0 0 1 377.5 200"
@@ -1468,56 +1467,56 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 stroke="#E8E8E8"
                 strokeWidth="2"
               />
-              
+
               {/* Scale Labels - Positioned INSIDE the gauge arc stroke */}
               {/* AMPLIFIED (far left) */}
               <text fill="#FF0000" fontSize="9" fontWeight="bold" textAnchor="middle">
                 <tspan x="55" y="135" transform="rotate(-55 55 135)">AMPL-</tspan>
                 <tspan x="55" y="144" transform="rotate(-55 55 144)">IFIED</tspan>
               </text>
-              
+
               {/* VOLATILE */}
               <text fill="#FFA500" fontSize="9" fontWeight="bold" textAnchor="middle">
                 <tspan x="87" y="90" transform="rotate(-40 87 90)">VOL-</tspan>
                 <tspan x="87" y="99" transform="rotate(-40 87 99)">ATILE</tspan>
               </text>
-              
+
               {/* TRENDING */}
               <text fill="#FFFF00" fontSize="9" fontWeight="bold" textAnchor="middle">
                 <tspan x="128" y="55" transform="rotate(-22 128 55)">TREND-</tspan>
                 <tspan x="128" y="64" transform="rotate(-22 128 64)">ING</tspan>
               </text>
-              
+
               {/* NEUTRAL (left) */}
               <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
                 <tspan x="165" y="43" transform="rotate(-10 165 43)">NEUT-</tspan>
                 <tspan x="165" y="52" transform="rotate(-10 165 52)">RAL</tspan>
               </text>
-              
+
               {/* NEUTRAL (right) */}
               <text fill="#FFFFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
                 <tspan x="235" y="43" transform="rotate(10 235 43)">NEUT-</tspan>
                 <tspan x="235" y="52" transform="rotate(10 235 52)">RAL</tspan>
               </text>
-              
+
               {/* DAMPENED */}
               <text fill="#00FFFF" fontSize="9" fontWeight="bold" textAnchor="middle">
                 <tspan x="272" y="55" transform="rotate(22 272 55)">DAMP-</tspan>
                 <tspan x="272" y="64" transform="rotate(22 272 64)">ENED</tspan>
               </text>
-              
+
               {/* REVERSION */}
               <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
                 <tspan x="313" y="90" transform="rotate(40 313 90)">REVER-</tspan>
                 <tspan x="313" y="99" transform="rotate(40 313 99)">SION</tspan>
               </text>
-              
+
               {/* STABLE/PINNED (far right) */}
               <text fill="#00FF00" fontSize="9" fontWeight="bold" textAnchor="middle">
                 <tspan x="345" y="135" transform="rotate(55 345 135)">STABLE</tspan>
                 <tspan x="345" y="144" transform="rotate(55 345 144)">PINNED</tspan>
               </text>
-              
+
               {/* Needle */}
               <line
                 x1="200"
@@ -1533,28 +1532,27 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   transform: `rotate(${-90 + ((Math.max(-10, Math.min(10, siMetrics.siNorm)) + 10) / 20) * 180}deg)`
                 }}
               />
-              
+
               {/* Center Dot */}
               <circle cx="200" cy="200" r="10" fill="white" />
             </svg>
-            
+
             {/* Center Value Display */}
             <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
-              <div className={`md:text-3xl text-lg font-bold ${
-                siMetrics.siNorm > 2 ? 'text-green-400' :
-                siMetrics.siNorm < -2 ? 'text-red-400' :
-                'text-yellow-400'
-              }`}>
+              <div className={`md:text-3xl text-lg font-bold ${siMetrics.siNorm > 2 ? 'text-green-400' :
+                  siMetrics.siNorm < -2 ? 'text-red-400' :
+                    'text-yellow-400'
+                }`}>
                 {siMetrics.siNorm > 0 ? '+' : ''}{siMetrics.siNorm.toFixed(1)}
               </div>
             </div>
-            
+
             {/* Side Labels */}
             <div className="absolute md:bottom-8 bottom-4 md:left-4 left-1 md:text-lg text-[10px] text-red-400 font-bold">VOLATILE</div>
             <div className="absolute md:bottom-8 bottom-4 md:right-4 right-1 md:text-lg text-[10px] text-green-400 font-bold">STABLE</div>
           </div>
         </div>
-        
+
         {/* Market Interpretation */}
         <div className="bg-black border border-gray-700 p-3 md:p-5 rounded-lg mb-2 md:mb-8 text-xs md:text-sm shadow-lg">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-6">
@@ -1564,12 +1562,12 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 {siMetrics.siNorm >= 2.0
                   ? "Dealers are pinning the price near strike levels with concentrated gamma positions. Strong mean reversion expected."
                   : siMetrics.siNorm >= 0.5
-                  ? "Dealers are dampening volatility through hedging activity. Moderate mean reversion in effect."
-                  : siMetrics.siNorm >= -0.5
-                  ? "Dealers in neutral positioning mode. Mixed hedging activity without clear directional bias."
-                  : siMetrics.siNorm >= -2.0
-                  ? "Dealers creating market trending conditions through directional positioning. Reduced mean reversion."
-                  : "Dealers are amplifying market moves through concentrated directional exposure. Minimal mean reversion, high volatility regime."}
+                    ? "Dealers are dampening volatility through hedging activity. Moderate mean reversion in effect."
+                    : siMetrics.siNorm >= -0.5
+                      ? "Dealers in neutral positioning mode. Mixed hedging activity without clear directional bias."
+                      : siMetrics.siNorm >= -2.0
+                        ? "Dealers creating market trending conditions through directional positioning. Reduced mean reversion."
+                        : "Dealers are amplifying market moves through concentrated directional exposure. Minimal mean reversion, high volatility regime."}
               </div>
             </div>
             <div>
@@ -1578,12 +1576,12 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 {siMetrics.siNorm >= 2.0
                   ? "Price shows strong tendency to revert to key levels. Low volatility, high stability environment."
                   : siMetrics.siNorm >= 0.5
-                  ? "Price exhibits mean reverting characteristics with reduced volatility. Moderate stability."
-                  : siMetrics.siNorm >= -0.5
-                  ? "Market in balanced state with normal volatility patterns. No strong directional or reverting bias."
-                  : siMetrics.siNorm >= -2.0
-                  ? "Market showing trending behavior with elevated volatility. Reduced mean reversion tendencies."
-                  : "Market in high volatility, low stability regime. Price moves are amplified with minimal reversion to mean."}
+                    ? "Price exhibits mean reverting characteristics with reduced volatility. Moderate stability."
+                    : siMetrics.siNorm >= -0.5
+                      ? "Market in balanced state with normal volatility patterns. No strong directional or reverting bias."
+                      : siMetrics.siNorm >= -2.0
+                        ? "Market showing trending behavior with elevated volatility. Reduced mean reversion tendencies."
+                        : "Market in high volatility, low stability regime. Price moves are amplified with minimal reversion to mean."}
               </div>
             </div>
             {metrics.signalExplanation && (
@@ -1594,21 +1592,21 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             )}
           </div>
         </div>
-        
+
         {/* Signal explanation - Removed as it's now in Market Interpretation */}
 
       </div>
 
       {/* Main Dashboard Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-0">
-        
+
         {/* Max Pain Compact Display */}
         <div className="hidden md:block bg-black border border-gray-600 p-3">
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="text-red-400" size={16} />
             <h3 className="text-white font-bold uppercase text-[10px] tracking-wider">Max Pain</h3>
           </div>
-          
+
           <div className="space-y-2">
             {/* Max Pain Strike */}
             <div className="bg-red-950/20 border-l-2 border-red-500 px-2 py-1.5">
@@ -1617,7 +1615,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 ${quickMaxPain.maxPainStrike.toFixed(2)}
               </div>
             </div>
-            
+
             {/* Current Price */}
             <div className="bg-gray-950/30 border-l-2 border-gray-600 px-2 py-1.5">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Current</div>
@@ -1625,7 +1623,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 ${currentPrice.toFixed(2)}
               </div>
             </div>
-            
+
             {/* Liquidity Pivot */}
             <div className="bg-purple-950/20 border-l-2 border-purple-500 px-2 py-1.5">
               <div className="text-[9px] text-purple-400 uppercase tracking-wider font-bold mb-0.5">Pivot</div>
@@ -1633,25 +1631,23 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                 ${quickMaxPain.liquidityPivotStrike.toFixed(2)}
               </div>
             </div>
-            
+
             {/* Dealer Pressure */}
-            <div className={`border-l-2 px-2 py-1.5 ${
-              quickMaxPain.dealerPressure === 'DOWNWARD' ? 'bg-red-950/20 border-red-500' :
-              quickMaxPain.dealerPressure === 'UPWARD' ? 'bg-green-950/20 border-green-500' :
-              'bg-yellow-950/20 border-yellow-500'
-            }`}>
-              <div className="text-[9px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">Pressure</div>
-              <div className={`text-xs font-bold leading-tight ${
-                quickMaxPain.dealerPressure === 'DOWNWARD' ? 'text-red-400' :
-                quickMaxPain.dealerPressure === 'UPWARD' ? 'text-green-400' :
-                'text-yellow-400'
+            <div className={`border-l-2 px-2 py-1.5 ${quickMaxPain.dealerPressure === 'DOWNWARD' ? 'bg-red-950/20 border-red-500' :
+                quickMaxPain.dealerPressure === 'UPWARD' ? 'bg-green-950/20 border-green-500' :
+                  'bg-yellow-950/20 border-yellow-500'
               }`}>
+              <div className="text-[9px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">Pressure</div>
+              <div className={`text-xs font-bold leading-tight ${quickMaxPain.dealerPressure === 'DOWNWARD' ? 'text-red-400' :
+                  quickMaxPain.dealerPressure === 'UPWARD' ? 'text-green-400' :
+                    'text-yellow-400'
+                }`}>
                 {quickMaxPain.dealerPressure === 'DOWNWARD' ? '↓ DOWNWARD' :
-                 quickMaxPain.dealerPressure === 'UPWARD' ? '↑ UPWARD' :
-                 '● PINNED'}
+                  quickMaxPain.dealerPressure === 'UPWARD' ? '↑ UPWARD' :
+                    '● PINNED'}
               </div>
             </div>
-            
+
             {/* Expiration Selector */}
             <div className="bg-black/50 border border-gray-700 rounded px-2 py-1.5">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Expiration</div>
@@ -1675,21 +1671,21 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             </div>
           </div>
         </div>
-        
+
         {/* Reflexivity Gauge */}
         <div className="bg-black border border-gray-600 p-4">
           <div className="flex items-center gap-2 mb-4">
             <Gauge className="text-orange-400" size={20} />
             <h3 className="text-white font-bold uppercase text-xs tracking-wider">Reflexivity Gauge</h3>
           </div>
-          
+
           <div className="relative">
             <div className="w-full h-24 bg-gray-900 rounded-lg overflow-hidden relative">
               <div className="absolute inset-0 bg-gradient-to-r from-red-600/20 via-gray-800/20 to-green-600/20"></div>
-              
+
               {/* Gauge needle */}
               <div className="absolute inset-0 flex items-end justify-center">
-                <div 
+                <div
                   className="w-1 h-12 bg-yellow-400 transform-gpu transition-transform duration-500"
                   style={{
                     transformOrigin: 'bottom center',
@@ -1697,13 +1693,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                   }}
                 />
               </div>
-              
+
               {/* Labels */}
               <div className="absolute top-2 left-2 text-[10px] text-red-400 font-bold">AMPLIFY</div>
               <div className="absolute top-2 right-2 text-[10px] text-green-400 font-bold">DAMPEN</div>
               <div className="absolute top-2 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-400 font-bold">NEUTRAL</div>
             </div>
-            
+
             <div className="text-center mt-3">
               <div className="text-base font-bold text-white">
                 {formatMM(metrics.totalNetMM)} / 1%
@@ -1721,7 +1717,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <Target className="text-orange-400" size={20} />
             <h3 className="text-white font-bold uppercase text-xs tracking-wider">Key Levels</h3>
           </div>
-          
+
           <div className="space-y-3">
             {/* Call Wall */}
             <div className="bg-green-900/20 border border-green-600/30 p-2 rounded">
@@ -1761,29 +1757,27 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <BarChart3 className="text-orange-400" size={20} />
             <h3 className="text-white font-bold uppercase text-xs tracking-wider">Strike Pressure</h3>
           </div>
-          
+
           <div className="space-y-1 max-h-64 overflow-y-auto">
             {mmData.slice(0, 10).map((item, idx) => {
               const maxImpact = Math.max(...mmData.map(d => d.impact));
               const barWidth = maxImpact > 0 ? (item.impact / maxImpact) * 100 : 0;
               const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
-              
+
               return (
                 <div key={item.strike} className="flex items-center gap-1 text-[10px]">
                   <div className="w-10 text-right font-mono text-gray-300">
                     {item.strike.toFixed(0)}
                   </div>
                   <div className="flex-1 bg-gray-800 rounded-sm h-3 relative overflow-hidden">
-                    <div 
-                      className={`h-full transition-all ${
-                        item.netMM > 0 ? 'bg-green-500' : 'bg-red-500'
-                      }`}
+                    <div
+                      className={`h-full transition-all ${item.netMM > 0 ? 'bg-green-500' : 'bg-red-500'
+                        }`}
                       style={{ width: `${barWidth}%` }}
                     />
                   </div>
-                  <div className={`w-12 text-right font-mono ${
-                    item.netMM > 0 ? 'text-green-400' : 'text-red-400'
-                  }`}>
+                  <div className={`w-12 text-right font-mono ${item.netMM > 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
                     {formatMM(item.netMM)}
                   </div>
                 </div>
@@ -1795,31 +1789,29 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
       {/* Enhanced Greek Exposure Dashboard */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 mt-6">
-        
+
         {/* Delta Exposure */}
         <div className="bg-black border-2 border-blue-500/50 p-6">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="text-blue-400" size={20} />
             <h3 className="text-white font-bold uppercase text-xs tracking-wider">Delta Exposure</h3>
           </div>
-          
+
           <div className="space-y-3">
             <div className="text-center">
-              <div className={`text-2xl font-bold ${
-                metrics.netDirectionalBias === 'BULLISH' ? 'text-green-400' :
-                metrics.netDirectionalBias === 'BEARISH' ? 'text-red-400' : 'text-gray-400'
-              }`}>
+              <div className={`text-2xl font-bold ${metrics.netDirectionalBias === 'BULLISH' ? 'text-green-400' :
+                  metrics.netDirectionalBias === 'BEARISH' ? 'text-red-400' : 'text-gray-400'
+                }`}>
                 {metrics.netDirectionalBias}
               </div>
               <div className="text-xs text-gray-400 uppercase mt-1">Net Bias</div>
             </div>
-            
+
             <div className="border-t border-gray-700 pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net Delta:</span>
-                <span className={`font-bold font-mono ${
-                  metrics.totalNetDelta > 0 ? 'text-green-400' : 'text-red-400'
-                }`}>
+                <span className={`font-bold font-mono ${metrics.totalNetDelta > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
                   {(metrics.totalNetDelta / 1000000).toFixed(2)}M
                 </span>
               </div>
@@ -1839,23 +1831,21 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <Activity className="text-purple-400" size={20} />
             <h3 className="text-white font-bold uppercase text-xs tracking-wider">Gamma Exposure</h3>
           </div>
-          
+
           <div className="space-y-3">
             <div className="text-center">
-              <div className={`text-2xl font-bold ${
-                metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
+              <div className={`text-2xl font-bold ${metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
                 {metrics.totalNetGamma > 0 ? 'LONG' : 'SHORT'}
               </div>
               <div className="text-xs text-gray-400 uppercase mt-1">Position</div>
             </div>
-            
+
             <div className="border-t border-gray-700 pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net Γ:</span>
-                <span className={`font-bold font-mono ${
-                  metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
-                }`}>
+                <span className={`font-bold font-mono ${metrics.totalNetGamma > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
                   {(metrics.totalNetGamma / 1000).toFixed(1)}K
                 </span>
               </div>
@@ -1875,23 +1865,21 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <AlertCircle className="text-orange-400" size={20} />
             <h3 className="text-white font-bold uppercase text-xs tracking-wider">Theta Exposure</h3>
           </div>
-          
+
           <div className="space-y-3">
             <div className="text-center">
-              <div className={`text-2xl font-bold ${
-                metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
-              }`}>
+              <div className={`text-2xl font-bold ${metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
+                }`}>
                 {metrics.totalNetTheta < 0 ? 'DECAY' : 'GAIN'}
               </div>
               <div className="text-xs text-gray-400 uppercase mt-1">Time Value</div>
             </div>
-            
+
             <div className="border-t border-gray-700 pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Daily θ:</span>
-                <span className={`font-bold font-mono ${
-                  metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
-                }`}>
+                <span className={`font-bold font-mono ${metrics.totalNetTheta < 0 ? 'text-red-400' : 'text-green-400'
+                  }`}>
                   ${(metrics.totalNetTheta / 1000).toFixed(1)}K
                 </span>
               </div>
@@ -1911,23 +1899,21 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             <Activity className="text-cyan-400" size={20} />
             <h3 className="text-white font-bold uppercase text-xs tracking-wider">Vega Exposure</h3>
           </div>
-          
+
           <div className="space-y-3">
             <div className="text-center">
-              <div className={`text-2xl font-bold ${
-                metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
+              <div className={`text-2xl font-bold ${metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
                 {metrics.totalNetVega > 0 ? 'LONG VOL' : 'SHORT VOL'}
               </div>
               <div className="text-xs text-gray-400 uppercase mt-1">IV Sensitivity</div>
             </div>
-            
+
             <div className="border-t border-gray-700 pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">Net ν:</span>
-                <span className={`font-bold font-mono ${
-                  metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
-                }`}>
+                <span className={`font-bold font-mono ${metrics.totalNetVega > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
                   {(metrics.totalNetVega / 1000).toFixed(1)}K
                 </span>
               </div>
@@ -1948,21 +1934,19 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
         <div className="flex md:hidden border-b border-gray-600 mb-0">
           <button
             onClick={() => setStrikeTableTab('mm')}
-            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
-              strikeTableTab === 'mm'
+            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${strikeTableTab === 'mm'
                 ? 'bg-black text-white border-b-2 border-orange-500'
                 : 'bg-gray-900 text-gray-400 hover:text-white'
-            }`}
+              }`}
           >
             MM BY STRIKE
           </button>
           <button
             onClick={() => setStrikeTableTab('risk')}
-            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${
-              strikeTableTab === 'risk'
+            className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${strikeTableTab === 'risk'
                 ? 'bg-black text-white border-b-2 border-orange-500'
                 : 'bg-gray-900 text-gray-400 hover:text-white'
-            }`}
+              }`}
           >
             STRIKE-LEVEL RISK
           </button>
@@ -1970,197 +1954,192 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
         {/* Desktop: Side by Side / Mobile: Tab Content */}
         <div className="md:grid md:grid-cols-2 md:gap-4">
-        {/* Tab Content - Mobile: Only show selected tab */}
-        <div className={`${strikeTableTab === 'mm' ? 'block' : 'hidden'} md:block`}>
+          {/* Tab Content - Mobile: Only show selected tab */}
+          <div className={`${strikeTableTab === 'mm' ? 'block' : 'hidden'} md:block`}>
           /* Detailed Strike Table */
-          <div className="bg-black border border-gray-600 border-t-0">
-          
-          <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '500px' }}>
-            <table className="w-full">
-            <thead className="bg-gray-900">
-              <tr>
-                <th className="px-2 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>Strike</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Net MM</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-green-500 uppercase tracking-widest">Call MM</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-red-500 uppercase tracking-widest">Put MM</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Total OI</th>
-                <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Days</th>
-                <th className="px-4 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest">Impact</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mmData.map((item, idx) => {
-                const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
-                const maxImpact = Math.max(...mmData.map(d => d.impact));
-                const impactBars = maxImpact > 0 ? Math.round((item.impact / maxImpact) * 8) : 0;
-                
-                return (
-                  <tr 
-                    key={item.strike} 
-                    className="border-b border-gray-800 hover:bg-gray-900/50"
-                  >
-                    <td className="px-2 py-3" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
-                      <div className="font-mono font-bold text-white">
-                        ${item.strike.toFixed(1)}
-                      </div>
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono font-bold ${
-                      item.netMM > 0 ? 'text-green-400' : 'text-red-400'
-                    }`}>
-                      {formatMM(item.netMM)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-green-400">
-                      {formatMM(item.callMM)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-red-400">
-                      {formatMM(item.putMM)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-gray-300">
-                      {formatOI(item.totalOI)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-gray-300">
-                      {item.daysToExpiry}d
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center">
-                        <div className="text-orange-400 font-mono">
-                          {'█'.repeat(Math.max(1, impactBars))}
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-        </div>
-        <div className={`${strikeTableTab === 'risk' ? 'block' : 'hidden'} md:block`}>
-          /* Max Pain Strike Risk Analysis */
-          <div className="bg-black border border-gray-600 md:border-t">
-        
-        {/* Expiration Selector */}
-        <div className="bg-black/50 border-b border-gray-700 px-4 py-3">
-          <div className="flex items-center gap-4">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Expiration:</div>
-            <select
-              value={strikeRiskExpiration}
-              onChange={(e) => setStrikeRiskExpiration(e.target.value)}
-              className="bg-gray-900 border border-gray-700 text-white text-xs font-bold focus:outline-none cursor-pointer px-2 py-1 rounded"
-              style={{ backgroundColor: '#111827' }}
-            >
-              {mmExpirations.map(exp => {
-                const expDate = new Date(exp + 'T00:00:00Z');
-                const today = new Date();
-                const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                return (
-                  <option key={exp} value={exp} style={{ backgroundColor: '#111827', color: '#ffffff' }}>
-                    {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} ({daysToExp}d)
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        </div>
-        
-        <div className="overflow-y-auto" style={{ maxHeight: '500px' }}>
-          <table className="w-full">
-            <thead className="bg-gray-900 sticky top-0 z-10">
-              <tr>
-                <th className="px-2 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>Strike</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">MM Risk</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Total OI</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Call OI</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Put OI</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Distance</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Bias</th>
-              </tr>
-            </thead>
-            <tbody>
-              {maxPainAnalysis.riskByStrike.slice(0, 30).map((item, idx) => {
-                const isMaxPain = item.strike === maxPainAnalysis.optimalStrike;
-                const isATM = Math.abs(item.strike - currentPrice) < 1;
-                const maxRisk = Math.max(...maxPainAnalysis.riskByStrike.map(s => s.risk));
-                const isHighestRisk = item.risk === maxRisk;
-                const riskPercent = (item.risk / maxRisk) * 100;
+            <div className="bg-black border border-gray-600 border-t-0">
 
-                return (
-                  <tr 
-                    key={item.strike}
-                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${
-                      isMaxPain ? 'bg-red-950/20' :
-                      isHighestRisk ? 'bg-purple-950/20' :
-                      isATM ? 'bg-orange-950/10' : ''
-                    }`}
+              <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '500px' }}>
+                <table className="w-full">
+                  <thead className="bg-gray-900">
+                    <tr>
+                      <th className="px-2 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>Strike</th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Net MM</th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-green-500 uppercase tracking-widest">Call MM</th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-red-500 uppercase tracking-widest">Put MM</th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Total OI</th>
+                      <th className="px-4 py-4 text-right text-sm font-black text-orange-400 uppercase tracking-widest">Days</th>
+                      <th className="px-4 py-4 text-left text-sm font-black text-orange-400 uppercase tracking-widest">Impact</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mmData.map((item, idx) => {
+                      const isCurrentPrice = Math.abs(item.strike - currentPrice) < 1;
+                      const maxImpact = Math.max(...mmData.map(d => d.impact));
+                      const impactBars = maxImpact > 0 ? Math.round((item.impact / maxImpact) * 8) : 0;
+
+                      return (
+                        <tr
+                          key={item.strike}
+                          className="border-b border-gray-800 hover:bg-gray-900/50"
+                        >
+                          <td className="px-2 py-3" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>
+                            <div className="font-mono font-bold text-white">
+                              ${item.strike.toFixed(1)}
+                            </div>
+                          </td>
+                          <td className={`px-4 py-3 text-right font-mono font-bold ${item.netMM > 0 ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                            {formatMM(item.netMM)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-green-400">
+                            {formatMM(item.callMM)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-red-400">
+                            {formatMM(item.putMM)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-gray-300">
+                            {formatOI(item.totalOI)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-gray-300">
+                            {item.daysToExpiry}d
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center">
+                              <div className="text-orange-400 font-mono">
+                                {'█'.repeat(Math.max(1, impactBars))}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div className={`${strikeTableTab === 'risk' ? 'block' : 'hidden'} md:block`}>
+          /* Max Pain Strike Risk Analysis */
+            <div className="bg-black border border-gray-600 md:border-t">
+
+              {/* Expiration Selector */}
+              <div className="bg-black/50 border-b border-gray-700 px-4 py-3">
+                <div className="flex items-center gap-4">
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Expiration:</div>
+                  <select
+                    value={strikeRiskExpiration}
+                    onChange={(e) => setStrikeRiskExpiration(e.target.value)}
+                    className="bg-gray-900 border border-gray-700 text-white text-xs font-bold focus:outline-none cursor-pointer px-2 py-1 rounded"
+                    style={{ backgroundColor: '#111827' }}
                   >
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`font-mono text-sm font-semibold ${
-                          isMaxPain ? 'text-red-400' :
-                          isHighestRisk ? 'text-purple-400' :
-                          isATM ? 'text-orange-400' : 'text-white'
-                        }`}>
-                          ${item.strike.toFixed(1)}
-                        </span>
-                        {isMaxPain && <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>}
-                        {isHighestRisk && !isMaxPain && <span className="text-xs text-purple-400 font-bold">● LIQUIDITY PIVOT</span>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="w-20 bg-gray-900 rounded-sm h-2">
-                          <div 
-                            className={isHighestRisk ? 'bg-purple-500 h-full rounded-sm' : 'bg-red-500 h-full rounded-sm'}
-                            style={{ width: `${riskPercent}%` }}
-                          />
-                        </div>
-                        <span className="font-mono text-xs text-gray-300 w-16 text-right">
-                          {formatRisk(item.risk)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <span className="font-mono text-xs text-white">
-                        {formatOI(item.oi)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <span className="font-mono text-xs text-green-500">
-                        {formatOI(item.callOI)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <span className="font-mono text-xs text-red-500">
-                        {formatOI(item.putOI)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <span className={`font-mono text-xs ${
-                        Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
-                        item.distance > 0 ? 'text-red-400' : 'text-green-400'
-                      }`}>
-                        {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      <span className={`text-xs font-bold ${
-                        item.callOI > item.putOI * 1.5 ? 'text-green-400' :
-                        item.putOI > item.callOI * 1.5 ? 'text-red-400' :
-                        'text-gray-500'
-                      }`}>
-                        {item.callOI > item.putOI * 1.5 ? 'CALL' :
-                         item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-        </div>
+                    {mmExpirations.map(exp => {
+                      const expDate = new Date(exp + 'T00:00:00Z');
+                      const today = new Date();
+                      const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                      return (
+                        <option key={exp} value={exp} style={{ backgroundColor: '#111827', color: '#ffffff' }}>
+                          {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} ({daysToExp}d)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              <div className="overflow-y-auto" style={{ maxHeight: '500px' }}>
+                <table className="w-full">
+                  <thead className="bg-gray-900 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-2 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800" style={{ width: `${strikeColumnWidth}px`, minWidth: `${strikeColumnWidth}px`, maxWidth: `${strikeColumnWidth}px` }}>Strike</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">MM Risk</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Total OI</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Call OI</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Put OI</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Distance</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800">Bias</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {maxPainAnalysis.riskByStrike.slice(0, 30).map((item, idx) => {
+                      const isMaxPain = item.strike === maxPainAnalysis.optimalStrike;
+                      const isATM = Math.abs(item.strike - currentPrice) < 1;
+                      const maxRisk = Math.max(...maxPainAnalysis.riskByStrike.map(s => s.risk));
+                      const isHighestRisk = item.risk === maxRisk;
+                      const riskPercent = (item.risk / maxRisk) * 100;
+
+                      return (
+                        <tr
+                          key={item.strike}
+                          className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${isMaxPain ? 'bg-red-950/20' :
+                              isHighestRisk ? 'bg-purple-950/20' :
+                                isATM ? 'bg-orange-950/10' : ''
+                            }`}
+                        >
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-mono text-sm font-semibold ${isMaxPain ? 'text-red-400' :
+                                  isHighestRisk ? 'text-purple-400' :
+                                    isATM ? 'text-orange-400' : 'text-white'
+                                }`}>
+                                ${item.strike.toFixed(1)}
+                              </span>
+                              {isMaxPain && <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>}
+                              {isHighestRisk && !isMaxPain && <span className="text-xs text-purple-400 font-bold">● LIQUIDITY PIVOT</span>}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-20 bg-gray-900 rounded-sm h-2">
+                                <div
+                                  className={isHighestRisk ? 'bg-purple-500 h-full rounded-sm' : 'bg-red-500 h-full rounded-sm'}
+                                  style={{ width: `${riskPercent}%` }}
+                                />
+                              </div>
+                              <span className="font-mono text-xs text-gray-300 w-16 text-right">
+                                {formatRisk(item.risk)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="font-mono text-xs text-white">
+                              {formatOI(item.oi)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="font-mono text-xs text-green-500">
+                              {formatOI(item.callOI)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="font-mono text-xs text-red-500">
+                              {formatOI(item.putOI)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className={`font-mono text-xs ${Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
+                                item.distance > 0 ? 'text-red-400' : 'text-green-400'
+                              }`}>
+                              {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`text-xs font-bold ${item.callOI > item.putOI * 1.5 ? 'text-green-400' :
+                                item.putOI > item.callOI * 1.5 ? 'text-red-400' :
+                                  'text-gray-500'
+                              }`}>
+                              {item.callOI > item.putOI * 1.5 ? 'CALL' :
+                                item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div> {/* End grid for side-by-side tables */}
       </div> {/* End Tabbed Strike Tables */}
 
@@ -2173,19 +2152,19 @@ import { PRELOAD_TIERS } from '../../lib/Top1000Symbols';
 
 // SI Dashboard Component
 const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
-  
+
   const [screenerFilter, setScreenerFilter] = useState<string>('all');
   const [screenerData, setScreenerData] = useState<any[]>([]);
   const [screenerLoading, setScreenerLoading] = useState(false);
   const [screenerAbortController, setScreenerAbortController] = useState<AbortController | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
-  
+
   // Filter to 45-day expirations for SI analysis
   const siExpirations = useMemo(() => {
     const today = new Date();
     const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000)); // 45 days from now
-    
+
     return expirations.filter(exp => {
       const expDate = new Date(exp + 'T00:00:00Z');
       return expDate >= today && expDate <= maxDate;
@@ -2203,28 +2182,28 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     if (!currentPrice || Object.keys(gexByStrikeByExpiration).length === 0) {
       return { si: 0, gexTotal: 0, vexTotal: 0, dexTotal: 0, siNorm: 0, stability: 'UNKNOWN', marketBehavior: 'No Data' };
     }
-    
+
     let totalGEX = 0;
-    let totalVEX = 0; 
+    let totalVEX = 0;
     let totalDEX = 0;
-    
+
     // Sum across 45-day expirations and strikes - CALCULATE from raw Greeks
     siExpirations.forEach(exp => {
       const gexData = gexByStrikeByExpiration[exp];
       const vexData = vexByStrikeByExpiration[exp];
-      
+
       if (gexData) {
         Object.entries(gexData).forEach(([strike, data]) => {
           const strikePrice = parseFloat(strike);
-          
+
           const callOI = data.callOI || 0;
           const putOI = data.putOI || 0;
-          
+
           if (callOI > 0 || putOI > 0) {
             // Calculate GEX from raw gamma
             const callGamma = data.callGamma || 0;
             const putGamma = data.putGamma || 0;
-            
+
             if (callOI > 0 && callGamma !== 0) {
               const callGEX = callGamma * callOI * (currentPrice * currentPrice) * 100;
               totalGEX += callGEX;
@@ -2233,11 +2212,11 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               const putGEX = -putGamma * putOI * (currentPrice * currentPrice) * 100;
               totalGEX += putGEX;
             }
-            
+
             // Calculate VEX from raw vega stored in gexData (simple formula matching screener)
             const callVega = data.callVega || 0;
             const putVega = data.putVega || 0;
-            
+
             if (callOI > 0 && callVega !== 0) {
               const callVEX = callVega * callOI * 100;
               totalVEX += callVEX;
@@ -2246,12 +2225,12 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               const putVEX = -putVega * putOI * 100;
               totalVEX += putVEX;
             }
-            
+
             // Calculate DEX using standardized delta approximation
             const moneyness = strikePrice / currentPrice;
             let callDelta = 0;
             let putDelta = 0;
-            
+
             if (moneyness > 1.05) { // OTM calls
               callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
             } else if (moneyness < 0.95) { // ITM calls
@@ -2259,29 +2238,29 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
             } else { // ATM calls
               callDelta = 0.5;
             }
-            
+
             putDelta = callDelta - 1; // Put-call parity
-            
+
             // Calculate DEX
             const callDEX = callDelta * callOI * 100 * currentPrice;
             const putDEX = putDelta * putOI * 100 * currentPrice;
-            
+
             totalDEX += callDEX + putDEX;
           }
         });
       }
     });
-    
+
     // Calculate SI using the correct formula: SI = GEX_total / (|VEX_total| + |DEX_total|)
     const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
     const si = denominator !== 0 ? totalGEX / denominator : 0;
-    
+
     // Use the raw SI value without artificial clamping
     // Determine stability level and market behavior based on actual SI ranges
     let stability = '';
     let marketBehavior = '';
     let stabilityColor = '';
-    
+
     if (si >= 2.0) {
       stability = 'EXTREMELY STABLE';
       marketBehavior = 'Strong Mean Reversion';
@@ -2307,7 +2286,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       marketBehavior = 'Highly Explosive';
       stabilityColor = 'text-red-500';
     }
-    
+
     return {
       si,
       gexTotal: totalGEX,
@@ -2323,7 +2302,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
   const formatExposure = (value: number) => {
     const absValue = Math.abs(value);
     const sign = value < 0 ? '-' : '+';
-    
+
     if (absValue >= 1e9) {
       return `${sign}${(absValue / 1e9).toFixed(2)}B`;
     } else if (absValue >= 1e6) {
@@ -2339,22 +2318,22 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
+
       const response = await fetch(`/api/options-chain?ticker=${ticker}`, {
         signal: controller.signal,
         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
       });
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
+
       const result = await response.json();
       if (!result.success || !result.data) return null;
-      
+
       const price = result.currentPrice;
       const optionsData = result.data;
       if (!price || price <= 0) return null;
-      
+
       // STEP 1: Filter EXACTLY like main component does (first 3 months, then 45 days)
       const allExps = Object.keys(optionsData).sort();
       const threeMonthsFromNow = new Date();
@@ -2363,7 +2342,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         const expDate = new Date(exp + 'T00:00:00Z');
         return expDate <= threeMonthsFromNow;
       });
-      
+
       // Then filter to 45 days
       const today = new Date();
       const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
@@ -2371,24 +2350,24 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         const expDate = new Date(exp + 'T00:00:00Z');
         return expDate >= today && expDate <= maxDate;
       }).sort();
-      
+
       if (validExps.length === 0) return null;
-      
+
       // STEP 2: Build GEX and VEX structures - ACCUMULATE across multiple expirations
-      const gexByStrikeByExp: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}} = {};
-      const vexByStrikeByExp: {[strike: number]: {call: number, put: number}} = {};
-      
+      const gexByStrikeByExp: { [strike: number]: { call: number, put: number, callOI: number, putOI: number } } = {};
+      const vexByStrikeByExp: { [strike: number]: { call: number, put: number } } = {};
+
       validExps.forEach(exp => {
         const expData = optionsData[exp];
         if (!expData?.calls || !expData?.puts) return;
-        
+
         const { calls, puts } = expData;
-        
+
         // Process calls - ACCUMULATE values for same strikes across expirations
         Object.entries(calls).forEach(([strike, data]: [string, any]) => {
           const strikeNum = parseFloat(strike);
           const oi = data.open_interest || 0;
-          
+
           if (oi > 0) {
             if (!gexByStrikeByExp[strikeNum]) {
               gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
@@ -2396,15 +2375,15 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
             if (!vexByStrikeByExp[strikeNum]) {
               vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
             }
-            
+
             gexByStrikeByExp[strikeNum].callOI += oi; // ACCUMULATE OI
-            
+
             const gamma = data.greeks?.gamma || 0;
             if (gamma) {
               const gex = gamma * oi * (price * price) * 100;
               gexByStrikeByExp[strikeNum].call += gex; // ACCUMULATE GEX
             }
-            
+
             const vega = data.greeks?.vega || 0;
             if (vega) {
               const vex = vega * oi * 100;
@@ -2412,12 +2391,12 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
             }
           }
         });
-        
+
         // Process puts - ACCUMULATE values for same strikes across expirations
         Object.entries(puts).forEach(([strike, data]: [string, any]) => {
           const strikeNum = parseFloat(strike);
           const oi = data.open_interest || 0;
-          
+
           if (oi > 0) {
             if (!gexByStrikeByExp[strikeNum]) {
               gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
@@ -2425,15 +2404,15 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
             if (!vexByStrikeByExp[strikeNum]) {
               vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
             }
-            
+
             gexByStrikeByExp[strikeNum].putOI += oi; // ACCUMULATE OI
-            
+
             const gamma = data.greeks?.gamma || 0;
             if (gamma) {
               const gex = -gamma * oi * (price * price) * 100;
               gexByStrikeByExp[strikeNum].put += gex; // ACCUMULATE GEX
             }
-            
+
             const vega = data.greeks?.vega || 0;
             if (vega) {
               const vex = -vega * oi * 100;
@@ -2442,31 +2421,31 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
           }
         });
       });
-      
+
       // STEP 3: Calculate SI using EXACT logic from main gauge (lines 877-926)
       let totalGEX = 0;
       let totalVEX = 0;
       let totalDEX = 0;
-      
+
       Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
         const strikePrice = parseFloat(strike);
-        
+
         // Add GEX (EXACT copy from line 891)
         totalGEX += data.call + data.put;
-        
+
         // Add VEX (EXACT copy from lines 894-896)
         if (vexByStrikeByExp[strikePrice]) {
           totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put;
         }
-        
+
         // Calculate DEX (EXACT copy from lines 899-922)
         const callOI = data.callOI || 0;
         const putOI = data.putOI || 0;
-        
+
         const moneyness = strikePrice / price;
         let callDelta = 0;
         let putDelta = 0;
-        
+
         if (moneyness > 1.05) {
           callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
         } else if (moneyness < 0.95) {
@@ -2474,21 +2453,21 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         } else {
           callDelta = 0.5;
         }
-        
+
         putDelta = callDelta - 1;
-        
+
         const callDEX = callDelta * callOI * 100 * price;
         const putDEX = putDelta * putOI * 100 * price;
-        
+
         totalDEX += callDEX + putDEX;
       });
-      
+
       // STEP 4: Calculate SI (EXACT copy from lines 926-927)
       const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
       const si = denominator !== 0 ? totalGEX / denominator : 0;
-      
+
       if (!isFinite(si)) return null;
-      
+
       // Categorize
       let regime = '';
       let regimeColor = '';
@@ -2498,7 +2477,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       else if (si >= -0.5) { regime = 'BUILDING'; regimeColor = 'text-yellow-400'; }
       else if (si >= -2.0) { regime = 'REFLEXIVE'; regimeColor = 'text-red-400'; }
       else { regime = 'EXTREMELY REFLEXIVE'; regimeColor = 'text-red-500'; }
-      
+
       return {
         ticker,
         price,
@@ -2510,7 +2489,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         dex: totalDEX,
         contractCount: Object.keys(gexByStrikeByExp).length
       };
-      
+
     } catch (error) {
       return null;
     }
@@ -2531,12 +2510,12 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     if (screenerAbortController) {
       screenerAbortController.abort();
     }
-    
+
     const newController = new AbortController();
     setScreenerAbortController(newController);
     setScreenerLoading(true);
     setScreenerData([]); // Clear existing data
-    
+
     try {
       // Use your full Top 1000+ symbols - all tiers (deduplicated)
       const allSymbolsWithDupes = [
@@ -2548,7 +2527,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE
       ];
       const allSymbols = [...new Set(allSymbolsWithDupes)]; // Remove duplicates
-      
+
       // Process in priority batches but use ALL symbols (deduplicated)
       const primarySymbols = [...new Set(PRELOAD_TIERS.TIER_1_INSTANT)];
       const secondarySymbols = [...new Set(PRELOAD_TIERS.TIER_2_FAST)];
@@ -2558,22 +2537,22 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         ...PRELOAD_TIERS.TIER_5_EXTENDED,
         ...PRELOAD_TIERS.TIER_6_COMPREHENSIVE
       ])];
-      
+
       console.log(`Starting parallel SI scan with ${allSymbols.length} symbols from your full universe...`);
-      
+
       const results: any[] = [];
       let successCount = 0;
       let failCount = 0;
-      
+
       // Enhanced SI calculation with multiple fallbacks
       const calculateSIWithFallbacks = async (symbol: string, priority: string = 'normal') => {
         const timeouts = priority === 'high' ? [8000, 15000, 25000] : [10000, 20000, 30000];
-        
+
         for (let attempt = 0; attempt < timeouts.length; attempt++) {
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeouts[attempt]);
-            
+
             const response = await fetch(`/api/options-chain?ticker=${symbol}`, {
               signal: controller.signal,
               headers: {
@@ -2582,47 +2561,47 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                 'Cache-Control': 'no-cache'
               }
             });
-            
+
             clearTimeout(timeoutId);
-            
+
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
+
             const result = await response.json();
-            
+
             if (!result.success || !result.data || !result.currentPrice) {
               throw new Error('Invalid response data');
             }
-            
+
             const optionsData = result.data;
             const validExps = Object.keys(optionsData).filter(exp => {
               const expData = optionsData[exp];
               return expData && expData.calls && expData.puts && Object.keys(expData.calls).length > 0;
             });
-            
+
             if (validExps.length === 0) throw new Error('No valid options data');
-            
+
             return await calculateSIFromData(symbol, result.currentPrice, optionsData);
-            
+
           } catch (error) {
             if (attempt < timeouts.length - 1) {
               await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
             }
           }
         }
-        
+
         throw new Error(`All attempts failed for ${symbol}`);
       };
-      
+
       // Process in priority batches with parallel execution
       const processBatch = async (symbols: string[], priority: string, batchSize = 3) => {
         const batches = [];
         for (let i = 0; i < symbols.length; i += batchSize) {
           batches.push(symbols.slice(i, i + batchSize));
         }
-        
+
         for (const batch of batches) {
           if (newController.signal.aborted) break;
-          
+
           const batchPromises = batch.map(async (symbol: string) => {
             try {
               const result = await calculateSIWithFallbacks(symbol, priority);
@@ -2630,11 +2609,11 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                 successCount++;
                 results.push(result);
                 console.log(`✓ ${symbol}: SI = ${result.si.toFixed(3)} (${result.regime})`);
-                
+
                 // Update UI immediately for each result
                 const sorted = [...results].sort((a, b) => b.si - a.si);
                 setScreenerData(sorted);
-                
+
                 return result;
               }
             } catch (error) {
@@ -2648,23 +2627,23 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               return null;
             }
           });
-          
+
           await Promise.allSettled(batchPromises);
           await new Promise(resolve => setTimeout(resolve, 200));
         }
       };
-      
+
       // Process in priority order
       await processBatch(primarySymbols, 'high', 2);
       await processBatch(secondarySymbols, 'normal', 3);
       await processBatch(tertiarySymbols, 'low', 4);
-      
+
       console.log(`SI scan complete: ${successCount} successful, ${failCount} failed`);
-      
+
       // Final update
       const finalResults = results.sort((a, b) => b.si - a.si);
       setScreenerData(finalResults);
-      
+
     } catch (error) {
       console.error('Error loading screener data:', error);
       setScreenerData([]);
@@ -2673,7 +2652,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       setScreenerAbortController(null);
     }
   };
-  
+
   // ============================================================================
   // SCREENER: SI CALCULATION FROM RAW OPTIONS CHAIN DATA
   // ============================================================================
@@ -2681,7 +2660,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
   // Uses IDENTICAL methodology to the gauge for consistency.
   // See detailed formula documentation above MMDashboard siMetrics.
   // ============================================================================
-  
+
   // Separate SI calculation function - Uses unified accurate method
   const calculateSIFromData = async (ticker: string, price: number, optionsData: any) => {
     // STEP 1: Filter EXACTLY like main component (first 3 months, then 45 days)
@@ -2692,31 +2671,31 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       const expDate = new Date(exp + 'T00:00:00Z');
       return expDate <= threeMonthsFromNow;
     });
-    
+
     const today = new Date();
     const maxDate = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
     const validExps = expsWithin3Months.filter(exp => {
       const expDate = new Date(exp + 'T00:00:00Z');
       return expDate >= today && expDate <= maxDate;
     }).sort();
-    
+
     if (validExps.length === 0) throw new Error('No valid expirations');
-    
+
     // STEP 2: Build GEX and VEX structures EXACTLY like main component
-    const gexByStrikeByExp: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}} = {};
-    const vexByStrikeByExp: {[strike: number]: {call: number, put: number}} = {};
-    
+    const gexByStrikeByExp: { [strike: number]: { call: number, put: number, callOI: number, putOI: number } } = {};
+    const vexByStrikeByExp: { [strike: number]: { call: number, put: number } } = {};
+
     validExps.forEach(exp => {
       const expData = optionsData[exp];
       if (!expData?.calls || !expData?.puts) return;
-      
+
       const { calls, puts } = expData;
-      
+
       // Process calls - ACCUMULATE values for same strikes across expirations
       Object.entries(calls).forEach(([strike, data]: [string, any]) => {
         const strikeNum = parseFloat(strike);
         const oi = data.open_interest || 0;
-        
+
         if (oi > 0) {
           if (!gexByStrikeByExp[strikeNum]) {
             gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
@@ -2724,15 +2703,15 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
           if (!vexByStrikeByExp[strikeNum]) {
             vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
           }
-          
+
           gexByStrikeByExp[strikeNum].callOI += oi; // ACCUMULATE
-          
+
           const gamma = data.greeks?.gamma || 0;
           if (gamma) {
             const gex = gamma * oi * (price * price) * 100;
             gexByStrikeByExp[strikeNum].call += gex; // ACCUMULATE
           }
-          
+
           const vega = data.greeks?.vega || 0;
           if (vega) {
             const vex = vega * oi * 100;
@@ -2740,12 +2719,12 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
           }
         }
       });
-      
+
       // Process puts - ACCUMULATE values for same strikes across expirations
       Object.entries(puts).forEach(([strike, data]: [string, any]) => {
         const strikeNum = parseFloat(strike);
         const oi = data.open_interest || 0;
-        
+
         if (oi > 0) {
           if (!gexByStrikeByExp[strikeNum]) {
             gexByStrikeByExp[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
@@ -2753,15 +2732,15 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
           if (!vexByStrikeByExp[strikeNum]) {
             vexByStrikeByExp[strikeNum] = { call: 0, put: 0 };
           }
-          
+
           gexByStrikeByExp[strikeNum].putOI += oi; // ACCUMULATE
-          
+
           const gamma = data.greeks?.gamma || 0;
           if (gamma) {
             const gex = -gamma * oi * (price * price) * 100;
             gexByStrikeByExp[strikeNum].put += gex; // ACCUMULATE
           }
-          
+
           const vega = data.greeks?.vega || 0;
           if (vega) {
             const vex = -vega * oi * 100;
@@ -2770,31 +2749,31 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         }
       });
     });
-    
+
     // STEP 3: Calculate SI using accumulated GEX/VEX from Greeks and calculated DEX
     let totalGEX = 0;
     let totalVEX = 0;
     let totalDEX = 0;
-    
+
     Object.entries(gexByStrikeByExp).forEach(([strike, data]) => {
       const strikePrice = parseFloat(strike);
-      
+
       // Use accumulated GEX values (already calculated from gamma × oi × price² × 100)
       totalGEX += data.call + data.put;
-      
+
       // Use accumulated VEX values (already calculated from vega × oi × 100)
       if (vexByStrikeByExp[strikePrice]) {
         totalVEX += vexByStrikeByExp[strikePrice].call + vexByStrikeByExp[strikePrice].put;
       }
-      
+
       // Calculate DEX using standardized delta approximation
       const callOI = data.callOI || 0;
       const putOI = data.putOI || 0;
-      
+
       const moneyness = strikePrice / price;
       let callDelta = 0;
       let putDelta = 0;
-      
+
       if (moneyness > 1.05) {
         callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
       } else if (moneyness < 0.95) {
@@ -2802,21 +2781,21 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       } else {
         callDelta = 0.5;
       }
-      
+
       putDelta = callDelta - 1;
-      
+
       const callDEX = callDelta * callOI * 100 * price;
       const putDEX = putDelta * putOI * 100 * price;
-      
+
       totalDEX += callDEX + putDEX;
     });
-    
+
     const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
     if (denominator === 0) throw new Error('Zero denominator');
-    
+
     const si = totalGEX / denominator;
     if (!isFinite(si)) throw new Error('Invalid SI result');
-    
+
     // Categorize
     let regime = '', regimeColor = '';
     if (si >= 2.0) { regime = 'EXTREMELY STABLE'; regimeColor = 'text-green-500'; }
@@ -2825,7 +2804,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
     else if (si >= -0.5) { regime = 'BUILDING'; regimeColor = 'text-yellow-400'; }
     else if (si >= -2.0) { regime = 'REFLEXIVE'; regimeColor = 'text-red-400'; }
     else { regime = 'EXTREMELY REFLEXIVE'; regimeColor = 'text-red-500'; }
-    
+
     return {
       ticker,
       price,
@@ -2842,7 +2821,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
   // Filter screener data based on regime
   const filteredScreenerData = useMemo(() => {
     if (screenerFilter === 'all') return screenerData;
-    
+
     return screenerData.filter(item => {
       switch (screenerFilter) {
         case 'highly-stable': return item.si >= 0.5;
@@ -2899,104 +2878,104 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               {siMetrics.marketBehavior}
             </div>
           </div>
-          
+
           {/* Right side - Interpretation */}
           {selectedTicker && currentPrice > 0 && (
-          <div className="absolute top-4 right-4">
-            <div className="bg-black border-2 border-orange-500/60 rounded-lg p-6 shadow-2xl max-w-md">
-              <div className="text-orange-400 font-bold text-sm uppercase tracking-wider mb-3 border-b-2 border-orange-500/40 pb-2">
-                MARKET INTERPRETATION
-              </div>
-              <div className="text-white text-sm font-medium space-y-3 leading-relaxed">
-                {siMetrics.siNorm >= 0.5 && (
-                  <div className="space-y-3">
-                    <div>
-                      <div className="text-orange-400 font-semibold mb-1">Dealer Behavior:</div>
-                      <div className="space-y-1">
-                        <div>• Dealers are long gamma and short vega</div>
-                        <div>• Their hedging absorbs volatility</div>
-                        <div>• They actively dampen directional moves</div>
+            <div className="absolute top-4 right-4">
+              <div className="bg-black border-2 border-orange-500/60 rounded-lg p-6 shadow-2xl max-w-md">
+                <div className="text-orange-400 font-bold text-sm uppercase tracking-wider mb-3 border-b-2 border-orange-500/40 pb-2">
+                  MARKET INTERPRETATION
+                </div>
+                <div className="text-white text-sm font-medium space-y-3 leading-relaxed">
+                  {siMetrics.siNorm >= 0.5 && (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-orange-400 font-semibold mb-1">Dealer Behavior:</div>
+                        <div className="space-y-1">
+                          <div>• Dealers are long gamma and short vega</div>
+                          <div>• Their hedging absorbs volatility</div>
+                          <div>• They actively dampen directional moves</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
+                        <div className="space-y-1">
+                          <div>• Low volatility, slow price action</div>
+                          <div>• Strong mean reversion</div>
+                          <div>• Breakouts tend to fail and revert back into range</div>
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
-                      <div className="space-y-1">
-                        <div>• Low volatility, slow price action</div>
-                        <div>• Strong mean reversion</div>
-                        <div>• Breakouts tend to fail and revert back into range</div>
+                  )}
+                  {siMetrics.siNorm >= 0 && siMetrics.siNorm < 0.5 && (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
+                        <div className="space-y-1">
+                          <div>• Dealers slightly supportive to price</div>
+                          <div>• Light positive gamma influence</div>
+                          <div>• Small dips get cushioned</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
+                        <div className="space-y-1">
+                          <div>• Range-bound with mild upward drift</div>
+                          <div>• Limited directional momentum</div>
+                          <div>• Clean intraday scalps but weak trend conviction</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-                {siMetrics.siNorm >= 0 && siMetrics.siNorm < 0.5 && (
-                  <div className="space-y-3">
-                    <div>
-                      <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
-                      <div className="space-y-1">
-                        <div>• Dealers slightly supportive to price</div>
-                        <div>• Light positive gamma influence</div>
-                        <div>• Small dips get cushioned</div>
+                  )}
+                  {siMetrics.siNorm >= -0.5 && siMetrics.siNorm < 0 && (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
+                        <div className="space-y-1">
+                          <div>• Dealers shifting toward short gamma</div>
+                          <div>• Hedging starts to amplify moves</div>
+                          <div>• Sensitivity to price changes increases</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
+                        <div className="space-y-1">
+                          <div>• Volatility beginning to rise</div>
+                          <div>• Breakouts become more likely</div>
+                          <div>• Early trend days appear, ranges get wider</div>
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
-                      <div className="space-y-1">
-                        <div>• Range-bound with mild upward drift</div>
-                        <div>• Limited directional momentum</div>
-                        <div>• Clean intraday scalps but weak trend conviction</div>
+                  )}
+                  {siMetrics.siNorm < -0.5 && (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
+                        <div className="space-y-1">
+                          <div>• Dealers are short gamma and high vega</div>
+                          <div>• Their hedging accelerates moves</div>
+                          <div>• Reflexive flows create runaway momentum</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
+                        <div className="space-y-1">
+                          <div>• Fast, explosive price action</div>
+                          <div>• Strong trend continuation</div>
+                          <div>• Breakouts rarely revert — they extend hard</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-                {siMetrics.siNorm >= -0.5 && siMetrics.siNorm < 0 && (
-                  <div className="space-y-3">
-                    <div>
-                      <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
-                      <div className="space-y-1">
-                        <div>• Dealers shifting toward short gamma</div>
-                        <div>• Hedging starts to amplify moves</div>
-                        <div>• Sensitivity to price changes increases</div>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
-                      <div className="space-y-1">
-                        <div>• Volatility beginning to rise</div>
-                        <div>• Breakouts become more likely</div>
-                        <div>• Early trend days appear, ranges get wider</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {siMetrics.siNorm < -0.5 && (
-                  <div className="space-y-3">
-                    <div>
-                      <div className="text-purple-400 font-semibold mb-1">Dealer Behavior:</div>
-                      <div className="space-y-1">
-                        <div>• Dealers are short gamma and high vega</div>
-                        <div>• Their hedging accelerates moves</div>
-                        <div>• Reflexive flows create runaway momentum</div>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-blue-400 font-semibold mb-1">Market Behavior:</div>
-                      <div className="space-y-1">
-                        <div>• Fast, explosive price action</div>
-                        <div>• Strong trend continuation</div>
-                        <div>• Breakouts rarely revert — they extend hard</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
-          </div>
           )}
         </div>
 
         {/* SI Scale Visualization - UPDATED HEIGHT */}
         <div className="relative w-full max-w-2xl mx-auto mb-4">
-          <div 
+          <div
             className="rounded-full relative"
             style={{
               height: '75px !important',
@@ -3006,7 +2985,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
             }}
           >
             {/* Red border for left half */}
-            <div 
+            <div
               className="absolute top-0 left-0 rounded-full"
               style={{
                 width: '50%',
@@ -3018,7 +2997,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               }}
             />
             {/* Green border for right half */}
-            <div 
+            <div
               className="absolute top-0 right-0 rounded-full"
               style={{
                 width: '50%',
@@ -3030,16 +3009,16 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               }}
             />
             {/* SI Indicator - position based on actual SI value with extended range */}
-            <div 
+            <div
               className="absolute top-0 bg-white border-2 border-black rounded-full transform -translate-x-1/2 transition-all duration-500"
-              style={{ 
+              style={{
                 width: '30px',
                 height: '75px',
-                left: `${Math.max(0, Math.min(100, ((siMetrics.siNorm + 10) / 20) * 100))}%` 
+                left: `${Math.max(0, Math.min(100, ((siMetrics.siNorm + 10) / 20) * 100))}%`
               }}
             />
           </div>
-          
+
           {/* Scale Labels - Extended range */}
           <div className="flex justify-between mt-2 text-xs font-bold">
             <span className="text-red-500">-10.0</span>
@@ -3069,59 +3048,59 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
       {/* Exposure Breakdown */}
       {/* Hidden: GEX, VEX, DEX Components - functionality preserved */}
       {false && (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* GEX Component */}
-        <div className="bg-black border border-gray-600 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-3 h-3 bg-orange-400 rounded-full"></div>
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Gamma Exposure</h3>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-3xl font-bold text-orange-400 mb-2">
-              {formatExposure(siMetrics.gexTotal)}
-            </div>
-            <div className="text-sm text-gray-300">
-              {siMetrics.gexTotal > 0 ? 'Stabilizing Force' : 'Destabilizing Force'}
-            </div>
-          </div>
-        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* VEX Component */}
-        <div className="bg-black border border-gray-600 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-3 h-3 bg-purple-400 rounded-full"></div>
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Vega Exposure</h3>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-3xl font-bold text-purple-400 mb-2">
-              {formatExposure(siMetrics.vexTotal)}
+          {/* GEX Component */}
+          <div className="bg-black border border-gray-600 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-3 h-3 bg-orange-400 rounded-full"></div>
+              <h3 className="text-white font-bold uppercase text-sm tracking-wider">Gamma Exposure</h3>
             </div>
-            <div className="text-sm text-gray-300">
-              Volatility Sensitivity
-            </div>
-          </div>
-        </div>
 
-        {/* DEX Component */}
-        <div className="bg-black border border-gray-600 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-3 h-3 bg-blue-400 rounded-full"></div>
-            <h3 className="text-white font-bold uppercase text-sm tracking-wider">Delta Exposure</h3>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-3xl font-bold text-blue-400 mb-2">
-              {formatExposure(siMetrics.dexTotal)}
+            <div className="text-center">
+              <div className="text-3xl font-bold text-orange-400 mb-2">
+                {formatExposure(siMetrics.gexTotal)}
+              </div>
+              <div className="text-sm text-gray-300">
+                {siMetrics.gexTotal > 0 ? 'Stabilizing Force' : 'Destabilizing Force'}
+              </div>
             </div>
-            <div className="text-sm text-gray-300">
-              Directional Sensitivity
+          </div>
+
+          {/* VEX Component */}
+          <div className="bg-black border border-gray-600 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-3 h-3 bg-purple-400 rounded-full"></div>
+              <h3 className="text-white font-bold uppercase text-sm tracking-wider">Vega Exposure</h3>
+            </div>
+
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-400 mb-2">
+                {formatExposure(siMetrics.vexTotal)}
+              </div>
+              <div className="text-sm text-gray-300">
+                Volatility Sensitivity
+              </div>
+            </div>
+          </div>
+
+          {/* DEX Component */}
+          <div className="bg-black border border-gray-600 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-3 h-3 bg-blue-400 rounded-full"></div>
+              <h3 className="text-white font-bold uppercase text-sm tracking-wider">Delta Exposure</h3>
+            </div>
+
+            <div className="text-center">
+              <div className="text-3xl font-bold text-blue-400 mb-2">
+                {formatExposure(siMetrics.dexTotal)}
+              </div>
+              <div className="text-sm text-gray-300">
+                Directional Sensitivity
+              </div>
             </div>
           </div>
         </div>
-      </div>
       )}
 
 
@@ -3131,7 +3110,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
         <div className="bg-black px-6 py-4 border-b border-gray-600">
           <div className="flex items-center justify-between">
             <h3 className="text-white font-black uppercase text-lg tracking-widest">SI SCREENER</h3>
-            
+
             {/* Filter Controls */}
             <div className="flex items-center gap-4">
               <span className="text-purple-400 font-bold text-sm uppercase tracking-wider">FILTER:</span>
@@ -3153,7 +3132,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                   </svg>
                 </div>
               </div>
-              
+
               {screenerLoading ? (
                 <button
                   onClick={cancelScreenerScan}
@@ -3172,7 +3151,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
             </div>
           </div>
         </div>
-        
+
         <div>
           <table className="w-full">
             <thead className="bg-gray-900">
@@ -3218,7 +3197,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                   // Determine action based on actual SI ranges
                   let actionText = '';
                   let actionColor = '';
-                  
+
                   if (item.si >= 2.0) {
                     actionText = 'STRONG FADE';
                     actionColor = 'text-green-500';
@@ -3267,8 +3246,8 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
                     <div className="text-sm">
-                      <strong className="text-purple-400">SI SCREENER READY</strong><br/>
-                      Click START SCAN to begin SI analysis.<br/>
+                      <strong className="text-purple-400">SI SCREENER READY</strong><br />
+                      Click START SCAN to begin SI analysis.<br />
                       Results will appear when scan completes.
                     </div>
                   </td>
@@ -3277,7 +3256,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
             </tbody>
           </table>
         </div>
-        
+
         {/* Pagination Controls */}
         {filteredScreenerData.length > 0 && (
           <div className="bg-black border-t border-gray-600 px-6 py-4">
@@ -3285,56 +3264,53 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
               <div className="text-sm text-gray-400">
                 Showing {startIndex + 1}-{Math.min(endIndex, filteredScreenerData.length)} of {filteredScreenerData.length} symbols
               </div>
-              
+
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
-                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${
-                    currentPage === 1
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${currentPage === 1
                       ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
                       : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
-                  }`}
+                    }`}
                 >
                   PREVIOUS
                 </button>
-                
+
                 <div className="flex items-center gap-1">
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
                     // Show first page, last page, current page, and pages around current
                     const showPage = page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1;
                     const showEllipsis = (page === 2 && currentPage > 3) || (page === totalPages - 1 && currentPage < totalPages - 2);
-                    
+
                     if (showEllipsis) {
                       return <span key={page} className="px-2 text-gray-500">...</span>;
                     }
-                    
+
                     if (!showPage) return null;
-                    
+
                     return (
                       <button
                         key={page}
                         onClick={() => setCurrentPage(page)}
-                        className={`px-3 py-2 text-sm font-bold border-2 transition-all ${
-                          currentPage === page
+                        className={`px-3 py-2 text-sm font-bold border-2 transition-all ${currentPage === page
                             ? 'bg-purple-600 border-purple-500 text-white'
                             : 'bg-black border-gray-600 text-gray-400 hover:border-purple-500 hover:text-white'
-                        }`}
+                          }`}
                       >
                         {page}
                       </button>
                     );
                   })}
                 </div>
-                
+
                 <button
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                   disabled={currentPage === totalPages}
-                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${
-                    currentPage === totalPages
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${currentPage === totalPages
                       ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
                       : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
-                  }`}
+                    }`}
                 >
                   NEXT
                 </button>
@@ -3349,7 +3325,7 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
 
 // Max Pain Dashboard Component - True MM-Optimal Expiry Target
 const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, currentPrice, gexByStrikeByExpiration, vexByStrikeByExpiration, expirations }) => {
-  
+
   const [selectedExpiration, setSelectedExpiration] = useState<string>('');
 
   // Get available future expirations
@@ -3405,7 +3381,7 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
 
     // Get all strikes and determine range dynamically based on actual options data
     const allStrikes = Object.keys(strikeData).map(Number).sort((a, b) => a - b);
-    
+
     // Find where significant OI exists (filter out strikes with < 100 total OI)
     const significantStrikes = allStrikes.filter(strike => {
       const data = strikeData[strike];
@@ -3426,13 +3402,13 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
     // Use actual data range (where OI exists) instead of arbitrary ±15%
     const lowestStrike = significantStrikes[0];
     const highestStrike = significantStrikes[significantStrikes.length - 1];
-    
+
     // Expand slightly beyond actual strikes (±5% buffer) to catch edge cases
     const bufferPct = 0.05;
     const strikeSpan = highestStrike - lowestStrike;
     const minStrike = lowestStrike - (strikeSpan * bufferPct);
     const maxStrike = highestStrike + (strikeSpan * bufferPct);
-    
+
     const relevantStrikes = allStrikes.filter(s => s >= minStrike && s <= maxStrike);
 
     // Test price points across the actual data range
@@ -3440,13 +3416,13 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
     const testMin = Math.max(minStrike, currentPrice * 0.70); // Safety floor at -30%
     const testMax = Math.min(maxStrike, currentPrice * 1.30); // Safety ceiling at +30%
     const testStep = (testMax - testMin) / 100; // 100 test points
-    
+
     for (let price = testMin; price <= testMax; price += testStep) {
       testPrices.push(price);
     }
 
     let totalOI = 0;
-    const strikeRiskData: Array<{strike: number; risk: number; oi: number; callOI: number; putOI: number; distance: number}> = [];
+    const strikeRiskData: Array<{ strike: number; risk: number; oi: number; callOI: number; putOI: number; distance: number }> = [];
 
     // Calculate MM Risk for each test price
     const riskResults = testPrices.map(testPrice => {
@@ -3462,7 +3438,7 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
         const putGamma = data.putGamma || 0;
         const callTheta = data.callTheta || 0;
         const putTheta = data.putTheta || 0;
-        
+
         // Get vega if available
         const callVega = vexData?.[strike]?.callVega || 0;
         const putVega = vexData?.[strike]?.putVega || 0;
@@ -3497,7 +3473,7 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
 
         // TRUE MM RISK FORMULA:
         // MM_Risk = OI * M * [|Delta| * |S-K| + 0.5 * Gamma * (S-K)^2 + |Theta| + |Vega * ΔV|]
-        
+
         const M = 100; // Contract multiplier
         const deltaV = 0.02; // Assumed 2% IV shift (conservative)
 
@@ -3507,7 +3483,7 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
           const gammaRisk = 0.5 * Math.abs(callGamma) * priceDiffSq;
           const thetaRisk = Math.abs(callTheta);
           const vegaRisk = Math.abs(callVega * deltaV);
-          
+
           totalRisk += callOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
         }
 
@@ -3517,7 +3493,7 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
           const gammaRisk = 0.5 * Math.abs(putGamma) * priceDiffSq;
           const thetaRisk = Math.abs(putTheta);
           const vegaRisk = Math.abs(putVega * deltaV);
-          
+
           totalRisk += putOI * M * (deltaRisk + gammaRisk + thetaRisk + vegaRisk);
         }
       });
@@ -3536,14 +3512,14 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
       };
     }
 
-    const optimalResult = riskResults.reduce((min, current) => 
+    const optimalResult = riskResults.reduce((min, current) =>
       current.risk < min.risk ? current : min
     );
 
     // Find the actual strike closest to optimal price (this is the MAX PAIN strike)
     let closestStrike = relevantStrikes[0] || currentPrice;
     let minDistance = Math.abs(closestStrike - optimalResult.testPrice);
-    
+
     relevantStrikes.forEach(strike => {
       const distance = Math.abs(strike - optimalResult.testPrice);
       if (distance < minDistance) {
@@ -3613,10 +3589,10 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
       {/* Professional Header Row */}
       <div className="bg-gradient-to-r from-black via-gray-950 to-black border border-gray-800 rounded">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-4">
-          
+
           {/* Left: Key Metrics */}
           <div className="lg:col-span-8 grid grid-cols-3 gap-4">
-            
+
             {/* Max Pain Strike */}
             <div className="bg-black/50 border-l-4 border-red-500 px-4 py-3">
               <div className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Max Pain</div>
@@ -3653,20 +3629,18 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
 
           {/* Right: Dealer Pressure + Expiration */}
           <div className="lg:col-span-4 flex flex-col gap-3">
-            
+
             {/* Dealer Pressure */}
-            <div className={`flex-1 border-l-4 px-4 py-2 rounded ${
-              priceDistance > 0 ? 'bg-red-950/30 border-red-500' :
-              'bg-green-950/30 border-green-500'
-            }`}>
-              <div className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">Dealer Pressure</div>
-              <div className={`text-sm font-bold leading-tight ${
-                Math.abs(priceDistance) < currentPrice * 0.01 ? 'text-yellow-400' :
-                priceDistance > 0 ? 'text-red-400' : 'text-green-400'
+            <div className={`flex-1 border-l-4 px-4 py-2 rounded ${priceDistance > 0 ? 'bg-red-950/30 border-red-500' :
+                'bg-green-950/30 border-green-500'
               }`}>
-                {Math.abs(priceDistance) < currentPrice * 0.01 
+              <div className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">Dealer Pressure</div>
+              <div className={`text-sm font-bold leading-tight ${Math.abs(priceDistance) < currentPrice * 0.01 ? 'text-yellow-400' :
+                  priceDistance > 0 ? 'text-red-400' : 'text-green-400'
+                }`}>
+                {Math.abs(priceDistance) < currentPrice * 0.01
                   ? '● PINNED'
-                  : priceDistance > 0 
+                  : priceDistance > 0
                     ? '↓ DOWNWARD'
                     : '↑ UPWARD'}
               </div>
@@ -3705,7 +3679,7 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
         <div className="border-b border-gray-800 px-4 py-3 bg-gray-950">
           <h3 className="text-xs font-bold text-white uppercase tracking-wider">Strike-Level Risk Analysis</h3>
         </div>
-        
+
         <div className="overflow-y-auto" style={{ maxHeight: '500px' }}>
           <table className="w-full">
             <thead className="bg-gray-950 sticky top-0 z-10">
@@ -3728,21 +3702,19 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
                 const riskPercent = (item.risk / maxRisk) * 100;
 
                 return (
-                  <tr 
+                  <tr
                     key={item.strike}
-                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${
-                      isMaxPain ? 'bg-red-950/20' :
-                      isHighestRisk ? 'bg-purple-950/20' :
-                      isATM ? 'bg-orange-950/10' : ''
-                    }`}
+                    className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${isMaxPain ? 'bg-red-950/20' :
+                        isHighestRisk ? 'bg-purple-950/20' :
+                          isATM ? 'bg-orange-950/10' : ''
+                      }`}
                   >
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
-                        <span className={`font-mono text-sm font-semibold ${
-                          isMaxPain ? 'text-red-400' :
-                          isHighestRisk ? 'text-purple-400' :
-                          isATM ? 'text-orange-400' : 'text-white'
-                        }`}>
+                        <span className={`font-mono text-sm font-semibold ${isMaxPain ? 'text-red-400' :
+                            isHighestRisk ? 'text-purple-400' :
+                              isATM ? 'text-orange-400' : 'text-white'
+                          }`}>
                           ${item.strike.toFixed(1)}
                         </span>
                         {isMaxPain && <span className="text-xs text-red-400 font-bold">● MAX PAIN</span>}
@@ -3752,7 +3724,7 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-2">
                         <div className="w-20 bg-gray-900 rounded-sm h-2">
-                          <div 
+                          <div
                             className={isHighestRisk ? 'bg-purple-500 h-full rounded-sm' : 'bg-red-500 h-full rounded-sm'}
                             style={{ width: `${riskPercent}%` }}
                           />
@@ -3778,21 +3750,19 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      <span className={`font-mono text-xs ${
-                        Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
-                        item.distance > 0 ? 'text-red-400' : 'text-green-400'
-                      }`}>
+                      <span className={`font-mono text-xs ${Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
+                          item.distance > 0 ? 'text-red-400' : 'text-green-400'
+                        }`}>
                         {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      <span className={`text-xs font-bold ${
-                        item.callOI > item.putOI * 1.5 ? 'text-green-400' :
-                        item.putOI > item.callOI * 1.5 ? 'text-red-400' :
-                        'text-gray-500'
-                      }`}>
+                      <span className={`text-xs font-bold ${item.callOI > item.putOI * 1.5 ? 'text-green-400' :
+                          item.putOI > item.callOI * 1.5 ? 'text-red-400' :
+                            'text-gray-500'
+                        }`}>
                         {item.callOI > item.putOI * 1.5 ? 'CALL' :
-                         item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
+                          item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
                       </span>
                     </td>
                   </tr>
@@ -3810,22 +3780,22 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
 // Vanna = -e^(-rT) × N'(d₁) × d₂/σ
 const calculateVanna = (strike: number, spotPrice: number, T: number, impliedVol: number, riskFreeRate: number = 0.0408): number => {
   if (T <= 0 || impliedVol <= 0 || spotPrice <= 0) return 0;
-  
+
   const sigma = impliedVol;
   const r = riskFreeRate;
   const S = spotPrice;
   const K = strike;
-  
+
   // Calculate d1 and d2
   const d1 = (Math.log(S / K) + (r + (sigma * sigma) / 2) * T) / (sigma * Math.sqrt(T));
   const d2 = d1 - sigma * Math.sqrt(T);
-  
+
   // Calculate N'(d1) - standard normal probability density function
   const nPrime_d1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1);
-  
+
   // Vanna = -e^(-rT) × N'(d₁) × d₂/σ
   const vanna = -Math.exp(-r * T) * nPrime_d1 * (d2 / sigma);
-  
+
   return vanna;
 };
 
@@ -3841,17 +3811,17 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [selectedTicker, setSelectedTicker] = useState('');
   const [tickerInput, setTickerInput] = useState('');
-  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callTheta?: number, putTheta?: number}}}>({});
-  const [dealerByStrikeByExpiration, setDealerByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}}>({});
-  
+  const [gexByStrikeByExpiration, setGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callTheta?: number, putTheta?: number } } }>({});
+  const [dealerByStrikeByExpiration, setDealerByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } }>({});
+
   // Backup original base data before live mode modifies it
-  const [baseGexByStrikeByExpiration, setBaseGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callTheta?: number, putTheta?: number}}}>({});
-  const [baseDealerByStrikeByExpiration, setBaseDealerByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}}>({});
-  
+  const [baseGexByStrikeByExpiration, setBaseGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callTheta?: number, putTheta?: number } } }>({});
+  const [baseDealerByStrikeByExpiration, setBaseDealerByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } }>({});
+
   const [viewMode, setViewMode] = useState<'NET' | 'CP'>('CP'); // C/P by default
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
-  const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}}>({});
-  const [flowGexByStrikeByExpiration, setFlowGexByStrikeByExpiration] = useState<{[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number}}}>({});
+  const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } }>({});
+  const [flowGexByStrikeByExpiration, setFlowGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number } } }>({});
   const [showGEX, setShowGEX] = useState(false);
   const [showDealer, setShowDealer] = useState(false);
   const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX');
@@ -3866,10 +3836,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [liveOIProgress, setLiveOIProgress] = useState(0);
   const [showVEX, setShowVEX] = useState(false);
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
-  const [useBloombergTheme, setUseBloombergTheme] = useState(() => {
-    // Default to true on mobile
-    return typeof window !== 'undefined' && window.innerWidth < 768;
-  }); // Bloomberg Terminal theme toggle
+  const [useBloombergTheme, setUseBloombergTheme] = useState(true); // Bloomberg Terminal theme - default ON
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'MAXPAIN'>('MM');
 
@@ -3877,7 +3844,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
   // Calculate number of active tables and update parent container width
   const activeTableCount = [showGEX, showDealer, showFlowGEX].filter(Boolean).length;
-  
+
   // Dynamic strike column width for workbench tables based on data
   const workbenchStrikeWidth = useMemo(() => {
     const allStrikes = data.map(d => d.strike);
@@ -3887,7 +3854,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     const calculatedWidth = 20 + (strikeLength * 6) + 8;
     return Math.max(50, Math.min(calculatedWidth, 70)); // Min 50px, max 70px
   }, [data]);
-  
+
   React.useEffect(() => {
     // Find the parent sidebar panel and update its width ONLY if it's the dealer attraction panel
     const sidebarPanel = document.querySelector('[data-sidebar-panel="liquid"]') as HTMLElement;
@@ -3901,7 +3868,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       const oiCount = showOI ? 1 : 0;
       const totalItems = oiCount + activeTableCount;
       console.log('📐 Setting panel width:', { totalItems, oiCount, activeTableCount });
-      
+
       if (totalItems === 0 || totalItems === 1) {
         // 0 items OR 1 item (OI only OR 1 table only) - 1200px
         console.log('✅ Panel width: 1200px (single item)');
@@ -3938,36 +3905,36 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     console.log('🚀 Starting Live OI scan for', tickerToScan);
     setLiveOILoading(true);
     setLiveOIProgress(0);
-    
+
     const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerToScan}`);
     let allTrades: any[] = [];
-    
+
     eventSource.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
         if (data.type === 'complete' && data.trades?.length > 0) {
           console.log(`📊 Received ${data.trades.length} trades`);
           allTrades = data.trades;
           eventSource.close();
           setLiveOIProgress(20); // 20% - trades received
-          
+
           // Step 1: Fetch volume and OI data for all trades using Polygon API
           const uniqueExpirations = [...new Set(allTrades.map(t => t.expiry))];
           console.log(`📅 Fetching data for ${uniqueExpirations.length} expirations`);
-          
+
           const allContracts = new Map();
-          
+
           // Fetch data for each expiration
           for (let i = 0; i < uniqueExpirations.length; i++) {
             const expiry = uniqueExpirations[i];
             const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
-            
+
             try {
               const response = await fetch(
                 `https://api.polygon.io/v3/snapshot/options/${tickerToScan}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
               );
-              
+
               if (response.ok) {
                 const chainData = await response.json();
                 if (chainData.results) {
@@ -3982,17 +3949,17 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   console.log(`  ✅ Found ${chainData.results.length} contracts for ${expiryParam}`);
                 }
               }
-              
+
               // Update progress: 20% to 60% during contract fetching
               setLiveOIProgress(20 + Math.round((i + 1) / uniqueExpirations.length * 40));
             } catch (error) {
               console.error(`  ❌ Error fetching ${expiryParam}:`, error);
             }
           }
-          
+
           console.log(`📊 Total contracts fetched: ${allContracts.size}`);
           setLiveOIProgress(60); // 60% - contracts fetched
-          
+
           // Step 2: Enrich trades with volume/OI
           const enrichedTrades = allTrades.map(trade => {
             const contractData = allContracts.get(trade.ticker);
@@ -4004,16 +3971,16 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             };
           });
           setLiveOIProgress(70); // 70% - trades enriched
-          
+
           // Step 3: Detect fill styles (copied from AlgoFlow)
           const tradesWithFillStyle = enrichedTrades.map(trade => {
             const volume = trade.volume || 0;
             const tradeSize = trade.trade_size || 0;
             const oi = trade.open_interest || 0;
-            
+
             // Fill style logic from AlgoFlow
             let fillStyle = 'N/A';
-            
+
             if (tradeSize > oi * 0.5) {
               fillStyle = 'AA'; // Aggressive opening
             } else if (tradeSize > volume * 0.3) {
@@ -4023,58 +3990,58 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             } else {
               fillStyle = 'B'; // Likely closing
             }
-            
+
             return {
               ...trade,
               fill_style: fillStyle
             };
           });
-          
+
           console.log(`✅ Enriched ${tradesWithFillStyle.length} trades with volume/OI and fill_style`);
           setLiveOIProgress(80); // 80% - fill styles calculated
-          
+
           // Store trades data for Flow Map
           setFlowTradesData(tradesWithFillStyle);
           console.log(`💰 Storing ${tradesWithFillStyle.length} trades for Flow Map calculation`);
-          
+
           // Step 4: Calculate Live OI for each unique contract
           const liveOIMap = new Map<string, number>();
           const uniqueContracts = new Set<string>();
-          
+
           tradesWithFillStyle.forEach(trade => {
             const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
             uniqueContracts.add(contractKey);
           });
-          
+
           uniqueContracts.forEach(contractKey => {
-            const matchingTrade = tradesWithFillStyle.find(t => 
+            const matchingTrade = tradesWithFillStyle.find(t =>
               `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
             );
-            
+
             const originalOI = matchingTrade?.open_interest || 0;
-            
+
             // Calculate Live OI using the trades
-            const contractTrades = tradesWithFillStyle.filter(t => 
+            const contractTrades = tradesWithFillStyle.filter(t =>
               `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}` === contractKey
             );
-            
+
             let liveOI = originalOI;
             const processedTradeIds = new Set<string>();
-            
+
             // Sort trades chronologically
-            const sortedTrades = [...contractTrades].sort((a, b) => 
+            const sortedTrades = [...contractTrades].sort((a, b) =>
               new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
             );
-            
+
             sortedTrades.forEach(trade => {
               const tradeId = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp}_${trade.trade_size}`;
-              
+
               if (processedTradeIds.has(tradeId)) return;
               processedTradeIds.add(tradeId);
-              
+
               const contracts = trade.trade_size || 0;
               const fillStyle = trade.fill_style;
-              
+
               switch (fillStyle) {
                 case 'A':
                 case 'AA':
@@ -4090,22 +4057,22 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   break;
               }
             });
-            
+
             liveOI = Math.max(0, liveOI);
             liveOIMap.set(contractKey, liveOI);
-            
+
             console.log(`📊 ${contractKey}: OI ${originalOI} → Live OI ${liveOI}`);
           });
-          
+
           setLiveOIData(liveOIMap);
           setLiveOIProgress(100); // 100% - complete
           console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
-          
+
           // Step 5: Calculate simple premium-based flow (no GEX, no Greeks)
           console.log(`💰 Flow Map: Simple premium tracking for new trades (AA, A, BB fill styles)`);
-          
+
           console.log(`📊 Live OI calculated for ${liveOIMap.size} contracts`);
-          
+
           // Check if base options data exists, if not fetch it first
           if (Object.keys(gexByStrikeByExpiration).length === 0) {
             console.log(`⚠️ Base options data not loaded yet. Fetching now...`);
@@ -4128,7 +4095,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         setLiveOIProgress(0);
       }
     };
-    
+
     eventSource.onerror = (error) => {
       console.error('❌ EventSource error:', error);
       eventSource.close();
@@ -4139,7 +4106,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const filterTo3Months = (expirations: string[]) => {
     const threeMonthsFromNow = new Date();
     threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
-    
+
     return expirations.filter(exp => {
       const expDate = new Date(exp + 'T00:00:00Z');
       return expDate <= threeMonthsFromNow;
@@ -4172,28 +4139,28 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     setLoading(true);
     setError(null);
     setProgress(0);
-    
 
-    
+
+
     try {
       // Get options chain data
       const apiStartTime = performance.now();
       setProgress(10);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
-      
+
       // Use working endpoints for indices, regular endpoint for stocks
       const tickerUpper = selectedTicker.toUpperCase();
-      const apiEndpoint = tickerUpper === 'SPX' 
-        ? `/api/spx-fix?ticker=${selectedTicker}` 
+      const apiEndpoint = tickerUpper === 'SPX'
+        ? `/api/spx-fix?ticker=${selectedTicker}`
         : tickerUpper === 'VIX'
-        ? `/api/vix-fix?ticker=${selectedTicker}`
-        : `/api/options-chain?ticker=${selectedTicker}`;
+          ? `/api/vix-fix?ticker=${selectedTicker}`
+          : `/api/options-chain?ticker=${selectedTicker}`;
       const optionsResponse = await fetch(apiEndpoint);
       const optionsResult = await optionsResponse.json();
-      
+
       setProgress(20);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
-      
+
       if (!optionsResult.success || !optionsResult.data) {
         throw new Error(optionsResult.error || 'Failed to fetch options data');
       }
@@ -4209,44 +4176,44 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         console.log(`  6850 PUT from API: ${nov10Data.puts?.['6850']?.open_interest || 'NOT FOUND'}`);
         console.log(`  6900 PUT from API: ${nov10Data.puts?.['6900']?.open_interest || 'NOT FOUND'}`);
       }
-      
+
       const currentPrice = optionsResult.currentPrice;
       setCurrentPrice(currentPrice);
-      
 
-      
+
+
       // Get all available expiration dates, sorted
       const allExpirations = Object.keys(optionsResult.data).sort();
-      
+
       // Filter to only 3 months max for performance
       const allAvailableExpirations = filterTo3Months(allExpirations);
-      
 
-      
+
+
       setExpirations(allAvailableExpirations);
-      
+
       // Calculate OI, GEX, VEX for all expiration dates with organized processing order
       console.log(`🚨🚨 DEALER ATTRACTION COMPONENT - Starting organized calculation sequence: OI → GEX → VEX for ${selectedTicker} 🚨🚨🚨`);
       const calcStartTime = performance.now();
       setProgress(25);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
-      
+
       // Initialize data structures - CALCULATE BOTH Net GEX and Net Dealer
-      const oiByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number}}} = {};
-      const gexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}} = {};
-      const dealerByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number}}} = {};
-      const vexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number}}} = {};
-      const flowGexByStrikeByExp: {[expiration: string]: {[strike: number]: {call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number}}} = {};
+      const oiByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number } } } = {};
+      const gexByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } } = {};
+      const dealerByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } } } = {};
+      const vexByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } } = {};
+      const flowGexByStrikeByExp: { [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number } } } = {};
       const allStrikes = new Set<number>();
-      
+
       // Get Live OI data from parameter (if passed) or React state
       const liveOIDataFromState = liveOIMapOverride || liveOIData;
       const tradesData = tradesDataOverride || flowTradesData;
       console.log(`💰 Flow Map: Calculating simple premium values for new trades (${tradesData.length} trades available)`);
-      
+
       // Calculate premium values by strike from flow trades (AA, A, BB only)
-      const flowPremiumByStrike: {[expiration: string]: {[strike: number]: {callPremium: number, putPremium: number, callContracts: number, putContracts: number}}} = {};
-      
+      const flowPremiumByStrike: { [expiration: string]: { [strike: number]: { callPremium: number, putPremium: number, callContracts: number, putContracts: number } } } = {};
+
       // DEBUG: Log first few trades to see what data we have
       if (tradesData.length > 0) {
         console.log(`🔍 FLOW MAP DEBUG - First trade sample:`, {
@@ -4261,35 +4228,35 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           all_keys: Object.keys(tradesData[0])
         });
       }
-      
+
       let openingTradesCount = 0;
       let totalPremiumSum = 0;
-      
+
       tradesData.forEach(trade => {
         // Only count opening trades (AA, A, BB)
         if (['AA', 'A', 'BB'].includes(trade.fill_style)) {
           openingTradesCount++;
-          
+
           const expiry = trade.expiry;
           const strike = trade.strike;
           const contracts = trade.trade_size || 0;
-          
+
           // Calculate premium - the total_premium should already be the full notional value
           const premiumPerContract = trade.premium_per_contract || 0;
           const totalCost = trade.total_premium || (premiumPerContract * contracts * 100);
-          
+
           totalPremiumSum += totalCost;
-          
+
           // DEBUG: Log if premium is zero
           if (totalCost === 0) {
             console.warn(`⚠️ ZERO PREMIUM: ${trade.type} ${strike} ${expiry} - premium_per_contract=${premiumPerContract}, total_premium=${trade.total_premium}, contracts=${contracts}`);
           }
-          
+
           if (!flowPremiumByStrike[expiry]) flowPremiumByStrike[expiry] = {};
           if (!flowPremiumByStrike[expiry][strike]) {
             flowPremiumByStrike[expiry][strike] = { callPremium: 0, putPremium: 0, callContracts: 0, putContracts: 0 };
           }
-          
+
           if (trade.type === 'call') {
             flowPremiumByStrike[expiry][strike].callPremium += totalCost;
             flowPremiumByStrike[expiry][strike].callContracts += contracts;
@@ -4305,10 +4272,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           }
         }
       });
-      
+
       console.log(`💰 FLOW MAP SUMMARY: ${openingTradesCount} opening trades (AA/A/BB), Total Premium: $${totalPremiumSum.toLocaleString()}`);
       console.log(`💰 Calculated premiums for ${Object.keys(flowPremiumByStrike).length} expirations`);
-      
+
       // DEBUG: Show sample of premiums by expiration
       Object.keys(flowPremiumByStrike).slice(0, 2).forEach(exp => {
         const strikes = Object.keys(flowPremiumByStrike[exp]).slice(0, 3);
@@ -4320,31 +4287,31 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           }
         });
       });
-      
+
       // Smart batching: larger batches for more expirations
-      const batchSize = allAvailableExpirations.length <= 10 ? allAvailableExpirations.length : 
-                        allAvailableExpirations.length <= 30 ? 10 : 20;
-      
+      const batchSize = allAvailableExpirations.length <= 10 ? allAvailableExpirations.length :
+        allAvailableExpirations.length <= 30 ? 10 : 20;
+
       for (let batchStart = 0; batchStart < allAvailableExpirations.length; batchStart += batchSize) {
         const batchEnd = Math.min(batchStart + batchSize, allAvailableExpirations.length);
         const batch = allAvailableExpirations.slice(batchStart, batchEnd);
-        
+
         // Process this batch - calculate BOTH Net GEX and Net Dealer simultaneously
         batch.forEach((expDate) => {
           const { calls, puts } = optionsResult.data[expDate];
-          
+
           // Initialize all data structures for this expiration
           oiByStrikeByExp[expDate] = {};
           gexByStrikeByExp[expDate] = {};
           dealerByStrikeByExp[expDate] = {}; // Initialize dealer data structure
           vexByStrikeByExp[expDate] = {};
-          
+
           // STEP 1: Process calls - Calculate OI first, then build other metrics from it
           console.log(`🚨 Processing expiration ${expDate}, found ${Object.keys(calls).length} call strikes`);
           Object.entries(calls).forEach(([strike, data]: [string, any]) => {
             const strikeNum = parseFloat(strike);
             let oi = data.open_interest || 0;
-            
+
             // 🔥 USE LIVE OI IF AVAILABLE
             const contractKey = `${selectedTicker}_${strikeNum}_call_${expDate}`;
             if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
@@ -4352,19 +4319,19 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
               oi = liveOI;
             }
-            
+
             if (oi > 0) {
               // STEP 1A: Calculate OI (Open Interest) - Foundation for all other calculations
               console.log(`📊 Step 1A - Call OI: Strike ${strikeNum} = ${oi}`);
               oiByStrikeByExp[expDate][strikeNum] = { call: oi, put: 0, callOI: oi, putOI: 0 };
-              
+
               // STEP 1B: Calculate GEX and get all Greeks from API
               const gamma = data.greeks?.gamma || 0;
               const delta = data.greeks?.delta || 0;
               const vega = data.greeks?.vega || 0;
               const theta = data.greeks?.theta || 0; // Use Polygon's theta directly
               let vanna = data.greeks?.vanna || 0;
-              
+
               // If vanna is 0 or missing, calculate it using Black-Scholes formula
               if (vanna === 0 && gamma !== 0) {
                 const expirationDate = new Date(expDate);
@@ -4374,31 +4341,31 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 vanna = calculateVanna(strikeNum, currentPrice, T, iv);
                 console.log(`🧮 CALCULATED VANNA - Call: Strike ${strikeNum}, T=${T.toFixed(4)}, IV=${iv.toFixed(4)}, vanna=${vanna.toFixed(8)}`);
               }
-              
+
               console.log(`📊 GREEKS DEBUG - Call: Strike ${strikeNum}, gamma=${gamma}, delta=${delta}, vanna=${vanna}, theta=${theta} (from API), vega=${vega}`);
               gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0, callTheta: theta, putTheta: 0, callVega: vega, putVega: 0 };
               dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
-              
+
               // Flow Map: Simple premium-based calculation (no GEX, no Greeks)
               if (!flowGexByStrikeByExp[expDate]) flowGexByStrikeByExp[expDate] = {};
-              
+
               const flowData = flowPremiumByStrike[expDate]?.[strikeNum];
               const callPremium = flowData?.callPremium || 0;
               const callContracts = flowData?.callContracts || 0;
-              
-              flowGexByStrikeByExp[expDate][strikeNum] = { 
+
+              flowGexByStrikeByExp[expDate][strikeNum] = {
                 call: callPremium,  // Store premium directly
-                put: 0, 
-                callOI: oi, 
-                putOI: 0, 
+                put: 0,
+                callOI: oi,
+                putOI: 0,
                 callVolume: callContracts,  // Store contract count
-                putVolume: 0 
+                putVolume: 0
               };
-              
+
               if (callPremium > 0) {
                 console.log(`💰 FLOW MAP Call: Strike ${strikeNum} = $${callPremium.toFixed(0)} (${callContracts} contracts)`);
               }
-              
+
               // ALWAYS calculate BOTH formulas
               // 1. NET GEX - Standard formula
               console.log(`📊 Calculating NET GEX (standard) for call`);
@@ -4407,14 +4374,14 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 gexByStrikeByExp[expDate][strikeNum].call = gex;
                 console.log(`⚡ GEX Call: Strike ${strikeNum} = ${gamma} × ${oi} × ${currentPrice}² × 100 = ${gex}`);
               }
-              
+
               // 2. NET DEALER - Enhanced formula
               console.log(`🔧 Calculating NET DEALER (enhanced) for call`);
               if (gamma && delta !== undefined && vanna !== undefined) {
                 const expirationDate = new Date(expDate);
                 const today = new Date();
                 const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001); // Min 0.001 to avoid division by zero
-                
+
                 if (T >= 0) {
                   const beta = 0.25;
                   const rho_S_sigma = -0.7;
@@ -4427,7 +4394,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   console.log(`🎯 DEALER Call: Strike ${strikeNum} = ${oi} × ${gammaEff.toFixed(6)} × ${liveWeight.toFixed(4)} × ${wT.toFixed(4)} × ${currentPrice} × 100 = ${dealerValue}`);
                 }
               }
-              
+
               // STEP 1C: Calculate VEX using the OI we already have
               if (!vexByStrikeByExp[expDate][strikeNum]) {
                 vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
@@ -4438,38 +4405,38 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               if (vega && vega !== 0) {
                 // Professional VEX Formula (Goldman Sachs style):
                 // VEX = Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
-                
+
                 const expirationDate = new Date(expDate);
                 const today = new Date();
                 const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
-                
+
                 // Moneyness weight: ATM options have highest vega sensitivity
                 // Weight peaks at ATM and decays for OTM/ITM
                 const moneyness = strikeNum / currentPrice;
                 const moneynessWeight = Math.exp(-Math.pow(Math.log(moneyness), 2) / 0.5); // Gaussian centered at ATM
-                
+
                 // Time weight: Vega is highest for longer-dated options
                 // But also weight by near-term expiration impact (dealers more sensitive)
                 const timeWeight = T > 0 ? Math.sqrt(T) * (1 + 0.5 / Math.max(T, 0.01)) : 0;
-                
+
                 // Professional VEX with proper notional scaling
                 const vex = vega * oi * currentPrice * 100 * moneynessWeight * timeWeight;
-                
+
                 vexByStrikeByExp[expDate][strikeNum].call = vex;
                 console.log(`🟣 Step 1C - Call VEX (Pro): Strike ${strikeNum} = ${vega} × ${oi} × ${currentPrice} × 100 × ${moneynessWeight.toFixed(3)} × ${timeWeight.toFixed(3)} = ${vex}`);
               } else {
                 console.log(`❌ Call VEX ZERO: Strike ${strikeNum} - vega is ${vega} (greeks exist: ${!!data.greeks})`);
               }
-              
 
-              
+
+
               allStrikes.add(strikeNum);
             }
           });
-          
+
           // STEP 2: Process puts - Same order: OI → GEX → VEX → Premium with Theta calculation
           console.log(`🔍 PUT PROCESSING DEBUG: Found ${Object.keys(puts).length} put strikes for ${expDate}`);
-          
+
           // Special debugging for Nov 10
           if (expDate === '2025-11-10') {
             console.log(`🚨 NOV 10 PUT PROCESSING DEBUG:`);
@@ -4479,11 +4446,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             console.log(`  6850 in puts: ${puts.hasOwnProperty('6850')}`);
             console.log(`  6900 in puts: ${puts.hasOwnProperty('6900')}`);
           }
-          
+
           Object.entries(puts).forEach(([strike, data]: [string, any]) => {
             const strikeNum = parseFloat(strike);
             let oi = data.open_interest || 0;
-            
+
             // 🔥 USE LIVE OI IF AVAILABLE
             const contractKey = `${selectedTicker}_${strikeNum}_put_${expDate}`;
             if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
@@ -4491,12 +4458,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
               oi = liveOI;
             }
-            
+
             // Log high OI puts for Nov 10
             if (expDate === '2025-11-10' && oi > 100) {
               console.log(`🎯 NOV 10 HIGH OI PUT: Strike ${strikeNum} = OI ${oi}`);
             }
-            
+
             if (oi > 0) {
               // STEP 2A: Update OI with put data (initialize if not exists from calls)
               if (!oiByStrikeByExp[expDate][strikeNum]) {
@@ -4505,7 +4472,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               oiByStrikeByExp[expDate][strikeNum].put = oi;
               oiByStrikeByExp[expDate][strikeNum].putOI = oi;
               console.log(`📊 Step 2A - Put OI: Strike ${strikeNum} = ${oi}`);
-              
+
               // STEP 2B: Update GEX with put data and get all Greeks from API
               if (!gexByStrikeByExp[expDate][strikeNum]) {
                 gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0, callVanna: 0, putVanna: 0, callTheta: 0, putTheta: 0, callVega: 0, putVega: 0 };
@@ -4514,13 +4481,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               if (!dealerByStrikeByExp[expDate][strikeNum]) {
                 dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callDelta: 0, putDelta: 0, callVanna: 0, putVanna: 0 };
               }
-              
+
               const gamma = data.greeks?.gamma || 0;
               const delta = data.greeks?.delta || 0;
               const vega = data.greeks?.vega || 0;
               const theta = data.greeks?.theta || 0; // Use Polygon's theta directly
               let vanna = data.greeks?.vanna || 0;
-              
+
               // If vanna is 0 or missing, calculate it using Black-Scholes formula
               if (vanna === 0 && gamma !== 0) {
                 const expirationDate = new Date(expDate);
@@ -4530,38 +4497,38 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 vanna = calculateVanna(strikeNum, currentPrice, T, iv);
                 console.log(`🧮 CALCULATED VANNA - Put: Strike ${strikeNum}, T=${T.toFixed(4)}, IV=${iv.toFixed(4)}, vanna=${vanna.toFixed(8)}`);
               }
-              
+
               gexByStrikeByExp[expDate][strikeNum].putOI = oi;
               gexByStrikeByExp[expDate][strikeNum].putGamma = gamma;
               gexByStrikeByExp[expDate][strikeNum].putDelta = delta;
               gexByStrikeByExp[expDate][strikeNum].putVanna = vanna;
               gexByStrikeByExp[expDate][strikeNum].putTheta = theta;
               gexByStrikeByExp[expDate][strikeNum].putVega = vega;
-              
+
               console.log(`📊 GREEKS DEBUG - Put: Strike ${strikeNum}, gamma=${gamma}, delta=${delta}, vanna=${vanna}, theta=${theta} (from API), vega=${vega}`);
-              
+
               dealerByStrikeByExp[expDate][strikeNum].putOI = oi;
               dealerByStrikeByExp[expDate][strikeNum].putGamma = gamma;
               dealerByStrikeByExp[expDate][strikeNum].putDelta = delta;
               dealerByStrikeByExp[expDate][strikeNum].putVanna = vanna;
-              
+
               // Flow Map: Simple premium-based calculation for puts (no GEX, no Greeks)
               if (!flowGexByStrikeByExp[expDate][strikeNum]) {
                 flowGexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: oi, callVolume: 0, putVolume: 0 };
               }
-              
+
               const putFlowData = flowPremiumByStrike[expDate]?.[strikeNum];
               const putPremium = putFlowData?.putPremium || 0;
               const putContracts = putFlowData?.putContracts || 0;
-              
+
               flowGexByStrikeByExp[expDate][strikeNum].put = putPremium;  // Store premium directly
               flowGexByStrikeByExp[expDate][strikeNum].putOI = oi;
               flowGexByStrikeByExp[expDate][strikeNum].putVolume = putContracts;  // Store contract count
-              
+
               if (putPremium > 0) {
                 console.log(`💰 FLOW MAP Put: Strike ${strikeNum} = $${putPremium.toFixed(0)} (${putContracts} contracts)`);
               }
-              
+
               // ALWAYS calculate BOTH formulas
               // 1. NET GEX - Standard formula
               console.log(`📊 Calculating NET GEX (standard) for put`);
@@ -4570,14 +4537,14 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 gexByStrikeByExp[expDate][strikeNum].put = gex;
                 console.log(`⚡ GEX Put: Strike ${strikeNum} = -${gamma} × ${oi} × ${currentPrice}² × 100 = ${gex}`);
               }
-              
+
               // 2. NET DEALER - Enhanced formula
               console.log(`🔧 Calculating NET DEALER (enhanced) for put`);
               if (gamma && delta !== undefined && vanna !== undefined) {
                 const expirationDate = new Date(expDate);
                 const today = new Date();
                 const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001); // Min 0.001 to avoid division by zero
-                
+
                 if (T >= 0) {
                   const beta = 0.25;
                   const rho_S_sigma = -0.7;
@@ -4590,9 +4557,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   console.log(`🎯 DEALER Put: Strike ${strikeNum} = -${oi} × ${gammaEff.toFixed(6)} × ${liveWeight.toFixed(4)} × ${wT.toFixed(4)} × ${currentPrice} × 100 = ${dealerValue}`);
                 }
               }
-              
 
-              
+
+
               // STEP 2C: Update VEX with put data
               if (!vexByStrikeByExp[expDate][strikeNum]) {
                 vexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0, callVega: 0, putVega: 0 };
@@ -4603,56 +4570,56 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               if (vega) {
                 // Professional VEX Formula (Goldman Sachs style):
                 // VEX = -Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
-                
+
                 const expirationDate = new Date(expDate);
                 const today = new Date();
                 const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
-                
+
                 // Moneyness weight: ATM options have highest vega sensitivity
                 const moneyness = strikeNum / currentPrice;
                 const moneynessWeight = Math.exp(-Math.pow(Math.log(moneyness), 2) / 0.5); // Gaussian centered at ATM
-                
+
                 // Time weight: Vega is highest for longer-dated options
                 const timeWeight = T > 0 ? Math.sqrt(T) * (1 + 0.5 / Math.max(T, 0.01)) : 0;
-                
+
                 // Professional VEX with proper notional scaling (negative for puts)
                 const vex = -vega * oi * currentPrice * 100 * moneynessWeight * timeWeight;
-                
+
                 vexByStrikeByExp[expDate][strikeNum].put = vex;
                 console.log(`🟣 Step 2C - Put VEX (Pro): Strike ${strikeNum} = -${vega} × ${oi} × ${currentPrice} × 100 × ${moneynessWeight.toFixed(3)} × ${timeWeight.toFixed(3)} = ${vex}`);
               } else {
                 console.log(`❌ Put VEX ZERO: Strike ${strikeNum} - vega is ${vega}`);
               }
-              
 
-              
+
+
               allStrikes.add(strikeNum);
             }
           });
         });
-        
+
         // Update progress and yield to browser - FORCE UI UPDATE EVERY BATCH
         const prog = 25 + Math.round((batchEnd / allAvailableExpirations.length) * 65);
         setProgress(prog);
-        
+
         // Always yield to UI for progress updates
         await new Promise(resolve => setTimeout(resolve, 0));
       }
-      
 
-      
+
+
       setProgress(92);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
-      
+
       // ALWAYS store ALL calculations - we calculated both formulas simultaneously
       console.log(`✅ Calculation sequence complete for ${selectedTicker}. Storing ALL formulas...`);
       console.log(`📊 STORING NET GEX (Standard Formula) - ${Object.keys(gexByStrikeByExp).length} expirations`);
       console.log(`📊 STORING NET DEALER (Enhanced Formula) - ${Object.keys(dealerByStrikeByExp).length} expirations`);
-      
+
       // Store both calculations - they were computed in parallel
       setGexByStrikeByExpiration(gexByStrikeByExp);
       setDealerByStrikeByExpiration(dealerByStrikeByExp);
-      
+
       // If NOT in live mode, also save as base (original) data
       if (!liveOIMapOverride) {
         console.log(`💾 SAVING BASE DATA (not live mode)`);
@@ -4661,63 +4628,63 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       } else {
         console.log(`🔴 LIVE MODE: Not overwriting base data backup`);
       }
-      
+
       setFlowGexByStrikeByExpiration(flowGexByStrikeByExp);
       console.log(`🔥 STATE UPDATED: GEX=${Object.keys(gexByStrikeByExp).length}, DEALER=${Object.keys(dealerByStrikeByExp).length}, FLOW GEX=${Object.keys(flowGexByStrikeByExp).length} expirations`);
       setProgress(87);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
-      
+
       setVexByStrikeByExpiration(vexByStrikeByExp);
       setProgress(90);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
-      
+
       console.log(`🎯 All data structures updated: GEX, VEX calculated from foundational OI data`);
       setProgress(95);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
-      
+
       // Format and display data - store ALL strikes, filter at render time
       const relevantStrikes = Array.from(allStrikes)
         .sort((a, b) => b - a);
-      
-        const formattedData = relevantStrikes.map(strike => {
-          const row: GEXData = { strike };
-          allAvailableExpirations.forEach(exp => {
-            const data = gexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
-            const flowData = flowGexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVolume: 0, putVolume: 0 };
-            const vexData = vexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
-            
-            // DEBUG: Log flow data for first few strikes
-            if (relevantStrikes.indexOf(strike) < 3 && (flowData.call !== 0 || flowData.put !== 0)) {
-              console.log(`🔍 FLOW DATA for Strike ${strike} ${exp}:`, {
-                call: flowData.call,
-                put: flowData.put,
-                callVolume: flowData.callVolume,
-                putVolume: flowData.putVolume,
-                flowNet: flowData.call - flowData.put
-              });
-            }
-            
-            row[exp] = { 
-              call: data.call, 
-              put: data.put, 
-              net: data.call + data.put, 
-              callOI: data.callOI, 
-              putOI: data.putOI,
-              flowCall: flowData.call,
-              flowPut: flowData.put,
-              flowNet: flowData.call - flowData.put,  // Net = Calls premium - Puts premium (positive = bullish)
-              callVex: vexData.call,
-              putVex: vexData.put
-            };
-          });
-          return row;
+
+      const formattedData = relevantStrikes.map(strike => {
+        const row: GEXData = { strike };
+        allAvailableExpirations.forEach(exp => {
+          const data = gexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
+          const flowData = flowGexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVolume: 0, putVolume: 0 };
+          const vexData = vexByStrikeByExp[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0 };
+
+          // DEBUG: Log flow data for first few strikes
+          if (relevantStrikes.indexOf(strike) < 3 && (flowData.call !== 0 || flowData.put !== 0)) {
+            console.log(`🔍 FLOW DATA for Strike ${strike} ${exp}:`, {
+              call: flowData.call,
+              put: flowData.put,
+              callVolume: flowData.callVolume,
+              putVolume: flowData.putVolume,
+              flowNet: flowData.call - flowData.put
+            });
+          }
+
+          row[exp] = {
+            call: data.call,
+            put: data.put,
+            net: data.call + data.put,
+            callOI: data.callOI,
+            putOI: data.putOI,
+            flowCall: flowData.call,
+            flowPut: flowData.put,
+            flowNet: flowData.call - flowData.put,  // Net = Calls premium - Puts premium (positive = bullish)
+            callVex: vexData.call,
+            putVex: vexData.put
+          };
         });
-      
+        return row;
+      });
+
       console.log(`📊 FINAL FORMATTED DATA SAMPLE (first 3 rows):`, formattedData.slice(0, 3));
       setData(formattedData);
       setProgress(100);
       setLoading(false);
-      
+
       // If this was triggered by Live OI, hide that loading state too
       if (liveOIMapOverride) {
         console.log(`✅ Live OI recalculation complete`);
@@ -4727,7 +4694,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setLoading(false);
-      
+
       // Also hide Live OI loading on error
       if (liveOIMapOverride) {
         setLiveOILoading(false);
@@ -4753,14 +4720,14 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const allGEXCalculatedData = useMemo(() => {
     const gexData = gexByStrikeByExpiration;
     const willUseLiveData = liveMode && liveOIData.size > 0;
-    
+
     console.log(`🔄 RECALCULATING allGEXCalculatedData - LIVE: ${liveMode}, liveOIData.size: ${liveOIData.size}`);
     console.log(`  ${willUseLiveData ? '✅ WILL USE LIVE OI DATA' : '❌ WILL USE BASE DATA ONLY'}`);
-    
+
     if (!gexData || Object.keys(gexData).length === 0) {
       return [];
     }
-    
+
     const allStrikes = Array.from(new Set([
       ...Object.values(gexData).flatMap(exp => Object.keys(exp).map(Number))
     ])).sort((a, b) => b - a);
@@ -4769,36 +4736,36 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       const row: GEXData = { strike };
       expirations.forEach(exp => {
         const greeksData = gexData[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined };
-        
+
         let callGEX = greeksData.call;
         let putGEX = greeksData.put;
         let callOI = greeksData.callOI;
         let putOI = greeksData.putOI;
-        
+
         // Apply Live OI recalculations if active (Net GEX formula)
         if (liveMode && liveOIData.size > 0) {
           const callKey = `${selectedTicker}_${strike}_call_${exp}`;
           const putKey = `${selectedTicker}_${strike}_put_${exp}`;
-          
+
           const liveCallOI = liveOIData.get(callKey);
           const livePutOI = liveOIData.get(putKey);
-          
+
           if (liveCallOI !== undefined && greeksData.callGamma) {
             callOI = liveCallOI;
             callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
           }
-          
+
           if (livePutOI !== undefined && greeksData.putGamma) {
             putOI = livePutOI;
             putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
           }
         }
-        
-        row[exp] = { 
-          call: callGEX, 
-          put: putGEX, 
-          net: callGEX + putGEX, 
-          callOI: callOI, 
+
+        row[exp] = {
+          call: callGEX,
+          put: putGEX,
+          net: callGEX + putGEX,
+          callOI: callOI,
           putOI: putOI
         };
       });
@@ -4810,14 +4777,14 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const allDealerCalculatedData = useMemo(() => {
     const dealerData = dealerByStrikeByExpiration;
     const willUseLiveData = liveMode && liveOIData.size > 0;
-    
+
     console.log(`🔄 RECALCULATING allDealerCalculatedData - LIVE: ${liveMode}, liveOIData.size: ${liveOIData.size}`);
     console.log(`  ${willUseLiveData ? '✅ WILL USE LIVE OI DATA' : '❌ WILL USE BASE DATA ONLY'}`);
-    
+
     if (!dealerData || Object.keys(dealerData).length === 0) {
       return [];
     }
-    
+
     const allStrikes = Array.from(new Set([
       ...Object.values(dealerData).flatMap(exp => Object.keys(exp).map(Number))
     ])).sort((a, b) => b - a);
@@ -4826,24 +4793,24 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       const row: GEXData = { strike };
       expirations.forEach(exp => {
         const greeksData = dealerData[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined };
-        
+
         let callDealer = greeksData.call;
         let putDealer = greeksData.put;
         let callOI = greeksData.callOI;
         let putOI = greeksData.putOI;
-        
+
         // Apply Live OI recalculations if active (Net Dealer formula)
         if (liveMode && liveOIData.size > 0) {
           const callKey = `${selectedTicker}_${strike}_call_${exp}`;
           const putKey = `${selectedTicker}_${strike}_put_${exp}`;
-          
+
           const liveCallOI = liveOIData.get(callKey);
           const livePutOI = liveOIData.get(putKey);
-          
+
           const expirationDate = new Date(exp + 'T00:00:00Z');
           const today = new Date();
           const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
-          
+
           if (liveCallOI !== undefined && greeksData.callGamma && greeksData.callDelta !== undefined && greeksData.callVanna !== undefined && T > 0) {
             callOI = liveCallOI;
             const beta = 0.25;
@@ -4854,7 +4821,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             const liveWeight = Math.abs(greeksData.callDelta) * (1 - Math.abs(greeksData.callDelta));
             callDealer = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
           }
-          
+
           if (livePutOI !== undefined && greeksData.putGamma && greeksData.putDelta !== undefined && greeksData.putVanna !== undefined && T > 0) {
             putOI = livePutOI;
             const beta = 0.25;
@@ -4866,12 +4833,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             putDealer = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
           }
         }
-        
-        row[exp] = { 
-          call: callDealer, 
-          put: putDealer, 
-          net: callDealer + putDealer, 
-          callOI: callOI, 
+
+        row[exp] = {
+          call: callDealer,
+          put: putDealer,
+          net: callDealer + putDealer,
+          callOI: callOI,
           putOI: putOI
         };
       });
@@ -4884,19 +4851,19 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     // Choose data source based on current mode
     const dealerData = dealerByStrikeByExpiration;
     const gexData = gexByStrikeByExpiration;
-    
+
     // Use the correct data source based on gexMode
     const baseDataSource = (gexMode === 'Net Dealer') ? dealerData : gexData;
-    
+
     const willUseLiveData = liveMode && liveOIData.size > 0;
     console.log(`🔄 RECALCULATING allCalculatedData - MODE: ${gexMode}, LIVE: ${liveMode}, liveOIData.size: ${liveOIData.size}`);
     console.log(`  ${willUseLiveData ? '✅ WILL USE LIVE OI DATA' : '❌ WILL USE BASE DATA ONLY'}`);
-    
+
     if (!baseDataSource || Object.keys(baseDataSource).length === 0) {
       console.log(`⚠️ WARNING: baseDataSource is empty!`);
       return [];
     }
-    
+
     const allStrikes = Array.from(new Set([
       ...Object.values(baseDataSource).flatMap(exp => Object.keys(exp).map(Number))
     ])).sort((a, b) => b - a);
@@ -4904,9 +4871,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     return allStrikes.map(strike => {
       const row: GEXData = { strike };
       expirations.forEach(exp => {
-        const greeksData: {call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number} = baseDataSource[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined, callVega: undefined, putVega: undefined, callTheta: undefined, putTheta: undefined };
-        const vexData: {call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number} = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVega: undefined, putVega: undefined };
-        
+        const greeksData: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number, callDelta?: number, putDelta?: number, callVanna?: number, putVanna?: number, callVega?: number, putVega?: number, callTheta?: number, putTheta?: number } = baseDataSource[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: undefined, putGamma: undefined, callDelta: undefined, putDelta: undefined, callVanna: undefined, putVanna: undefined, callVega: undefined, putVega: undefined, callTheta: undefined, putTheta: undefined };
+        const vexData: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } = vexByStrikeByExpiration[exp]?.[strike] || { call: 0, put: 0, callOI: 0, putOI: 0, callVega: undefined, putVega: undefined };
+
         // Start with base calculated values
         let callGEX = greeksData.call;
         let putGEX = greeksData.put;
@@ -4914,19 +4881,19 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         let putOI = greeksData.putOI;
         let callVEX = vexData.call;
         let putVEX = vexData.put;
-        
+
         // Apply Live OI recalculations if active
         if (liveMode && liveOIData.size > 0) {
           const callKey = `${selectedTicker}_${strike}_call_${exp}`;
           const putKey = `${selectedTicker}_${strike}_put_${exp}`;
-          
+
           const liveCallOI = liveOIData.get(callKey);
           const livePutOI = liveOIData.get(putKey);
-          
+
           const expirationDate = new Date(exp + 'T00:00:00Z');
           const today = new Date();
           const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
-          
+
           // Recalculate based on the current mode
           if (gexMode === 'Net Dealer') {
             // Use dealer formula for live recalc
@@ -4942,7 +4909,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               callGEX = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
               console.log(`  📈 Call: LiveOI ${liveCallOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${callGEX.toFixed(2)}`);
             }
-            
+
             if (livePutOI !== undefined && greeksData.putGamma && greeksData.putDelta !== undefined && greeksData.putVanna !== undefined && T > 0) {
               putOI = livePutOI;
               const beta = 0.25;
@@ -4962,29 +4929,29 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
               console.log(`  📈 Call: ${greeksData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 = ${callGEX.toFixed(2)}`);
             }
-            
+
             if (livePutOI !== undefined && greeksData.putGamma) {
               putOI = livePutOI;
               putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
               console.log(`  📉 Put: -${greeksData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 = ${putGEX.toFixed(2)}`);
             }
           }
-          
+
           // Recalculate VEX with Live OI (same for both modes)
           if (liveCallOI !== undefined && vexData.callVega) {
             callVEX = vexData.callVega * liveCallOI * 100;
           }
-          
+
           if (livePutOI !== undefined && vexData.putVega) {
             putVEX = -vexData.putVega * livePutOI * 100;
           }
         }
-        
-        row[exp] = { 
-          call: callGEX, 
-          put: putGEX, 
-          net: callGEX + putGEX, 
-          callOI: callOI, 
+
+        row[exp] = {
+          call: callGEX,
+          put: putGEX,
+          net: callGEX + putGEX,
+          callOI: callOI,
           putOI: putOI,
           callVex: callVEX,
           putVex: putVEX
@@ -5012,7 +4979,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const formatCurrency = (value: number) => {
     const absValue = Math.abs(value);
     const sign = value < 0 ? '-' : value > 0 ? '+' : '';
-    
+
     // Original GEX formatting (always used for middle line)
     if (absValue >= 1e9) {
       return `${sign}${(absValue / 1e9).toFixed(2)}B`;
@@ -5029,7 +4996,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const formatPremium = (value: number) => {
     const absValue = Math.abs(value);
     const sign = value < 0 ? '-' : value > 0 ? '+' : '';
-    
+
     // Smart premium formatting with $ prefix
     if (absValue >= 1e9) {
       // Billions: $1B, $4.32B
@@ -5075,10 +5042,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   // MEMOIZED: Top values calculated from ALL strikes (unfiltered by OTM range)
   // This ensures highlighting is based on absolute highest values across complete chain
   // Helper function to calculate top values from strike/expiration map
-  const calculateTopValuesFromMap = (dataMap: {[exp: string]: {[strike: number]: {call: number, put: number}}}) => {
+  const calculateTopValuesFromMap = (dataMap: { [exp: string]: { [strike: number]: { call: number, put: number } } }) => {
     const positiveValues: number[] = [];
     const negativeValues: number[] = [];
-    
+
     Object.keys(dataMap).forEach(exp => {
       Object.keys(dataMap[exp]).forEach(strikeStr => {
         const strikeData = dataMap[exp][parseFloat(strikeStr)];
@@ -5092,10 +5059,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         }
       });
     });
-    
+
     const sortedPositive = positiveValues.sort((a, b) => b - a);
     const sortedNegative = negativeValues.sort((a, b) => b - a);
-    
+
     return {
       highestPositive: sortedPositive[0] || 0,
       highestNegative: sortedNegative[0] || 0,
@@ -5124,18 +5091,18 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         top5Negative: []
       };
     }
-    
+
     const positiveValues: number[] = [];
     const negativeValues: number[] = [];
-    
+
     // Read from sourceData and collect positive and negative values separately
     sourceData.forEach(row => {
       Object.keys(row).forEach(key => {
         if (key === 'strike') return;
-        
+
         const cellData = row[key];
         if (!cellData || typeof cellData === 'number') return;
-        
+
         // Collect Flow GEX values
         if (mode === 'flow') {
           const flowNet = cellData.flowNet || 0;
@@ -5174,11 +5141,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         }
       });
     });
-    
+
     // Sort positive and negative values separately (highest to lowest)
     const sortedPositive = positiveValues.sort((a, b) => b - a);
     const sortedNegative = negativeValues.sort((a, b) => b - a);
-    
+
     return {
       highestPositive: sortedPositive[0] || 0,
       highestNegative: sortedNegative[0] || 0,
@@ -5208,7 +5175,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     console.log(`  Mode: ${isLive ? 'LIVE' : 'NORMAL'}, liveMode=${liveMode}, liveOIData.size=${liveOIData.size}`);
     return topVals;
   }, [gexByStrikeByExpiration, allGEXCalculatedData, liveMode, liveOIData]);
-  
+
   const dealerTopValues = useMemo(() => {
     const isLive = liveMode && liveOIData.size > 0;
     let topVals;
@@ -5222,10 +5189,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     console.log(`  Mode: ${isLive ? 'LIVE' : 'NORMAL'}, liveMode=${liveMode}, liveOIData.size=${liveOIData.size}`);
     return topVals;
   }, [dealerByStrikeByExpiration, allDealerCalculatedData, liveMode, liveOIData]);
-  
+
   const flowTopValues = useMemo(() => calculateTopValues(data, 'flow'), [data]);
   const vexTopValues = useMemo(() => calculateTopValues(allCalculatedData, 'vex', gexMode, vexMode), [allCalculatedData, gexMode, vexMode]);
-  
+
   // Legacy topValues for backward compatibility (uses first active mode)
   const topValues = useMemo(() => {
     if (showFlowGEX) return flowTopValues;
@@ -5239,15 +5206,15 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     let bgColor = '';
     let ringColor = '';
     let label = '';
-    
+
     // Determine which top values to use
     const topVals = customTopValues || topValues;
-    
+
     // Check if this is the highest positive or highest negative value
     // Use epsilon for floating point comparison to handle precision issues
     const isHighestPositive = value > 0 && Math.abs(value - topVals.highestPositive) < 0.01;
     const isHighestNegative = value < 0 && Math.abs(Math.abs(value) - topVals.highestNegative) < 0.01;
-    
+
     // Bloomberg Terminal Theme
     if (useBloombergTheme) {
       if (isHighestPositive) {
@@ -5293,7 +5260,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         bgColor = 'bg-gradient-to-br from-gray-950 to-black text-gray-400 border border-gray-800/30';
       }
     }
-    
+
     return { bg: bgColor, ring: ringColor, label };
   };
 
@@ -5302,15 +5269,15 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     // Split the date string and create date in local timezone
     const [year, month, day] = dateStr.split('-').map(Number);
     const date = new Date(year, month - 1, day); // month is 0-indexed in Date constructor
-    
+
     // Format for mobile: "Nov 28, 25" instead of "Nov 28, 2025"
-    const fullDate = date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
+    const fullDate = date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
       year: 'numeric',
       timeZone: 'America/New_York'
     });
-    
+
     // Shorten year for mobile (2025 -> 25)
     return fullDate.replace(/, (\d{4})$/, (match, year) => `, ${year.slice(-2)}`);
   };
@@ -5327,7 +5294,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 <div className="text-sm text-red-300 mt-1">{error}</div>
               </div>
             </div>
-            <button 
+            <button
               onClick={() => fetchOptionsData()}
               className="mt-4 px-6 py-3 bg-red-600 hover:bg-red-700 transition-all rounded-lg font-medium"
             >
@@ -5432,31 +5399,29 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               <div className="px-4 md:px-8 py-3 md:py-6">
                 {/* Main Tabs */}
                 <div className="flex gap-0 w-full mb-4 relative">
-                  <button 
+                  <button
                     onClick={() => setActiveTab('WORKBENCH')}
-                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${
-                      activeTab === 'WORKBENCH' 
-                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]' 
+                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'WORKBENCH'
+                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
                         : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
-                    }`} 
+                      }`}
                     style={{ padding: '14px 16px', fontSize: '14px' }}
                   >
                     {activeTab === 'WORKBENCH' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>}
                     <span className="relative" style={activeTab === 'WORKBENCH' ? { textShadow: '0 2px 4px rgba(0,0,0,0.8)' } : {}}>WORKBENCH</span>
                   </button>
-                  <button 
+                  <button
                     onClick={() => setActiveTab('ATTRACTION')}
-                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${
-                      activeTab === 'ATTRACTION' 
-                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]' 
+                    className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'ATTRACTION'
+                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
                         : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
-                    }`} 
+                      }`}
                     style={{ padding: '14px 16px', fontSize: '14px' }}
                   >
                     {activeTab === 'ATTRACTION' && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent"></div>}
                     <span className="relative" style={activeTab === 'ATTRACTION' ? { textShadow: '0 2px 4px rgba(0,0,0,0.8)' } : {}}>GREEK SUITE</span>
                   </button>
-                  
+
                   {/* Close Button - Only show when onClose prop exists */}
                   {onClose && (
                     <button
@@ -5479,8 +5444,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         {/* Search Bar */}
                         <div className="search-bar-premium flex items-center space-x-1 px-2 rounded-md flex-shrink-0" style={{ width: '80px', height: '36px' }}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
-                            <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
-                            <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2"/>
+                            <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                            <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
                           </svg>
                           <input
                             type="text"
@@ -5501,10 +5466,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             placeholder="Ticker"
                           />
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
-                            <path d="M12 5v14l7-7-7-7z" fill="currentColor"/>
+                            <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
                           </svg>
                         </div>
-                        
+
                         {/* LIVE Button */}
                         <button
                           onClick={() => {
@@ -5527,7 +5492,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               setLiveOIData(new Map());
                               console.log('🔴 LIVE MODE OFF - liveMode now false, liveOIData cleared to empty Map');
                               console.log('🔴 Restoring base (original) data...');
-                              
+
                               // Restore original base data
                               setGexByStrikeByExpiration(baseGexByStrikeByExpiration);
                               setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration);
@@ -5538,8 +5503,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           className="flex items-center justify-center gap-1 px-3 border-2 border-gray-800 hover:border-orange-500 text-black font-black text-xs uppercase tracking-wider transition-all rounded whitespace-nowrap"
                           style={{
                             background: liveMode ? '#22c55e' : '#ef4444',
-                            boxShadow: liveMode 
-                              ? 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(34,197,94,0.4)' 
+                            boxShadow: liveMode
+                              ? 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(34,197,94,0.4)'
                               : 'inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 3px rgba(0,0,0,0.4), 0 4px 8px rgba(239,68,68,0.4)',
                             height: '36px',
                             minWidth: '60px',
@@ -5551,7 +5516,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             {liveOILoading ? `${liveOIProgress}%` : 'LIVE'}
                           </span>
                         </button>
-                        
+
                         {/* Range Selector */}
                         <div className="flex items-center gap-1 flex-1" style={{ height: '36px' }}>
                           <select
@@ -5566,27 +5531,26 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           >
                             <option value="1%">±1% OTM</option>
                             <option value="2%">±2% OTM</option>
-                          <option value="3%">±3% OTM</option>
-                          <option value="5%">±5% OTM</option>
-                          <option value="8%">±8% OTM</option>
-                          <option value="10%">±10% OTM</option>
-                          <option value="15%">±15% OTM</option>
-                          <option value="20%">±20% OTM</option>
-                          <option value="25%">±25% OTM</option>
-                          <option value="40%">±40% OTM</option>
-                          <option value="50%">±50% OTM</option>
-                          <option value="100%">±100% OTM</option>
+                            <option value="3%">±3% OTM</option>
+                            <option value="5%">±5% OTM</option>
+                            <option value="8%">±8% OTM</option>
+                            <option value="10%">±10% OTM</option>
+                            <option value="15%">±15% OTM</option>
+                            <option value="20%">±20% OTM</option>
+                            <option value="25%">±25% OTM</option>
+                            <option value="40%">±40% OTM</option>
+                            <option value="50%">±50% OTM</option>
+                            <option value="100%">±100% OTM</option>
                           </select>
                         </div>
-                        
+
                         {/* Bloomberg Theme Toggle Button */}
                         <button
                           onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                          className={`flex items-center justify-center px-2 font-black text-xs transition-all rounded ${
-                            useBloombergTheme 
-                              ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400' 
+                          className={`flex items-center justify-center px-2 font-black text-xs transition-all rounded ${useBloombergTheme
+                              ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
                               : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
-                          }`}
+                            }`}
                           style={{
                             height: '36px',
                             width: '36px',
@@ -5596,7 +5560,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         >
                           BB
                         </button>
-                        
+
                         {/* REFRESH Button */}
                         <button
                           onClick={() => fetchOptionsData()}
@@ -5612,13 +5576,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                         </button>
                       </div>
-                      
+
                       {/* Row 2: All Mode Checkboxes */}
                       <div className="flex items-center gap-2 overflow-x-auto">
                         {/* NORMAL */}
-                        <div 
+                        <div
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{ 
+                          style={{
                             height: '36px',
                             background: showGEX ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%)' : 'transparent',
                             border: showGEX ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent',
@@ -5633,7 +5597,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showGEX}
-                            onChange={() => {}}
+                            onChange={() => { }}
                             className="w-4 h-4 text-green-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#22c55e',
@@ -5644,11 +5608,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             NORMAL
                           </span>
                         </div>
-                        
+
                         {/* MM ACTIVITY */}
-                        <div 
+                        <div
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{ 
+                          style={{
                             height: '36px',
                             background: showDealer ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.05) 100%)' : 'transparent',
                             border: showDealer ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid transparent',
@@ -5663,7 +5627,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showDealer}
-                            onChange={() => {}}
+                            onChange={() => { }}
                             className="w-4 h-4 text-purple-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#a855f7',
@@ -5674,11 +5638,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             DEALER
                           </span>
                         </div>
-                        
+
                         {/* FLOW MAP */}
-                        <div 
+                        <div
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{ 
+                          style={{
                             height: '36px',
                             background: showFlowGEX ? 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(249, 115, 22, 0.05) 100%)' : 'transparent',
                             border: showFlowGEX ? '1px solid rgba(249, 115, 22, 0.3)' : '1px solid transparent',
@@ -5689,7 +5653,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showFlowGEX}
-                            onChange={() => {}}
+                            onChange={() => { }}
                             className="w-4 h-4 text-orange-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#f97316',
@@ -5700,11 +5664,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             FLOW MAP
                           </span>
                         </div>
-                        
+
                         {/* VOLATILITY */}
-                        <div 
+                        <div
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{ 
+                          style={{
                             height: '36px',
                             background: showVEX ? 'linear-gradient(135deg, rgba(234, 179, 8, 0.15) 0%, rgba(234, 179, 8, 0.05) 100%)' : 'transparent',
                             border: showVEX ? '1px solid rgba(234, 179, 8, 0.3)' : '1px solid transparent',
@@ -5719,7 +5683,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showVEX}
-                            onChange={() => {}}
+                            onChange={() => { }}
                             className="w-4 h-4 text-yellow-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#eab308',
@@ -5731,11 +5695,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             <span className="md:hidden">VEX</span>
                           </span>
                         </div>
-                        
+
                         {/* OPEN INTEREST */}
-                        <div 
+                        <div
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                          style={{ 
+                          style={{
                             height: '36px',
                             background: showOI ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)' : 'transparent',
                             border: showOI ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
@@ -5746,7 +5710,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <input
                             type="checkbox"
                             checked={showOI}
-                            onChange={() => {}}
+                            onChange={() => { }}
                             className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
                             style={{
                               accentColor: '#3b82f6',
@@ -5768,8 +5732,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <div className="relative flex items-center">
                             <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
-                                <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
-                                <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2"/>
+                                <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                                <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
                               </svg>
                               <input
                                 type="text"
@@ -5790,20 +5754,20 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 placeholder="Search..."
                               />
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
-                                <path d="M12 5v14l7-7-7-7z" fill="currentColor"/>
+                                <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
                               </svg>
                             </div>
                           </div>
                         </div>
-                        
+
                         {/* Analysis Type & OTM Dropdown */}
                         <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-8">
                           {/* Display Toggle Checkboxes */}
                           <div className="flex items-center gap-4">
                             <div className="flex items-center gap-6">
                               {/* NORMAL (GEX) Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGEX 
-                                ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGEX
+                                ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                 : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]'}`}>
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5820,10 +5784,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 />
                                 <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showGEX ? 'text-emerald-300 drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'text-white'}`}>NORMAL</span>
                               </div>
-                              
+
                               {/* MM ACTIVITY (Dealer) Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showDealer 
-                                ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showDealer
+                                ? 'bg-gradient-to-b from-amber-500/25 via-black to-amber-900/30 border border-amber-400/70 shadow-[0_0_15px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                 : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-amber-500/40 hover:shadow-[0_0_10px_rgba(245,158,11,0.2)]'}`}>
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5840,10 +5804,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 />
                                 <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showDealer ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-yellow-400'}`}>DEALER</span>
                               </div>
-                              
+
                               {/* FLOW MAP Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showFlowGEX 
-                                ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showFlowGEX
+                                ? 'bg-gradient-to-b from-orange-500/25 via-black to-orange-900/30 border border-orange-400/70 shadow-[0_0_15px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                 : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-orange-500/40 hover:shadow-[0_0_10px_rgba(249,115,22,0.2)]'}`}>
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5861,10 +5825,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 />
                                 <label htmlFor="flowgex-checkbox-desktop" className={`relative z-10 text-xs font-bold uppercase tracking-wider cursor-pointer transition-all ${showFlowGEX ? 'text-orange-300 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]' : 'text-orange-400'}`}>FLOW MAP</label>
                               </div>
-                              
+
                               {/* VOLATILITY (VEX) Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showVEX 
-                                ? 'bg-gradient-to-b from-purple-500/25 via-black to-purple-900/30 border border-purple-400/70 shadow-[0_0_15px_rgba(168,85,247,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showVEX
+                                ? 'bg-gradient-to-b from-purple-500/25 via-black to-purple-900/30 border border-purple-400/70 shadow-[0_0_15px_rgba(168,85,247,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                 : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-purple-500/40 hover:shadow-[0_0_10px_rgba(168,85,247,0.2)]'}`}>
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5880,10 +5844,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 />
                                 <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showVEX ? 'text-purple-300 drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]' : 'text-purple-400'}`}>VOLATILITY</span>
                               </div>
-                              
+
                               {/* OI Checkbox */}
-                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showOI 
-                                ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                              <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showOI
+                                ? 'bg-gradient-to-b from-blue-500/25 via-black to-blue-900/30 border border-blue-400/70 shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                 : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-blue-500/40 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]'}`}>
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
                                 <input
@@ -5894,7 +5858,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 />
                                 <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${showOI ? 'text-blue-300 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]' : 'text-white'}`}>OI</span>
                               </div>
-                              
+
                               {/* LIVE Button */}
                               <div className="relative flex items-center gap-2">
                                 <button
@@ -5905,14 +5869,14 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                       alert('Please type a ticker in the search bar first before enabling Live OI');
                                       return;
                                     }
-                                    
+
                                     // If ticker is typed but not searched yet, trigger search first
                                     if (tickerInput.trim() && tickerInput.trim() !== selectedTicker) {
                                       const newTicker = tickerInput.trim().toUpperCase();
                                       setSelectedTicker(newTicker);
                                       setTickerInput(newTicker);
                                     }
-                                    
+
                                     if (!liveMode) {
                                       setLiveMode(true);
                                       updateLiveOI();
@@ -5920,7 +5884,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                       console.log('🔴 TURNING OFF LIVE MODE (second button)');
                                       setLiveMode(false);
                                       setLiveOIData(new Map());
-                                      
+
                                       // Restore original base data
                                       setGexByStrikeByExpiration(baseGexByStrikeByExpiration);
                                       setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration);
@@ -5928,11 +5892,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                     }
                                   }}
                                   disabled={liveOILoading}
-                                  className={`relative overflow-hidden px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all duration-300 ${
-                                    liveMode 
-                                      ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 text-green-300 border border-green-400/70 shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]' 
+                                  className={`relative overflow-hidden px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all duration-300 ${liveMode
+                                      ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 text-green-300 border border-green-400/70 shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]'
                                       : 'bg-gradient-to-b from-black/80 via-black to-black/90 text-gray-400 border border-white/10 hover:border-green-500/50 hover:text-green-400 hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
-                                  } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                    } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                 >
                                   <span className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></span>
                                   <span className="relative z-10">{liveOILoading ? 'LOADING...' : liveMode ? '● LIVE' : 'LIVE'}</span>
@@ -5940,7 +5903,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 {liveOILoading && (
                                   <div className="flex items-center gap-2">
                                     <div className="relative w-32 h-2 bg-gray-800 rounded-full overflow-hidden">
-                                      <div 
+                                      <div
                                         className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300"
                                         style={{ width: `${liveOIProgress}%` }}
                                       />
@@ -5951,8 +5914,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               </div>
                             </div>
                           </div>
-                      
-                          
+
+
                           {/* OTM Filter Dropdown */}
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-white uppercase tracking-wider">RANGE</span>
@@ -5984,15 +5947,14 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           </div>
                         </div>
                       </div>
-                      
+
                       {/* Bloomberg Theme Toggle Button */}
                       <button
                         onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                        className={`flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${
-                          useBloombergTheme 
-                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400' 
+                        className={`flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${useBloombergTheme
+                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
                             : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
-                        }`}
+                          }`}
                         style={{
                           boxShadow: useBloombergTheme ? '0 0 10px rgba(245, 158, 11, 0.5)' : 'none'
                         }}
@@ -6000,7 +5962,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       >
                         BB
                       </button>
-                      
+
                       {/* Desktop Refresh Button */}
                       <button
                         onClick={() => fetchOptionsData()}
@@ -6023,8 +5985,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         <div className="relative flex items-center">
                           <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
-                              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
-                              <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2"/>
+                              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                              <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
                             </svg>
                             <input
                               type="text"
@@ -6045,47 +6007,44 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               placeholder="Search..."
                             />
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
-                              <path d="M12 5v14l7-7-7-7z" fill="currentColor"/>
+                              <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
                             </svg>
                           </div>
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center gap-3">
                         {/* MM, MP, SI, OI/GEX Buttons */}
                         <div className="flex gap-4">
-                          <button 
+                          <button
                             onClick={() => setActiveWorkbenchTab('MM')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
-                              activeWorkbenchTab === 'MM' 
-                                ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]' 
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'MM'
+                                ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]'
                                 : 'bg-gradient-to-b from-black via-gray-900 to-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                            }`}
+                              }`}
                           >
                             Market Maker
                           </button>
-                          <button 
+                          <button
                             onClick={() => setActiveWorkbenchTab('SI')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
-                              activeWorkbenchTab === 'SI' 
-                                ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' 
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'SI'
+                                ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
                                 : 'bg-gradient-to-b from-black via-gray-900 to-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                            }`}
+                              }`}
                           >
                             Stability Index
                           </button>
-                          <button 
+                          <button
                             onClick={() => setActiveWorkbenchTab('MAXPAIN')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${
-                              activeWorkbenchTab === 'MAXPAIN' 
-                                ? 'bg-red-600 text-white border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]' 
+                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'MAXPAIN'
+                                ? 'bg-red-600 text-white border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
                                 : 'bg-gradient-to-b from-black via-gray-900 to-black text-red-400 hover:text-white border-2 border-gray-800 hover:border-red-500 hover:bg-red-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                            }`}
+                              }`}
                           >
                             Max Pain
                           </button>
                         </div>
-                        
+
                         <button
                           onClick={() => fetchOptionsData()}
                           disabled={loading}
@@ -6096,7 +6055,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         </button>
                       </div>
                     </div>
-                    
+
                     <div className="text-center py-8">
                     </div>
                   </div>
@@ -6110,12 +6069,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               <RefreshCw size={48} className="animate-spin mx-auto mb-6 text-blue-400" />
               <p className="text-xl font-semibold text-gray-300">Loading Real Market Data</p>
               <p className="text-sm text-gray-500 mt-2">Fetching options chains and calculating dealer attraction levels...</p>
-              
+
               {/* Web Worker Progress Bar */}
               {progress > 0 && (
                 <div className="mt-6 mx-auto max-w-md">
                   <div className="relative w-full h-3 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
-                    <div 
+                    <div
                       className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300 ease-out shadow-lg shadow-blue-500/50"
                       style={{ width: `${progress}%` }}
                     />
@@ -6130,7 +6089,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               <div className="opacity-30 pointer-events-none">
                 {/* Render existing data here (will be shown dimmed) */}
               </div>
-              
+
               {/* Live OI Recalculation Overlay */}
               <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50" style={{ marginTop: '80px' }}>
                 <div className="text-center py-16 px-8">
@@ -6139,16 +6098,16 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   <p className="text-xl font-semibold text-white">Recalculating with Live Data</p>
                   <p className="text-sm text-gray-400 mt-2">
                     {liveOIProgress < 20 ? 'Scanning options flow...' :
-                     liveOIProgress < 60 ? 'Fetching contract data...' :
-                     liveOIProgress < 80 ? 'Enriching trades...' :
-                     liveOIProgress < 90 ? 'Calculating Live OI...' :
-                     'Recalculating all metrics...'}
+                      liveOIProgress < 60 ? 'Fetching contract data...' :
+                        liveOIProgress < 80 ? 'Enriching trades...' :
+                          liveOIProgress < 90 ? 'Calculating Live OI...' :
+                            'Recalculating all metrics...'}
                   </p>
-                  
+
                   {/* Live OI Progress Bar */}
                   <div className="mt-6 mx-auto max-w-md">
                     <div className="relative w-full h-4 bg-gray-800 rounded-full overflow-hidden border border-orange-700">
-                      <div 
+                      <div
                         className="absolute top-0 left-0 h-full bg-gradient-to-r from-orange-500 to-orange-400 transition-all duration-300 ease-out shadow-lg shadow-orange-500/50"
                         style={{ width: `${liveOIProgress}%` }}
                       />
@@ -6161,15 +6120,15 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           ) : activeTab === 'ATTRACTION' ? (
             <>
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
-              
+
               {/* Show multiple tables/charts side by side when multiple modes are enabled OR when OI is selected alone */}
               {showOI || (showGEX && showDealer) || (showGEX && showFlowGEX) || (showDealer && showFlowGEX) || (showGEX && showDealer && showFlowGEX) ? (
                 <div className="flex overflow-x-auto" style={{ gap: typeof window !== 'undefined' && window.innerWidth < 768 ? '2px' : '12px' }}>
                   {/* OI/GEX Charts - Show when OI checkbox is active */}
                   {showOI && (
-                    <div className="flex-shrink-0" style={{ 
-                      width: activeTableCount === 2 ? '1100px' : '1200px', 
-                      minWidth: activeTableCount === 2 ? '1100px' : '1200px' 
+                    <div className="flex-shrink-0" style={{
+                      width: activeTableCount === 2 ? '1100px' : '1200px',
+                      minWidth: activeTableCount === 2 ? '1100px' : '1200px'
                     }}>
                       <OIGEXTab selectedTicker={selectedTicker} />
                     </div>
@@ -6177,7 +6136,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   {(() => {
                     // Calculate table width based on context
                     const tableWidths: string[] = [];
-                    
+
                     if (showOI && activeTableCount === 1) {
                       // OI + 1 table: table gets 900px
                       tableWidths.push('900px');
@@ -6191,10 +6150,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       // 3 tables only: split 2662px between 3 tables (2662 - 2px gaps = 2660 / 3 = 886.67px each)
                       tableWidths.push('887px', '887px', '886px');
                     }
-                    
+
                     // Mobile detection - needed for getTableWidth function
                     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-                    
+
                     let currentTableIndex = 0;
                     const getTableWidth = () => {
                       // On mobile, don't use fixed widths - let tables size naturally based on content
@@ -6206,14 +6165,14 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       }
                       return undefined;
                     };
-                    
+
                     // Mobile expiration splitting: show fewer expirations per table to fit on screen
                     const mobileStrikeWidth = isMobile ? 45 : workbenchStrikeWidth;
                     const mobileExpWidth = isMobile ? 60 : 90;
                     let table1Expirations = expirations;
                     let table2Expirations = expirations;
                     let table3Expirations = expirations;
-                    
+
                     if (isMobile) {
                       if (activeTableCount === 3) {
                         // 3 tables on mobile: each gets 1 expiration
@@ -6227,354 +6186,348 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         table3Expirations = expirations.slice(0, 2);
                       }
                     }
-                    
+
                     return (
                       <>
-                    {/* GEX/NORMAL TABLE */}
-                    {showGEX && (
-                      <div className="flex-shrink-0" style={getTableWidth()}>
-                      <div className={`${useBloombergTheme 
-                        ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
-                        : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
-                        {useBloombergTheme && (
-                          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
-                        )}
-                        <div className="flex items-center justify-center gap-3 relative z-10">
-                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
-                          <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(52,211,153,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>NORMAL</h3>
-                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
-                        </div>
-                      </div>
-                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${mobileStrikeWidth + (table1Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
-                      <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
-                        <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                          <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                            <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
-                          </th>
-                          {table1Expirations.map(exp => (
-                            <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                              <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
-                                {formatDate(exp)}
+                        {/* GEX/NORMAL TABLE */}
+                        {showGEX && (
+                          <div className="flex-shrink-0" style={getTableWidth()}>
+                            <div className={`${useBloombergTheme
+                              ? 'bg-gradient-to-r from-emerald-950 via-black to-emerald-950 border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                              : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
+                              {useBloombergTheme && (
+                                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-transparent to-emerald-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
+                                {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
+                                <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(52,211,153,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>NORMAL</h3>
+                                {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>}
                               </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {allCalculatedData.filter(row => {
-                          const strikeRange = getStrikeRange(currentPrice);
-                          return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
-                        }).map((row, idx) => {
-                          const closestStrike = currentPrice > 0 ? data.reduce((closest, current) => 
-                            Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
-                          ).strike : 0;
-                          
-                          const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
-                          
-                          // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
-                          let hasMagnetCell = false;
-                          let hasPivotCell = false;
-                          table1Expirations.forEach(exp => {
-                            const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
-                            const gexValue = calculatedRow?.[exp] as any;
-                            const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
-                            if (displayValue > 0 && Math.abs(displayValue - gexTopValues.highestPositive) < 0.01) {
-                              hasMagnetCell = true;
-                            }
-                            if (displayValue < 0 && Math.abs(Math.abs(displayValue) - gexTopValues.highestNegative) < 0.01) {
-                              hasPivotCell = true;
-                            }
-                          });
-                          
-                          return (
-                            <tr 
-                              key={idx} 
-                              className={`hover:bg-gray-800/20 transition-colors ${
-                                isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                              }`}
-                            >
-                              <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                width: `${mobileStrikeWidth}px`,
-                                minWidth: `${mobileStrikeWidth}px`,
-                                maxWidth: `${mobileStrikeWidth}px`
-                              }}>
-                                <div className={`text-base font-mono font-bold ${
-                                  hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                  hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                  isCurrentPriceRow ? 'text-orange-500' : 'text-white'
-                                }`}>
-                                  {row.strike.toFixed(1)}
-                                </div>
-                              </td>
-                              {table1Expirations.map(exp => {
-                                // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
-                                const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
-                                const gexValue = calculatedRow?.[exp] as any;
-                                const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
-                                const cellStyle = getCellStyle(displayValue, false, row.strike, exp, gexTopValues);
-                                
-                                // DEBUG: Log first few cells for NORMAL mode
-                                if (idx < 2 && table1Expirations.indexOf(exp) < 2) {
-                                  console.log(`🔍 NORMAL Cell [${row.strike}, ${exp}]:`, {
-                                    displayValue,
-                                    callValue: gexValue?.call,
-                                    putValue: gexValue?.put,
-                                    highest: gexTopValues.highest,
-                                    isHighest: Math.abs(displayValue - gexTopValues.highest) < 0.01,
-                                    cellStyle,
-                                    liveMode,
-                                    liveOIDataSize: liveOIData.size
-                                  });
-                                }
-                                
-                                return (
-                                  <td
-                                    key={exp}
-                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                    style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
-                                  >
-                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                      {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
-                                      <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
-                                    </div>
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
-                  {showDealer && (
-                    <div key={`dealer-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
-                      <div className={`${useBloombergTheme 
-                        ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
-                        : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
-                        {useBloombergTheme && (
-                          <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                            </div>
+                            <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)', overflowX: 'auto' }}>
+                              <table style={{ minWidth: `${mobileStrikeWidth + (table1Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
+                                <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
+                                  <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                                    <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
+                                      <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
+                                    </th>
+                                    {table1Expirations.map(exp => (
+                                      <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
+                                        <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                          {formatDate(exp)}
+                                        </div>
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {allCalculatedData.filter(row => {
+                                    const strikeRange = getStrikeRange(currentPrice);
+                                    return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
+                                  }).map((row, idx) => {
+                                    const closestStrike = currentPrice > 0 ? data.reduce((closest, current) =>
+                                      Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                                    ).strike : 0;
+
+                                    const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+
+                                    // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
+                                    let hasMagnetCell = false;
+                                    let hasPivotCell = false;
+                                    table1Expirations.forEach(exp => {
+                                      const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
+                                      const gexValue = calculatedRow?.[exp] as any;
+                                      const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
+                                      if (displayValue > 0 && Math.abs(displayValue - gexTopValues.highestPositive) < 0.01) {
+                                        hasMagnetCell = true;
+                                      }
+                                      if (displayValue < 0 && Math.abs(Math.abs(displayValue) - gexTopValues.highestNegative) < 0.01) {
+                                        hasPivotCell = true;
+                                      }
+                                    });
+
+                                    return (
+                                      <tr
+                                        key={idx}
+                                        className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                          }`}
+                                      >
+                                        <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                          width: `${mobileStrikeWidth}px`,
+                                          minWidth: `${mobileStrikeWidth}px`,
+                                          maxWidth: `${mobileStrikeWidth}px`
+                                        }}>
+                                          <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
+                                              hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
+                                                isCurrentPriceRow ? 'text-orange-500' : 'text-white'
+                                            }`}>
+                                            {row.strike.toFixed(1)}
+                                          </div>
+                                        </td>
+                                        {table1Expirations.map(exp => {
+                                          // Use allGEXCalculatedData for NORMAL table (Net GEX formula)
+                                          const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
+                                          const gexValue = calculatedRow?.[exp] as any;
+                                          const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
+                                          const cellStyle = getCellStyle(displayValue, false, row.strike, exp, gexTopValues);
+
+                                          // DEBUG: Log first few cells for NORMAL mode
+                                          if (idx < 2 && table1Expirations.indexOf(exp) < 2) {
+                                            console.log(`🔍 NORMAL Cell [${row.strike}, ${exp}]:`, {
+                                              displayValue,
+                                              callValue: gexValue?.call,
+                                              putValue: gexValue?.put,
+                                              highest: gexTopValues.highest,
+                                              isHighest: Math.abs(displayValue - gexTopValues.highest) < 0.01,
+                                              cellStyle,
+                                              liveMode,
+                                              liveOIDataSize: liveOIData.size
+                                            });
+                                          }
+
+                                          return (
+                                            <td
+                                              key={exp}
+                                              className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                              style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                            >
+                                              <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
+                                                {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
+                                                <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                              </div>
+                                            </td>
+                                          );
+                                        })}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
                         )}
-                        <div className="flex items-center justify-center gap-3 relative z-10">
-                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
-                          <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(251,191,36,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>DEALER</h3>
-                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
-                        </div>
-                      </div>
-                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${mobileStrikeWidth + (table2Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
-                      <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
-                        <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                          <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                            <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
-                          </th>
-                          {table2Expirations.map(exp => (
-                            <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                              <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
-                                {formatDate(exp)}
+
+                        {/* MM ACTIVITY (Net Dealer) Table - conditionally rendered */}
+                        {showDealer && (
+                          <div key={`dealer-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
+                            <div className={`${useBloombergTheme
+                              ? 'bg-gradient-to-r from-amber-950 via-black to-amber-950 border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                              : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
+                              {useBloombergTheme && (
+                                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-amber-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
+                                {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
+                                <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' : 'text-yellow-400'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(251,191,36,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>DEALER</h3>
+                                {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
                               </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {allCalculatedData.filter(row => {
-                          const strikeRange = getStrikeRange(currentPrice);
-                          return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
-                        }).map((row, idx) => {
-                          const closestStrike = currentPrice > 0 ? data.reduce((closest, current) => 
-                            Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
-                          ).strike : 0;
-                          
-                          const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
-                          
-                          // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
-                          let hasMagnetCell = false;
-                          let hasPivotCell = false;
-                          table2Expirations.forEach(exp => {
-                            const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
-                            const dealerValue = calculatedRow?.[exp] as any;
-                            const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
-                            if (displayValue > 0 && Math.abs(displayValue - dealerTopValues.highestPositive) < 0.01) {
-                              hasMagnetCell = true;
-                            }
-                            if (displayValue < 0 && Math.abs(Math.abs(displayValue) - dealerTopValues.highestNegative) < 0.01) {
-                              hasPivotCell = true;
-                            }
-                          });
-                          
-                          return (
-                            <tr 
-                              key={idx} 
-                              className={`hover:bg-gray-800/20 transition-colors ${
-                                isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                              }`}
-                            >
-                              <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                width: `${mobileStrikeWidth}px`,
-                                minWidth: `${mobileStrikeWidth}px`,
-                                maxWidth: `${mobileStrikeWidth}px`
-                              }}>
-                                <div className={`text-base font-mono font-bold ${
-                                  hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                  hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                  isCurrentPriceRow ? 'text-orange-500' : 'text-white'
-                                }`}>
-                                  {row.strike.toFixed(1)}
-                                </div>
-                              </td>
-                              {table2Expirations.map(exp => {
-                                // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
-                                const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
-                                const dealerValue = calculatedRow?.[exp] as any;
-                                const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
-                                const cellStyle = getCellStyle(displayValue, false, row.strike, exp, dealerTopValues);
-                                
-                                // DEBUG: Log first few cells
-                                if (idx < 2 && table2Expirations.indexOf(exp) < 2) {
-                                  console.log(`🔍 MM ACTIVITY Cell [${row.strike}, ${exp}]:`, {
-                                    displayValue,
-                                    highest: dealerTopValues.highest,
-                                    isHighest: displayValue === dealerTopValues.highest,
-                                    cellStyle
-                                  });
-                                }
-                                
-                                return (
-                                  <td
-                                    key={exp}
-                                    className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                    style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
-                                  >
-                                    <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                      {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
-                                      <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
-                                    </div>
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* FLOW MAP Table - conditionally rendered */}
-                  {showFlowGEX && (
-                    <div key={`flowmap-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
-                      <div className={`${useBloombergTheme 
-                        ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]' 
-                        : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
-                        {useBloombergTheme && (
-                          <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                            </div>
+                            <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)', overflowX: 'auto' }}>
+                              <table style={{ minWidth: `${mobileStrikeWidth + (table2Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
+                                <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
+                                  <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                                    <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
+                                      <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
+                                    </th>
+                                    {table2Expirations.map(exp => (
+                                      <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
+                                        <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                          {formatDate(exp)}
+                                        </div>
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {allCalculatedData.filter(row => {
+                                    const strikeRange = getStrikeRange(currentPrice);
+                                    return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
+                                  }).map((row, idx) => {
+                                    const closestStrike = currentPrice > 0 ? data.reduce((closest, current) =>
+                                      Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                                    ).strike : 0;
+
+                                    const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+
+                                    // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
+                                    let hasMagnetCell = false;
+                                    let hasPivotCell = false;
+                                    table2Expirations.forEach(exp => {
+                                      const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
+                                      const dealerValue = calculatedRow?.[exp] as any;
+                                      const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
+                                      if (displayValue > 0 && Math.abs(displayValue - dealerTopValues.highestPositive) < 0.01) {
+                                        hasMagnetCell = true;
+                                      }
+                                      if (displayValue < 0 && Math.abs(Math.abs(displayValue) - dealerTopValues.highestNegative) < 0.01) {
+                                        hasPivotCell = true;
+                                      }
+                                    });
+
+                                    return (
+                                      <tr
+                                        key={idx}
+                                        className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                          }`}
+                                      >
+                                        <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                          width: `${mobileStrikeWidth}px`,
+                                          minWidth: `${mobileStrikeWidth}px`,
+                                          maxWidth: `${mobileStrikeWidth}px`
+                                        }}>
+                                          <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
+                                              hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
+                                                isCurrentPriceRow ? 'text-orange-500' : 'text-white'
+                                            }`}>
+                                            {row.strike.toFixed(1)}
+                                          </div>
+                                        </td>
+                                        {table2Expirations.map(exp => {
+                                          // Use allDealerCalculatedData for MM ACTIVITY table (Net Dealer formula)
+                                          const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
+                                          const dealerValue = calculatedRow?.[exp] as any;
+                                          const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
+                                          const cellStyle = getCellStyle(displayValue, false, row.strike, exp, dealerTopValues);
+
+                                          // DEBUG: Log first few cells
+                                          if (idx < 2 && table2Expirations.indexOf(exp) < 2) {
+                                            console.log(`🔍 MM ACTIVITY Cell [${row.strike}, ${exp}]:`, {
+                                              displayValue,
+                                              highest: dealerTopValues.highest,
+                                              isHighest: displayValue === dealerTopValues.highest,
+                                              cellStyle
+                                            });
+                                          }
+
+                                          return (
+                                            <td
+                                              key={exp}
+                                              className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                              style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                            >
+                                              <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
+                                                {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
+                                                <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                              </div>
+                                            </td>
+                                          );
+                                        })}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
                         )}
-                        <div className="flex items-center justify-center gap-3 relative z-10">
-                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
-                          <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(251,146,60,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>FLOW MAP</h3>
-                          {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
-                        </div>
-                      </div>
-                      <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 400px)', overflowX: 'auto' }}>
-                        <table style={{ minWidth: `${mobileStrikeWidth + (table3Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
-                        <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
-                          <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                            <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                              <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
-                            </th>
-                            {table3Expirations.map(exp => (
-                              <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
-                                  {formatDate(exp)}
-                                </div>
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.filter(row => {
-                            const strikeRange = getStrikeRange(currentPrice);
-                            return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
-                          }).map((row, idx) => {
-                            const closestStrike = currentPrice > 0 ? data.reduce((closest, current) => 
-                              Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
-                            ).strike : 0;
-                            
-                            const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
-                            
-                            // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
-                            let hasMagnetCell = false;
-                            let hasPivotCell = false;
-                            table3Expirations.forEach(exp => {
-                              const value = row[exp] as any;
-                              const displayValue = value?.flowNet || 0;
-                              if (displayValue > 0 && Math.abs(displayValue - flowTopValues.highestPositive) < 0.01) {
-                                hasMagnetCell = true;
-                              }
-                              if (displayValue < 0 && Math.abs(Math.abs(displayValue) - flowTopValues.highestNegative) < 0.01) {
-                                hasPivotCell = true;
-                              }
-                            });
-                            
-                            return (
-                              <tr 
-                                key={idx} 
-                                className={`hover:bg-gray-800/20 transition-colors ${
-                                  isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                                }`}
-                              >
-                                <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                  width: `${mobileStrikeWidth}px`,
-                                  minWidth: `${mobileStrikeWidth}px`,
-                                  maxWidth: `${mobileStrikeWidth}px`
-                                }}>
-                                  <div className={`text-base font-mono font-bold ${
-                                    hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                    hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                    isCurrentPriceRow ? 'text-orange-500' : 'text-white'
-                                  }`}>
-                                    {row.strike.toFixed(1)}
-                                  </div>
-                                </td>
-                                {table3Expirations.map(exp => {
-                                  const value = row[exp] as any;
-                                  const displayValue = (value?.flowNet || 0);
-                                  const cellStyle = getCellStyle(displayValue, false, row.strike, exp, flowTopValues);
-                                  
-                                  return (
-                                    <td
-                                      key={exp}
-                                      className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                      style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
-                                    >
-                                      <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                        {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
-                                        <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
-                                      </div>
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      </div>
-                    </div>
-                  )}
+
+                        {/* FLOW MAP Table - conditionally rendered */}
+                        {showFlowGEX && (
+                          <div key={`flowmap-${liveMode}-${liveOIData.size}`} className="flex-shrink-0" style={showOI && activeTableCount === 1 ? { width: '900px', minWidth: '900px' } : getTableWidth()}>
+                            <div className={`${useBloombergTheme
+                              ? 'bg-gradient-to-r from-orange-950 via-black to-orange-950 border-orange-500/60 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+                              : 'bg-black border-gray-700'} border border-b-0 px-4 py-3 relative overflow-hidden`}>
+                              {useBloombergTheme && (
+                                <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 via-transparent to-orange-500/10 animate-pulse" style={{ animationDuration: '3s' }}></div>
+                              )}
+                              <div className="flex items-center justify-center gap-3 relative z-10">
+                                {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
+                                <h3 className={`text-lg font-black uppercase tracking-widest text-center ${useBloombergTheme ? 'text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.5)]' : 'text-orange-400'}`} style={{ letterSpacing: '0.2em', textShadow: useBloombergTheme ? '0 0 20px rgba(251,146,60,0.5)' : '0 2px 4px rgba(0,0,0,0.8)' }}>FLOW MAP</h3>
+                                {useBloombergTheme && <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.8)]"></div>}
+                              </div>
+                            </div>
+                            <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: isMobile ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)', overflowX: 'auto' }}>
+                              <table style={{ minWidth: `${mobileStrikeWidth + (table3Expirations.length * mobileExpWidth)}px`, width: '100%' }}>
+                                <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
+                                  <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                                    <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
+                                      <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
+                                    </th>
+                                    {table3Expirations.map(exp => (
+                                      <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
+                                        <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                          {formatDate(exp)}
+                                        </div>
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {data.filter(row => {
+                                    const strikeRange = getStrikeRange(currentPrice);
+                                    return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
+                                  }).map((row, idx) => {
+                                    const closestStrike = currentPrice > 0 ? data.reduce((closest, current) =>
+                                      Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                                    ).strike : 0;
+
+                                    const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+
+                                    // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
+                                    let hasMagnetCell = false;
+                                    let hasPivotCell = false;
+                                    table3Expirations.forEach(exp => {
+                                      const value = row[exp] as any;
+                                      const displayValue = value?.flowNet || 0;
+                                      if (displayValue > 0 && Math.abs(displayValue - flowTopValues.highestPositive) < 0.01) {
+                                        hasMagnetCell = true;
+                                      }
+                                      if (displayValue < 0 && Math.abs(Math.abs(displayValue) - flowTopValues.highestNegative) < 0.01) {
+                                        hasPivotCell = true;
+                                      }
+                                    });
+
+                                    return (
+                                      <tr
+                                        key={idx}
+                                        className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                                          }`}
+                                      >
+                                        <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                          width: `${mobileStrikeWidth}px`,
+                                          minWidth: `${mobileStrikeWidth}px`,
+                                          maxWidth: `${mobileStrikeWidth}px`
+                                        }}>
+                                          <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
+                                              hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
+                                                isCurrentPriceRow ? 'text-orange-500' : 'text-white'
+                                            }`}>
+                                            {row.strike.toFixed(1)}
+                                          </div>
+                                        </td>
+                                        {table3Expirations.map(exp => {
+                                          const value = row[exp] as any;
+                                          const displayValue = (value?.flowNet || 0);
+                                          const cellStyle = getCellStyle(displayValue, false, row.strike, exp, flowTopValues);
+
+                                          return (
+                                            <td
+                                              key={exp}
+                                              className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                              style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                            >
+                                              <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
+                                                {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
+                                                <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                              </div>
+                                            </td>
+                                          );
+                                        })}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
                       </>
                     );
                   })()}
                 </div>
               ) : (
                 /* Original single table when only one mode is active */
-                <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: typeof window !== 'undefined' && window.innerWidth < 768 ? 'calc(100vh - 250px)' : 'calc(100vh - 400px)', overflowX: 'auto' }}>
+                <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`} style={{ maxHeight: typeof window !== 'undefined' && window.innerWidth < 768 ? 'calc(100vh - 250px)' : 'calc(100vh - 300px)', overflowX: 'auto' }}>
                   <table style={{ minWidth: `${workbenchStrikeWidth + (expirations.length * 90)}px`, width: '100%' }}>
                     <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}>
                       <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
@@ -6596,31 +6549,31 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
                       }).map((row, idx) => {
                         // Find the single closest strike to current price
-                        const closestStrike = currentPrice > 0 ? data.reduce((closest, current) => 
+                        const closestStrike = currentPrice > 0 ? data.reduce((closest, current) =>
                           Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
                         ).strike : 0;
-                        
+
                         // Find the strike with the highest GEX value using the same logic as cell highlighting
                         // This ensures purple row highlight is always on the same strike as the gold cell
                         const tolerance = 1;
-                        const largestValueStrike = allCalculatedData.length > 0 && topValues.highest > 0 
+                        const largestValueStrike = allCalculatedData.length > 0 && topValues.highest > 0
                           ? (allCalculatedData.find(row => {
-                              return expirations.some(exp => {
-                                const value = row[exp] as {call: number, put: number, net: number};
-                                
-                                // For Net modes, check the net value
-                                if (gexMode === 'Net GEX' || gexMode === 'Net Dealer') {
-                                  const netAbs = Math.abs(value?.net || 0);
-                                  return Math.abs(netAbs - topValues.highest) < tolerance;
-                                }
-                                
-                                // For split modes, check call and put separately
-                                const callAbs = Math.abs(value?.call || 0);
-                                const putAbs = Math.abs(value?.put || 0);
-                                return Math.abs(callAbs - topValues.highest) < tolerance || 
-                                       Math.abs(putAbs - topValues.highest) < tolerance;
-                              });
-                            })?.strike ?? 0)
+                            return expirations.some(exp => {
+                              const value = row[exp] as { call: number, put: number, net: number };
+
+                              // For Net modes, check the net value
+                              if (gexMode === 'Net GEX' || gexMode === 'Net Dealer') {
+                                const netAbs = Math.abs(value?.net || 0);
+                                return Math.abs(netAbs - topValues.highest) < tolerance;
+                              }
+
+                              // For split modes, check call and put separately
+                              const callAbs = Math.abs(value?.call || 0);
+                              const putAbs = Math.abs(value?.put || 0);
+                              return Math.abs(callAbs - topValues.highest) < tolerance ||
+                                Math.abs(putAbs - topValues.highest) < tolerance;
+                            });
+                          })?.strike ?? 0)
                           : 0;
 
 
@@ -6640,17 +6593,17 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             });
                           });
                         }
-                        
+
                         const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
                         const isLargestValueRow = row.strike === largestValueStrike;
-                        
+
                         // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
                         let hasMagnetCell = false;
                         let hasPivotCell = false;
                         expirations.forEach(exp => {
                           const value = row[exp] as any;
                           let displayValue = 0;
-                          
+
                           if (showFlowGEX) {
                             displayValue = value?.flowNet || 0;
                           } else if (showVEX) {
@@ -6658,13 +6611,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           } else if (showGEX || showDealer) {
                             displayValue = (value?.call || 0) + (value?.put || 0);
                           }
-                          
+
                           // Determine which top values to use for this mode
-                          const modeTopValues = showFlowGEX ? flowTopValues : 
-                                               showVEX ? vexTopValues : 
-                                               showDealer ? dealerTopValues : 
-                                               gexTopValues;
-                          
+                          const modeTopValues = showFlowGEX ? flowTopValues :
+                            showVEX ? vexTopValues :
+                              showDealer ? dealerTopValues :
+                                gexTopValues;
+
                           if (displayValue > 0 && Math.abs(displayValue - modeTopValues.highestPositive) < 0.01) {
                             hasMagnetCell = true;
                           }
@@ -6672,52 +6625,50 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                             hasPivotCell = true;
                           }
                         });
-                        
+
                         return (
-                          <tr 
-                            key={idx} 
-                            className={`hover:bg-gray-800/20 transition-colors ${
-                              isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
-                            }`}
+                          <tr
+                            key={idx}
+                            className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`
+                              }`}
                           >
                             <td className={`px-3 py-4 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
                               width: `${workbenchStrikeWidth}px`,
                               minWidth: `${workbenchStrikeWidth}px`,
                               maxWidth: `${workbenchStrikeWidth}px`
                             }}>
-                              <div className={`text-base font-mono font-bold ${
-                                hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                isCurrentPriceRow ? 'text-orange-500' : 'text-white'
-                              }`}>
+                              <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
+                                  hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
+                                    isCurrentPriceRow ? 'text-orange-500' : 'text-white'
+                                }`}>
                                 {row.strike.toFixed(1)}
                               </div>
                             </td>
                             {expirations.map(exp => {
-                              const value = row[exp] as {call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number};
+                              const value = row[exp] as { call: number, put: number, net: number, callOI: number, putOI: number, callPremium?: number, putPremium?: number, callVex?: number, putVex?: number };
                               const callValue = value?.call || 0;
                               const putValue = value?.put || 0;
                               const netValue = value?.net || 0;
                               let callOI = value?.callOI || 0;
                               let putOI = value?.putOI || 0;
-                              
+
                               // Use Live OI if mode is selected
                               if (liveMode && liveOIData.size > 0) {
                                 const callKey = `${selectedTicker}_${row.strike}_call_${exp}`;
                                 const putKey = `${selectedTicker}_${row.strike}_put_${exp}`;
-                                
+
                                 const liveCallOI = liveOIData.get(callKey);
                                 const livePutOI = liveOIData.get(putKey);
-                                
+
                                 if (liveCallOI !== undefined) callOI = liveCallOI;
                                 if (livePutOI !== undefined) putOI = livePutOI;
                               }
-                              
+
                               const callPremium = value?.callPremium || 0;
                               const putPremium = value?.putPremium || 0;
                               const callVex = value?.callVex || 0;
                               const putVex = value?.putVex || 0;
-                              
+
                               // Debug VEX rendering values - show both zero and non-zero cases when VEX is enabled
                               if (showVEX) {
                                 console.log(`🎨 VEX Rendering - Strike ${row.strike}, Exp ${exp}: callVex=${callVex}, putVex=${putVex}, value:`, value);
@@ -6729,44 +6680,44 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                   console.log(`❌ No VEX State Found - Strike ${row.strike}, Exp ${exp}`);
                                 }
                               }
-                              
+
                               // Check if this is the largest VEX cell
-                              const isLargestVexCall = showVEX && 
-                                largestVexCell.strike === row.strike && 
-                                largestVexCell.exp === exp && 
+                              const isLargestVexCall = showVEX &&
+                                largestVexCell.strike === row.strike &&
+                                largestVexCell.exp === exp &&
                                 largestVexCell.type === 'call';
-                              const isLargestVexPut = showVEX && 
-                                largestVexCell.strike === row.strike && 
-                                largestVexCell.exp === exp && 
+                              const isLargestVexPut = showVEX &&
+                                largestVexCell.strike === row.strike &&
+                                largestVexCell.exp === exp &&
                                 largestVexCell.type === 'put';
-                              
+
                               // Dealer attraction identification (when Live OI is active)
                               const tops = topValues;
                               const absCallValue = Math.abs(callValue);
                               const absPutValue = Math.abs(putValue);
                               const netValueCalculated = callValue + putValue; // Calculate net from actual call+put values
                               const absNetValue = Math.abs(netValueCalculated);
-                              
+
                               // Check if this cell is an Attraction or Reversal level
                               // For split mode (separate call/put cells)
                               const isAttractionCall = liveMode && (showGEX || showDealer) && absCallValue === tops.highest && absCallValue > 0;
                               const isAttractionPut = liveMode && (showGEX || showDealer) && absPutValue === tops.highest && absPutValue > 0;
                               const isReversalCall = liveMode && (showGEX || showDealer) && (absCallValue === tops.second || absCallValue === tops.third) && absCallValue > 0;
                               const isReversalPut = liveMode && (showGEX || showDealer) && (absPutValue === tops.second || absPutValue === tops.third) && absPutValue > 0;
-                              
+
                               // For Net GEX/Net Dealer mode (single cell with net value)
                               const isAttractionNet = liveMode && (showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && absNetValue === tops.highest && absNetValue > 0;
                               const isReversalNet = liveMode && (showGEX || showDealer) && (gexMode === 'Net GEX' || gexMode === 'Net Dealer') && (absNetValue === tops.second || absNetValue === tops.third) && absNetValue > 0;
-                              
+
                               // VEX Action Labels - Determine what to display in VEX cells
                               const getVexActionLabel = (vexValue: number, strike: number): string | null => {
                                 return null;
                               };
-                              
+
                               const netVexAction = getVexActionLabel(callVex + putVex, row.strike);
                               const callVexAction = getVexActionLabel(callVex, row.strike);
                               const putVexAction = getVexActionLabel(putVex, row.strike);
-                              
+
                               return (
                                 <td
                                   key={exp}
@@ -6784,32 +6735,32 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                     } else if (showGEX || showDealer) {
                                       displayValue = callValue + putValue;
                                     }
-                                    
+
                                     // Determine which top values to use for this mode
-                                    const modeTopValues = showFlowGEX ? flowTopValues : 
-                                                         showVEX ? vexTopValues : 
-                                                         showDealer ? dealerTopValues : 
-                                                         gexTopValues;
-                                    
+                                    const modeTopValues = showFlowGEX ? flowTopValues :
+                                      showVEX ? vexTopValues :
+                                        showDealer ? dealerTopValues :
+                                          gexTopValues;
+
                                     const cellStyle = getCellStyle(displayValue, showVEX, row.strike, exp, modeTopValues);
                                     return (
                                       <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105`}>
-                                      
-                                    {/* Display label if present (MAGNET/PIVOT) */}
-                                    {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
-                                      
-                                    {/* Display the net value */}
-                                    <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
-                                    
-                                    {/* Show VEX action label if applicable */}
-                                    {showVEX && netVexAction && (
-                                      <div className="text-[9px] font-black tracking-wider text-white/90" style={{ 
-                                        textShadow: '0 1px 2px rgba(0,0,0,0.9)'
-                                      }}>
-                                        {netVexAction}
+
+                                        {/* Display label if present (MAGNET/PIVOT) */}
+                                        {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
+
+                                        {/* Display the net value */}
+                                        <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+
+                                        {/* Show VEX action label if applicable */}
+                                        {showVEX && netVexAction && (
+                                          <div className="text-[9px] font-black tracking-wider text-white/90" style={{
+                                            textShadow: '0 1px 2px rgba(0,0,0,0.9)'
+                                          }}>
+                                            {netVexAction}
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
-                                  </div>
                                     );
                                   })()}
                                 </td>
@@ -6829,7 +6780,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               <div className="text-center">
                 {/* Render the appropriate workbench component */}
                 <div style={{ display: activeWorkbenchTab === 'MM' ? 'block' : 'none' }}>
-                  <MMDashboard 
+                  <MMDashboard
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}
@@ -6838,7 +6789,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   />
                 </div>
                 <div style={{ display: activeWorkbenchTab === 'SI' ? 'block' : 'none' }}>
-                  <SIDashboard 
+                  <SIDashboard
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}
@@ -6847,7 +6798,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   />
                 </div>
                 <div style={{ display: activeWorkbenchTab === 'MAXPAIN' ? 'block' : 'none' }}>
-                  <MaxPainDashboard 
+                  <MaxPainDashboard
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}
