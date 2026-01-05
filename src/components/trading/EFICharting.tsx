@@ -4375,6 +4375,11 @@ export default function TradingViewChart({
   const [seasonalSymbol, setSeasonalSymbol] = useState('SPY');
   const [seasonalYears, setSeasonalYears] = useState(20);
   const [seasonalElectionMode, setSeasonalElectionMode] = useState('Normal Mode');
+  const [seasonalMonthlyData, setSeasonalMonthlyData] = useState<Array<{ month: string; outperformance: number }> | null>(null);
+  const [seasonalBest30Day, setSeasonalBest30Day] = useState<any>(null);
+  const [seasonalWorst30Day, setSeasonalWorst30Day] = useState<any>(null);
+  const [seasonalSweetSpotActive, setSeasonalSweetSpotActive] = useState(false);
+  const [seasonalPainPointActive, setSeasonalPainPointActive] = useState(false);
   const [seasonalData, setSeasonalData] = useState<any>(null);
   const [seasonalLoading, setSeasonalLoading] = useState(false);
   const [seasonalScanStarted, setSeasonalScanStarted] = useState(false);
@@ -18962,18 +18967,32 @@ export default function TradingViewChart({
                             />
 
                             {/* Compare Button */}
-                            <button style={{
-                              padding: '8px 16px',
-                              background: 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)',
-                              border: '1px solid rgba(255, 107, 0, 0.4)',
-                              borderRadius: '3px',
-                              color: '#ff6b00',
-                              fontSize: '11px',
-                              fontWeight: '700',
-                              textTransform: 'uppercase',
-                              cursor: 'pointer',
-                              letterSpacing: '0.5px'
-                            }}>
+                            <button
+                              onClick={() => {
+                                // TODO: Implement compare functionality
+                                console.log('Compare clicked');
+                              }}
+                              style={{
+                                padding: '8px 16px',
+                                background: 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)',
+                                border: '1px solid rgba(255, 107, 0, 0.4)',
+                                borderRadius: '3px',
+                                color: '#ff6b00',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                textTransform: 'uppercase',
+                                cursor: 'pointer',
+                                letterSpacing: '0.5px',
+                                transition: 'all 0.2s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, #2a2a2a 0%, #1f1f1f 100%)';
+                                e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)';
+                                e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)';
+                              }}>
                               + COMPARE
                             </button>
 
@@ -19021,35 +19040,95 @@ export default function TradingViewChart({
                             </select>
 
                             {/* Sweet Spot Button */}
-                            <button style={{
-                              padding: '8px 16px',
-                              background: 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
-                              border: '1px solid rgba(0, 255, 100, 0.4)',
-                              borderRadius: '3px',
-                              color: '#00ff66',
-                              fontSize: '11px',
-                              fontWeight: '700',
-                              textTransform: 'uppercase',
-                              cursor: 'pointer',
-                              letterSpacing: '0.5px'
-                            }}>
-                              Sweet Spot
+                            <button
+                              onClick={() => {
+                                const newState = !seasonalSweetSpotActive;
+                                setSeasonalSweetSpotActive(newState);
+
+                                // Trigger sweet spot calculation in the chart below
+                                const chartContainer = document.querySelector('.seasonality-custom-panel .seasonax-container');
+                                if (chartContainer) {
+                                  const sweetSpotBtn = chartContainer.querySelector('.sweet-spot-btn') as HTMLButtonElement;
+                                  if (sweetSpotBtn) sweetSpotBtn.click();
+                                }
+                              }}
+                              style={{
+                                padding: '8px 16px',
+                                background: seasonalSweetSpotActive
+                                  ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
+                                  : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
+                                border: seasonalSweetSpotActive
+                                  ? '1px solid rgba(0, 255, 100, 0.8)'
+                                  : '1px solid rgba(0, 255, 100, 0.4)',
+                                borderRadius: '3px',
+                                color: '#00ff66',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                textTransform: 'uppercase',
+                                cursor: 'pointer',
+                                letterSpacing: '0.5px',
+                                transition: 'all 0.2s ease',
+                                boxShadow: seasonalSweetSpotActive ? '0 0 15px rgba(0, 255, 100, 0.4)' : 'none'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!seasonalSweetSpotActive) {
+                                  e.currentTarget.style.background = 'linear-gradient(135deg, #006d00 0%, #003600 100%)';
+                                  e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!seasonalSweetSpotActive) {
+                                  e.currentTarget.style.background = 'linear-gradient(135deg, #004d00 0%, #002600 100%)';
+                                  e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)';
+                                }
+                              }}>
+                              {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
                             </button>
 
                             {/* Pain Point Button */}
-                            <button style={{
-                              padding: '8px 16px',
-                              background: 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
-                              border: '1px solid rgba(255, 0, 0, 0.4)',
-                              borderRadius: '3px',
-                              color: '#ff0044',
-                              fontSize: '11px',
-                              fontWeight: '700',
-                              textTransform: 'uppercase',
-                              cursor: 'pointer',
-                              letterSpacing: '0.5px'
-                            }}>
-                              Pain Point
+                            <button
+                              onClick={() => {
+                                const newState = !seasonalPainPointActive;
+                                setSeasonalPainPointActive(newState);
+
+                                // Trigger pain point calculation in the chart below
+                                const chartContainer = document.querySelector('.seasonality-custom-panel .seasonax-container');
+                                if (chartContainer) {
+                                  const painPointBtn = chartContainer.querySelector('.pain-point-btn') as HTMLButtonElement;
+                                  if (painPointBtn) painPointBtn.click();
+                                }
+                              }}
+                              style={{
+                                padding: '8px 16px',
+                                background: seasonalPainPointActive
+                                  ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
+                                  : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
+                                border: seasonalPainPointActive
+                                  ? '1px solid rgba(255, 0, 0, 0.8)'
+                                  : '1px solid rgba(255, 0, 0, 0.4)',
+                                borderRadius: '3px',
+                                color: '#ff0044',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                textTransform: 'uppercase',
+                                cursor: 'pointer',
+                                letterSpacing: '0.5px',
+                                transition: 'all 0.2s ease',
+                                boxShadow: seasonalPainPointActive ? '0 0 15px rgba(255, 0, 0, 0.4)' : 'none'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!seasonalPainPointActive) {
+                                  e.currentTarget.style.background = 'linear-gradient(135deg, #6d0000 0%, #360000 100%)';
+                                  e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!seasonalPainPointActive) {
+                                  e.currentTarget.style.background = 'linear-gradient(135deg, #4d0000 0%, #260000 100%)';
+                                  e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)';
+                                }
+                              }}>
+                              {seasonalPainPointActive ? '✓ ' : ''}Pain Point
                             </button>
                           </div>
 
@@ -19075,31 +19154,58 @@ export default function TradingViewChart({
                               minWidth: '100px'
                             }}>
                               <div style={{ fontSize: '9px', color: '#00ff66', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BULLISH</div>
-                              <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>Jun 27 - Jul 26</div>
-                              <div style={{ fontSize: '12px', color: '#00ff66', fontWeight: '700', marginTop: '2px' }}>+4.69%</div>
+                              <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>
+                                {seasonalBest30Day ? seasonalBest30Day.period.replace(' - ', ' - ') : 'Loading...'}
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#00ff66', fontWeight: '700', marginTop: '2px' }}>
+                                {seasonalBest30Day ? `+${seasonalBest30Day.return.toFixed(2)}%` : '--'}
+                              </div>
                             </div>
 
                             {/* 12 Monthly Returns */}
-                            {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].map((month, i) => {
-                              const returns = [0.81, -0.13, 1.06, 1.78, 0.79, 0.23, 1.06, 0.60, -0.78, 1.18, 2.26, 0.63];
-                              const ret = returns[i];
+                            {seasonalMonthlyData && seasonalMonthlyData.map((monthData, i) => {
+                              const ret = monthData.outperformance;
                               const isPositive = ret > 0;
+                              const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
                               return (
-                                <div key={month} style={{
+                                <div key={monthData.month} style={{
                                   padding: '6px 8px',
                                   background: '#0a0a0a',
                                   border: `1px solid ${isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)'}`,
                                   borderRadius: '3px',
                                   textAlign: 'center',
-                                  minWidth: '60px'
-                                }}>
-                                  <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '2px', opacity: 1 }}>{month}</div>
+                                  minWidth: '60px',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = '#1a1a1a';
+                                    e.currentTarget.style.borderColor = isPositive ? 'rgba(0, 255, 100, 0.5)' : 'rgba(255, 0, 0, 0.5)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = '#0a0a0a';
+                                    e.currentTarget.style.borderColor = isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)';
+                                  }}>
+                                  <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '2px', opacity: 1 }}>{monthNames[i]}</div>
                                   <div style={{ fontSize: '11px', color: isPositive ? '#00ff66' : '#ff0044', fontWeight: '700' }}>
                                     {isPositive ? '+' : ''}{ret.toFixed(2)}%
                                   </div>
                                 </div>
                               );
                             })}
+                            {!seasonalMonthlyData && ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].map((month) => (
+                              <div key={month} style={{
+                                padding: '6px 8px',
+                                background: '#0a0a0a',
+                                border: '1px solid rgba(100, 100, 100, 0.3)',
+                                borderRadius: '3px',
+                                textAlign: 'center',
+                                minWidth: '60px'
+                              }}>
+                                <div style={{ fontSize: '9px', color: '#666', fontWeight: '700', marginBottom: '2px' }}>{month}</div>
+                                <div style={{ fontSize: '11px', color: '#666', fontWeight: '700' }}>--</div>
+                              </div>
+                            ))}
 
                             {/* Bearish 30-Day */}
                             <div style={{
@@ -19111,8 +19217,12 @@ export default function TradingViewChart({
                               minWidth: '100px'
                             }}>
                               <div style={{ fontSize: '9px', color: '#ff0044', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BEARISH</div>
-                              <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>Feb 15 - Mar 15</div>
-                              <div style={{ fontSize: '12px', color: '#ff0044', fontWeight: '700', marginTop: '2px' }}>-2.26%</div>
+                              <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>
+                                {seasonalWorst30Day ? seasonalWorst30Day.period.replace(' - ', ' - ') : 'Loading...'}
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#ff0044', fontWeight: '700', marginTop: '2px' }}>
+                                {seasonalWorst30Day ? `${seasonalWorst30Day.return.toFixed(2)}%` : '--'}
+                              </div>
                             </div>
                           </div>
 
@@ -19123,6 +19233,13 @@ export default function TradingViewChart({
                               autoStart={true}
                               hideControls={false}
                               onSymbolChange={(symbol) => setSeasonalSymbol(symbol)}
+                              externalElectionMode={seasonalElectionMode}
+                              externalYears={seasonalYears}
+                              onMonthlyDataLoaded={(monthlyData, best30Day, worst30Day) => {
+                                setSeasonalMonthlyData(monthlyData);
+                                setSeasonalBest30Day(best30Day);
+                                setSeasonalWorst30Day(worst30Day);
+                              }}
                             />
                           </div>
                         </div>
