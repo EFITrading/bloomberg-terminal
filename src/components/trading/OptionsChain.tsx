@@ -1117,8 +1117,8 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
                   <button
                     onClick={() => setShowWatchlist(!showWatchlist)}
                     className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center gap-2 relative overflow-hidden group ${showWatchlist
-                        ? 'scale-105'
-                        : 'hover:scale-105'
+                      ? 'scale-105'
+                      : 'hover:scale-105'
                       }`}
                     style={{
                       background: 'linear-gradient(145deg, #0c1e3a, #081526)',
@@ -1532,8 +1532,8 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
                     >
                       {/* Call Option */}
                       <div className={`grid gap-2 px-3 py-3 text-base border-r border-gray-800/50 ${getProbabilityType(strike).type === '80call' ? 'bg-green-900/30' :
-                          getProbabilityType(strike).type === '90call' ? 'bg-lime-900/30' :
-                            callITM ? 'bg-green-950/20' : 'bg-transparent'
+                        getProbabilityType(strike).type === '90call' ? 'bg-lime-900/30' :
+                          callITM ? 'bg-green-950/20' : 'bg-transparent'
                         }`}
                         style={{ gridTemplateColumns: `repeat(${Object.values(visibleColumns).filter(Boolean).length}, minmax(0, 1fr))` }}>
                         {visibleColumns.watchlist && (
@@ -1618,19 +1618,19 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
 
                       {/* Strike Price */}
                       <div className={`px-4 py-3 text-center text-lg font-bold border-r border-gray-800/50 min-w-[90px] ${atm ? 'bg-orange-900/30 text-orange-400' :
-                          getProbabilityType(strike).type === '80call' ? 'bg-green-900/30 text-green-500' :
-                            getProbabilityType(strike).type === '80put' ? 'bg-red-900/30 text-red-500' :
-                              getProbabilityType(strike).type === '90call' ? 'bg-lime-900/30 text-lime-400' :
-                                getProbabilityType(strike).type === '90put' ? 'bg-red-950/30 text-red-700' :
-                                  'bg-gray-900/50 text-white'
+                        getProbabilityType(strike).type === '80call' ? 'bg-green-900/30 text-green-500' :
+                          getProbabilityType(strike).type === '80put' ? 'bg-red-900/30 text-red-500' :
+                            getProbabilityType(strike).type === '90call' ? 'bg-lime-900/30 text-lime-400' :
+                              getProbabilityType(strike).type === '90put' ? 'bg-red-950/30 text-red-700' :
+                                'bg-gray-900/50 text-white'
                         }`}>
                         ${strike.toFixed(2)}
                       </div>
 
                       {/* Put Option */}
                       <div className={`grid gap-2 px-3 py-3 text-base ${getProbabilityType(strike).type === '80put' ? 'bg-red-900/30' :
-                          getProbabilityType(strike).type === '90put' ? 'bg-red-950/30' :
-                            putITM ? 'bg-red-950/20' : 'bg-transparent'
+                        getProbabilityType(strike).type === '90put' ? 'bg-red-950/30' :
+                          putITM ? 'bg-red-950/20' : 'bg-transparent'
                         }`}
                         style={{ gridTemplateColumns: `repeat(${Object.values(visibleColumns).filter(Boolean).length}, minmax(0, 1fr))` }}>
                         {visibleColumns.ask && (
@@ -1795,22 +1795,12 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
 
             const riskFreeRate = 0.0408;
 
-            // Try to get actual implied volatility from loaded options data
-            let impliedVol = 0.30; // Default 30% IV if not found
+            // Use IV from watchlist item (stored when added)
+            let impliedVol = item.implied_volatility && item.implied_volatility > 0
+              ? item.implied_volatility
+              : 0.30; // Default 30% IV if not stored
 
-            // Look for the option in callOptions or putOptions arrays to get real IV
-            const optionsArray = item.type === 'call' ? callOptions : putOptions;
-            const matchingOption = optionsArray.find(opt =>
-              opt.strike_price === item.strike &&
-              opt.expiration_date === item.expiration
-            );
-
-            if (matchingOption?.implied_volatility && matchingOption.implied_volatility > 0) {
-              impliedVol = matchingOption.implied_volatility;
-              console.log(`Using real IV for ${item.symbol} $${item.strike} ${item.type}: ${(impliedVol * 100).toFixed(1)}%`);
-            } else {
-              console.log(`No IV data found for ${item.symbol} $${item.strike} ${item.type}, using default 30%`);
-            }
+            console.log(`Using IV for ${item.symbol} $${item.strike} ${item.type}: ${(impliedVol * 100).toFixed(1)}%`);
 
             // Calculate baseline: current option value at current stock price and current time
             const baselineValue = calculateBSPrice(
@@ -1821,6 +1811,15 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
               impliedVol,
               item.type === 'call'
             );
+
+            console.log(`Calculator Baseline for ${item.symbol} $${item.strike} ${item.type}:`);
+            console.log(`  Current Stock Price: $${currentStockPrice.toFixed(2)}`);
+            console.log(`  Strike: $${item.strike}`);
+            console.log(`  DTE: ${daysToExpiry} days (${(daysToExpiry / 365).toFixed(4)} years)`);
+            console.log(`  IV: ${(impliedVol * 100).toFixed(1)}%`);
+            console.log(`  Risk-Free Rate: ${(riskFreeRate * 100).toFixed(2)}%`);
+            console.log(`  Baseline Option Value: $${baselineValue.toFixed(2)}`);
+            console.log(`  Entry Price: $${item.entryPrice.toFixed(2)}`);
 
             return (
               <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1842,8 +1841,8 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
                       <button
                         onClick={() => setCalculatorView('table')}
                         className={`px-6 py-3 rounded-lg font-black text-lg uppercase tracking-wider transition-all duration-300 ${calculatorView === 'table'
-                            ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
-                            : 'text-white/90 hover:text-white hover:bg-gray-800/30'
+                          ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
+                          : 'text-white/90 hover:text-white hover:bg-gray-800/30'
                           }`}
                         style={calculatorView === 'table' ? {
                           background: 'linear-gradient(to bottom, #000000, #0a0a0a, #000000)',
@@ -1858,8 +1857,8 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
                       <button
                         onClick={() => setCalculatorView('line')}
                         className={`px-6 py-3 rounded-lg font-black text-lg uppercase tracking-wider transition-all duration-300 ${calculatorView === 'line'
-                            ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
-                            : 'text-white/90 hover:text-white hover:bg-gray-800/30'
+                          ? 'bg-gradient-to-b from-black via-gray-950 to-black text-transparent bg-clip-text shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_0_16px_rgba(249,115,22,0.4)] border-2 border-orange-500/30'
+                          : 'text-white/90 hover:text-white hover:bg-gray-800/30'
                           }`}
                         style={calculatorView === 'line' ? {
                           background: 'linear-gradient(to bottom, #000000, #0a0a0a, #000000)',
@@ -1944,8 +1943,8 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
                                     return (
                                       <tr key={strike} className={isATM ? 'ring-2 ring-yellow-400' : ''}>
                                         <td className={`h-12 border border-gray-600 text-center font-medium text-lg ${isATM
-                                            ? 'bg-yellow-900 text-yellow-300 font-bold ring-1 ring-yellow-400'
-                                            : 'bg-black text-white'
+                                          ? 'bg-yellow-900 text-yellow-300 font-bold ring-1 ring-yellow-400'
+                                          : 'bg-black text-white'
                                           }`}>
                                           ${strike.toFixed(2)} {isATM && '🎯'}
                                         </td>
@@ -1963,9 +1962,9 @@ export default function OptionsChain({ symbol: initialSymbol, currentPrice = 0, 
                                             item.type === 'call'
                                           );
 
-                                          // Calculate P/L percentage relative to baseline (current value)
-                                          const percentPnL = baselineValue > 0
-                                            ? ((theoreticalValue - baselineValue) / baselineValue) * 100
+                                          // Calculate P/L percentage relative to entry price
+                                          const percentPnL = item.entryPrice > 0
+                                            ? ((theoreticalValue - item.entryPrice) / item.entryPrice) * 100
                                             : 0;
 
                                           const cellColor = getPLColor(percentPnL);

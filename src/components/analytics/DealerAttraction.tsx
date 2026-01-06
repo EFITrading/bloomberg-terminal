@@ -1379,8 +1379,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             {/* Center Value Display */}
             <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
               <div className={`md:text-3xl text-lg font-bold ${metrics.signal.includes('BUY') ? 'text-green-400' :
-                  metrics.signal.includes('SELL') ? 'text-red-400' :
-                    'text-yellow-400'
+                metrics.signal.includes('SELL') ? 'text-red-400' :
+                  'text-yellow-400'
                 }`}>
                 {metrics.compositeScore > 0 ? '+' : ''}{metrics.compositeScore.toFixed(1)}
               </div>
@@ -1540,8 +1540,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
             {/* Center Value Display */}
             <div className="absolute md:bottom-2 bottom-0 left-1/2 transform -translate-x-1/2 text-center">
               <div className={`md:text-3xl text-lg font-bold ${siMetrics.siNorm > 2 ? 'text-green-400' :
-                  siMetrics.siNorm < -2 ? 'text-red-400' :
-                    'text-yellow-400'
+                siMetrics.siNorm < -2 ? 'text-red-400' :
+                  'text-yellow-400'
                 }`}>
                 {siMetrics.siNorm > 0 ? '+' : ''}{siMetrics.siNorm.toFixed(1)}
               </div>
@@ -1634,13 +1634,13 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
 
             {/* Dealer Pressure */}
             <div className={`border-l-2 px-2 py-1.5 ${quickMaxPain.dealerPressure === 'DOWNWARD' ? 'bg-red-950/20 border-red-500' :
-                quickMaxPain.dealerPressure === 'UPWARD' ? 'bg-green-950/20 border-green-500' :
-                  'bg-yellow-950/20 border-yellow-500'
+              quickMaxPain.dealerPressure === 'UPWARD' ? 'bg-green-950/20 border-green-500' :
+                'bg-yellow-950/20 border-yellow-500'
               }`}>
               <div className="text-[9px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">Pressure</div>
               <div className={`text-xs font-bold leading-tight ${quickMaxPain.dealerPressure === 'DOWNWARD' ? 'text-red-400' :
-                  quickMaxPain.dealerPressure === 'UPWARD' ? 'text-green-400' :
-                    'text-yellow-400'
+                quickMaxPain.dealerPressure === 'UPWARD' ? 'text-green-400' :
+                  'text-yellow-400'
                 }`}>
                 {quickMaxPain.dealerPressure === 'DOWNWARD' ? '↓ DOWNWARD' :
                   quickMaxPain.dealerPressure === 'UPWARD' ? '↑ UPWARD' :
@@ -1800,7 +1800,7 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           <div className="space-y-3">
             <div className="text-center">
               <div className={`text-2xl font-bold ${metrics.netDirectionalBias === 'BULLISH' ? 'text-green-400' :
-                  metrics.netDirectionalBias === 'BEARISH' ? 'text-red-400' : 'text-gray-400'
+                metrics.netDirectionalBias === 'BEARISH' ? 'text-red-400' : 'text-gray-400'
                 }`}>
                 {metrics.netDirectionalBias}
               </div>
@@ -1935,8 +1935,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           <button
             onClick={() => setStrikeTableTab('mm')}
             className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${strikeTableTab === 'mm'
-                ? 'bg-black text-white border-b-2 border-orange-500'
-                : 'bg-gray-900 text-gray-400 hover:text-white'
+              ? 'bg-black text-white border-b-2 border-orange-500'
+              : 'bg-gray-900 text-gray-400 hover:text-white'
               }`}
           >
             MM BY STRIKE
@@ -1944,8 +1944,8 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
           <button
             onClick={() => setStrikeTableTab('risk')}
             className={`px-6 py-3 font-bold uppercase text-sm tracking-wider transition-colors ${strikeTableTab === 'risk'
-                ? 'bg-black text-white border-b-2 border-orange-500'
-                : 'bg-gray-900 text-gray-400 hover:text-white'
+              ? 'bg-black text-white border-b-2 border-orange-500'
+              : 'bg-gray-900 text-gray-400 hover:text-white'
               }`}
           >
             STRIKE-LEVEL RISK
@@ -2072,15 +2072,15 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                         <tr
                           key={item.strike}
                           className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${isMaxPain ? 'bg-red-950/20' :
-                              isHighestRisk ? 'bg-purple-950/20' :
-                                isATM ? 'bg-orange-950/10' : ''
+                            isHighestRisk ? 'bg-purple-950/20' :
+                              isATM ? 'bg-orange-950/10' : ''
                             }`}
                         >
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               <span className={`font-mono text-sm font-semibold ${isMaxPain ? 'text-red-400' :
-                                  isHighestRisk ? 'text-purple-400' :
-                                    isATM ? 'text-orange-400' : 'text-white'
+                                isHighestRisk ? 'text-purple-400' :
+                                  isATM ? 'text-orange-400' : 'text-white'
                                 }`}>
                                 ${item.strike.toFixed(1)}
                               </span>
@@ -2118,15 +2118,15 @@ const MMDashboard: React.FC<MMDashboardProps> = ({ selectedTicker, currentPrice,
                           </td>
                           <td className="px-4 py-2.5 text-right">
                             <span className={`font-mono text-xs ${Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
-                                item.distance > 0 ? 'text-red-400' : 'text-green-400'
+                              item.distance > 0 ? 'text-red-400' : 'text-green-400'
                               }`}>
                               {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-center">
                             <span className={`text-xs font-bold ${item.callOI > item.putOI * 1.5 ? 'text-green-400' :
-                                item.putOI > item.callOI * 1.5 ? 'text-red-400' :
-                                  'text-gray-500'
+                              item.putOI > item.callOI * 1.5 ? 'text-red-400' :
+                                'text-gray-500'
                               }`}>
                               {item.callOI > item.putOI * 1.5 ? 'CALL' :
                                 item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
@@ -3270,8 +3270,8 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
                   className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${currentPage === 1
-                      ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
-                      : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
+                    ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
+                    : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
                     }`}
                 >
                   PREVIOUS
@@ -3294,8 +3294,8 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                         key={page}
                         onClick={() => setCurrentPage(page)}
                         className={`px-3 py-2 text-sm font-bold border-2 transition-all ${currentPage === page
-                            ? 'bg-purple-600 border-purple-500 text-white'
-                            : 'bg-black border-gray-600 text-gray-400 hover:border-purple-500 hover:text-white'
+                          ? 'bg-purple-600 border-purple-500 text-white'
+                          : 'bg-black border-gray-600 text-gray-400 hover:border-purple-500 hover:text-white'
                           }`}
                       >
                         {page}
@@ -3308,8 +3308,8 @@ const SIDashboard: React.FC<SIDashboardProps> = ({ selectedTicker, currentPrice,
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                   disabled={currentPage === totalPages}
                   className={`px-4 py-2 text-sm font-bold uppercase tracking-wider border-2 transition-all ${currentPage === totalPages
-                      ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
-                      : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
+                    ? 'bg-gray-800 border-gray-700 text-gray-600 cursor-not-allowed'
+                    : 'bg-purple-600 border-purple-500 text-white hover:bg-purple-700'
                     }`}
                 >
                   NEXT
@@ -3632,11 +3632,11 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
 
             {/* Dealer Pressure */}
             <div className={`flex-1 border-l-4 px-4 py-2 rounded ${priceDistance > 0 ? 'bg-red-950/30 border-red-500' :
-                'bg-green-950/30 border-green-500'
+              'bg-green-950/30 border-green-500'
               }`}>
               <div className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">Dealer Pressure</div>
               <div className={`text-sm font-bold leading-tight ${Math.abs(priceDistance) < currentPrice * 0.01 ? 'text-yellow-400' :
-                  priceDistance > 0 ? 'text-red-400' : 'text-green-400'
+                priceDistance > 0 ? 'text-red-400' : 'text-green-400'
                 }`}>
                 {Math.abs(priceDistance) < currentPrice * 0.01
                   ? '● PINNED'
@@ -3705,15 +3705,15 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
                   <tr
                     key={item.strike}
                     className={`border-b border-gray-900/50 hover:bg-gray-900/30 transition-colors ${isMaxPain ? 'bg-red-950/20' :
-                        isHighestRisk ? 'bg-purple-950/20' :
-                          isATM ? 'bg-orange-950/10' : ''
+                      isHighestRisk ? 'bg-purple-950/20' :
+                        isATM ? 'bg-orange-950/10' : ''
                       }`}
                   >
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
                         <span className={`font-mono text-sm font-semibold ${isMaxPain ? 'text-red-400' :
-                            isHighestRisk ? 'text-purple-400' :
-                              isATM ? 'text-orange-400' : 'text-white'
+                          isHighestRisk ? 'text-purple-400' :
+                            isATM ? 'text-orange-400' : 'text-white'
                           }`}>
                           ${item.strike.toFixed(1)}
                         </span>
@@ -3751,15 +3751,15 @@ const MaxPainDashboard: React.FC<MaxPainDashboardProps> = ({ selectedTicker, cur
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       <span className={`font-mono text-xs ${Math.abs(item.distance) < 1 ? 'text-yellow-400 font-bold' :
-                          item.distance > 0 ? 'text-red-400' : 'text-green-400'
+                        item.distance > 0 ? 'text-red-400' : 'text-green-400'
                         }`}>
                         {item.distance >= 0 ? '+' : ''}{item.distance.toFixed(2)}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       <span className={`text-xs font-bold ${item.callOI > item.putOI * 1.5 ? 'text-green-400' :
-                          item.putOI > item.callOI * 1.5 ? 'text-red-400' :
-                            'text-gray-500'
+                        item.putOI > item.callOI * 1.5 ? 'text-red-400' :
+                          'text-gray-500'
                         }`}>
                         {item.callOI > item.putOI * 1.5 ? 'CALL' :
                           item.putOI > item.callOI * 1.5 ? 'PUT' : 'MIXED'}
@@ -5402,8 +5402,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   <button
                     onClick={() => setActiveTab('WORKBENCH')}
                     className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'WORKBENCH'
-                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
-                        : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
+                      ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
+                      : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
                       }`}
                     style={{ padding: '14px 16px', fontSize: '14px' }}
                   >
@@ -5413,8 +5413,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   <button
                     onClick={() => setActiveTab('ATTRACTION')}
                     className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'ATTRACTION'
-                        ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
-                        : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
+                      ? 'relative text-orange-500 border-2 border-orange-500 shadow-[0_0_20px_rgba(255,102,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]'
+                      : 'bg-black text-white hover:text-orange-500 border-2 border-gray-800 hover:border-orange-500 hover:shadow-[0_0_15px_rgba(255,102,0,0.3)]'
                       }`}
                     style={{ padding: '14px 16px', fontSize: '14px' }}
                   >
@@ -5548,8 +5548,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         <button
                           onClick={() => setUseBloombergTheme(!useBloombergTheme)}
                           className={`flex items-center justify-center px-2 font-black text-xs transition-all rounded ${useBloombergTheme
-                              ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
-                              : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
+                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
+                            : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
                             }`}
                           style={{
                             height: '36px',
@@ -5893,8 +5893,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                   }}
                                   disabled={liveOILoading}
                                   className={`relative overflow-hidden px-4 py-2 text-xs font-black uppercase tracking-wider rounded transition-all duration-300 ${liveMode
-                                      ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 text-green-300 border border-green-400/70 shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]'
-                                      : 'bg-gradient-to-b from-black/80 via-black to-black/90 text-gray-400 border border-white/10 hover:border-green-500/50 hover:text-green-400 hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
+                                    ? 'bg-gradient-to-b from-green-500/25 via-black to-green-900/30 text-green-300 border border-green-400/70 shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                    : 'bg-gradient-to-b from-black/80 via-black to-black/90 text-gray-400 border border-white/10 hover:border-green-500/50 hover:text-green-400 hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
                                     } ${liveOILoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                 >
                                   <span className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></span>
@@ -5952,8 +5952,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       <button
                         onClick={() => setUseBloombergTheme(!useBloombergTheme)}
                         className={`flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${useBloombergTheme
-                            ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
-                            : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
+                          ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
+                          : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
                           }`}
                         style={{
                           boxShadow: useBloombergTheme ? '0 0 10px rgba(245, 158, 11, 0.5)' : 'none'
@@ -6019,8 +6019,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <button
                             onClick={() => setActiveWorkbenchTab('MM')}
                             className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'MM'
-                                ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]'
-                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                              ? 'bg-blue-600 text-white border-2 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]'
+                              : 'bg-gradient-to-b from-black via-gray-900 to-black text-blue-400 hover:text-white border-2 border-gray-800 hover:border-blue-500 hover:bg-blue-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
                               }`}
                           >
                             Market Maker
@@ -6028,8 +6028,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <button
                             onClick={() => setActiveWorkbenchTab('SI')}
                             className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'SI'
-                                ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
-                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                              ? 'bg-purple-600 text-white border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                              : 'bg-gradient-to-b from-black via-gray-900 to-black text-purple-400 hover:text-white border-2 border-gray-800 hover:border-purple-500 hover:bg-purple-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
                               }`}
                           >
                             Stability Index
@@ -6037,8 +6037,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           <button
                             onClick={() => setActiveWorkbenchTab('MAXPAIN')}
                             className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'MAXPAIN'
-                                ? 'bg-red-600 text-white border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
-                                : 'bg-gradient-to-b from-black via-gray-900 to-black text-red-400 hover:text-white border-2 border-gray-800 hover:border-red-500 hover:bg-red-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
+                              ? 'bg-red-600 text-white border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
+                              : 'bg-gradient-to-b from-black via-gray-900 to-black text-red-400 hover:text-white border-2 border-gray-800 hover:border-red-500 hover:bg-red-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
                               }`}
                           >
                             Max Pain
@@ -6258,8 +6258,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           maxWidth: `${mobileStrikeWidth}px`
                                         }}>
                                           <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                              hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                                isCurrentPriceRow ? 'text-orange-500' : 'text-white'
+                                            hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
+                                              isCurrentPriceRow ? 'text-orange-500' : 'text-white'
                                             }`}>
                                             {row.strike.toFixed(1)}
                                           </div>
@@ -6376,8 +6376,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           maxWidth: `${mobileStrikeWidth}px`
                                         }}>
                                           <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                              hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                                isCurrentPriceRow ? 'text-orange-500' : 'text-white'
+                                            hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
+                                              isCurrentPriceRow ? 'text-orange-500' : 'text-white'
                                             }`}>
                                             {row.strike.toFixed(1)}
                                           </div>
@@ -6489,8 +6489,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           maxWidth: `${mobileStrikeWidth}px`
                                         }}>
                                           <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                              hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                                isCurrentPriceRow ? 'text-orange-500' : 'text-white'
+                                            hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
+                                              isCurrentPriceRow ? 'text-orange-500' : 'text-white'
                                             }`}>
                                             {row.strike.toFixed(1)}
                                           </div>
@@ -6638,8 +6638,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               maxWidth: `${workbenchStrikeWidth}px`
                             }}>
                               <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                  hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                    isCurrentPriceRow ? 'text-orange-500' : 'text-white'
+                                hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
+                                  isCurrentPriceRow ? 'text-orange-500' : 'text-white'
                                 }`}>
                                 {row.strike.toFixed(1)}
                               </div>

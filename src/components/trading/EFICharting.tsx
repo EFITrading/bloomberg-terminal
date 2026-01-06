@@ -3344,6 +3344,25 @@ export default function TradingViewChart({
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
 
+  // Tracking tab state
+  const [trackingData, setTrackingData] = useState<{
+    [symbol: string]: {
+      symbol: string;
+      price: number;
+      change: number;
+      sparklineData: Array<{ time: number; price: number }>;
+      previousDayClose?: number;
+    };
+  }>({});
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const trackingFetchedRef = useRef(false);
+  const [trackingTimeframe, setTrackingTimeframe] = useState<'1D' | '5D' | '1M' | '3M' | '6M' | '1Y'>('1D');
+
+  // Options Trades state
+  const [optionsPremiumData, setOptionsPremiumData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
+  const [stockChartData, setStockChartData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
+  const optionsDataFetchedRef = useRef(false);
+
   // Lock state for drawing tools - when locked, tools stay active after placing a drawing
   const [isDrawingLocked, setIsDrawingLocked] = useState<boolean>(false);
 
@@ -4370,6 +4389,101 @@ export default function TradingViewChart({
   const [screenersTab, setScreenersTab] = useState('HV');
   const [rrgTab, setRrgTab] = useState('Price');
   const [calendarTab, setCalendarTab] = useState('Chart');
+  const [optionsTradesTimeframes, setOptionsTradesTimeframes] = useState<Record<string, '1D' | '5D' | '1M'>>({});
+
+  // Fetch specific option data when its timeframe changes
+  const fetchOptionData = useCallback(async (option: any, timeframe: '1D' | '5D' | '1M') => {
+    try {
+      const expiry = option.expiration.split('-').join('').slice(2);
+      const strikeFormatted = (option.strike * 1000).toString().padStart(8, '0');
+      const optionType = option.type === 'call' ? 'C' : 'P';
+      const optionTicker = `O:${option.symbol}${expiry}${optionType}${strikeFormatted}`;
+
+      const today = new Date();
+      const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+      let fromDate: Date;
+      let toDate: Date = today;
+      let multiplier: number;
+      let timespan: string;
+
+      if (timeframe === '1D') {
+        fromDate = new Date(today);
+        multiplier = 5;
+        timespan = 'minute';
+      } else if (timeframe === '5D') {
+        fromDate = new Date(today);
+        fromDate.setDate(fromDate.getDate() - 5);
+        multiplier = 30;
+        timespan = 'minute';
+      } else {
+        fromDate = new Date(today);
+        fromDate.setDate(fromDate.getDate() - 30);
+        multiplier = 1;
+        timespan = 'day';
+      }
+
+      const fromStr = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, '0')}-${String(fromDate.getDate()).padStart(2, '0')}`;
+      const toStr = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}-${String(toDate.getDate()).padStart(2, '0')}`;
+
+      // Fetch option premium data
+      const optionUrl = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
+      const optionResponse = await fetch(optionUrl);
+      const optionData = await optionResponse.json();
+
+      if (optionData.status === 'OK' && optionData.results && optionData.results.length > 0) {
+        const chartData = optionData.results.map((bar: any) => ({
+          price: bar.c,
+          timestamp: bar.t
+        }));
+        setOptionsPremiumData(prev => ({ ...prev, [option.id]: chartData }));
+      }
+
+      // Fetch underlying stock data
+      const stockUrl = `https://api.polygon.io/v2/aggs/ticker/${option.symbol}/range/${multiplier}/${timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
+      const stockResponse = await fetch(stockUrl);
+      const stockData = await stockResponse.json();
+
+      if (stockData.status === 'OK' && stockData.results && stockData.results.length > 0) {
+        const stockChartData = stockData.results.map((bar: any) => ({
+          price: bar.c,
+          timestamp: bar.t
+        }));
+        setStockChartData(prev => ({ ...prev, [option.id]: stockChartData }));
+      }
+    } catch (error) {
+      console.error('Error fetching option data:', error);
+    }
+  }, []);
+
+  // Fetch Options Trades data when tab is active or timeframe changes
+  useEffect(() => {
+    if (watchlistTab !== 'Options Trades') return;
+
+    const saved = localStorage.getItem('optionsWatchlist');
+    const optionsWatchlist: any[] = saved ? JSON.parse(saved) : [];
+
+    if (optionsWatchlist.length === 0) return;
+
+    // Initialize timeframes for all options if not set
+    const newTimeframes = { ...optionsTradesTimeframes };
+    let hasChanges = false;
+    optionsWatchlist.forEach(option => {
+      if (!newTimeframes[option.id]) {
+        newTimeframes[option.id] = '1D';
+        hasChanges = true;
+      }
+    });
+    if (hasChanges) {
+      setOptionsTradesTimeframes(newTimeframes);
+    }
+
+    // Fetch data for all options with their timeframes
+    optionsWatchlist.forEach(option => {
+      const timeframe = optionsTradesTimeframes[option.id] || '1D';
+      fetchOptionData(option, timeframe);
+    });
+  }, [watchlistTab, optionsTradesTimeframes, fetchOptionData]);
 
   // Seasonality panel state
   const [seasonalSymbol, setSeasonalSymbol] = useState('SPY');
@@ -13216,6 +13330,200 @@ export default function TradingViewChart({
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, pdTimeframe, stableSymbols]);
 
+    // Fetch data for Tracking tab
+    useEffect(() => {
+      if (activeTab === 'Tracking' && !trackingFetchedRef.current && !trackingLoading) {
+        trackingFetchedRef.current = true;
+        setTrackingLoading(true);
+
+        const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+        const categories = {
+          Markets: ['SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT'],
+          'Large Caps': ['NVDA', 'TSM', 'AVGO', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA'],
+          Value: ['JPM', 'BA', 'FCX', 'XOM', 'NKE', 'FDX', 'CAT', 'BAC', 'MS', 'DAL', 'UNH', 'LMT', 'MCD', 'WMT', 'DHI', 'HD', 'PANW', 'NFLX'],
+          'High Beta': ['OKLO', 'CRWV', 'IONQ', 'QUBT', 'IREN', 'NBIS', 'HOOD', 'PLTR', 'HIMS', 'UPST', 'AFRM', 'TEM', 'CRCL', 'MSTR', 'COIN', 'XYZ', 'ARM', 'SHOP', 'DASH', 'UBER', 'ABNB', 'AMD', 'ROKU', 'RBLX'],
+          China: ['PDD', 'FXI', 'JD', 'FUTU', 'BILI', 'BABA', 'NTES', 'KWEB', 'BIDU'],
+          '11 Sectors': ['XLK', 'XLY', 'XLC', 'XLE', 'XLI', 'XLB', 'XLF', 'XLU', 'XLP', 'XLRE', 'XLV'],
+          Industries: ['OIH', 'XME', 'GDX', 'JETS', 'PBW', 'KRE', 'KIE', 'FDN', 'IGV', 'XRT', 'SMH', 'ITB', 'XHB', 'IBB', 'XBI', 'TAN', 'XOP', 'ARKK']
+        };
+
+        const allSymbols = Object.values(categories).flat();
+
+        const fetchAllData = async () => {
+          try {
+            // Get local date in YYYY-MM-DD format (same as PowerShell test)
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+            const startDate = new Date(today);
+            startDate.setDate(startDate.getDate() - 10);
+            const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+
+            const results: any = {};
+            const BATCH_SIZE = 5; // Process 5 symbols at a time
+            const DELAY_MS = 200; // 200ms delay between batches
+
+            // Helper to delay execution
+            const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+            // Helper to fetch single symbol
+            const fetchSymbol = async (symbol: string) => {
+              try {
+                // 1D - Keep as is (1-minute intraday data)
+                if (trackingTimeframe === '1D') {
+                  const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=2&apiKey=${POLYGON_API_KEY}`;
+                  const intradayUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${todayStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
+
+                  const [dailyResponse, intradayResponse] = await Promise.all([
+                    fetch(dailyUrl),
+                    fetch(intradayUrl)
+                  ]);
+
+                  const dailyData = await dailyResponse.json();
+                  const intradayData = await intradayResponse.json();
+
+                  if (!intradayData.results || intradayData.results.length === 0) {
+                    // Silently skip - likely market closed or no data available
+                    return null;
+                  }
+
+                  if (!dailyData.results || dailyData.results.length < 2) {
+                    // Silently skip - insufficient historical data
+                    return null;
+                  }
+
+                  const intradayResults = intradayData.results;
+                  const currentPrice = intradayResults[intradayResults.length - 1].c;
+                  const previousDayClose = dailyData.results[1].c;
+                  const changePercent = ((currentPrice - previousDayClose) / previousDayClose) * 100;
+
+                  const sparklineData = intradayResults.map((bar: any) => ({
+                    time: bar.t,
+                    price: bar.c
+                  }));
+
+                  console.log(`✓ ${symbol}: Loaded ${sparklineData.length} 1-minute bars`);
+
+                  return {
+                    symbol,
+                    data: {
+                      symbol,
+                      price: currentPrice,
+                      change: changePercent,
+                      sparklineData,
+                      previousDayClose
+                    }
+                  };
+                } else {
+                  // 5D, 1M, 3M, 6M, 1Y - Use daily/hourly bars
+                  let daysBack = 5;
+                  let multiplier = 1;
+                  let timespan = 'hour';
+
+                  switch (trackingTimeframe) {
+                    case '5D':
+                      daysBack = 5;
+                      multiplier = 30;
+                      timespan = 'minute';
+                      break;
+                    case '1M':
+                      daysBack = 30;
+                      multiplier = 1;
+                      timespan = 'hour';
+                      break;
+                    case '3M':
+                      daysBack = 90;
+                      multiplier = 1;
+                      timespan = 'day';
+                      break;
+                    case '6M':
+                      daysBack = 180;
+                      multiplier = 1;
+                      timespan = 'day';
+                      break;
+                    case '1Y':
+                      daysBack = 365;
+                      multiplier = 1;
+                      timespan = 'day';
+                      break;
+                  }
+
+                  const rangeStartDate = new Date(today);
+                  rangeStartDate.setDate(rangeStartDate.getDate() - daysBack);
+                  const rangeStartStr = `${rangeStartDate.getFullYear()}-${String(rangeStartDate.getMonth() + 1).padStart(2, '0')}-${String(rangeStartDate.getDate()).padStart(2, '0')}`;
+
+                  const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${rangeStartStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
+
+                  const dataResponse = await fetch(dataUrl);
+                  const data = await dataResponse.json();
+
+                  if (!data.results || data.results.length === 0) {
+                    return null;
+                  }
+
+                  const results = data.results;
+                  const currentPrice = results[results.length - 1].c;
+                  const startPrice = results[0].c;
+                  const changePercent = ((currentPrice - startPrice) / startPrice) * 100;
+
+                  const sparklineData = results.map((bar: any) => ({
+                    time: bar.t,
+                    price: bar.c
+                  }));
+
+                  console.log(`✓ ${symbol}: Loaded ${sparklineData.length} ${timespan} bars for ${trackingTimeframe}`);
+
+                  return {
+                    symbol,
+                    data: {
+                      symbol,
+                      price: currentPrice,
+                      change: changePercent,
+                      sparklineData,
+                      previousDayClose: startPrice
+                    }
+                  };
+                }
+              } catch (error) {
+                console.error(`Error fetching ${symbol}:`, error);
+              }
+              return null;
+            };
+
+            // Process symbols in batches
+            for (let i = 0; i < allSymbols.length; i += BATCH_SIZE) {
+              const batch = allSymbols.slice(i, i + BATCH_SIZE);
+              const batchResults = await Promise.all(batch.map(fetchSymbol));
+
+              // Add successful results to state
+              batchResults.forEach(result => {
+                if (result) {
+                  results[result.symbol] = result.data;
+                }
+              });
+
+              // Update state with current batch
+              setTrackingData(prev => ({ ...prev, ...results }));
+
+              // Delay before next batch (except for last batch)
+              if (i + BATCH_SIZE < allSymbols.length) {
+                await delay(DELAY_MS);
+              }
+            }
+
+          } catch (error) {
+            console.error('Error fetching tracking data:', error);
+          } finally {
+            setTrackingLoading(false);
+          }
+        };
+
+        fetchAllData();
+      }
+    }, [activeTab, trackingLoading, trackingTimeframe]);
+
     // For Watchlist tab, show Markets symbols; otherwise use activeTab
     const symbolKey = activeTab === 'Watchlist' ? 'Markets' : activeTab;
     const currentSymbols = marketSymbols[symbolKey as keyof typeof marketSymbols] || [];
@@ -13446,7 +13754,7 @@ export default function TradingViewChart({
           </button>
           {/* Tab Navigation */}
           <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
-            {['Watchlist'].map(tab => (
+            {['Watchlist', 'Tracking', 'Options Trades'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -13664,49 +13972,49 @@ export default function TradingViewChart({
 
                           {/* Price */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <div className="font-mono text-white font-bold md:text-sm text-[11px]">
+                            <div className="font-mono text-white font-bold md:text-lg text-[15px]">
                               ${data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           </div>
 
                           {/* Change */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <div className={`font-mono font-bold md:text-sm text-[12px] ${changeColor}`}>
+                            <div className={`font-mono font-bold md:text-lg text-[15px] ${changeColor}`}>
                               {changeSign}{data.change1d.toFixed(2)}%
                             </div>
                           </div>
 
                           {/* 1D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perf1d.color}`}>
+                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf1d.color}`}>
                               {perf1d.status}
                             </span>
                           </div>
 
                           {/* 5D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perf5d.color}`}>
+                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf5d.color}`}>
                               {perf5d.status}
                             </span>
                           </div>
 
                           {/* 13D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perf13d.color}`}>
+                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf13d.color}`}>
                               {perf13d.status}
                             </span>
                           </div>
 
                           {/* 21D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perf21d.color}`}>
+                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf21d.color}`}>
                               {perf21d.status}
                             </span>
                           </div>
 
                           {/* YTD Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-xs text-[9px] uppercase tracking-widest ${perfYTD.color}`}>
+                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perfYTD.color}`}>
                               {perfYTD.status}
                             </span>
                           </div>
@@ -13718,6 +14026,757 @@ export default function TradingViewChart({
               )}
             </div>
           </>
+        )}
+
+        {/* Tracking Tab Content */}
+        {activeTab === 'Tracking' && (
+          <div className="flex-1 flex flex-col overflow-hidden bg-black">
+            {/* Timeframe Selector */}
+            <div className="px-6 pt-6 pb-4 border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                {(['1D', '5D', '1M', '3M', '6M', '1Y'] as const).map((tf) => (
+                  <button
+                    key={tf}
+                    onClick={() => {
+                      setTrackingTimeframe(tf);
+                      trackingFetchedRef.current = false;
+                      setTrackingData({});
+                    }}
+                    className={`px-5 py-2.5 text-sm font-bold rounded-md transition-all border ${trackingTimeframe === tf
+                      ? 'bg-[#0a0e1a] text-[#FF6600] border-[#FF6600] shadow-lg shadow-[#FF6600]/20'
+                      : 'bg-[#0a0e1a] text-white border-gray-700 hover:border-gray-500 hover:shadow-md'
+                      }`}
+                  >
+                    {tf}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {trackingLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#FF6600] mx-auto mb-4"></div>
+                  <p className="text-gray-400 text-sm">Loading market data...</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                {[
+                  { title: 'Markets', symbols: ['SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT'], color: '#1a4d8f' },
+                  { title: 'Large Caps', symbols: ['NVDA', 'TSM', 'AVGO', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA'], color: '#0f3d66' },
+                  { title: 'Value', symbols: ['JPM', 'BA', 'FCX', 'XOM', 'NKE', 'FDX', 'CAT', 'BAC', 'MS', 'DAL', 'UNH', 'LMT', 'MCD', 'WMT', 'DHI', 'HD', 'PANW', 'NFLX'], color: '#1a5f4a' },
+                  { title: 'High Beta', symbols: ['OKLO', 'CRWV', 'IONQ', 'QUBT', 'IREN', 'NBIS', 'HOOD', 'PLTR', 'HIMS', 'UPST', 'AFRM', 'TEM', 'CRCL', 'MSTR', 'COIN', 'XYZ', 'ARM', 'SHOP', 'DASH', 'UBER', 'ABNB', 'AMD', 'ROKU', 'RBLX'], color: '#661a4d' },
+                  { title: 'China', symbols: ['PDD', 'FXI', 'JD', 'FUTU', 'BILI', 'BABA', 'NTES', 'KWEB', 'BIDU'], color: '#8f1a1a' },
+                  { title: '11 Sectors', symbols: ['XLK', 'XLY', 'XLC', 'XLE', 'XLI', 'XLB', 'XLF', 'XLU', 'XLP', 'XLRE', 'XLV'], color: '#4d4d1a' },
+                  { title: 'Industries', symbols: ['OIH', 'XME', 'GDX', 'JETS', 'PBW', 'KRE', 'KIE', 'FDN', 'IGV', 'XRT', 'SMH', 'ITB', 'XHB', 'IBB', 'XBI', 'TAN', 'XOP', 'ARKK'], color: '#1a4d4d' }
+                ].map((category, idx) => (
+                  <div key={idx} className="relative">
+                    {/* Category Header - Goldman Sachs Style */}
+                    <div
+                      className="mb-4 pb-3 border-b-2 relative overflow-hidden"
+                      style={{
+                        borderColor: category.color,
+                        background: `linear-gradient(90deg, ${category.color}30 0%, ${category.color}10 50%, ${category.color}30 100%)`
+                      }}
+                    >
+                      <div className="flex items-center justify-center gap-3 py-2">
+                        <div className="flex-1 h-px bg-gradient-to-r from-transparent to-gray-700" />
+                        <div
+                          className="w-1 h-6 rounded-full"
+                          style={{ background: category.color }}
+                        />
+                        <h2
+                          className="text-xl font-black uppercase tracking-wider px-4"
+                          style={{
+                            color: '#ffffff',
+                            textShadow: `0 0 20px ${category.color}80, 2px 2px 4px rgba(0,0,0,0.8)`,
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}
+                        >
+                          {category.title}
+                        </h2>
+                        <div
+                          className="w-1 h-6 rounded-full"
+                          style={{ background: category.color }}
+                        />
+                        <div className="flex-1 h-px bg-gradient-to-l from-transparent to-gray-700" />
+                        <span className="text-xs text-gray-500 font-mono">
+                          {category.symbols.length} {category.symbols.length === 1 ? 'Symbol' : 'Symbols'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Cards Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {category.symbols.map((symbol) => {
+                        const data = trackingData[symbol];
+                        if (!data) return null;
+
+                        return (
+                          <div
+                            key={symbol}
+                            className="group relative overflow-hidden rounded-lg transition-all duration-300 hover:scale-[1.02] cursor-pointer"
+                            style={{
+                              background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)',
+                              border: `1px solid ${category.color}40`,
+                              boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03)`
+                            }}
+                            onClick={() => {
+                              if (onSymbolChange) {
+                                onSymbolChange(data.symbol);
+                              }
+                              setConfig(prev => ({ ...prev, symbol: data.symbol }));
+                            }}
+                          >
+                            {/* Hover glow effect */}
+                            <div
+                              className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                              style={{
+                                background: `radial-gradient(circle at center, ${category.color}20 0%, transparent 70%)`
+                              }}
+                            />
+
+                            <div className="relative p-6">
+                              <div className="flex items-center justify-between gap-4">
+                                {/* Left: Ticker */}
+                                <div className="flex-shrink-0 w-20">
+                                  <div className="font-black text-white text-base tracking-tight">
+                                    {data.symbol}
+                                  </div>
+                                </div>
+
+                                {/* Center: Sparkline */}
+                                <div className="flex-1 flex flex-col">
+                                  <svg
+                                    viewBox="0 0 200 50"
+                                    preserveAspectRatio="none"
+                                    className="w-full h-16"
+                                    style={{ shapeRendering: 'geometricPrecision' }}
+                                  >
+                                    {data.sparklineData.length > 1 && (() => {
+                                      const prices = data.sparklineData.map(p => p.price);
+                                      const minPrice = Math.min(...prices);
+                                      const maxPrice = Math.max(...prices);
+                                      const priceRange = maxPrice - minPrice || 1;
+                                      const padding = 8;
+                                      const chartHeight = 50 - (padding * 2);
+
+                                      const points = data.sparklineData.map((point, i) => {
+                                        const x = (i / (data.sparklineData.length - 1)) * 200;
+                                        const y = padding + ((maxPrice - point.price) / priceRange) * chartHeight;
+                                        return `${x.toFixed(2)},${y.toFixed(2)}`;
+                                      }).join(' ');
+
+                                      const prevDayY = data.previousDayClose
+                                        ? padding + ((maxPrice - data.previousDayClose) / priceRange) * chartHeight
+                                        : null;
+
+                                      return (
+                                        <>
+                                          {prevDayY !== null && (
+                                            <line
+                                              x1="0"
+                                              y1={prevDayY.toFixed(2)}
+                                              x2="200"
+                                              y2={prevDayY.toFixed(2)}
+                                              stroke="#444444"
+                                              strokeWidth="1"
+                                              strokeDasharray="3,2"
+                                              opacity="0.4"
+                                            />
+                                          )}
+                                          <polyline
+                                            fill="none"
+                                            stroke={data.change >= 0 ? '#00ff00' : '#ff0000'}
+                                            strokeWidth="2"
+                                            points={points}
+                                            opacity="0.25"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          />
+                                          <polyline
+                                            fill="none"
+                                            stroke={data.change >= 0 ? '#00ff00' : '#ff0000'}
+                                            strokeWidth="1.5"
+                                            points={points}
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          />
+                                        </>
+                                      );
+                                    })()}
+                                  </svg>
+
+                                  {/* X-Axis Time Labels */}
+                                  <div className="flex justify-between mt-2 px-1">
+                                    {(() => {
+                                      if (data.sparklineData.length === 0) return null;
+
+                                      const firstPoint = data.sparklineData[0];
+                                      const midPoint = data.sparklineData[Math.floor(data.sparklineData.length / 2)];
+                                      const lastPoint = data.sparklineData[data.sparklineData.length - 1];
+
+                                      let labels = ['', '', ''];
+
+                                      if (trackingTimeframe === '1D') {
+                                        // Show market hours: 9:30AM, 12PM, 4PM
+                                        labels = ['9:30AM', '12PM', '4PM'];
+                                      } else {
+                                        // Show dates for longer timeframes - use toLocaleDateString to ensure local timezone
+                                        const formatDate = (timestamp: number) => {
+                                          const date = new Date(timestamp);
+                                          // Use toLocaleDateString with en-US locale for consistent M/D format
+                                          const parts = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/Los_Angeles' }).split('/');
+                                          return `${parts[0]}/${parts[1]}`;
+                                        };
+
+                                        labels = [
+                                          formatDate(firstPoint.time),
+                                          formatDate(midPoint.time),
+                                          formatDate(lastPoint.time)
+                                        ];
+                                      }
+
+                                      return labels.map((label, i) => (
+                                        <span key={i} className="text-[10px] text-yellow-400 font-mono font-semibold">
+                                          {label}
+                                        </span>
+                                      ));
+                                    })()}
+                                  </div>
+                                </div>
+
+                                {/* Right: Price and Change */}
+                                <div className="flex-shrink-0 text-right w-20">
+                                  <div className="font-bold text-white text-sm">
+                                    ${data.price.toFixed(2)}
+                                  </div>
+                                  <div className={`text-xs font-bold ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {data.change >= 0 ? '+' : ''}{data.change.toFixed(2)}%
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Options Trades Tab Content */}
+        {activeTab === 'Options Trades' && (
+          <div className="flex-1 overflow-y-auto bg-black p-6">
+            {(() => {
+              const saved = localStorage.getItem('optionsWatchlist');
+              const optionsWatchlist: any[] = saved ? JSON.parse(saved) : [];
+
+              if (optionsWatchlist.length === 0) {
+                return (
+                  <div className="flex items-center justify-center h-64">
+                    <div className="text-center">
+                      <div className="text-gray-500 text-lg mb-2">No Options Tracked</div>
+                      <div className="text-gray-600 text-sm">Add options from the Options Chain panel</div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4">
+                  {optionsWatchlist.map((option) => {
+                    const currentPrice = (option.bid + option.ask) / 2;
+                    const entryPrice = option.entryPrice || currentPrice;
+                    const pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+                    const pnlDollars = (currentPrice - entryPrice) * 100; // Per contract
+
+                    // Get premium data for this option
+                    const optionPremiumData = optionsPremiumData[option.id] || [];
+                    const stockData = stockChartData[option.id] || [];
+
+                    // Calculate 80% and 90% probability targets using Black-Scholes
+                    const expiryDate = new Date(option.expiration);
+                    const now = new Date();
+                    const daysToExpiry = Math.max(0, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                    const T = daysToExpiry / 365;
+                    const r = 0.0387; // Risk-free rate
+                    const sigma = option.implied_volatility;
+                    const stockPrice = option.stockPrice || 0;
+
+                    // Black-Scholes helpers
+                    const normalCDF = (x: number): number => {
+                      const erf = (x: number): number => {
+                        const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+                        const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+                        const sign = x >= 0 ? 1 : -1;
+                        x = Math.abs(x);
+                        const t = 1.0 / (1.0 + p * x);
+                        const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+                        return sign * y;
+                      };
+                      return 0.5 * (1 + erf(x / Math.sqrt(2)));
+                    };
+
+                    const calculateBSPrice = (S: number, K: number, T: number, r: number, sigma: number, isCall: boolean): number => {
+                      if (T <= 0) return isCall ? Math.max(0, S - K) : Math.max(0, K - S);
+                      const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+                      const d2 = d1 - sigma * Math.sqrt(T);
+                      if (isCall) {
+                        return S * normalCDF(d1) - K * Math.exp(-r * T) * normalCDF(d2);
+                      } else {
+                        return K * Math.exp(-r * T) * normalCDF(-d2) - S * normalCDF(-d1);
+                      }
+                    };
+
+                    // Calculate stock price targets (expected move based)
+                    const isCall = option.type === 'call';
+                    let target80StockPrice = 0;
+                    let target90StockPrice = 0;
+
+                    if (isCall) {
+                      // For calls: calculate upside targets
+                      const expectedMove1SD = stockPrice * sigma * Math.sqrt(T);
+                      target80StockPrice = stockPrice + (expectedMove1SD * 0.84); // ~80% probability
+                      target90StockPrice = stockPrice + (expectedMove1SD * 1.28); // ~90% probability
+                    } else {
+                      // For puts: calculate downside targets  
+                      const expectedMove1SD = stockPrice * sigma * Math.sqrt(T);
+                      target80StockPrice = stockPrice - (expectedMove1SD * 0.84); // ~80% probability
+                      target90StockPrice = stockPrice - (expectedMove1SD * 1.28); // ~90% probability
+                    }
+
+                    // Calculate what the option will be worth at those stock prices
+                    const target80OptionValue = T > 0 && sigma > 0
+                      ? calculateBSPrice(target80StockPrice, option.strike, T, r, sigma, isCall)
+                      : 0;
+                    const target90OptionValue = T > 0 && sigma > 0
+                      ? calculateBSPrice(target90StockPrice, option.strike, T, r, sigma, isCall)
+                      : 0;
+
+                    // Technical stop loss (based on option structure)
+                    const stopLoss = isCall
+                      ? Math.max(0.05, entryPrice * 0.70) // 30% stop for calls
+                      : Math.max(0.05, entryPrice * 0.60); // 40% stop for puts (more volatile)
+
+                    // Theta decay per day
+                    const thetaDecay = Math.abs(option.theta || 0);
+                    const dailyDecay = (thetaDecay / currentPrice) * 100;
+
+                    return (
+                      <div
+                        key={option.id}
+                        className="relative overflow-hidden rounded border"
+                        style={{
+                          background: '#000000',
+                          borderColor: pnlPercent >= 0 ? '#22c55e30' : '#ef444430',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 2px 8px rgba(0,0,0,0.7)'
+                        }}
+                      >
+                        {/* Main layout: Left content + Right charts */}
+                        <div className="flex gap-3 p-2">
+                          {/* Left side: Bloomberg-style info panel */}
+                          <div className="flex flex-col" style={{ width: '380px', background: '#000000' }}>
+
+                            {/* Header - Ticker & Status */}
+                            <div style={{ background: '#000000', borderBottom: '1px solid #1a1a1a' }} className="px-3 py-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="text-2xl font-bold tracking-tight" style={{ color: '#fff', fontFamily: 'monospace' }}>{option.symbol}</div>
+                                  <div className={`px-1.5 py-0.5 text-[10px] font-bold tracking-wider ${option.type === 'call' ? 'bg-green-500 text-black' : 'bg-red-500 text-white'}`} style={{ fontFamily: 'monospace' }}>
+                                    {option.type.toUpperCase()}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="flex items-baseline gap-2">
+                                    <span className="text-[10px] tracking-wider" style={{ color: '#ff9500', fontFamily: 'monospace' }}>MARK</span>
+                                    <span className="text-xl font-bold" style={{ color: '#fff', fontFamily: 'monospace' }}>${currentPrice.toFixed(2)}</span>
+                                    <span className={`text-sm font-bold ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`} style={{ fontFamily: 'monospace' }}>
+                                      {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}% {pnlPercent >= 0 ? '▲' : '▼'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs mt-1.5" style={{ fontFamily: 'monospace' }}>
+                                <span style={{ color: '#ff9500' }}>STRIKE</span>
+                                <span style={{ color: '#fff', fontWeight: 'bold' }}>${option.strike}</span>
+                                <span style={{ color: '#444' }}>|</span>
+                                <span style={{ color: '#ff9500' }}>EXP</span>
+                                <span style={{ color: '#fff', fontWeight: 'bold' }}>
+                                  {(() => {
+                                    const [year, month, day] = option.expiration.split('-').map(Number);
+                                    const date = new Date(year, month - 1, day);
+                                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+                                  })()}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Greeks Panel */}
+                            <div style={{ background: '#000000', borderBottom: '1px solid #1a1a1a' }} className="px-3 py-2">
+                              <div className="grid grid-cols-4 gap-3">
+                                <div>
+                                  <div className="text-[9px] tracking-wider" style={{ color: '#00ff88', fontFamily: 'monospace' }}>DELTA</div>
+                                  <div className="text-sm font-bold" style={{ color: '#fff', fontFamily: 'monospace' }}>{option.delta?.toFixed(3) || '-'}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[9px] tracking-wider" style={{ color: '#ff4444', fontFamily: 'monospace' }}>THETA</div>
+                                  <div className="text-sm font-bold" style={{ color: '#ff4444', fontFamily: 'monospace' }}>-{thetaDecay.toFixed(3)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[9px] tracking-wider" style={{ color: '#bb86fc', fontFamily: 'monospace' }}>IV</div>
+                                  <div className="text-sm font-bold" style={{ color: '#bb86fc', fontFamily: 'monospace' }}>{(option.implied_volatility * 100).toFixed(1)}%</div>
+                                </div>
+                                <div>
+                                  <div className="text-[9px] tracking-wider" style={{ color: '#ff9500', fontFamily: 'monospace' }}>DTE</div>
+                                  <div className="text-sm font-bold" style={{ color: daysToExpiry < 7 ? '#ff4444' : daysToExpiry < 14 ? '#ffaa00' : '#00ff88', fontFamily: 'monospace' }}>{daysToExpiry}</div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Position Details */}
+                            <div style={{ background: '#000000', borderBottom: '1px solid #1a1a1a' }} className="px-3 py-2">
+                              <div className="text-xs tracking-widest mb-2 text-center font-bold" style={{ color: '#ff9500', fontFamily: 'monospace' }}>POSITION</div>
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs" style={{ fontFamily: 'monospace' }}>
+                                <div className="flex justify-between">
+                                  <span style={{ color: '#ff9500' }}>Entry</span>
+                                  <span style={{ color: '#00ccff', fontWeight: 'bold' }}>${entryPrice.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span style={{ color: '#ff9500' }}>P/L</span>
+                                  <span style={{ color: pnlPercent >= 0 ? '#00ff88' : '#ff4444', fontWeight: 'bold' }}>${pnlDollars >= 0 ? '+' : ''}{pnlDollars.toFixed(0)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span style={{ color: '#ff9500' }}>Intrinsic</span>
+                                  <span style={{ color: '#bb86fc', fontWeight: 'bold' }}>${Math.max(0, option.type === 'call'
+                                    ? (option.stockPrice || 0) - option.strike
+                                    : option.strike - (option.stockPrice || 0)
+                                  ).toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span style={{ color: '#ff9500' }}>Extrinsic</span>
+                                  <span style={{ color: '#fff', fontWeight: 'bold' }}>${(currentPrice - Math.max(0, option.type === 'call'
+                                    ? (option.stockPrice || 0) - option.strike
+                                    : option.strike - (option.stockPrice || 0)
+                                  )).toFixed(2)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Trade Management */}
+                            <div className="flex-1 p-2" style={{ background: '#000000' }}>
+                              <div className="text-base tracking-widest mb-2 text-center font-bold" style={{ color: '#ff9500', opacity: 1, fontFamily: 'monospace' }}>TRADE MANAGEMENT</div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div style={{ background: 'rgba(13, 40, 24, 0.3)', border: '1px solid #1a4d2e' }} className="p-2">
+                                  <div className="text-[14px] tracking-wider mb-0.5" style={{ color: '#4ade80', opacity: 1, fontFamily: 'monospace' }}>TARGET 1</div>
+                                  <div className="text-xl font-bold" style={{ color: '#00ff88', opacity: 1, fontFamily: 'monospace' }}>${target80StockPrice.toFixed(2)}</div>
+                                  <div className="text-[12px]" style={{ color: '#4ade80', opacity: 1, fontFamily: 'monospace' }}>+{((target80OptionValue - entryPrice) / entryPrice * 100).toFixed(0)}%</div>
+                                </div>
+                                <div style={{ background: 'rgba(13, 40, 24, 0.3)', border: '1px solid #1a4d2e' }} className="p-2">
+                                  <div className="text-[14px] tracking-wider mb-0.5" style={{ color: '#4ade80', opacity: 1, fontFamily: 'monospace' }}>TARGET 2</div>
+                                  <div className="text-xl font-bold" style={{ color: '#00ff88', opacity: 1, fontFamily: 'monospace' }}>${target90StockPrice.toFixed(2)}</div>
+                                  <div className="text-[12px]" style={{ color: '#4ade80', opacity: 1, fontFamily: 'monospace' }}>+{((target90OptionValue - entryPrice) / entryPrice * 100).toFixed(0)}%</div>
+                                </div>
+                                <div style={{ background: 'rgba(45, 13, 13, 0.3)', border: '1px solid #4d1a1a' }} className="p-2">
+                                  <div className="text-[14px] tracking-wider mb-0.5" style={{ color: '#f87171', opacity: 1, fontFamily: 'monospace' }}>STOP LOSS</div>
+                                  <div className="text-xl font-bold" style={{ color: '#ff4444', opacity: 1, fontFamily: 'monospace' }}>${stopLoss.toFixed(2)} <span className="text-[12px]" style={{ color: '#f87171', opacity: 1 }}>-{((entryPrice - stopLoss) / entryPrice * 100).toFixed(0)}%</span></div>
+                                </div>
+                                <div style={{ background: 'rgba(45, 31, 13, 0.3)', border: '1px solid #4d3d1a' }} className="p-2">
+                                  <div className="text-[14px] tracking-wider mb-0.5" style={{ color: '#fbbf24', opacity: 1, fontFamily: 'monospace' }}>DAILY DECAY</div>
+                                  <div className="text-xl font-bold" style={{ color: '#ffaa00', opacity: 1, fontFamily: 'monospace' }}>${(thetaDecay * 100).toFixed(0)} <span className="text-[12px]" style={{ color: '#fbbf24', opacity: 1 }}>{dailyDecay.toFixed(2)}%/day</span></div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right side: Charts spanning full height */}
+                          <div className="flex-1">
+                            {/* Timeframe Selector */}
+                            <div className="flex justify-center gap-2 mb-3">
+                              {(['1D', '5D', '1M'] as const).map(tf => {
+                                const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+                                return (
+                                  <button
+                                    key={tf}
+                                    onClick={() => setOptionsTradesTimeframes(prev => ({ ...prev, [option.id]: tf }))}
+                                    className="px-4 py-1 rounded text-xs font-bold uppercase transition-all"
+                                    style={{
+                                      background: currentTimeframe === tf ? '#ff9500' : '#1a1a1a',
+                                      color: currentTimeframe === tf ? '#000000' : '#ffffff',
+                                      border: `1px solid ${currentTimeframe === tf ? '#ff9500' : '#333'}`,
+                                      fontFamily: 'monospace'
+                                    }}
+                                  >
+                                    {tf}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            <div className="flex gap-4">{/* Options Premium Chart */}
+                              <div className="border-l border-gray-800/30 pl-4">
+                                <div className="text-xs text-white font-bold uppercase mb-1 text-center">Premium</div>
+                                <div className="w-[450px] h-[280px]">
+                                  {optionPremiumData.length > 0 ? (
+                                    <svg width="450" height="280" className="overflow-visible">
+                                      {(() => {
+                                        const prices = optionPremiumData.map(d => d.price);
+                                        const minPrice = Math.min(...prices);
+                                        const maxPrice = Math.max(...prices);
+                                        const priceRange = maxPrice - minPrice || 1;
+                                        const midPrice = (minPrice + maxPrice) / 2;
+
+                                        // Add margins: 10px on left, 45px on right, 10px top, 20px bottom
+                                        const chartWidth = 450;
+                                        const chartHeight = 280;
+                                        const marginLeft = 10;
+                                        const marginRight = 45;
+                                        const marginTop = 10;
+                                        const marginBottom = 20;
+                                        const plotWidth = chartWidth - marginLeft - marginRight;
+                                        const plotHeight = chartHeight - marginTop - marginBottom;
+
+                                        const points = optionPremiumData.map((d, i) => {
+                                          const x = marginLeft + (i / (optionPremiumData.length - 1)) * plotWidth;
+                                          const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
+                                          return `${x},${y}`;
+                                        }).join(' ');
+
+                                        const isPositive = optionPremiumData[optionPremiumData.length - 1].price >= optionPremiumData[0].price;
+                                        const lineColor = isPositive ? '#10b981' : '#ef4444';
+
+                                        // X-axis labels
+                                        const firstTime = new Date(optionPremiumData[0].timestamp);
+                                        const midTime = new Date(optionPremiumData[Math.floor(optionPremiumData.length / 2)].timestamp);
+                                        const lastTime = new Date(optionPremiumData[optionPremiumData.length - 1].timestamp);
+
+                                        const formatTime = (date: Date) => {
+                                          const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+                                          if (currentTimeframe === '1D') {
+                                            return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
+                                          } else if (currentTimeframe === '5D') {
+                                            return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' });
+                                          } else {
+                                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+                                          }
+                                        };
+
+                                        return (
+                                          <>
+                                            <polyline
+                                              points={points}
+                                              fill="none"
+                                              stroke={lineColor}
+                                              strokeWidth="2"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                            />
+                                            {optionPremiumData.map((d, i) => {
+                                              const x = marginLeft + (i / (optionPremiumData.length - 1)) * plotWidth;
+                                              const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
+                                              return (
+                                                <circle
+                                                  key={i}
+                                                  cx={x}
+                                                  cy={y}
+                                                  r="2"
+                                                  fill={lineColor}
+                                                />
+                                              );
+                                            })}
+                                            {/* Y-axis labels */}
+                                            <text x={chartWidth - 2} y={marginTop + 5} fill="white" fontSize="11" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                            <text x={chartWidth - 2} y={marginTop + plotHeight / 2 + 3} fill="white" fontSize="11" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                            <text x={chartWidth - 2} y={marginTop + plotHeight} fill="white" fontSize="11" textAnchor="end">${minPrice.toFixed(2)}</text>
+                                            {/* X-axis labels */}
+                                            <text x={marginLeft} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="start">{formatTime(firstTime)}</text>
+                                            <text x={marginLeft + plotWidth / 2} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="middle">{formatTime(midTime)}</text>
+                                            <text x={marginLeft + plotWidth} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="end">{formatTime(lastTime)}</text>
+                                          </>
+                                        );
+                                      })()}
+                                    </svg>
+                                  ) : (
+                                    <div className="flex items-center justify-center h-full text-gray-600 text-xs">
+                                      Loading...
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Stock Chart */}
+                              <div className="border-l border-gray-800/30 pl-4">
+                                <div className="text-xs text-white font-bold uppercase mb-1 text-center">Stock Price</div>
+                                <div className="w-[450px] h-[280px]">
+                                  {stockData.length > 0 ? (
+                                    <svg width="450" height="280" className="overflow-visible">
+                                      {(() => {
+                                        const prices = stockData.map(d => d.price);
+                                        const minPrice = Math.min(...prices);
+                                        const maxPrice = Math.max(...prices);
+                                        const priceRange = maxPrice - minPrice || 1;
+                                        const midPrice = (minPrice + maxPrice) / 2;
+
+                                        // Add margins: 10px on left, 45px on right, 10px top, 20px bottom
+                                        const chartWidth = 450;
+                                        const chartHeight = 280;
+                                        const marginLeft = 10;
+                                        const marginRight = 45;
+                                        const marginTop = 10;
+                                        const marginBottom = 20;
+                                        const plotWidth = chartWidth - marginLeft - marginRight;
+                                        const plotHeight = chartHeight - marginTop - marginBottom;
+
+                                        const points = stockData.map((d, i) => {
+                                          const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
+                                          const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
+                                          return `${x},${y}`;
+                                        }).join(' ');
+
+                                        const isPositive = stockData[stockData.length - 1].price >= stockData[0].price;
+                                        const lineColor = isPositive ? '#10b981' : '#ef4444';
+
+                                        // X-axis labels
+                                        const firstTime = new Date(stockData[0].timestamp);
+                                        const midTime = new Date(stockData[Math.floor(stockData.length / 2)].timestamp);
+                                        const lastTime = new Date(stockData[stockData.length - 1].timestamp);
+
+                                        const formatTime = (date: Date) => {
+                                          const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+                                          if (currentTimeframe === '1D') {
+                                            return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
+                                          } else if (currentTimeframe === '5D') {
+                                            return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' });
+                                          } else {
+                                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+                                          }
+                                        };
+
+                                        // Create background rects for trading sessions
+                                        const sessionBackgrounds = [];
+                                        const firstTimestamp = stockData[0].timestamp;
+                                        const lastTimestamp = stockData[stockData.length - 1].timestamp;
+
+                                        // Define session times in ET (milliseconds from midnight)
+                                        const preMarketStart = 4 * 60 * 60 * 1000; // 4:00 AM
+                                        const marketOpen = 9.5 * 60 * 60 * 1000; // 9:30 AM
+                                        const marketClose = 16 * 60 * 60 * 1000; // 4:00 PM
+                                        const afterHoursEnd = 20 * 60 * 60 * 1000; // 8:00 PM
+
+                                        // For each data point, determine its session and create rects
+                                        for (let i = 0; i < stockData.length; i++) {
+                                          const timestamp = stockData[i].timestamp;
+                                          const date = new Date(timestamp);
+                                          const etTime = date.toLocaleString('en-US', { timeZone: 'America/New_York' });
+                                          const etDate = new Date(etTime);
+                                          const timeOfDay = etDate.getHours() * 60 * 60 * 1000 + etDate.getMinutes() * 60 * 1000;
+
+                                          let bgColor = '#000000'; // Default market hours (black)
+
+                                          if (timeOfDay >= preMarketStart && timeOfDay < marketOpen) {
+                                            bgColor = 'rgba(0, 50, 40, 0.6)'; // Navy dark green for pre-market
+                                          } else if (timeOfDay >= marketClose && timeOfDay < afterHoursEnd) {
+                                            bgColor = 'rgba(0, 30, 60, 0.6)'; // Navy dark blue for after-hours
+                                          }
+
+                                          // Only create rect if color different from previous or first point
+                                          if (i === 0 || bgColor !== sessionBackgrounds[sessionBackgrounds.length - 1]?.color) {
+                                            const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
+                                            const nextIndex = stockData.findIndex((d, idx) => {
+                                              if (idx <= i) return false;
+                                              const nextDate = new Date(d.timestamp);
+                                              const nextEtTime = nextDate.toLocaleString('en-US', { timeZone: 'America/New_York' });
+                                              const nextEtDate = new Date(nextEtTime);
+                                              const nextTimeOfDay = nextEtDate.getHours() * 60 * 60 * 1000 + nextEtDate.getMinutes() * 60 * 1000;
+
+                                              let nextBgColor = '#000000';
+                                              if (nextTimeOfDay >= preMarketStart && nextTimeOfDay < marketOpen) {
+                                                nextBgColor = 'rgba(0, 50, 40, 0.6)';
+                                              } else if (nextTimeOfDay >= marketClose && nextTimeOfDay < afterHoursEnd) {
+                                                nextBgColor = 'rgba(0, 30, 60, 0.6)';
+                                              }
+                                              return nextBgColor !== bgColor;
+                                            });
+
+                                            const endIndex = nextIndex === -1 ? stockData.length - 1 : nextIndex;
+                                            const x2 = marginLeft + (endIndex / (stockData.length - 1)) * plotWidth;
+                                            const width = x2 - x;
+
+                                            sessionBackgrounds.push({
+                                              x,
+                                              width,
+                                              color: bgColor
+                                            });
+                                          }
+                                        }
+
+                                        return (
+                                          <>
+                                            {/* Draw session background rects */}
+                                            {sessionBackgrounds.map((bg, idx) => (
+                                              <rect
+                                                key={`bg-${idx}`}
+                                                x={bg.x}
+                                                y={marginTop}
+                                                width={bg.width}
+                                                height={plotHeight}
+                                                fill={bg.color}
+                                              />
+                                            ))}
+                                            <polyline
+                                              points={points}
+                                              fill="none"
+                                              stroke={lineColor}
+                                              strokeWidth="2"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                            />
+                                            {stockData.map((d, i) => {
+                                              const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
+                                              const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
+                                              return (
+                                                <circle
+                                                  key={i}
+                                                  cx={x}
+                                                  cy={y}
+                                                  r="2"
+                                                  fill={lineColor}
+                                                />
+                                              );
+                                            })}
+                                            {/* Y-axis labels */}
+                                            <text x={chartWidth - 2} y={marginTop + 5} fill="white" fontSize="11" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                            <text x={chartWidth - 2} y={marginTop + plotHeight / 2 + 3} fill="white" fontSize="11" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                            <text x={chartWidth - 2} y={marginTop + plotHeight} fill="white" fontSize="11" textAnchor="end">${minPrice.toFixed(2)}</text>
+                                            {/* X-axis labels */}
+                                            <text x={marginLeft} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="start">{formatTime(firstTime)}</text>
+                                            <text x={marginLeft + plotWidth / 2} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="middle">{formatTime(midTime)}</text>
+                                            <text x={marginLeft + plotWidth} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="end">{formatTime(lastTime)}</text>
+                                          </>
+                                        );
+                                      })()}
+                                    </svg>
+                                  ) : (
+                                    <div className="flex items-center justify-center h-full text-gray-600 text-xs">
+                                      Loading...
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
         )}
       </div>
     );
@@ -14025,18 +15084,29 @@ export default function TradingViewChart({
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-2 gap-8">
                       {/* Bullish Column */}
                       <div>
-                        <div className="mb-4 text-center">
-                          <h3 className="font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-2" style={{
-                            color: '#00ff00',
-                            fontSize: '1.32rem',
-                            textShadow: '0 1px 0 #000, 0 2px 3px rgba(0, 0, 0, 0.8), 0 -1px 0 rgba(0, 255, 0, 0.5), inset 0 -2px 5px rgba(0, 0, 0, 0.5)',
-                            filter: 'drop-shadow(0 2px 4px rgba(0, 255, 0, 0.4))'
-                          }}>
-                            <TbTrendingUp size={28} /> BULLISH
-                          </h3>
+                        <div className="mb-6 pb-4 border-b-2 relative overflow-hidden" style={{
+                          borderColor: '#10b981',
+                          background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.05) 50%, rgba(16, 185, 129, 0.2) 100%)'
+                        }}>
+                          <div className="flex items-center justify-center gap-3 py-2">
+                            <div className="w-1 h-8 rounded-full bg-gradient-to-b from-green-400 to-emerald-600" style={{
+                              boxShadow: '0 0 10px rgba(16, 185, 129, 0.5)'
+                            }} />
+                            <h3 className="font-black uppercase tracking-[0.2em]" style={{
+                              fontSize: '1.5rem',
+                              color: '#ffffff',
+                              textShadow: '0 0 20px rgba(16, 185, 129, 0.6), 2px 2px 4px rgba(0, 0, 0, 0.8)',
+                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                            }}>
+                              <TbTrendingUp className="inline mr-2" size={24} /> BULLISH
+                            </h3>
+                            <div className="w-1 h-8 rounded-full bg-gradient-to-b from-green-400 to-emerald-600" style={{
+                              boxShadow: '0 0 10px rgba(16, 185, 129, 0.5)'
+                            }} />
+                          </div>
                         </div>
                         <div className="space-y-3">
                           {(() => {
@@ -14077,43 +15147,87 @@ export default function TradingViewChart({
                               return (
                                 <div
                                   key={uniqueKey}
-                                  className="p-4 rounded-lg cursor-pointer transition-all duration-200 hover:scale-[1.02]"
+                                  className="group relative overflow-hidden transition-all duration-300 hover:translate-y-[-2px] cursor-pointer"
                                   style={{
-                                    background: 'linear-gradient(145deg, #0d2818, #051610)',
-                                    border: '2px solid #4ade80',
-                                    boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(74, 222, 128, 0.1), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2), 0 0 15px rgba(74, 222, 128, 0.15)'
+                                    background: 'linear-gradient(135deg, #0a1612 0%, #060d0a 100%)',
+                                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                                    borderRadius: '12px',
+                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(16, 185, 129, 0.1) inset'
                                   }}
                                   onClick={() => {
                                     setSelectedTradeForModal(trade);
                                     setShowTradeModal(true);
                                   }}
                                 >
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center">
-                                      <span className="font-mono font-bold" style={{
-                                        color: tickerColor,
-                                        fontSize: '2rem',
-                                        textShadow: 'none',
-                                        filter: 'none'
-                                      }}>
-                                        {symbol}
-                                      </span>
-                                      <span className="font-mono" style={{ fontSize: '0.9rem' }}>
-                                        {'   '}
-                                        <span style={{ color: '#ffffff', opacity: 1 }}>{trade.industry}</span>
-                                        {'  '}
-                                        <span style={{ color: tabColor, opacity: 1 }}>
-                                          {tradeTab === 'life' ? '(Life - Short Term Trend)' :
-                                            tradeTab === 'developing' ? '(Developing - Medium Term Trend)' : '(Momentum - Long Term Trend)'}
+                                  {/* Top accent line */}
+                                  <div className="h-0.5" style={{
+                                    background: 'linear-gradient(90deg, transparent 0%, #10b981 50%, transparent 100%)'
+                                  }} />
+
+                                  <div className="relative p-5">
+                                    {/* Top: Ticker centered with score on sides */}
+                                    <div className="flex items-center justify-center gap-6 mb-4">
+                                      <div className="flex-1 text-right">
+                                        <div className="inline-flex items-center px-3 py-1 rounded-md" style={{
+                                          background: `${tabColor}15`,
+                                          border: `1px solid ${tabColor}30`
+                                        }}>
+                                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
+                                            {tradeTab === 'life' ? 'Short' : tradeTab === 'developing' ? 'Medium' : 'Long'}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div className="text-center">
+                                        <span className="font-black tracking-tight" style={{
+                                          fontSize: '2rem',
+                                          background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
+                                          WebkitBackgroundClip: 'text',
+                                          WebkitTextFillColor: 'transparent',
+                                          filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
+                                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                                          display: 'inline-block'
+                                        }}>
+                                          {symbol}
                                         </span>
-                                      </span>
+                                      </div>
+
+                                      <div className="flex-1">
+                                        <div className="font-black tabular-nums" style={{
+                                          fontSize: '2rem',
+                                          color: '#10b981',
+                                          lineHeight: '1',
+                                          textShadow: '0 0 20px rgba(16, 185, 129, 0.3)',
+                                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                                        }}>
+                                          {trade.score}%
+                                        </div>
+                                      </div>
                                     </div>
-                                    <div className="font-mono font-bold" style={{ color: '#ff6600', fontSize: '1.6rem' }}>
-                                      {trade.score}%
+
+                                    {/* Middle: Industry centered */}
+                                    <div className="text-center mb-4">
+                                      <div className="text-sm font-medium" style={{ color: '#ffffff' }}>
+                                        {trade.industry}
+                                      </div>
                                     </div>
-                                  </div>
-                                  <div className="font-mono text-white font-medium" style={{ fontSize: '1rem' }}>
-                                    <span style={{ color: '#ff6600' }}>Trade Pick:</span> ${trade.strike?.toFixed(0)} {trade.optionType?.charAt(0).toUpperCase() + trade.optionType?.slice(1).toLowerCase()}s • {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
+
+                                    {/* Bottom: Trade details centered */}
+                                    <div className="pt-4 text-center" style={{
+                                      borderTop: '1px solid rgba(16, 185, 129, 0.1)'
+                                    }}>
+                                      <div className="flex items-baseline justify-center gap-2">
+                                        <span className="font-bold text-white" style={{ fontSize: '1.125rem' }}>
+                                          ${trade.strike?.toFixed(0)}
+                                        </span>
+                                        <span className="text-sm font-semibold" style={{ color: '#10b981' }}>
+                                          {trade.optionType?.toUpperCase()}
+                                        </span>
+                                        <span className="text-xs font-medium" style={{ color: '#ffffff' }}>
+                                          {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
+                                        </span>
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -14133,15 +15247,26 @@ export default function TradingViewChart({
 
                       {/* Bearish Column */}
                       <div>
-                        <div className="mb-4 text-center">
-                          <h3 className="font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-2" style={{
-                            color: '#ff0000',
-                            fontSize: '1.32rem',
-                            textShadow: '0 1px 0 #000, 0 2px 3px rgba(0, 0, 0, 0.8), 0 -1px 0 rgba(255, 0, 0, 0.5), inset 0 -2px 5px rgba(0, 0, 0, 0.5)',
-                            filter: 'drop-shadow(0 2px 4px rgba(255, 0, 0, 0.4))'
-                          }}>
-                            <TbTrendingDown size={28} /> BEARISH
-                          </h3>
+                        <div className="mb-6 pb-4 border-b-2 relative overflow-hidden" style={{
+                          borderColor: '#ef4444',
+                          background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.05) 50%, rgba(239, 68, 68, 0.2) 100%)'
+                        }}>
+                          <div className="flex items-center justify-center gap-3 py-2">
+                            <div className="w-1 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600" style={{
+                              boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)'
+                            }} />
+                            <h3 className="font-black uppercase tracking-[0.2em]" style={{
+                              fontSize: '1.5rem',
+                              color: '#ffffff',
+                              textShadow: '0 0 20px rgba(239, 68, 68, 0.6), 2px 2px 4px rgba(0, 0, 0, 0.8)',
+                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                            }}>
+                              <TbTrendingDown className="inline mr-2" size={24} /> BEARISH
+                            </h3>
+                            <div className="w-1 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600" style={{
+                              boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)'
+                            }} />
+                          </div>
                         </div>
                         <div className="space-y-3">
                           {(() => {
@@ -14182,43 +15307,87 @@ export default function TradingViewChart({
                               return (
                                 <div
                                   key={uniqueKey}
-                                  className="p-4 rounded-lg cursor-pointer transition-all duration-200 hover:scale-[1.02]"
+                                  className="group relative overflow-hidden transition-all duration-300 hover:translate-y-[-2px] cursor-pointer"
                                   style={{
-                                    background: 'linear-gradient(145deg, #2d0d0d, #180505)',
-                                    border: '2px solid #f87171',
-                                    boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(248, 113, 113, 0.1), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2), 0 0 15px rgba(248, 113, 113, 0.15)'
+                                    background: 'linear-gradient(135deg, #1a0e12 0%, #0d060a 100%)',
+                                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                                    borderRadius: '12px',
+                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(239, 68, 68, 0.1) inset'
                                   }}
                                   onClick={() => {
                                     setSelectedTradeForModal(trade);
                                     setShowTradeModal(true);
                                   }}
                                 >
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center">
-                                      <span className="font-mono font-bold" style={{
-                                        color: tickerColor,
-                                        fontSize: '2rem',
-                                        textShadow: 'none',
-                                        filter: 'none'
-                                      }}>
-                                        {symbol}
-                                      </span>
-                                      <span className="font-mono" style={{ fontSize: '0.9rem' }}>
-                                        {'   '}
-                                        <span style={{ color: '#ffffff', opacity: 1 }}>{trade.industry}</span>
-                                        {'  '}
-                                        <span style={{ color: tabColor, opacity: 1 }}>
-                                          {tradeTab === 'life' ? '(Life - Short Term Trend)' :
-                                            tradeTab === 'developing' ? '(Developing - Medium Term Trend)' : '(Momentum - Long Term Trend)'}
+                                  {/* Top accent line */}
+                                  <div className="h-0.5" style={{
+                                    background: 'linear-gradient(90deg, transparent 0%, #ef4444 50%, transparent 100%)'
+                                  }} />
+
+                                  <div className="relative p-5">
+                                    {/* Top: Ticker centered with score on sides */}
+                                    <div className="flex items-center justify-center gap-6 mb-4">
+                                      <div className="flex-1 text-right">
+                                        <div className="inline-flex items-center px-3 py-1 rounded-md" style={{
+                                          background: `${tabColor}15`,
+                                          border: `1px solid ${tabColor}30`
+                                        }}>
+                                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
+                                            {tradeTab === 'life' ? 'Short' : tradeTab === 'developing' ? 'Medium' : 'Long'}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div className="text-center">
+                                        <span className="font-black tracking-tight" style={{
+                                          fontSize: '2rem',
+                                          background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
+                                          WebkitBackgroundClip: 'text',
+                                          WebkitTextFillColor: 'transparent',
+                                          filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
+                                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                                          display: 'inline-block'
+                                        }}>
+                                          {symbol}
                                         </span>
-                                      </span>
+                                      </div>
+
+                                      <div className="flex-1">
+                                        <div className="font-black tabular-nums" style={{
+                                          fontSize: '2rem',
+                                          color: '#ef4444',
+                                          lineHeight: '1',
+                                          textShadow: '0 0 20px rgba(239, 68, 68, 0.3)',
+                                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                                        }}>
+                                          {trade.score}%
+                                        </div>
+                                      </div>
                                     </div>
-                                    <div className="font-mono font-bold" style={{ color: '#ff6600', fontSize: '1.6rem' }}>
-                                      {trade.score}%
+
+                                    {/* Middle: Industry centered */}
+                                    <div className="text-center mb-4">
+                                      <div className="text-sm font-medium" style={{ color: '#ffffff' }}>
+                                        {trade.industry}
+                                      </div>
                                     </div>
-                                  </div>
-                                  <div className="font-mono text-white font-medium" style={{ fontSize: '1rem' }}>
-                                    <span style={{ color: '#ff6600' }}>Trade Pick:</span> ${trade.strike?.toFixed(0)} {trade.optionType?.charAt(0).toUpperCase() + trade.optionType?.slice(1).toLowerCase()}s • {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
+
+                                    {/* Bottom: Trade details centered */}
+                                    <div className="pt-4 text-center" style={{
+                                      borderTop: '1px solid rgba(239, 68, 68, 0.1)'
+                                    }}>
+                                      <div className="flex items-baseline justify-center gap-2">
+                                        <span className="font-bold text-white" style={{ fontSize: '1.125rem' }}>
+                                          ${trade.strike?.toFixed(0)}
+                                        </span>
+                                        <span className="text-sm font-semibold" style={{ color: '#ef4444' }}>
+                                          {trade.optionType?.toUpperCase()}
+                                        </span>
+                                        <span className="text-xs font-medium" style={{ color: '#ffffff' }}>
+                                          {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
+                                        </span>
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               );
