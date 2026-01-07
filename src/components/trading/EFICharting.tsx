@@ -2009,7 +2009,7 @@ const renderExpectedRangeLines = (
   minPrice: number,
   maxPrice: number,
   levels: any,
-  rangeType: 'weekly' | 'monthly',
+  rangeType: 'weekly' | 'monthly' | 'custom',
   visibleData?: any[],
   visibleCandleCount?: number
 ) => {
@@ -3400,7 +3400,6 @@ export default function TradingViewChart({
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Dropdown button refs for positioning
-  const drawingsButtonRef = useRef<HTMLButtonElement>(null);
   const technalysisButtonRef = useRef<HTMLButtonElement>(null);
   const expectedRangeButtonRef = useRef<HTMLButtonElement>(null);
   const gexButtonRef = useRef<HTMLButtonElement>(null);
@@ -3458,6 +3457,11 @@ export default function TradingViewChart({
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
 
+  // Benchmark mode state
+  const [isBenchmarkMode, setIsBenchmarkMode] = useState(false);
+  const [benchmarkSymbol1, setBenchmarkSymbol1] = useState('');
+  const [benchmarkSymbol2, setBenchmarkSymbol2] = useState('');
+
   // Tracking tab state
   const [trackingData, setTrackingData] = useState<{
     [symbol: string]: {
@@ -3475,7 +3479,7 @@ export default function TradingViewChart({
   // Options Trades state
   const [optionsPremiumData, setOptionsPremiumData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
   const [stockChartData, setStockChartData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
-  const [liveOptionQuotes, setLiveOptionQuotes] = useState<Record<string, { bid: number; ask: number; last: number; delta?: number; gamma?: number; theta?: number; vega?: number }>>({});
+  const [liveOptionQuotes, setLiveOptionQuotes] = useState<Record<string, { bid: number; ask: number; last: number; delta?: number; gamma?: number; theta?: number; vega?: number; implied_volatility?: number }>>({});
   const [stockATR, setStockATR] = useState<Record<string, number>>({});
   const [optionPeakPrices, setOptionPeakPrices] = useState<Record<string, number>>({});
   const optionsDataFetchedRef = useRef(false);
@@ -3501,45 +3505,15 @@ export default function TradingViewChart({
     }
   }, [lwChartDrawings]);
 
-  // Horizontal Ray Drawing Tool State
-  const [isHorizontalRayMode, setIsHorizontalRayMode] = useState<boolean>(false);
-  const [horizontalRays, setHorizontalRays] = useState<HorizontalRay[]>([]);
-  const [selectedRay, setSelectedRay] = useState<string | null>(null);
-  const [isDrawingsDropdownOpen, setIsDrawingsDropdownOpen] = useState<boolean>(false);
   const [isTechnalysisDropdownOpen, setIsTechnalysisDropdownOpen] = useState<boolean>(false);
-  const [isEditingRay, setIsEditingRay] = useState<boolean>(false);
-  const [rayDragStart, setRayDragStart] = useState<{ x: number, y: number, originalPrice: number } | null>(null);
 
   // Parallel Channel Dragging State
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [isEditingChannel, setIsEditingChannel] = useState<boolean>(false);
   const [channelDragStart, setChannelDragStart] = useState<{ x: number, y: number, originalChannel: ParallelChannel } | null>(null);
 
-  // Parallel Channels Drawing Tool State
-  const [isParallelChannelMode, setIsParallelChannelMode] = useState<boolean>(false);
-  const [parallelChannels, setParallelChannels] = useState<ParallelChannel[]>([]);
-  const [currentChannelPoints, setCurrentChannelPoints] = useState<Array<{ timestamp: number; price: number }>>([]);
-  const [channelDrawingStep, setChannelDrawingStep] = useState<number>(0); // 0: not started, 1: first line, 2: second line
-  const [channelPreviewPoint, setChannelPreviewPoint] = useState<{ timestamp: number; price: number } | null>(null);
-  const [lastPreviewUpdate, setLastPreviewUpdate] = useState<number>(0);
-  const [clickDebugCount, setClickDebugCount] = useState<number>(0); // Debug: count clicks when in channel mode
-
-  // Drawing Brush Tool State
-  const [isDrawingBrushMode, setIsDrawingBrushMode] = useState<boolean>(false);
-  const [drawingBrushes, setDrawingBrushes] = useState<DrawingBrush[]>([]);
-  const drawingBrushesRef = useRef<DrawingBrush[]>([]);
-  const [currentBrushStroke, setCurrentBrushStroke] = useState<Array<{ timestamp: number; price: number }>>([]);
-  const [isBrushing, setIsBrushing] = useState<boolean>(false);
-  const [lastBrushTime, setLastBrushTime] = useState<number>(0);
-  const [isMousePressed, setIsMousePressed] = useState<boolean>(false);
-
   // Pinch-to-zoom state for mobile
   const [lastTouchDistance, setLastTouchDistance] = useState<number | null>(null);
-
-  // Keep ref in sync with state for reliable access
-  useEffect(() => {
-    drawingBrushesRef.current = drawingBrushes;
-  }, [drawingBrushes]);
 
   // ========================================
   // MULTICHART STATE & MANAGEMENT
@@ -4458,43 +4432,6 @@ export default function TradingViewChart({
   });
 
   // Tool management function to prevent multiple tools being active
-  const clearAllDrawingTools = useCallback(() => {
-    setIsHorizontalRayMode(false);
-    setIsParallelChannelMode(false);
-    setIsDrawingBrushMode(false);
-
-    // Clear any in-progress drawings
-    setCurrentChannelPoints([]);
-    setCurrentBrushStroke([]);
-    setIsBrushing(false);
-    setLastBrushTime(0);
-    setIsMousePressed(false);
-    setChannelDrawingStep(0);
-    setChannelPreviewPoint(null);
-  }, []);
-
-  const activateToolExclusively = useCallback((toolName: 'horizontal' | 'channel' | 'brush' | 'none') => {
-    clearAllDrawingTools();
-
-    switch (toolName) {
-      case 'horizontal':
-        setIsHorizontalRayMode(true);
-        break;
-      case 'channel':
-        setIsParallelChannelMode(true);
-        setClickDebugCount(0);
-        break;
-      case 'brush':
-        setIsDrawingBrushMode(true);
-        break;
-      case 'none':
-        // Already cleared all tools above
-        break;
-    }
-  }, [clearAllDrawingTools]);
-
-
-
   // Professional crosshair information state
   const [crosshairInfo, setCrosshairInfo] = useState<{
     price: string;
@@ -4610,12 +4547,13 @@ export default function TradingViewChart({
         if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
           const quote = quoteData.results[0];
 
-          // Fetch snapshot for Greeks
+          // Fetch snapshot for Greeks and IV
           const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${option.symbol}/${optionTicker}?apiKey=${POLYGON_API_KEY}`;
           const snapshotResponse = await fetch(snapshotUrl);
           const snapshotData = await snapshotResponse.json();
 
           const greeks = snapshotData?.results?.greeks || {};
+          const details = snapshotData?.results?.details || {};
 
           setLiveOptionQuotes(prev => ({
             ...prev,
@@ -4626,7 +4564,8 @@ export default function TradingViewChart({
               delta: greeks.delta,
               gamma: greeks.gamma,
               theta: greeks.theta,
-              vega: greeks.vega
+              vega: greeks.vega,
+              implied_volatility: details.implied_volatility || snapshotData?.results?.implied_volatility
             }
           }));
         }
@@ -5745,6 +5684,7 @@ export default function TradingViewChart({
   const [isMonthlyActive, setIsMonthlyActive] = useState(false);
   const [isCustomActive, setIsCustomActive] = useState(false);
   const [customExpirationDate, setCustomExpirationDate] = useState<string>('');
+  const [pendingCustomDate, setPendingCustomDate] = useState<string>('');
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
 
   // Seasonal state
@@ -6956,6 +6896,79 @@ export default function TradingViewChart({
               // Log what we found
               console.log(`  ✅ Selected ${optionType} $${bestOption.strike_price} exp ${bestExpiration} (${daysToExpiration}d)`);
 
+              // Calculate targets and stop loss using Black-Scholes
+              const T = daysToExpiration / 365;
+              const r = 0.0387;
+              const sigma = bestOption.implied_volatility || 0.5;
+              const S = currentPrice;
+              const K = bestOption.strike_price;
+              const isCall = optionType === 'call';
+
+              // Target calculations (80% and 90% probability targets)
+              const expectedMove1SD = S * sigma * Math.sqrt(T);
+              const target80StockPrice = isCall ? S + (expectedMove1SD * 0.84) : S - (expectedMove1SD * 0.84);
+              const target90StockPrice = isCall ? S + (expectedMove1SD * 1.28) : S - (expectedMove1SD * 1.28);
+
+              // Black-Scholes calculation
+              const normalCDF = (x: number): number => {
+                const erf = (x: number): number => {
+                  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+                  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+                  const sign = x >= 0 ? 1 : -1;
+                  x = Math.abs(x);
+                  const t = 1.0 / (1.0 + p * x);
+                  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+                  return sign * y;
+                };
+                return 0.5 * (1 + erf(x / Math.sqrt(2)));
+              };
+
+              const calculateBSPrice = (S: number, K: number, T: number, r: number, sigma: number, isCall: boolean): number => {
+                if (T <= 0) return isCall ? Math.max(0, S - K) : Math.max(0, K - S);
+                const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+                const d2 = d1 - sigma * Math.sqrt(T);
+                if (isCall) {
+                  return S * normalCDF(d1) - K * Math.exp(-r * T) * normalCDF(d2);
+                } else {
+                  return K * Math.exp(-r * T) * normalCDF(-d2) - S * normalCDF(-d1);
+                }
+              };
+
+              // Stock price targets (not option premium targets)
+              const stockTarget80 = target80StockPrice;
+              const stockTarget90 = target90StockPrice;
+
+              // Stop loss calculation
+              const delta = Math.abs(bestOption.greeks?.delta || 0.5);
+              const iv = bestOption.implied_volatility || 0.5;
+              let baseStopPercent = 0.30;
+              if (delta > 0.70) baseStopPercent = 0.15;
+              else if (delta >= 0.60) baseStopPercent = 0.20;
+              else if (delta >= 0.40) baseStopPercent = 0.25;
+              else if (delta >= 0.25) baseStopPercent = 0.35;
+              else baseStopPercent = 0.40;
+
+              if (daysToExpiration < 7) baseStopPercent = Math.max(0.10, baseStopPercent - 0.10);
+              else if (daysToExpiration < 14) baseStopPercent = Math.max(0.15, baseStopPercent - 0.05);
+
+              const ivAdjustment = Math.max(0, (iv - 0.3) * 0.5);
+              const adjustedStopPercent = Math.min(0.50, baseStopPercent + ivAdjustment);
+              const currentOptionPrice = bestOption.last_price || ((bestOption.bid || 0) + (bestOption.ask || 0)) / 2;
+              const stopLoss = currentOptionPrice > 0 ? currentOptionPrice * (1 - adjustedStopPercent) : 0;
+
+              // Debug logging
+              console.log(`  💰 Price calculation for ${symbol}:`, {
+                last_price: bestOption.last_price,
+                bid: bestOption.bid,
+                ask: bestOption.ask,
+                calculated: currentOptionPrice,
+                stopLoss: stopLoss,
+                stopPercent: adjustedStopPercent
+              });
+
+              // Theta decay per day
+              const thetaDecay = Math.abs(bestOption.greeks?.theta || 0);
+
               return {
                 symbol,
                 trend,
@@ -6969,7 +6982,17 @@ export default function TradingViewChart({
                 expiration: bestExpiration,
                 daysToExpiration,
                 impliedVolatility: bestOption.implied_volatility ? (bestOption.implied_volatility * 100).toFixed(1) : 'N/A',
-                delta: bestOption.greeks?.delta ? bestOption.greeks.delta.toFixed(2) : 'N/A',
+                delta: bestOption.greeks?.delta || 0,
+                gamma: bestOption.greeks?.gamma || 0,
+                theta: bestOption.greeks?.theta || 0,
+                vega: bestOption.greeks?.vega || 0,
+                contractPrice: currentOptionPrice,
+                contractBid: bestOption.bid || 0,
+                contractAsk: bestOption.ask || 0,
+                stockTarget80: stockTarget80,
+                stockTarget90: stockTarget90,
+                stopLoss: stopLoss,
+                thetaDecay: thetaDecay,
                 contractSymbol: bestOption.ticker || `${symbol}${bestExpiration.replace(/-/g, '')}${optionType[0].toUpperCase()}${bestOption.strike_price}`,
                 triggeredAt: new Date(),
                 score: 0,
@@ -7727,6 +7750,26 @@ export default function TradingViewChart({
   const handleSearch = (symbol: string) => {
     if (symbol && symbol.length > 0) {
       const upperSymbol = symbol.toUpperCase();
+
+      // Check if this is a benchmark pattern (Ticker/Ticker)
+      if (upperSymbol.includes('/')) {
+        const symbols = upperSymbol.split('/').map(s => s.trim()).filter(s => s.length > 0);
+        if (symbols.length === 2) {
+          console.log(`📊 Benchmark Mode: ${symbols[0]} vs ${symbols[1]}`);
+          setIsBenchmarkMode(true);
+          setBenchmarkSymbol1(symbols[0]);
+          setBenchmarkSymbol2(symbols[1]);
+          handleSymbolChange(symbols[0]); // Set primary symbol for display
+          setSearchQuery('');
+          setShowSearchResults(false);
+          return;
+        }
+      }
+
+      // Normal mode - single ticker
+      setIsBenchmarkMode(false);
+      setBenchmarkSymbol1('');
+      setBenchmarkSymbol2('');
       handleSymbolChange(upperSymbol);
       setSearchQuery('');
       setShowSearchResults(false);
@@ -7757,6 +7800,86 @@ export default function TradingViewChart({
 
       // Skip cache check - always fetch fresh data for volume
       console.log('? BYPASSING CACHE: Fetching fresh data with volume support');
+
+      // Check if we're in benchmark mode
+      if (isBenchmarkMode && benchmarkSymbol1 && benchmarkSymbol2) {
+        console.log(`\ud83d\udcca BENCHMARK MODE: Fetching ${benchmarkSymbol1} and ${benchmarkSymbol2}`);
+
+        // Fetch data for both symbols in parallel
+        const now = new Date();
+        const endDate = now.toISOString().split('T')[0];
+        const timeframeConfig = TRADINGVIEW_TIMEFRAMES.find(tf => tf.value === timeframe);
+        const daysBack = timeframeConfig?.lookback || 365;
+        const startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000))
+          .toISOString().split('T')[0];
+
+        const [response1, response2] = await Promise.all([
+          fetch(`/api/historical-data?symbol=${benchmarkSymbol1}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&forceRefresh=true&_t=${Date.now()}`),
+          fetch(`/api/historical-data?symbol=${benchmarkSymbol2}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&forceRefresh=true&_t=${Date.now()}`)
+        ]);
+
+        if (!response1.ok || !response2.ok) {
+          throw new Error('Failed to fetch benchmark data');
+        }
+
+        const [result1, result2] = await Promise.all([
+          response1.json(),
+          response2.json()
+        ]);
+
+        if (!result1?.results?.length || !result2?.results?.length) {
+          throw new Error('No data available for one or both symbols');
+        }
+
+        // Calculate relative performance (Symbol1 / Symbol2)
+        const data1 = result1.results;
+        const data2 = result2.results;
+
+        // Create a map of Symbol2 prices by timestamp for easy lookup
+        const symbol2PriceMap = new Map(
+          data2.map((item: any) => [item.t, item.c])
+        );
+
+        // Calculate relative performance for each data point
+        const benchmarkData = data1
+          .map((item1: any) => {
+            const price2 = symbol2PriceMap.get(item1.t);
+            if (!price2 || typeof price2 !== 'number') return null;
+
+            const relativePrice = (item1.c / price2) * 100; // Normalize to 100
+
+            return {
+              timestamp: item1.t,
+              open: (item1.o / price2) * 100,
+              high: (item1.h / price2) * 100,
+              low: (item1.l / price2) * 100,
+              close: relativePrice,
+              volume: item1.v || 0,
+              date: new Date(item1.t).toISOString().split('T')[0],
+              time: new Date(item1.t).toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+              })
+            };
+          })
+          .filter((item: any): item is ChartDataPoint => item !== null);
+
+        console.log(`\ud83d\udcca Benchmark data calculated: ${benchmarkData.length} data points`);
+
+        setData(benchmarkData);
+        setLoading(false);
+
+        // Initialize scroll position
+        setTimeout(() => {
+          const defaultVisible = 150;
+          const targetOffset = Math.max(0, benchmarkData.length - defaultVisible);
+          setVisibleCandleCount(150);
+          setScrollOffset(targetOffset);
+        }, 50);
+
+        return;
+      }
 
       // Not in cache - use optimized API fetch with smart batching
       const data = await cache.getOrFetch(sym, timeframe, async () => {
@@ -7854,7 +7977,7 @@ export default function TradingViewChart({
       setData([]);
       setLoading(false);
     }
-  }, []);
+  }, [isBenchmarkMode, benchmarkSymbol1, benchmarkSymbol2]);
 
   // Helper function to get related symbols for smart prefetching
   const getRelatedSymbols = (symbol: string): string[] => {
@@ -7960,6 +8083,14 @@ export default function TradingViewChart({
     fetchData(symbol, config.timeframe);
   }, [symbol, config.timeframe, fetchData]);
 
+  // Refetch data when benchmark mode changes
+  useEffect(() => {
+    if (isBenchmarkMode && benchmarkSymbol1 && benchmarkSymbol2) {
+      console.log(`\ud83d\udcca Benchmark mode activated, fetching data for ${benchmarkSymbol1}/${benchmarkSymbol2}`);
+      fetchData(benchmarkSymbol1, config.timeframe);
+    }
+  }, [isBenchmarkMode, benchmarkSymbol1, benchmarkSymbol2, config.timeframe, fetchData]);
+
   // Fetch current price independently when symbol changes
   useEffect(() => {
     fetchRealTimePrice(symbol);
@@ -8056,17 +8187,9 @@ export default function TradingViewChart({
 
     // Draw crosshair if enabled and mouse is over chart
     if (config.crosshair && crosshairPosition.x > 0 && crosshairPosition.y > 0) {
-      // Enhanced crosshair for parallel channel mode with more precision
-      if (isParallelChannelMode) {
-        // More visible crosshair lines for drawing mode
-        ctx.strokeStyle = config.theme === 'dark' ? '#00BFFF' : '#0066CC';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-      } else {
-        ctx.strokeStyle = config.theme === 'dark' ? '#555555' : '#cccccc';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 2]);
-      }
+      ctx.strokeStyle = config.theme === 'dark' ? '#555555' : '#cccccc';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
 
       // Vertical crosshair line
       ctx.beginPath();
@@ -8081,21 +8204,6 @@ export default function TradingViewChart({
       ctx.stroke();
 
       ctx.setLineDash([]);
-
-      // Add precision center dot for parallel channel mode
-      if (isParallelChannelMode) {
-        ctx.fillStyle = config.theme === 'dark' ? '#00BFFF' : '#0066CC';
-        ctx.beginPath();
-        ctx.arc(crosshairPosition.x, crosshairPosition.y, 3, 0, 2 * Math.PI);
-        ctx.fill();
-
-        // Add small ring around the dot for better visibility
-        ctx.strokeStyle = config.theme === 'dark' ? '#FFFFFF' : '#000000';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(crosshairPosition.x, crosshairPosition.y, 4, 0, 2 * Math.PI);
-        ctx.stroke();
-      }
 
       // PROFESSIONAL CROSSHAIR LABELS - Display price and date/time on axes
       if (crosshairInfo.visible) {
@@ -8282,7 +8390,7 @@ export default function TradingViewChart({
       const centerY = (startY + endY) / 2;
       ctx.fillText('Release to zoom', centerX, centerY);
     }
-  }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd, isParallelChannelMode]);
+  }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd]);
 
   // Update overlay when interactions change
   useEffect(() => {
@@ -8407,25 +8515,13 @@ export default function TradingViewChart({
             return;
           }
           e.preventDefault();
-          // Delete selected ray or channel
-          if (selectedRay) {
-            setHorizontalRays(prev => prev.filter(ray => ray.id !== selectedRay));
-            setSelectedRay(null);
-            setIsEditingRay(false);
-            setRayDragStart(null);
-          } else if (selectedChannel) {
-            setParallelChannels(prev => prev.filter(channel => channel.id !== selectedChannel));
-            setSelectedChannel(null);
-            setIsEditingChannel(false);
-            setChannelDragStart(null);
-          }
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [data.length, scrollOffset, visibleCandleCount, selectedRay, selectedChannel, getFuturePeriods, manualPriceRange, isAutoScale, setManualPriceRangeAndDisableAuto, resetToAutoScale, getCurrentPriceRange]);
+  }, [data.length, scrollOffset, visibleCandleCount, selectedChannel, getFuturePeriods, manualPriceRange, isAutoScale, setManualPriceRangeAndDisableAuto, resetToAutoScale, getCurrentPriceRange]);
 
   // ============================================================================
   // TRADINGVIEW-STYLE ZOOM & SCROLL - EXACT IMPLEMENTATION
@@ -8836,7 +8932,7 @@ export default function TradingViewChart({
     if (isExpectedRangeActive && expectedRangeLevels) {
       if (isWeeklyActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'weekly', visibleData, visibleCandleCount);
       if (isMonthlyActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'monthly', visibleData, visibleCandleCount);
-      if (isCustomActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'weekly', visibleData, visibleCandleCount);
+      if (isCustomActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'custom', visibleData, visibleCandleCount);
     }
 
     // Draw Seasonal Projection lines on top of candlesticks
@@ -10754,53 +10850,6 @@ export default function TradingViewChart({
       }
     }
 
-    // Draw horizontal rays on the main chart canvas - they will NEVER disappear
-    if (horizontalRays.length > 0) {
-      horizontalRays.forEach(ray => {
-        const y = priceToScreenForDrawings(ray.price);
-
-        if (y >= 0 && y <= dimensions.height) {
-          // Draw the horizontal line
-          ctx.strokeStyle = ray.color || '#00ff00';
-          ctx.lineWidth = ray.lineWidth || 2;
-
-          // Set line style based on ray properties
-          const lineStyle = ray.lineStyle || 'solid';
-          switch (lineStyle) {
-            case 'dashed':
-              ctx.setLineDash([10, 5]);
-              break;
-            case 'dotted':
-              ctx.setLineDash([2, 3]);
-              break;
-            default:
-              ctx.setLineDash([]);
-              break;
-          }
-
-          ctx.beginPath();
-          ctx.moveTo(40, y);
-          ctx.lineTo(dimensions.width - 80, y); // Stop before Y-axis
-          ctx.stroke();
-
-          // Draw price label on Y-axis (like in your image)
-          const priceText = ray.price.toFixed(2);
-          ctx.font = '20px Arial';
-          const textWidth = ctx.measureText(priceText).width;
-          const textHeight = 24;
-
-          // Background box on Y-axis
-          ctx.fillStyle = ray.color || '#00ff00';
-          ctx.fillRect(dimensions.width - 80, y - textHeight / 2, textWidth + 8, textHeight);
-
-          // Price text in white
-          ctx.fillStyle = '#ffffff';
-          ctx.textAlign = 'left';
-          ctx.fillText(priceText, dimensions.width - 76, y + 4);
-        }
-      });
-    }
-
     // Draw price alerts on the chart
     if (alerts.length > 0) {
       alerts.filter(a => !a.triggered).forEach(alert => {
@@ -10848,341 +10897,6 @@ export default function TradingViewChart({
         }
       });
     }
-
-    // Draw current channel being created (visual feedback with live preview)
-    if (isParallelChannelMode && (currentChannelPoints.length > 0 || channelPreviewPoint)) {
-      // Save current context state
-      ctx.save();
-
-      // Draw placed points with precise alignment markers (use independent styling)
-      currentChannelPoints.forEach((point, index) => {
-        const x = timeToScreen(point.timestamp);
-        const y = priceToScreenForDrawings(point.price);
-
-        // Draw larger, more visible point marker with proper context isolation
-        ctx.save(); // Save state before drawing each point
-
-        // Main point circle
-        ctx.fillStyle = '#00BFFF';
-        ctx.beginPath();
-        ctx.arc(x, y, 8, 0, 2 * Math.PI);
-        ctx.fill();
-
-        // Add white border for better visibility
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Add precision center dot to show exact placement
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        ctx.arc(x, y, 2, 0, 2 * Math.PI);
-        ctx.fill();
-
-        // Draw point label with black text 
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText((index + 1).toString(), x, y + 20); // Move label below point
-        ctx.restore(); // Restore state after each point
-      });
-
-      // Show progress indicator in top-left corner (save context first)
-      ctx.save();
-      ctx.fillStyle = '#FFD700';
-      ctx.font = 'bold 16px Arial';
-      ctx.textAlign = 'left';
-      const stepText = currentChannelPoints.length === 0 ? 'STEP 1: Click first point' :
-        currentChannelPoints.length === 1 ? 'STEP 2: Click second point' : 'STEP 3: Click third point';
-      ctx.fillText(stepText, 20, 40);
-
-      // Show current crosshair coordinates for precision
-      if (channelPreviewPoint && crosshairInfo.visible) {
-        ctx.fillStyle = '#00BFFF';
-        ctx.font = 'bold 14px Arial';
-        ctx.fillText(`Crosshair: ${crosshairInfo.price} @ ${crosshairInfo.time}`, 20, 85);
-      }
-
-      // Show click debug counter to track responsiveness
-      ctx.fillStyle = '#FF0000';
-      ctx.font = 'bold 14px Arial';
-      ctx.fillText(`Clicks detected: ${clickDebugCount}`, 20, 65);
-      ctx.restore();
-
-      // Preview logic based on current step (with proper context management)
-      if (channelPreviewPoint) {
-        const previewX = timeToScreen(channelPreviewPoint.timestamp);
-        const previewY = priceToScreenForDrawings(channelPreviewPoint.price);
-
-        if (currentChannelPoints.length === 1) {
-          // Show preview line from point 1 to mouse position
-          const point1X = timeToScreen(currentChannelPoints[0].timestamp);
-          const point1Y = priceToScreenForDrawings(currentChannelPoints[0].price);
-
-          ctx.save(); // Save context for line drawing
-          ctx.strokeStyle = '#00BFFF';
-          ctx.lineWidth = 2;
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.moveTo(point1X, point1Y);
-          ctx.lineTo(previewX, previewY);
-          ctx.stroke();
-          ctx.restore(); // Restore after line
-
-          // Draw preview point
-          ctx.save(); // Save context for preview point
-          ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
-          ctx.beginPath();
-          ctx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.restore(); // Restore after preview point
-
-          // Show instruction text
-          ctx.save();
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = 'bold 12px Arial';
-          ctx.fillText('Click to set trend line end', previewX + 10, previewY + 20);
-          ctx.restore();
-
-        } else if (currentChannelPoints.length === 2) {
-          // Show preview of complete channel with mouse position as width point
-          const point1X = timeToScreen(currentChannelPoints[0].timestamp);
-          const point1Y = priceToScreenForDrawings(currentChannelPoints[0].price);
-          const point2X = timeToScreen(currentChannelPoints[1].timestamp);
-          const point2Y = priceToScreenForDrawings(currentChannelPoints[1].price);
-
-          // Draw main trend line (solid) with proper context
-          ctx.save();
-          ctx.strokeStyle = '#00BFFF';
-          ctx.lineWidth = 2;
-          ctx.setLineDash([]);
-          ctx.beginPath();
-          ctx.moveTo(point1X, point1Y);
-          ctx.lineTo(point2X, point2Y);
-          ctx.stroke();
-          ctx.restore();
-
-          // Calculate and draw preview parallel line
-          const A = point2Y - point1Y;
-          const B = point1X - point2X;
-          const C = (point2X - point1X) * point1Y - (point2Y - point1Y) * point1X;
-          const distance = Math.abs(A * previewX + B * previewY + C) / Math.sqrt(A * A + B * B);
-
-          const crossProduct = (point2X - point1X) * (previewY - point1Y) - (point2Y - point1Y) * (previewX - point1X);
-          const isAbove = crossProduct > 0;
-
-          const lineLength = Math.sqrt(A * A + B * B);
-          const normalX = A / lineLength;
-          const normalY = -B / lineLength;
-
-          const finalNormalX = isAbove ? normalX : -normalX;
-          const finalNormalY = isAbove ? normalY : -normalY;
-
-          const parallelStartX = point1X + finalNormalX * distance;
-          const parallelStartY = point1Y + finalNormalY * distance;
-          const parallelEndX = point2X + finalNormalX * distance;
-          const parallelEndY = point2Y + finalNormalY * distance;
-
-          // Draw preview parallel line (dashed) with context
-          ctx.save();
-          ctx.strokeStyle = 'rgba(0, 191, 255, 0.7)';
-          ctx.lineWidth = 2;
-          ctx.setLineDash([5, 5]);
-          ctx.beginPath();
-          ctx.moveTo(parallelStartX, parallelStartY);
-          ctx.lineTo(parallelEndX, parallelEndY);
-          ctx.stroke();
-          ctx.restore();
-
-          // Draw preview fill with context
-          ctx.save();
-          ctx.fillStyle = 'rgba(0, 191, 255, 0.1)';
-          ctx.beginPath();
-          ctx.moveTo(point1X, point1Y);
-          ctx.lineTo(point2X, point2Y);
-          ctx.lineTo(parallelEndX, parallelEndY);
-          ctx.lineTo(parallelStartX, parallelStartY);
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-
-          // Draw preview point with context
-          ctx.save();
-          ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
-          ctx.beginPath();
-          ctx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.restore();
-
-          // Show instruction text with context
-          ctx.save();
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = 'bold 12px Arial';
-          ctx.fillText('Click to set channel width', previewX + 10, previewY + 20);
-          ctx.restore();
-        }
-      }
-
-      // Restore the main context state after all channel preview drawing
-      ctx.restore();
-    }
-
-    // Draw parallel channels (3-point system)
-    if (parallelChannels.length > 0) {
-      parallelChannels.forEach(channel => {
-        const isSelected = selectedChannel === channel.id;
-        ctx.strokeStyle = isSelected ? '#FFFF00' : (channel.color || '#00BFFF'); // Yellow when selected
-        ctx.lineWidth = isSelected ? 3 : (channel.lineWidth || 2); // Thicker when selected
-
-        // Set line style
-        const lineStyle = channel.lineStyle || 'solid';
-        switch (lineStyle) {
-          case 'dashed':
-            ctx.setLineDash([10, 5]);
-            break;
-          case 'dotted':
-            ctx.setLineDash([2, 3]);
-            break;
-          default:
-            ctx.setLineDash([]);
-            break;
-        }
-
-        // Convert points to screen coordinates using the drawing-specific function
-        const point1X = timeToScreen(channel.point1.timestamp);
-        const point1Y = priceToScreenForDrawings(channel.point1.price);
-        const point2X = timeToScreen(channel.point2.timestamp);
-        const point2Y = priceToScreenForDrawings(channel.point2.price);
-        const point3X = timeToScreen(channel.point3.timestamp);
-        const point3Y = priceToScreenForDrawings(channel.point3.price);
-
-        // Calculate the main trend line (point1 to point2)
-        const mainLineStartX = point1X;
-        const mainLineStartY = point1Y;
-        const mainLineEndX = point2X;
-        const mainLineEndY = point2Y;
-
-        // Calculate perpendicular distance from point3 to the main line
-        // Formula for distance from point to line: |ax + by + c| / sqrt(a  + b )
-        const A = point2Y - point1Y;
-        const B = point1X - point2X;
-        const C = (point2X - point1X) * point1Y - (point2Y - point1Y) * point1X;
-        const distance = Math.abs(A * point3X + B * point3Y + C) / Math.sqrt(A * A + B * B);
-
-        // Determine if point3 is above or below the main line
-        const crossProduct = (point2X - point1X) * (point3Y - point1Y) - (point2Y - point1Y) * (point3X - point1X);
-        const isAbove = crossProduct > 0;
-
-        // Calculate unit normal vector (perpendicular to main line)
-        const lineLength = Math.sqrt(A * A + B * B);
-        const normalX = A / lineLength;
-        const normalY = -B / lineLength;
-
-        // Adjust normal direction based on which side point3 is on
-        const finalNormalX = isAbove ? normalX : -normalX;
-        const finalNormalY = isAbove ? normalY : -normalY;
-
-        // Calculate parallel line points
-        const parallelStartX = point1X + finalNormalX * distance;
-        const parallelStartY = point1Y + finalNormalY * distance;
-        const parallelEndX = point2X + finalNormalX * distance;
-        const parallelEndY = point2Y + finalNormalY * distance;
-
-        // Draw main trend line (point1 to point2)
-        ctx.beginPath();
-        ctx.moveTo(mainLineStartX, mainLineStartY);
-        ctx.lineTo(mainLineEndX, mainLineEndY);
-        ctx.stroke();
-
-        // Draw parallel line
-        ctx.beginPath();
-        ctx.moveTo(parallelStartX, parallelStartY);
-        ctx.lineTo(parallelEndX, parallelEndY);
-        ctx.stroke();
-
-        // Fill the channel with semi-transparent color (if enabled)
-        if (channel.showFill !== false) {
-          ctx.fillStyle = channel.fillColor || `${channel.color || '#00BFFF'}33`; // Use fillColor or add transparency to line color
-          ctx.beginPath();
-          ctx.moveTo(mainLineStartX, mainLineStartY);
-          ctx.lineTo(mainLineEndX, mainLineEndY);
-          ctx.lineTo(parallelEndX, parallelEndY);
-          ctx.lineTo(parallelStartX, parallelStartY);
-          ctx.closePath();
-          ctx.fill();
-        }
-
-        // Draw point markers for visual feedback (optional)
-        if (channel.isSelected) {
-          ctx.fillStyle = channel.color || '#00BFFF';
-          ctx.beginPath();
-          ctx.arc(point1X, point1Y, 4, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(point2X, point2Y, 4, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(point3X, point3Y, 4, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-      });
-    }
-
-    // Draw drawing brushes
-    if (drawingBrushes.length > 0) {
-      console.log('??? Rendering', drawingBrushes.length, 'brush strokes:', drawingBrushes.map(b => `${b.label}(${b.strokes.length}pts)`));
-      drawingBrushes.forEach((brush, index) => {
-        if (brush.strokes.length >= 2) {
-          console.log(`??? Rendering brush ${index + 1}: ${brush.label} with ${brush.strokes.length} points`);
-          ctx.strokeStyle = brush.color || '#FF69B4';
-          ctx.lineWidth = brush.lineWidth || 3;
-          ctx.globalAlpha = brush.opacity || 0.8;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.setLineDash([]);
-
-          ctx.beginPath();
-          for (let i = 0; i < brush.strokes.length; i++) {
-            const stroke = brush.strokes[i];
-            const x = timeToScreen(stroke.timestamp);
-            const y = priceToScreenForDrawings(stroke.price);
-
-            if (i === 0) {
-              ctx.moveTo(x, y);
-            } else {
-              ctx.lineTo(x, y);
-            }
-          }
-          ctx.stroke();
-          ctx.globalAlpha = 1.0; // Reset alpha
-        }
-      });
-    }
-
-    // Draw current brush stroke being drawn
-    if (isBrushing && currentBrushStroke.length > 0) {
-      ctx.strokeStyle = '#FF69B4';
-      ctx.lineWidth = 3;
-      ctx.globalAlpha = 0.8;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.setLineDash([]);
-
-      ctx.beginPath();
-      for (let i = 0; i < currentBrushStroke.length; i++) {
-        const stroke = currentBrushStroke[i];
-        const x = timeToScreen(stroke.timestamp);
-        const y = priceToScreenForDrawings(stroke.price);
-
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-      ctx.stroke();
-      ctx.globalAlpha = 1.0; // Reset alpha
-    }
   };
 
   // Re-render when data or settings change
@@ -11192,91 +10906,7 @@ export default function TradingViewChart({
       renderChart();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow, chartLayout]); // ?? NUCLEAR BACKUP: Raw DOM event listener for parallel channel clicks
-  useEffect(() => {
-    if (!isParallelChannelMode) return;
-
-    const canvas = overlayCanvasRef.current;
-    if (!canvas) return;
-
-    console.log('?? ACTIVATING NUCLEAR BACKUP EVENT LISTENER FOR PARALLEL CHANNELS');
-
-    const forceClickHandler = (e: MouseEvent) => {
-      if (!isParallelChannelMode) return;
-
-      console.log('?? RAW DOM CLICK DETECTED - FORCING PARALLEL CHANNEL LOGIC');
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-
-      const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      // Force increment click counter
-      setClickDebugCount(prev => {
-        console.log('?? FORCE CLICK COUNT:', prev + 1);
-        return prev + 1;
-      });
-
-      // Use EXACT same coordinate conversion as main click handler
-      const newPoint = screenToTimePriceCoordinates(x, y);
-      console.log('?? FORCE CREATING POINT WITH RAW DOM:', newPoint);
-
-      // FORCE the state update regardless of React lifecycle
-      setCurrentChannelPoints(currentPoints => {
-        const currentCount = currentPoints.length;
-        console.log('?? RAW DOM - FORCING STATE UPDATE FROM:', currentCount);
-
-        if (currentCount === 0) {
-          console.log('?? RAW DOM - FORCE POINT 1');
-          setChannelDrawingStep(1);
-          return [newPoint];
-        } else if (currentCount === 1) {
-          console.log('?? RAW DOM - FORCE POINT 2');
-          setChannelDrawingStep(2);
-          return [...currentPoints, newPoint];
-        } else if (currentCount === 2) {
-          console.log('?? RAW DOM - FORCE POINT 3 - CREATING CHANNEL');
-          const allPoints = [...currentPoints, newPoint];
-
-          const newChannel: ParallelChannel = {
-            id: Date.now().toString(),
-            point1: allPoints[0],
-            point2: allPoints[1],
-            point3: allPoints[2],
-            color: '#00BFFF',
-            lineWidth: 2,
-            lineStyle: 'solid',
-            fillOpacity: 0.1,
-            fillColor: '#00BFFF33',
-            showFill: true,
-            label: `Channel ${parallelChannels.length + 1}`
-          };
-
-          setParallelChannels(prev => [...prev, newChannel]);
-          setChannelDrawingStep(0);
-          setChannelPreviewPoint(null);
-
-          if (!isDrawingLocked) {
-            activateToolExclusively('none'); // Clear all tools instead of just this one
-          }
-
-          return [];
-        }
-
-        return currentPoints;
-      });
-    };
-
-    // Add the raw DOM listener with capture=true to intercept before React
-    canvas.addEventListener('mousedown', forceClickHandler, true);
-
-    // Cleanup
-    return () => {
-      canvas.removeEventListener('mousedown', forceClickHandler, true);
-    };
-  }, [isParallelChannelMode, dimensions, scrollOffset, data, parallelChannels.length, isDrawingLocked]);
+  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow, chartLayout]);
 
   // TradingView-style interaction handlers
   const [lastMouseX, setLastMouseX] = useState(0);
@@ -11499,178 +11129,7 @@ export default function TradingViewChart({
       return;
     }
 
-    console.log('??? CLICK DETECTED at:', { x, y, isParallelChannelMode, currentChannelPoints: currentChannelPoints.length, button: e.button });
-
-    // Increment click counter for debugging when in channel mode
-    if (isParallelChannelMode) {
-      setClickDebugCount(prev => prev + 1);
-    }
-
-    // Visual click feedback - briefly flash the click location
-    if (isParallelChannelMode) {
-      const canvas = overlayCanvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#FF0000';
-          ctx.beginPath();
-          ctx.arc(x, y, 10, 0, 2 * Math.PI);
-          ctx.fill();
-          setTimeout(() => {
-            // This will be cleared on next render
-          }, 100);
-        }
-      }
-    }
-
-    // ?????? NUCLEAR OPTION: PARALLEL CHANNEL MODE - NOTHING ELSE MATTERS! ??????
-    if (isParallelChannelMode) {
-
-      // NUCLEAR STOP - BLOCK EVERYTHING
-      e.preventDefault();
-      e.stopPropagation();
-      (e.nativeEvent as Event).stopImmediatePropagation?.();
-
-      // Use EXACT same coordinate system as crosshair
-      const newPoint = screenToTimePriceCoordinates(x, y);
-
-      // FORCE IMMEDIATE UPDATE - USE FUNCTIONAL STATE TO AVOID STALE CLOSURES
-      setCurrentChannelPoints(currentPoints => {
-        console.log('?? FORCE UPDATE - Current points before:', currentPoints.length);
-
-        if (currentPoints.length === 0) {
-          console.log('?? POINT 1 FORCE PLACED!', newPoint);
-          setChannelDrawingStep(1);
-          return [newPoint];
-        } else if (currentPoints.length === 1) {
-          console.log('?? POINT 2 FORCE PLACED!', newPoint);
-          setChannelDrawingStep(2);
-          return [...currentPoints, newPoint];
-        } else if (currentPoints.length === 2) {
-          console.log('?? POINT 3 FORCE PLACED - CREATING CHANNEL!', newPoint);
-          const allPoints = [...currentPoints, newPoint];
-
-          // IMMEDIATE CHANNEL CREATION
-          const newChannel: ParallelChannel = {
-            id: Date.now().toString(),
-            point1: allPoints[0],
-            point2: allPoints[1],
-            point3: allPoints[2],
-            color: '#00BFFF',
-            lineWidth: 2,
-            lineStyle: 'solid',
-            fillOpacity: 0.1,
-            fillColor: '#00BFFF33',
-            showFill: true,
-            label: `Channel ${parallelChannels.length + 1}`
-          };
-
-          // FORCE ADD CHANNEL
-          setParallelChannels(prev => [...prev, newChannel]);
-          setChannelDrawingStep(0);
-          setChannelPreviewPoint(null);
-          console.log('?? CHANNEL COMPLETE!', newChannel);
-
-          if (!isDrawingLocked) {
-            activateToolExclusively('none'); // Clear all tools instead of just this one
-          }
-
-          return []; // Clear points
-        }
-
-        return currentPoints; // Fallback
-      });
-
-      // NUCLEAR STOP - RETURN IMMEDIATELY
-      return;
-    }
-
-    // Check if we're in horizontal ray drawing mode
-    if (isHorizontalRayMode) {
-      // Use EXACT same coordinate system as crosshair
-      const price = screenToPrice(y);
-
-      const newRay: HorizontalRay = {
-        id: Date.now().toString(),
-        price: price,
-        startX: x,
-        color: '#00ff00', // Simple green color
-        lineWidth: 2,
-        lineStyle: 'solid',
-        extendLeft: true,
-        extendRight: true,
-        label: `Ray ${horizontalRays.length + 1}`
-      };
-
-      console.log('Creating ray at price:', price, 'y:', y);
-      setHorizontalRays(prev => [...prev, newRay]);
-
-      if (!isDrawingLocked) {
-        activateToolExclusively('none'); // Clear all tools instead of just this one
-      }
-
-      return;
-    }
-
-    // Drawing Brush mode - CLICK AND HOLD to draw (prepare for drawing)
-    if (isDrawingBrushMode) {
-      // Track that mouse is pressed and prepare for drawing
-      setIsMousePressed(true);
-      setIsBrushing(true);
-      setCurrentBrushStroke([]); // Start with empty stroke
-      setLastBrushTime(Date.now());
-
-
-      console.log('??? Current saved brushes count:', drawingBrushes.length);
-      console.log('??? Current saved brushes:', drawingBrushes.map(b => b.label));
-      return;
-    }
-
-    // Check for horizontal ray hits (for editing/selecting)
-    for (const ray of horizontalRays) {
-      const rayY = priceToScreenForDrawings(ray.price);
-      if (Math.abs(y - rayY) <= 5) { // 5px tolerance
-        setSelectedRay(ray.id);
-        setIsEditingRay(true);
-        setRayDragStart({ x, y, originalPrice: ray.price });
-        return;
-      }
-    }
-
-    // Check for parallel channel hits (for editing/selecting)
-    for (const channel of parallelChannels) {
-      // Check if click is near any of the channel lines
-      const point1Y = priceToScreenForDrawings(channel.point1.price);
-      const point2Y = priceToScreenForDrawings(channel.point2.price);
-      const point3Y = priceToScreenForDrawings(channel.point3.price);
-
-      // Calculate the parallel line (point4) coordinates
-      const deltaY = point2Y - point1Y;
-      const point4Y = point3Y + deltaY;
-
-      // Check if click is near either channel line (5px tolerance)
-      const nearFirstLine = Math.abs(y - point1Y) <= 5 || Math.abs(y - point2Y) <= 5;
-      const nearSecondLine = Math.abs(y - point3Y) <= 5 || Math.abs(y - point4Y) <= 5;
-
-      if (nearFirstLine || nearSecondLine) {
-        setSelectedChannel(channel.id);
-        setIsEditingChannel(true);
-        setChannelDragStart({ x, y, originalChannel: { ...channel } });
-        return;
-      }
-    }
-
-    // Clear selections if clicking on empty area
-    if (selectedRay) {
-      setSelectedRay(null);
-      setIsEditingRay(false);
-      setRayDragStart(null);
-    }
-    if (selectedChannel) {
-      setSelectedChannel(null);
-      setIsEditingChannel(false);
-      setChannelDragStart(null);
-    }
+    console.log('??? CLICK DETECTED at:', { x, y, button: e.button });
 
     // Default chart panning behavior
     setIsDragging(true);
@@ -11678,12 +11137,10 @@ export default function TradingViewChart({
     setDragStartX(x);
     setDragStartOffset(scrollOffset);
   }, [
-    isHorizontalRayMode, horizontalRays, rayProperties, scrollOffset,
-    isParallelChannelMode, isDrawingBrushMode,
-    parallelChannels, isBrushing, isMousePressed,
-    drawingBrushes, dimensions, data, visibleCandleCount, isDrawingLocked,
-    screenToTimePriceCoordinates, screenToPrice, priceToScreenForDrawings, activateToolExclusively,
-    selectedRay, selectedChannel, isAlertPlacementMode, alerts, newAlertPrice, showAlertDialog
+    scrollOffset,
+    dimensions, data, visibleCandleCount,
+    screenToTimePriceCoordinates, screenToPrice, priceToScreenForDrawings,
+    isAlertPlacementMode, alerts, newAlertPrice, showAlertDialog
   ]);
 
   // ? NEW: Advanced Hit Detection System
@@ -12173,125 +11630,6 @@ export default function TradingViewChart({
       });
     }
 
-    // Handle horizontal ray dragging
-    if (isEditingRay && selectedRay && rayDragStart) {
-      const newPrice = screenToPrice(y);
-      setHorizontalRays(prev =>
-        prev.map(ray =>
-          ray.id === selectedRay
-            ? { ...ray, price: newPrice }
-            : ray
-        )
-      );
-      return;
-    }
-
-    // Handle parallel channel dragging
-    if (isEditingChannel && selectedChannel && channelDragStart) {
-      // Calculate price change for vertical dragging
-      const newPrice = screenToPrice(y);
-      const originalPrice = screenToPrice(channelDragStart.y);
-      const deltaPrice = newPrice - originalPrice;
-
-      // Calculate time change for horizontal dragging
-      const newTimestamp = screenToTimePriceCoordinates(x, y).timestamp;
-      const originalTimestamp = screenToTimePriceCoordinates(channelDragStart.x, channelDragStart.y).timestamp;
-      const deltaTime = newTimestamp - originalTimestamp;
-
-      setParallelChannels(prev =>
-        prev.map(channel =>
-          channel.id === selectedChannel
-            ? {
-              ...channel,
-              point1: {
-                timestamp: channelDragStart.originalChannel.point1.timestamp + deltaTime,
-                price: channelDragStart.originalChannel.point1.price + deltaPrice
-              },
-              point2: {
-                timestamp: channelDragStart.originalChannel.point2.timestamp + deltaTime,
-                price: channelDragStart.originalChannel.point2.price + deltaPrice
-              },
-              point3: {
-                timestamp: channelDragStart.originalChannel.point3.timestamp + deltaTime,
-                price: channelDragStart.originalChannel.point3.price + deltaPrice
-              }
-            }
-            : channel
-        )
-      );
-      return;
-    }
-
-    // Handle drawing brush stroke - CLICK AND HOLD behavior
-    if (isBrushing && isDrawingBrushMode && isMousePressed) {
-      const now = Date.now();
-
-      // Throttle brush points to prevent too many updates (max 60 FPS)
-      if (now - lastBrushTime < 16) {
-        return; // Skip this update
-      }
-
-      // Use EXACT same coordinate system as crosshair for perfect alignment
-      const coords = screenToTimePriceCoordinates(x, y);
-
-      // Add point to current brush stroke with smooth interpolation
-      setCurrentBrushStroke(prev => {
-        // If this is the first point (empty array), always add it to start drawing
-        if (prev.length === 0) {
-          console.log('??? Brush stroke STARTED at:', coords);
-          return [coords];
-        }
-
-        // For subsequent points, avoid duplicates that are too close together (less than 2 pixels distance)
-        const lastPoint = prev[prev.length - 1];
-        const lastX = timeToScreen(lastPoint.timestamp);
-        const lastY = priceToScreenForDrawings(lastPoint.price);
-        const distance = Math.sqrt(Math.pow(x - lastX, 2) + Math.pow(y - lastY, 2));
-
-        // Only add point if it's far enough from the last point for smoother drawing
-        if (distance < 2) {
-          return prev;
-        }
-
-        return [...prev, coords];
-      });
-
-      setLastBrushTime(now);
-      console.log('??? Brush stroke point added:', coords, 'Total points:', currentBrushStroke.length + 1);
-      // Note: Don't return here so crosshair continues to update
-    }
-
-    // Handle channel preview (show live preview as mouse moves) - use EXACT same coordinate system as crosshair
-    if (isParallelChannelMode && currentChannelPoints.length > 0) {
-      // Throttle preview updates to improve performance
-      const now = Date.now();
-      if (!lastPreviewUpdate || now - lastPreviewUpdate > 16) { // ~60fps throttling
-        const previewCoords = screenToTimePriceCoordinates(x, y);
-        setChannelPreviewPoint(previewCoords);
-        setLastPreviewUpdate(now);
-      }
-      // Note: Don't return here so crosshair continues to update
-    }
-
-    // Track velocity for momentum scrolling (only when dragging)
-    if (isDragging || isDraggingYAxis) {
-      const now = Date.now();
-      const deltaTime = now - lastMouseTimestamp;
-
-      if (deltaTime > 0) {
-        const deltaX = x - lastMousePosition.x;
-        const deltaY = y - lastMousePosition.y;
-
-        // Calculate velocity (pixels per millisecond)
-        const velocityX = deltaX / deltaTime * 16; // Convert to 60fps frame rate
-        const velocityY = deltaY / deltaTime * 16;
-
-        setVelocity({ x: velocityX, y: velocityY });
-        setLastMouseTimestamp(now);
-        setLastMousePosition({ x, y });
-      }
-    }
-
     // Handle box zoom dragging
     if (isBoxZooming && boxZoomStart) {
       setBoxZoomEnd({ x, y });
@@ -12440,7 +11778,7 @@ export default function TradingViewChart({
       setLastMousePosition({ x, y });
       return;
     }
-  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, getFuturePeriods, config.timeframe, isBrushing, isDrawingBrushMode, isMousePressed, currentBrushStroke, lastBrushTime, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame, scrollOffset]);
+  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, getFuturePeriods, config.timeframe, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame, scrollOffset]);
 
   const handleMouseUp = useCallback(() => {
 
@@ -12517,59 +11855,6 @@ export default function TradingViewChart({
     setIsResizingYAxis(false);
     setYAxisResizeStart(null);
 
-
-
-    // Handle drawing brush stroke completion - CLICK AND HOLD behavior
-    if (isBrushing && currentBrushStroke.length > 0) {
-      console.log('??? Brush stroke completed with', currentBrushStroke.length, 'points');
-
-      // Only save if we have enough points for a meaningful stroke
-      if (currentBrushStroke.length >= 2) {
-        const newBrush: DrawingBrush = {
-          id: Date.now().toString(),
-          strokes: currentBrushStroke,
-          color: '#FF69B4',
-          lineWidth: 3,
-          opacity: 0.8,
-          label: `Brush ${drawingBrushes.length + 1}`
-        };
-        console.log('??? Creating new brush:', newBrush.label);
-        setDrawingBrushes(prev => {
-
-          const updated = [...prev, newBrush];
-          console.log('??? Brush stroke saved:', newBrush.label, 'Total brushes:', updated.length);
-
-          // Verify all brushes have valid stroke data
-          const validBrushes = updated.filter(b => b.strokes && b.strokes.length >= 2);
-          if (validBrushes.length !== updated.length) {
-            console.warn('? Some brushes have invalid stroke data!');
-          }
-
-          return updated;
-        });
-      } else {
-        console.log('??? Brush stroke too short, discarding');
-      }
-
-      // Always clear current stroke and stop brushing
-      setCurrentBrushStroke([]);
-      setIsBrushing(false);
-
-      // Keep brush tool active for multiple drawings unless drawing lock is disabled
-      if (!isDrawingLocked) {
-        // Don't clear the brush tool - keep it active for multiple drawings
-        // Only clear the current drawing state
-        console.log('??? Brush stroke completed - tool remains active for next drawing');
-      }
-    }
-
-    // Always clear mouse pressed state on mouse up (critical for brush tool)
-    setIsMousePressed(false);
-
-    // Handle horizontal ray editing cleanup
-    setIsEditingRay(false);
-    setRayDragStart(null);
-
     // Handle parallel channel editing cleanup
     setIsEditingChannel(false);
     setChannelDragStart(null);
@@ -12589,9 +11874,6 @@ export default function TradingViewChart({
   const handleMouseLeave = useCallback(() => {
     // Hide crosshair info when mouse leaves chart area
     setCrosshairInfo(prev => ({ ...prev, visible: false }));
-
-    // Clear mouse pressed state when leaving canvas (important for brush tool)
-    setIsMousePressed(false);
   }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -12773,145 +12055,8 @@ export default function TradingViewChart({
     return (relativeIndex / visibleDataLength) * chartWidth;
   };
 
-  // Horizontal Ray Drawing Functions
-  const addHorizontalRay = (price: number, startX: number) => {
-    const newRay: HorizontalRay = {
-      id: `ray_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      price,
-      color: '#2196F3',
-      lineWidth: 2,
-      lineStyle: 'solid',
-      extendLeft: true,
-      extendRight: true,
-      label: '',
-      startX,
-      isSelected: false
-    };
-
-    setHorizontalRays(prev => [...prev, newRay]);
-    console.log(`?? Added horizontal ray at price: $${price.toFixed(2)}`);
-  };
-
-  const selectHorizontalRay = (rayId: string) => {
-    setHorizontalRays(prev => prev.map(ray => ({
-      ...ray,
-      isSelected: ray.id === rayId
-    })));
-    setSelectedRay(rayId);
-  };
-
-  const updateHorizontalRayPrice = (rayId: string, newPrice: number) => {
-    setHorizontalRays(prev => prev.map(ray =>
-      ray.id === rayId ? { ...ray, price: newPrice } : ray
-    ));
-  };
-
-  const updateHorizontalRayStyle = (rayId: string, newStyle: Partial<HorizontalRay>) => {
-    setHorizontalRays(prev => prev.map(ray =>
-      ray.id === rayId ? { ...ray, ...newStyle } : ray
-    ));
-  };
-
-  const deleteHorizontalRay = (rayId: string) => {
-    setHorizontalRays(prev => prev.filter(ray => ray.id !== rayId));
-    if (selectedRay === rayId) {
-      setSelectedRay(null);
-      setIsEditingRay(false);
-    }
-  };
-
   // Enhanced Canvas Drawing Interaction Handlers
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-
-    const canvas = e.currentTarget;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Handle alert placement mode
-    if (isAlertPlacementMode) {
-      const startIndex = Math.max(0, Math.floor(scrollOffset));
-      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-      const currentVisibleData = data.slice(startIndex, endIndex);
-
-      if (!currentVisibleData.length) return;
-
-      const timeAxisHeight = 25;
-      const volumeAreaHeight = 80;
-      const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight;
-      const minPrice = Math.min(...currentVisibleData.map(d => d.low));
-      const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
-
-      // Convert canvas Y to price
-      const price = canvasToPrice(y, minPrice, maxPrice, chartHeight);
-
-      // Show alert creation dialog
-      setNewAlertPrice(price);
-      setShowAlertDialog(true);
-      setIsAlertPlacementMode(false);
-
-      return;
-    }
-
-    // Handle horizontal ray mode
-    if (isHorizontalRayMode) {
-      // Calculate visible data range
-      const startIndex = Math.max(0, Math.floor(scrollOffset));
-      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-      const currentVisibleData = data.slice(startIndex, endIndex);
-
-      if (!currentVisibleData.length) return;
-
-      const timeAxisHeight = 25;
-      const volumeAreaHeight = 80;
-      const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight;
-      const minPrice = Math.min(...currentVisibleData.map(d => d.low));
-      const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
-
-      // Convert canvas Y to price
-      const price = canvasToPrice(y, minPrice, maxPrice, chartHeight);
-
-      // Add horizontal ray
-      addHorizontalRay(price, x);
-
-      // If not locked, exit ray mode after placing one ray
-      if (!isDrawingLocked) {
-        setIsHorizontalRayMode(false);
-      }
-
-      return;
-    }
-
-    // Check if clicking on existing horizontal ray
-    // Calculate visible data range
-    const startIndex = Math.max(0, Math.floor(scrollOffset));
-    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-    const currentVisibleData = data.slice(startIndex, endIndex);
-
-    if (!currentVisibleData.length) return;
-
-    const timeAxisHeight = 25;
-    const volumeAreaHeight = 80;
-    const chartHeight = dimensions.height - timeAxisHeight - volumeAreaHeight;
-    const minPrice = Math.min(...currentVisibleData.map(d => d.low));
-    const maxPrice = Math.max(...currentVisibleData.map(d => d.high));
-
-    for (const ray of horizontalRays) {
-      const rayY = priceToCanvas(ray.price, minPrice, maxPrice, chartHeight);
-
-      // Check if click is near the ray line (within 5 pixels)
-      if (Math.abs(y - rayY) <= 5 && x >= (ray.startX || 0)) {
-        selectHorizontalRay(ray.id);
-        setIsEditingRay(true);
-        return;
-      }
-    }
-
-    // If clicking elsewhere, deselect rays
-    setSelectedRay(null);
-    setIsEditingRay(false);
-    setHorizontalRays(prev => prev.map(ray => ({ ...ray, isSelected: false })));
-
     return;
   };
 
@@ -13305,32 +12450,11 @@ export default function TradingViewChart({
     // Update crosshair position - these coordinates should match exactly with drawing coordinates
     setCrosshairPosition({ x, y });
 
-    // Handle horizontal ray dragging
-    if (isEditingRay && selectedRay) {
-      // Use the exact same coordinate system as everything else
-      const newPrice = screenToPrice(y);
-      updateHorizontalRayPrice(selectedRay, newPrice);
-    }
-
-    // Change cursor when hovering over rays
-    let isOverRay = false;
-    for (const ray of horizontalRays) {
-      const rayY = priceToScreenForDrawings(ray.price);
-      if (Math.abs(y - rayY) <= 5 && x >= (ray.startX || 0)) {
-        isOverRay = true;
-        break;
-      }
-    }
-
-    // Set cursor for parallel channel mode to precise crosshair for better alignment
-    canvas.style.cursor = isOverRay || isEditingRay ? 'ns-resize' :
-      (isHorizontalRayMode || isParallelChannelMode) ? 'crosshair' :
-        isDrawingBrushMode ? 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTMgMTdIMjFMMTMgOUwzIDE3WiIgZmlsbD0iIzAwMCIgc3Ryb2tlPSIjRkZGIiBzdHJva2Utd2lkdGg9IjIiLz4KPHN2Zz4K) 8 20, auto' :
-          'default';
+    // Set cursor for horizontal ray mode to precise crosshair for better alignment
+    canvas.style.cursor = 'default';
   };
 
   const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsEditingRay(false);
   };
 
   // Helper function to draw arrow heads
@@ -13342,53 +12466,6 @@ export default function TradingViewChart({
     ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
     ctx.moveTo(toX, toY);
     ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
-  };
-
-  // Fixed horizontal rays function - uses proper coordinate system
-  const drawHorizontalRays = (ctx: CanvasRenderingContext2D) => {
-    if (!horizontalRays.length) return;
-
-    // Use the existing priceToScreen function for consistent coordinates
-    const chartWidth = dimensions.width - 80;
-
-    horizontalRays.forEach(ray => {
-      // Use the same coordinate conversion as the main chart
-      const y = priceToScreen(ray.price);
-
-      // Only draw if within visible area
-      if (y < 0 || y > dimensions.height) return;
-
-      // Draw horizontal line across entire chart width
-      ctx.strokeStyle = ray.color || '#00ff00';
-      ctx.lineWidth = ray.lineWidth || 2;
-
-      // Set line style based on ray properties
-      const lineStyle = ray.lineStyle || 'solid';
-      switch (lineStyle) {
-        case 'dashed':
-          ctx.setLineDash([10, 5]);
-          break;
-        case 'dotted':
-          ctx.setLineDash([2, 3]);
-          break;
-        default:
-          ctx.setLineDash([]);
-          break;
-      }
-
-      ctx.beginPath();
-      ctx.moveTo(80, y); // Start from left margin
-      ctx.lineTo(dimensions.width - 80, y); // End at right margin
-      ctx.stroke();
-
-      // Price label on the right
-      const priceText = `$${ray.price.toFixed(2)}`;
-      ctx.font = '12px Arial';
-      ctx.fillStyle = ray.color || '#00ff00';
-      ctx.fillText(priceText, dimensions.width - 75, y - 5);
-    });
-
-    ctx.setLineDash([]);
   };
 
   // TradingView-style drawing renderer: converts time+price coordinates to screen position
@@ -14443,8 +13520,49 @@ export default function TradingViewChart({
                                         ? padding + ((maxPrice - data.previousDayClose) / priceRange) * chartHeight
                                         : null;
 
+                                      // Helper function to check if timestamp is during market hours
+                                      const isMarketHours = (timestamp: number): boolean => {
+                                        const date = new Date(timestamp);
+                                        const etString = date.toLocaleString("en-US", { timeZone: "America/New_York" });
+                                        const etDate = new Date(etString);
+                                        const hour = etDate.getHours();
+                                        const minute = etDate.getMinutes();
+                                        const totalMinutes = hour * 60 + minute;
+                                        const marketOpen = 9 * 60 + 30; // 9:30 AM ET
+                                        const marketClose = 16 * 60; // 4:00 PM ET
+                                        return totalMinutes >= marketOpen && totalMinutes < marketClose;
+                                      };
+
+                                      // Generate pre-market/after-hours shading rectangles (only for 1D timeframe)
+                                      const shadingRects = trackingTimeframe === '1D' ? data.sparklineData.map((point, i) => {
+                                        const x = (i / (data.sparklineData.length - 1)) * 200;
+                                        const width = i < data.sparklineData.length - 1
+                                          ? ((i + 1) / (data.sparklineData.length - 1)) * 200 - x
+                                          : 200 - x;
+                                        const isMarket = isMarketHours(point.time);
+
+                                        if (!isMarket) {
+                                          return (
+                                            <rect
+                                              key={`shade-${i}`}
+                                              x={x}
+                                              y="0"
+                                              width={width}
+                                              height="50"
+                                              fill="#555555"
+                                              opacity="0.15"
+                                            />
+                                          );
+                                        }
+                                        return null;
+                                      }) : [];
+
                                       return (
                                         <>
+                                          {/* Pre-market/After-hours shading */}
+                                          {shadingRects}
+
+                                          {/* Previous day close line */}
                                           {prevDayY !== null && (
                                             <line
                                               x1="0"
@@ -14457,6 +13575,8 @@ export default function TradingViewChart({
                                               opacity="0.4"
                                             />
                                           )}
+
+                                          {/* Price line with glow */}
                                           <polyline
                                             fill="none"
                                             stroke={data.change >= 0 ? '#00ff00' : '#ff0000'}
@@ -14491,14 +13611,27 @@ export default function TradingViewChart({
                                       let labels = ['', '', ''];
 
                                       if (trackingTimeframe === '1D') {
-                                        // Show market hours: 9:30AM, 12PM, 4PM
-                                        labels = ['9:30AM', '12PM', '4PM'];
+                                        // Format times in ET timezone
+                                        const formatTime = (timestamp: number) => {
+                                          const date = new Date(timestamp);
+                                          return date.toLocaleTimeString('en-US', {
+                                            hour: 'numeric',
+                                            minute: '2-digit',
+                                            hour12: true,
+                                            timeZone: 'America/New_York'
+                                          });
+                                        };
+
+                                        labels = [
+                                          formatTime(firstPoint.time),
+                                          formatTime(midPoint.time),
+                                          formatTime(lastPoint.time)
+                                        ];
                                       } else {
-                                        // Show dates for longer timeframes - use toLocaleDateString to ensure local timezone
+                                        // Show dates for longer timeframes in ET timezone
                                         const formatDate = (timestamp: number) => {
                                           const date = new Date(timestamp);
-                                          // Use toLocaleDateString with en-US locale for consistent M/D format
-                                          const parts = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/Los_Angeles' }).split('/');
+                                          const parts = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' }).split('/');
                                           return `${parts[0]}/${parts[1]}`;
                                         };
 
@@ -14578,6 +13711,9 @@ export default function TradingViewChart({
                       vega: liveQuote?.vega ?? 0
                     };
 
+                    // Use live IV from Polygon API only (no fallback to saved value)
+                    const impliedVolatility = liveQuote?.implied_volatility ?? 0;
+
                     // Get premium data for this option
                     const optionPremiumData = optionsPremiumData[option.id] || [];
                     const stockData = stockChartData[option.id] || [];
@@ -14588,7 +13724,7 @@ export default function TradingViewChart({
                     const daysToExpiry = Math.max(0, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
                     const T = daysToExpiry / 365;
                     const r = 0.0387; // Risk-free rate
-                    const sigma = option.implied_volatility;
+                    const sigma = impliedVolatility;
                     const stockPrice = option.stockPrice || 0;
 
                     const isCall = option.type === 'call';
@@ -14647,7 +13783,7 @@ export default function TradingViewChart({
                     // Dynamic trailing stop loss calculation
                     const calculateDynamicStopLoss = () => {
                       const delta = Math.abs(liveGreeks.delta);
-                      const iv = option.implied_volatility || 0.5;
+                      const iv = impliedVolatility || 0.5;
 
                       // 1. Base stop distance from delta (moneyness)
                       // This is the % below current price to place the stop
@@ -14714,8 +13850,8 @@ export default function TradingViewChart({
 
                     const stopLoss = calculateDynamicStopLoss();
 
-                    // Theta decay per day
-                    const thetaDecay = Math.abs(option.theta || 0);
+                    // Theta decay per day (use live Greeks)
+                    const thetaDecay = Math.abs(liveGreeks.theta || 0);
                     const dailyDecay = (thetaDecay / currentPrice) * 100;
 
                     return (
@@ -14772,7 +13908,7 @@ export default function TradingViewChart({
                               <div className="grid grid-cols-4 gap-3">
                                 <div>
                                   <div className="text-[9px] tracking-wider" style={{ color: '#00ff88', fontFamily: 'monospace' }}>DELTA</div>
-                                  <div className="text-sm font-bold" style={{ color: '#fff', fontFamily: 'monospace' }}>{option.delta?.toFixed(3) || '-'}</div>
+                                  <div className="text-sm font-bold" style={{ color: '#fff', fontFamily: 'monospace' }}>{liveGreeks.delta?.toFixed(3) || '-'}</div>
                                 </div>
                                 <div>
                                   <div className="text-[9px] tracking-wider" style={{ color: '#ff4444', fontFamily: 'monospace' }}>THETA</div>
@@ -14780,7 +13916,7 @@ export default function TradingViewChart({
                                 </div>
                                 <div>
                                   <div className="text-[9px] tracking-wider" style={{ color: '#bb86fc', fontFamily: 'monospace' }}>IV</div>
-                                  <div className="text-sm font-bold" style={{ color: '#bb86fc', fontFamily: 'monospace' }}>{(option.implied_volatility * 100).toFixed(1)}%</div>
+                                  <div className="text-sm font-bold" style={{ color: '#bb86fc', fontFamily: 'monospace' }}>{impliedVolatility ? (impliedVolatility * 100).toFixed(1) + '%' : 'N/A'}</div>
                                 </div>
                                 <div>
                                   <div className="text-[9px] tracking-wider" style={{ color: '#ff9500', fontFamily: 'monospace' }}>DTE</div>
@@ -15655,7 +14791,7 @@ export default function TradingViewChart({
                                     <div className="pt-4 text-center" style={{
                                       borderTop: '1px solid rgba(16, 185, 129, 0.1)'
                                     }}>
-                                      <div className="flex items-baseline justify-center gap-2">
+                                      <div className="flex items-baseline justify-center gap-2 mb-3">
                                         <span className="font-bold text-white" style={{ fontSize: '1.125rem' }}>
                                           ${trade.strike?.toFixed(0)}
                                         </span>
@@ -15665,6 +14801,49 @@ export default function TradingViewChart({
                                         <span className="text-xs font-medium" style={{ color: '#ffffff' }}>
                                           {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
                                         </span>
+                                      </div>
+
+                                      {/* Contract Details */}
+                                      <div className="grid grid-cols-3 gap-2 text-xs">
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Price</div>
+                                          <div className="text-white font-mono font-bold">
+                                            ${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">IV</div>
+                                          <div className="text-white font-mono font-bold">
+                                            {trade.impliedVolatility || 'N/A'}%
+                                          </div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Decay/Day</div>
+                                          <div className="text-white font-mono font-bold">
+                                            ${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div className="grid grid-cols-3 gap-2 text-xs mt-2">
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Target #1</div>
+                                          <div className="text-green-400 font-mono font-bold">
+                                            ${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Target #2</div>
+                                          <div className="text-green-400 font-mono font-bold">
+                                            ${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Stop Loss</div>
+                                          <div className="text-red-400 font-mono font-bold">
+                                            ${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
@@ -15815,7 +14994,7 @@ export default function TradingViewChart({
                                     <div className="pt-4 text-center" style={{
                                       borderTop: '1px solid rgba(239, 68, 68, 0.1)'
                                     }}>
-                                      <div className="flex items-baseline justify-center gap-2">
+                                      <div className="flex items-baseline justify-center gap-2 mb-3">
                                         <span className="font-bold text-white" style={{ fontSize: '1.125rem' }}>
                                           ${trade.strike?.toFixed(0)}
                                         </span>
@@ -15825,6 +15004,49 @@ export default function TradingViewChart({
                                         <span className="text-xs font-medium" style={{ color: '#ffffff' }}>
                                           {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
                                         </span>
+                                      </div>
+
+                                      {/* Contract Details */}
+                                      <div className="grid grid-cols-3 gap-2 text-xs">
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Price</div>
+                                          <div className="text-white font-mono font-bold">
+                                            ${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">IV</div>
+                                          <div className="text-white font-mono font-bold">
+                                            {trade.impliedVolatility || 'N/A'}%
+                                          </div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Decay/Day</div>
+                                          <div className="text-white font-mono font-bold">
+                                            ${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div className="grid grid-cols-3 gap-2 text-xs mt-2">
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Target #1</div>
+                                          <div className="text-red-400 font-mono font-bold">
+                                            ${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Target #2</div>
+                                          <div className="text-red-400 font-mono font-bold">
+                                            ${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
+                                        <div className="text-center">
+                                          <div className="text-gray-400 mb-1">Stop Loss</div>
+                                          <div className="text-red-400 font-mono font-bold">
+                                            ${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
@@ -16324,6 +15546,138 @@ export default function TradingViewChart({
                 )}
               </div>
 
+              {/* Option Contract Details */}
+              <div className="mb-8 p-6 rounded-lg" style={{
+                background: 'linear-gradient(135deg, #0a1628 0%, #0d0d0d 100%)',
+                border: '1px solid #2563eb',
+                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+              }}>
+                <div className="text-center font-mono text-sm uppercase tracking-widest mb-4" style={{
+                  color: '#60a5fa',
+                  fontWeight: 600
+                }}>
+                  Contract Analysis
+                </div>
+
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  {/* Contract Price */}
+                  <div className="text-center p-3 rounded" style={{
+                    background: '#000000',
+                    border: '1px solid #1e3a8a'
+                  }}>
+                    <div className="text-xs font-mono uppercase tracking-wide mb-1" style={{ color: '#60a5fa' }}>Price</div>
+                    <div className="text-xl font-bold font-mono" style={{ color: '#ffffff' }}>
+                      ${selectedTradeForModal.contractPrice ? selectedTradeForModal.contractPrice.toFixed(2) : 'N/A'}
+                    </div>
+                  </div>
+
+                  {/* IV */}
+                  <div className="text-center p-3 rounded" style={{
+                    background: '#000000',
+                    border: '1px solid #7c3aed'
+                  }}>
+                    <div className="text-xs font-mono uppercase tracking-wide mb-1" style={{ color: '#a78bfa' }}>IV</div>
+                    <div className="text-xl font-bold font-mono" style={{ color: '#ffffff' }}>
+                      {selectedTradeForModal.impliedVolatility ? `${selectedTradeForModal.impliedVolatility}%` : 'N/A'}
+                    </div>
+                  </div>
+
+                  {/* Theta Decay */}
+                  <div className="text-center p-3 rounded" style={{
+                    background: '#000000',
+                    border: '1px solid #dc2626'
+                  }}>
+                    <div className="text-xs font-mono uppercase tracking-wide mb-1" style={{ color: '#f87171' }}>Decay/Day</div>
+                    <div className="text-xl font-bold font-mono" style={{ color: '#ffffff' }}>
+                      ${selectedTradeForModal.thetaDecay ? selectedTradeForModal.thetaDecay.toFixed(2) : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Targets & Stop Loss */}
+                <div className="grid grid-cols-3 gap-4">
+                  {/* Target #1 (Stock Price) */}
+                  <div className="text-center p-3 rounded" style={{
+                    background: '#000000',
+                    border: '1px solid #059669'
+                  }}>
+                    <div className="text-xs font-mono uppercase tracking-wide mb-1" style={{ color: '#34d399' }}>Target #1</div>
+                    <div className="text-lg font-bold font-mono" style={{ color: '#10b981' }}>
+                      ${selectedTradeForModal.stockTarget80 ? selectedTradeForModal.stockTarget80.toFixed(2) : 'N/A'}
+                    </div>
+                  </div>
+
+                  {/* Target #2 (Stock Price) */}
+                  <div className="text-center p-3 rounded" style={{
+                    background: '#000000',
+                    border: '1px solid #059669'
+                  }}>
+                    <div className="text-xs font-mono uppercase tracking-wide mb-1" style={{ color: '#34d399' }}>Target #2</div>
+                    <div className="text-lg font-bold font-mono" style={{ color: '#10b981' }}>
+                      ${selectedTradeForModal.stockTarget90 ? selectedTradeForModal.stockTarget90.toFixed(2) : 'N/A'}
+                    </div>
+                  </div>
+
+                  {/* Stop Loss (Option Price) */}
+                  <div className="text-center p-3 rounded" style={{
+                    background: '#000000',
+                    border: '1px solid #dc2626'
+                  }}>
+                    <div className="text-xs font-mono uppercase tracking-wide mb-1" style={{ color: '#f87171' }}>Stop Loss</div>
+                    <div className="text-lg font-bold font-mono" style={{ color: '#ef4444' }}>
+                      ${selectedTradeForModal.stopLoss ? selectedTradeForModal.stopLoss.toFixed(2) : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Add to Watchlist Button */}
+                <button
+                  onClick={() => {
+                    // Add to options watchlist
+                    const saved = localStorage.getItem('optionsWatchlist');
+                    const watchlist = saved ? JSON.parse(saved) : [];
+
+                    const newOption = {
+                      id: `${selectedTradeForModal.symbol}-${selectedTradeForModal.strike}-${selectedTradeForModal.optionType}-${selectedTradeForModal.expiration}`,
+                      symbol: selectedTradeForModal.symbol,
+                      type: selectedTradeForModal.optionType,
+                      strike: selectedTradeForModal.strike,
+                      expiration: selectedTradeForModal.expiration,
+                      bid: selectedTradeForModal.contractBid || 0,
+                      ask: selectedTradeForModal.contractAsk || 0,
+                      entryPrice: selectedTradeForModal.contractPrice || 0,
+                      delta: selectedTradeForModal.delta || 0,
+                      gamma: selectedTradeForModal.gamma || 0,
+                      theta: selectedTradeForModal.theta || 0,
+                      vega: selectedTradeForModal.vega || 0,
+                      implied_volatility: selectedTradeForModal.impliedVolatility / 100 || 0,
+                      stockPrice: selectedTradeForModal.currentPrice || 0,
+                      addedAt: new Date().toISOString()
+                    };
+
+                    // Check if already exists
+                    const exists = watchlist.some((opt: any) => opt.id === newOption.id);
+                    if (!exists) {
+                      watchlist.push(newOption);
+                      localStorage.setItem('optionsWatchlist', JSON.stringify(watchlist));
+
+                      // Switch to Options Trades tab
+                      setWatchlistTab('Options Trades');
+                      setShowTradeModal(false);
+                    }
+                  }}
+                  className="mt-4 w-full py-3 rounded-lg font-mono font-bold uppercase tracking-wider transition-all duration-200"
+                  style={{
+                    background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
+                    color: '#ffffff',
+                    border: '1px solid #3b82f6',
+                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+                  }}
+                >
+                  Add to Watchlist
+                </button>
+              </div>
+
               {/* Score Breakdown */}
               {selectedTradeForModal.details && (
                 <div className="p-6 rounded-lg" style={{
@@ -16713,7 +16067,7 @@ export default function TradingViewChart({
                           fontFamily: 'system-ui, -apple-system, sans-serif',
                           letterSpacing: '0.8px'
                         }}
-                        placeholder={symbol || "Search..."}
+                        placeholder={isBenchmarkMode ? `${benchmarkSymbol1}/${benchmarkSymbol2}` : (symbol || "Search...")}
                       />
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
                         <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
@@ -17166,30 +16520,15 @@ export default function TradingViewChart({
                             background: '#0a0a0a',
                             borderRadius: '4px',
                             border: '1px solid rgba(255, 133, 0, 0.3)',
-                            maxWidth: '280px'
+                            maxWidth: '200px'
                           }}>
                             <label style={{ display: 'block', color: '#ff8500', fontSize: '12px', fontWeight: '700', marginBottom: '8px' }}>
                               Select Expiration Date:
                             </label>
                             <input
                               type="date"
-                              value={customExpirationDate}
-                              onChange={(e) => {
-                                setCustomExpirationDate(e.target.value);
-                                if (e.target.value) {
-                                  setIsLoadingExpectedRange(true);
-                                  setIsCustomActive(true);
-                                  setIsExpectedRangeActive(true);
-                                  calculateExpectedRangeLevels(symbol, e.target.value).then(result => {
-                                    if (result) {
-                                      setExpectedRangeLevels(result.levels);
-                                    }
-                                    setIsLoadingExpectedRange(false);
-                                  });
-                                  setIsExpectedRangeDropdownOpen(false);
-                                  setShowCustomDatePicker(false);
-                                }
-                              }}
+                              value={pendingCustomDate}
+                              onChange={(e) => setPendingCustomDate(e.target.value)}
                               min={new Date().toISOString().split('T')[0]}
                               style={{
                                 width: '100%',
@@ -17204,6 +16543,41 @@ export default function TradingViewChart({
                                 colorScheme: 'dark'
                               }}
                             />
+                            <button
+                              onClick={() => {
+                                if (pendingCustomDate) {
+                                  setCustomExpirationDate(pendingCustomDate);
+                                  setIsLoadingExpectedRange(true);
+                                  setIsCustomActive(true);
+                                  setIsExpectedRangeActive(true);
+                                  calculateExpectedRangeLevels(symbol, pendingCustomDate).then(result => {
+                                    if (result) {
+                                      setExpectedRangeLevels(result.levels);
+                                    }
+                                    setIsLoadingExpectedRange(false);
+                                  });
+                                  setIsExpectedRangeDropdownOpen(false);
+                                  setShowCustomDatePicker(false);
+                                }
+                              }}
+                              disabled={!pendingCustomDate}
+                              className="btn-3d-carved"
+                              style={{
+                                width: '100%',
+                                padding: '10px',
+                                marginTop: '10px',
+                                background: pendingCustomDate ? 'linear-gradient(135deg, rgba(255, 133, 0, 0.2) 0%, rgba(255, 133, 0, 0.1) 100%)' : '#1a1a1a',
+                                border: pendingCustomDate ? '1px solid rgba(255, 133, 0, 0.5)' : '1px solid #333',
+                                borderRadius: '4px',
+                                color: pendingCustomDate ? '#ff8500' : '#666',
+                                fontSize: '14px',
+                                fontWeight: '700',
+                                cursor: pendingCustomDate ? 'pointer' : 'not-allowed',
+                                opacity: pendingCustomDate ? 1 : 0.5
+                              }}
+                            >
+                              SCAN
+                            </button>
                           </div>
                         )}
                       </div>
@@ -18064,142 +17438,6 @@ export default function TradingViewChart({
                       onClick={() => setIsTechnalysisDropdownOpen(false)}
                     />,
                     document.body
-                  )}
-                </div>
-
-                {/* Drawing Tools Button */}
-                <div className="ml-4 relative">
-                  <button
-                    ref={drawingsButtonRef}
-                    onClick={() => setIsDrawingsDropdownOpen(!isDrawingsDropdownOpen)}
-                    className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 ${(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) ? 'active' : ''}`}
-                    style={{
-                      padding: '10px 14px',
-                      fontWeight: '700',
-                      fontSize: '13px',
-                      borderRadius: '4px',
-                      color: 'white'
-                    }}
-                    title="Drawing Tools"
-                  >
-                    <TbPencil className="w-5 h-5" />
-                    <span style={{ color: 'white' }}>DRAWINGS</span>
-                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                    {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
-                      <div
-                        className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
-                        style={{
-                          boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
-                          animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-                        }}
-                      />
-                    )}
-                  </button>
-
-                  {/* Dropdown Menu */}
-                  {isDrawingsDropdownOpen && createPortal(
-                    <div
-                      className="absolute w-48"
-                      style={{
-                        top: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().bottom + 10 : 100,
-                        left: drawingsButtonRef.current ? drawingsButtonRef.current.getBoundingClientRect().left : 400,
-                        zIndex: 100000,
-                        background: '#000000',
-                        border: '2px solid rgba(255, 133, 0, 0.3)',
-                        borderRadius: '8px',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                        padding: '12px'
-                      }}
-                    >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <button
-                          onClick={() => {
-                            activateToolExclusively(isHorizontalRayMode ? 'none' : 'horizontal');
-                            setIsDrawingsDropdownOpen(false);
-                            console.log('?? Horizontal Ray mode:', !isHorizontalRayMode);
-                          }}
-                          className={`btn-3d-carved ${isHorizontalRayMode ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%'
-                          }}
-                        >
-                          Horizontal Ray
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            activateToolExclusively(isParallelChannelMode ? 'none' : 'channel');
-                            setIsDrawingsDropdownOpen(false);
-                            console.log('?? Parallel Channel mode:', !isParallelChannelMode);
-                          }}
-                          className={`btn-3d-carved ${isParallelChannelMode ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%'
-                          }}
-                          title="Click 3 points: 1) Start trend line 2) End trend line 3) Define channel width"
-                        >
-                          Parallel Channels
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            activateToolExclusively(isDrawingBrushMode ? 'none' : 'brush');
-                            setIsDrawingsDropdownOpen(false);
-                            console.log('?? Drawing Brush mode:', !isDrawingBrushMode);
-                          }}
-                          className={`btn-3d-carved ${isDrawingBrushMode ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%'
-                          }}
-                          title="Hold and drag to draw freehand on the chart"
-                        >
-                          Drawing Brush
-                        </button>
-                      </div>
-                    </div>,
-                    document.body
-                  )}
-
-                  {/* Click outside to close dropdown */}
-                  {isDrawingsDropdownOpen && createPortal(
-                    <div
-                      className="fixed inset-0"
-                      style={{ zIndex: 99998 }}
-                      onClick={() => setIsDrawingsDropdownOpen(false)}
-                    />,
-                    document.body
-                  )}
-
-                  {/* Drawing Lock Toggle */}
-                  {(isHorizontalRayMode || isParallelChannelMode || isDrawingBrushMode) && (
-                    <button
-                      onClick={() => setIsDrawingLocked(!isDrawingLocked)}
-                      className={`btn-3d-carved absolute top-0 -right-8 w-6 h-6 flex items-center justify-center text-xs ${isDrawingLocked ? 'active' : ''}`}
-                      title={`Drawing Lock: ${isDrawingLocked ? 'ON - Tool stays active' : 'OFF - Tool deactivates after use'}`}
-                      style={{
-                        backgroundColor: isDrawingLocked ? '#2196F3' : 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '3px'
-                      }}
-                    >
-                      <TbLock className="w-4 h-4" />
-                    </button>
                   )}
                 </div>
               </div>
@@ -19525,10 +18763,8 @@ export default function TradingViewChart({
                     className="absolute inset-0 z-20"
                     tabIndex={0}
                     style={{
-                      cursor: isParallelChannelMode ? 'copy' :
-                        isDrawingBrushMode ? 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjMiIGZpbGw9IiNGRjY5QjQiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIxIi8+Cjwvc3ZnPgo=) 8 8, crosshair' :
-                          activeTool ? 'crosshair' :
-                            isDragging ? 'grabbing' : 'crosshair',
+                      cursor: activeTool ? 'crosshair' :
+                        isDragging ? 'grabbing' : 'crosshair',
                       transition: 'cursor 0.1s ease',
                       outline: 'none',
                       touchAction: 'pan-x pan-y pinch-zoom'
@@ -21579,378 +20815,6 @@ export default function TradingViewChart({
             >
               ??? Clear
             </button>
-          </div>
-        )}
-
-        {/* Horizontal Ray Property Editor */}
-        {selectedRay && (
-          <div
-            className="absolute top-32 right-6 bg-black border border-gray-700 rounded-xl shadow-2xl z-50 min-w-[300px] max-w-[350px]"
-            style={{
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)'
-            }}
-          >
-            {/* Header */}
-            <div className="flex justify-between items-center p-4 border-b border-gray-700">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                <h3 className="text-white font-semibold text-base">Horizontal Ray</h3>
-              </div>
-              <button
-                onClick={() => {
-                  setIsEditingRay(false);
-                  setSelectedRay(null);
-                }}
-                className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
-              >
-
-              </button>
-            </div>
-
-            {(() => {
-              const ray = horizontalRays.find(r => r.id === selectedRay);
-              if (!ray) return null;
-
-              return (
-                <div className="p-4 space-y-5">
-                  {/* Price Configuration Section */}
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2 mb-3">
-                      <div className="w-4 h-0.5 bg-yellow-500"></div>
-                      <span className="text-white font-medium text-sm">Price Level</span>
-                    </div>
-
-                    {/* Price Input */}
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-2 font-medium">Price Value</label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          value={ray.price.toFixed(2)}
-                          onChange={(e) => {
-                            const newPrice = parseFloat(e.target.value);
-                            if (!isNaN(newPrice)) {
-                              updateHorizontalRayPrice(selectedRay, newPrice);
-                            }
-                          }}
-                          className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm font-mono focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-20 transition-all"
-                          step="0.01"
-                          placeholder="0.00"
-                        />
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs font-medium">
-                          USD
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Line Styling Section */}
-                  <div className="space-y-3 border-t border-gray-700 pt-4">
-                    <div className="flex items-center space-x-2 mb-3">
-                      <div className="w-4 h-0.5 bg-blue-500"></div>
-                      <span className="text-white font-medium text-sm">Line Styling</span>
-                    </div>
-
-                    {/* Color Picker */}
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-2 font-medium">Color</label>
-                      <div className="grid grid-cols-6 gap-2">
-                        {['#FFD700', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'].map(color => (
-                          <button
-                            key={color}
-                            onClick={() => updateHorizontalRayStyle(selectedRay, { color })}
-                            className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${ray.color === color
-                              ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
-                              : 'border-gray-600 hover:border-gray-400'
-                              }`}
-                            style={{ backgroundColor: color }}
-                            title={`Select ${color}`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Line Style */}
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-2 font-medium">Style</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { type: 'solid', label: '?????', title: 'Solid Line' },
-                          { type: 'dashed', label: '? ? ? ?', title: 'Dashed Line' },
-                          { type: 'dotted', label: '? ? ? ?', title: 'Dotted Line' }
-                        ].map(({ type, label, title }) => (
-                          <button
-                            key={type}
-                            onClick={() => updateHorizontalRayStyle(selectedRay, { lineStyle: type as any })}
-                            className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${ray.lineStyle === type
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-                              }`}
-                            title={title}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Line Thickness */}
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-2 font-medium">Thickness</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[1, 2, 3].map(thickness => (
-                          <button
-                            key={thickness}
-                            onClick={() => updateHorizontalRayStyle(selectedRay, { lineWidth: thickness })}
-                            className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${ray.lineWidth === thickness
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-                              }`}
-                            title={`${thickness}px thickness`}
-                          >
-                            {thickness}px
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Actions Section */}
-                  <div className="border-t border-gray-700 pt-4">
-                    <button
-                      onClick={() => {
-                        if (confirm('??? Delete this horizontal ray?\n\nThis action cannot be undone.')) {
-                          deleteHorizontalRay(selectedRay);
-                        }
-                      }}
-                      className="w-full px-4 py-3 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-red-500/25"
-                    >
-                      <div className="flex items-center justify-center space-x-2">
-                        <span>???</span>
-                        <span>Delete Ray</span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
-        {/* Parallel Channel Property Editor */}
-        {selectedChannel && (
-          <div
-            className="absolute top-32 right-6 bg-black border border-gray-700 rounded-xl shadow-2xl z-50 min-w-[300px] max-w-[350px]"
-            style={{
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)'
-            }}
-          >
-            {/* Header */}
-            <div className="flex justify-between items-center p-4 border-b border-gray-700">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                <h3 className="text-white font-semibold text-base">Parallel Channel</h3>
-              </div>
-              <button
-                onClick={() => {
-                  setIsEditingChannel(false);
-                  setSelectedChannel(null);
-                }}
-                className="text-gray-400 hover:text-white text-lg font-semibold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-700 transition-all"
-              >
-
-              </button>
-            </div>
-
-            {(() => {
-              const channel = parallelChannels.find(c => c.id === selectedChannel);
-              if (!channel) return null;
-
-              return (
-                <div className="p-4 space-y-5">
-                  {/* Line Styling Section */}
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2 mb-3">
-                      <div className="w-4 h-0.5 bg-blue-500"></div>
-                      <span className="text-white font-medium text-sm">Line Styling</span>
-                    </div>
-
-                    {/* Line Color */}
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-2 font-medium">Color</label>
-                      <div className="grid grid-cols-6 gap-2">
-                        {['#00BFFF', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'].map(color => (
-                          <button
-                            key={color}
-                            onClick={() => {
-                              setParallelChannels(prev =>
-                                prev.map(ch =>
-                                  ch.id === selectedChannel
-                                    ? { ...ch, color }
-                                    : ch
-                                )
-                              );
-                            }}
-                            className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${channel.color === color
-                              ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
-                              : 'border-gray-600 hover:border-gray-400'
-                              }`}
-                            style={{ backgroundColor: color }}
-                            title={`Select ${color}`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Line Style */}
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-2 font-medium">Style</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { type: 'solid', label: '?????', title: 'Solid Line' },
-                          { type: 'dashed', label: '? ? ? ?', title: 'Dashed Line' },
-                          { type: 'dotted', label: '? ? ? ?', title: 'Dotted Line' }
-                        ].map(({ type, label, title }) => (
-                          <button
-                            key={type}
-                            onClick={() => {
-                              setParallelChannels(prev =>
-                                prev.map(ch =>
-                                  ch.id === selectedChannel
-                                    ? { ...ch, lineStyle: type as any }
-                                    : ch
-                                )
-                              );
-                            }}
-                            className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${channel.lineStyle === type
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-                              }`}
-                            title={title}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Line Thickness */}
-                    <div>
-                      <label className="block text-gray-300 text-sm mb-2 font-medium">Thickness</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[1, 2, 3].map(thickness => (
-                          <button
-                            key={thickness}
-                            onClick={() => {
-                              setParallelChannels(prev =>
-                                prev.map(ch =>
-                                  ch.id === selectedChannel
-                                    ? { ...ch, lineWidth: thickness }
-                                    : ch
-                                )
-                              );
-                            }}
-                            className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${channel.lineWidth === thickness
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
-                              }`}
-                            title={`${thickness}px thickness`}
-                          >
-                            {thickness}px
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Fill Section */}
-                  <div className="space-y-3 border-t border-gray-700 pt-4">
-                    <div className="flex items-center space-x-2 mb-3">
-                      <div className="w-4 h-0.5 bg-purple-500"></div>
-                      <span className="text-white font-medium text-sm">Fill Styling</span>
-                    </div>
-
-                    {/* Show Fill Toggle */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-300 text-sm font-medium">Enable Fill</span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={channel.showFill !== false}
-                          onChange={(e) => {
-                            setParallelChannels(prev =>
-                              prev.map(ch =>
-                                ch.id === selectedChannel
-                                  ? { ...ch, showFill: e.target.checked }
-                                  : ch
-                              )
-                            );
-                          }}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-
-                    {/* Fill Color */}
-                    {channel.showFill !== false && (
-                      <div>
-                        <label className="block text-gray-300 text-sm mb-2 font-medium">Fill Color</label>
-                        <div className="grid grid-cols-6 gap-2">
-                          {['#00BFFF33', '#2196F333', '#4CAF5033', '#FF980033', '#F4433633', '#9C27B033'].map((color, idx) => {
-                            const baseColors = ['#00BFFF', '#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0'];
-                            return (
-                              <button
-                                key={color}
-                                onClick={() => {
-                                  setParallelChannels(prev =>
-                                    prev.map(ch =>
-                                      ch.id === selectedChannel
-                                        ? { ...ch, fillColor: color }
-                                        : ch
-                                    )
-                                  );
-                                }}
-                                className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 relative overflow-hidden ${channel.fillColor === color
-                                  ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
-                                  : 'border-gray-600 hover:border-gray-400'
-                                  }`}
-                                style={{ backgroundColor: baseColors[idx] }}
-                                title={`Fill with ${baseColors[idx]}`}
-                              >
-                                <div className="absolute inset-0 bg-current opacity-20"></div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actions Section */}
-                  <div className="border-t border-gray-700 pt-4">
-                    <button
-                      onClick={() => {
-                        if (confirm('??? Delete this parallel channel?\n\nThis action cannot be undone.')) {
-                          setParallelChannels(prev => prev.filter(ch => ch.id !== selectedChannel));
-                          setSelectedChannel(null);
-                          setIsEditingChannel(false);
-                          setChannelDragStart(null);
-                        }
-                      }}
-                      className="w-full px-4 py-3 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-red-500/25"
-                    >
-                      <div className="flex items-center justify-center space-x-2">
-                        <span>???</span>
-                        <span>Delete Channel</span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
           </div>
         )}
 

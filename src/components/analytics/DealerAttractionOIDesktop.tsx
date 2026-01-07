@@ -8,20 +8,20 @@ import DealerGEXChart from './DealerGEXChart';
 const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableCount?: number }> = ({ selectedTicker, activeTableCount = 0 }) => {
   const [sharedExpiration, setSharedExpiration] = useState<string>('');
   const [expirationDates, setExpirationDates] = useState<string[]>([]);
-  
+
   // OI Chart State
   const [showCalls, setShowCalls] = useState<boolean>(true);
   const [showPuts, setShowPuts] = useState<boolean>(true);
   const [showNetOI, setShowNetOI] = useState<boolean>(false);
   const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
   const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('');
-  const [expectedRange90, setExpectedRange90] = useState<{call: number, put: number} | null>(null);
-  
+  const [expectedRange90, setExpectedRange90] = useState<{ call: number, put: number } | null>(null);
+
   // GEX Chart State
   const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
   const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
   const [showNetGamma, setShowNetGamma] = useState<boolean>(true);
-  
+
   // Unified Controls (affect both charts)
   const [showPremium, setShowPremium] = useState<boolean>(false);
   const [showAITowers, setShowAITowers] = useState<boolean>(false);
@@ -29,16 +29,16 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
   // Fetch expiration dates once
   useEffect(() => {
     if (!selectedTicker) return;
-    
+
     const fetchExpirations = async () => {
       try {
         const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`);
         const result = await response.json();
-        
+
         if (result.success && result.data) {
           const dates = Object.keys(result.data).sort();
           setExpirationDates(dates);
-          
+
           if (dates.length > 0 && !sharedExpiration) {
             setSharedExpiration(dates[0]);
           }
@@ -84,7 +84,7 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
           borderRadius: '12px 12px 0 0',
           pointerEvents: 'none' as const
         }} />
-        
+
         {/* Expiration Selector */}
         <select
           value={sharedExpiration}
@@ -110,6 +110,9 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
             zIndex: 1
           }}
         >
+          <option key="all-expirations" value="all-expirations" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
+            All Expirations
+          </option>
           <option key="45-days" value="45-days" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
             45 Days (All)
           </option>
@@ -275,9 +278,9 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
           <select
             value={
               showNetOI ? 'net' :
-              (showCalls && showPuts) ? 'both' :
-              showCalls ? 'calls' :
-              'puts'
+                (showCalls && showPuts) ? 'both' :
+                  showCalls ? 'calls' :
+                    'puts'
             }
             onChange={(e) => {
               const value = e.target.value;
@@ -356,9 +359,9 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
           <select
             value={
               showNetGamma ? 'net' :
-              (showPositiveGamma && showNegativeGamma) ? 'both' :
-              showPositiveGamma ? 'positive' :
-              'negative'
+                (showPositiveGamma && showNegativeGamma) ? 'both' :
+                  showPositiveGamma ? 'positive' :
+                    'negative'
             }
             onChange={(e) => {
               const value = e.target.value;
@@ -418,11 +421,11 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
       </div>
 
       {/* DESKTOP: Normal size charts (no scaling) - Dynamic width based on table count */}
-      <div style={{ 
-        width: activeTableCount === 2 ? '1100px' : '1200px', 
-        maxWidth: activeTableCount === 2 ? '1100px' : '1200px' 
+      <div style={{
+        width: activeTableCount === 2 ? '1100px' : '1200px',
+        maxWidth: activeTableCount === 2 ? '1100px' : '1200px'
       }}>
-        <DealerOpenInterestChart 
+        <DealerOpenInterestChart
           selectedTicker={selectedTicker}
           compactMode={true}
           chartWidth={activeTableCount === 2 ? 1048 : 1148}
@@ -438,11 +441,11 @@ const DealerAttractionOIDesktop: React.FC<{ selectedTicker: string; activeTableC
           onExpectedRange90Change={setExpectedRange90}
         />
       </div>
-      <div style={{ 
-        width: activeTableCount === 2 ? '1100px' : '1200px', 
-        maxWidth: activeTableCount === 2 ? '1100px' : '1200px' 
+      <div style={{
+        width: activeTableCount === 2 ? '1100px' : '1200px',
+        maxWidth: activeTableCount === 2 ? '1100px' : '1200px'
       }}>
-        <DealerGEXChart 
+        <DealerGEXChart
           selectedTicker={selectedTicker}
           compactMode={true}
           chartWidth={activeTableCount === 2 ? 1048 : 1148}

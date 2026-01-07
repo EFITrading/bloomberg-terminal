@@ -8,20 +8,20 @@ import DealerGEXChart from './DealerGEXChart';
 const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ selectedTicker }) => {
   const [sharedExpiration, setSharedExpiration] = useState<string>('');
   const [expirationDates, setExpirationDates] = useState<string[]>([]);
-  
+
   // OI Chart State
   const [showCalls, setShowCalls] = useState<boolean>(true);
   const [showPuts, setShowPuts] = useState<boolean>(true);
   const [showNetOI, setShowNetOI] = useState<boolean>(false);
   const [cumulativePCRatio45Days, setCumulativePCRatio45Days] = useState<string>('');
   const [expectedRangePCRatio, setExpectedRangePCRatio] = useState<string>('');
-  const [expectedRange90, setExpectedRange90] = useState<{call: number, put: number} | null>(null);
-  
+  const [expectedRange90, setExpectedRange90] = useState<{ call: number, put: number } | null>(null);
+
   // GEX Chart State
   const [showPositiveGamma, setShowPositiveGamma] = useState<boolean>(true);
   const [showNegativeGamma, setShowNegativeGamma] = useState<boolean>(true);
   const [showNetGamma, setShowNetGamma] = useState<boolean>(true);
-  
+
   // Unified Controls (affect both charts)
   const [showPremium, setShowPremium] = useState<boolean>(false);
   const [showAITowers, setShowAITowers] = useState<boolean>(false);
@@ -29,16 +29,16 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
   // Fetch expiration dates once
   useEffect(() => {
     if (!selectedTicker) return;
-    
+
     const fetchExpirations = async () => {
       try {
         const response = await fetch(`/api/dealer-options-premium?ticker=${selectedTicker}`);
         const result = await response.json();
-        
+
         if (result.success && result.data) {
           const dates = Object.keys(result.data).sort();
           setExpirationDates(dates);
-          
+
           if (dates.length > 0 && !sharedExpiration) {
             setSharedExpiration(dates[0]);
           }
@@ -84,7 +84,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
           borderRadius: '12px 12px 0 0',
           pointerEvents: 'none' as const
         }} />
-        
+
         {/* Row 1, Col 1: Expiration Selector */}
         <select
           value={sharedExpiration}
@@ -110,6 +110,9 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
             zIndex: 1
           }}
         >
+          <option key="all-expirations" value="all-expirations" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
+            All Expirations
+          </option>
           <option key="45-days" value="45-days" style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}>
             45 Days (All)
           </option>
@@ -258,13 +261,13 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
         <select
           value={
             showNetOI ? 'net-oi' :
-            showNetGamma ? 'net-gex' :
-            (showCalls && showPuts && showPositiveGamma && showNegativeGamma) ? 'both' :
-            (showCalls && showPuts) ? 'oi-both' :
-            showCalls ? 'calls' :
-            showPuts ? 'puts' :
-            showPositiveGamma ? 'positive' :
-            'negative'
+              showNetGamma ? 'net-gex' :
+                (showCalls && showPuts && showPositiveGamma && showNegativeGamma) ? 'both' :
+                  (showCalls && showPuts) ? 'oi-both' :
+                    showCalls ? 'calls' :
+                      showPuts ? 'puts' :
+                        showPositiveGamma ? 'positive' :
+                          'negative'
           }
           onChange={(e) => {
             const value = e.target.value;
@@ -342,13 +345,13 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
       </div>
 
       {/* MOBILE: Scaled Charts */}
-      <div className="w-full" style={{ 
+      <div className="w-full" style={{
         transform: 'scale(0.65)',
         transformOrigin: 'top left',
         width: '154%',
         marginBottom: '-18%'
       }}>
-        <DealerOpenInterestChart 
+        <DealerOpenInterestChart
           selectedTicker={selectedTicker}
           compactMode={true}
           selectedExpiration={sharedExpiration}
@@ -363,12 +366,12 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
           onExpectedRange90Change={setExpectedRange90}
         />
       </div>
-      <div className="w-full" style={{ 
+      <div className="w-full" style={{
         transform: 'scale(0.65)',
         transformOrigin: 'top left',
         width: '154%'
       }}>
-        <DealerGEXChart 
+        <DealerGEXChart
           selectedTicker={selectedTicker}
           compactMode={true}
           selectedExpiration={sharedExpiration}
