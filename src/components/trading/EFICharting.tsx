@@ -5542,16 +5542,18 @@ export default function TradingViewChart({
     const fullData: any = {
       life: regimeDataCache['life'] || null,
       developing: regimeDataCache['developing'] || null,
-      momentum: regimeDataCache['momentum'] || null
+      momentum: regimeDataCache['momentum'] || null,
+      legacy: regimeDataCache['legacy'] || null
     };
 
     // Only update if we have at least one timeframe loaded
-    if (fullData.life || fullData.developing || fullData.momentum) {
+    if (fullData.life || fullData.developing || fullData.momentum || fullData.legacy) {
       setMarketRegimeData(fullData as MarketRegimeData);
       console.log(`⚡ Market regime data updated:`, {
         life: !!fullData.life,
         developing: !!fullData.developing,
-        momentum: !!fullData.momentum
+        momentum: !!fullData.momentum,
+        legacy: !!fullData.legacy
       });
     }
   }, [regimeDataCache]);
@@ -5560,14 +5562,15 @@ export default function TradingViewChart({
   useEffect(() => {
     if (activeSidebarPanel === 'regimes' && !allRegimesLoaded && Object.keys(regimeDataCache).length === 0) {
       const fetchAllRegimes = async () => {
-        console.log('🚀 Parallel prefetch: Life + Developing + Momentum');
+        console.log('🚀 Parallel prefetch: Life + Developing + Momentum + Legacy');
         setIsLoadingRegimes(true);
         setRegimeLoadingStage('Loading all regimes in parallel...');
 
         const tabConfigs = [
           { tab: 'life', days: 5 },
           { tab: 'developing', days: 21 },
-          { tab: 'momentum', days: 80 }
+          { tab: 'momentum', days: 80 },
+          { tab: 'legacy', days: 252 }
         ];
 
         const results = await Promise.allSettled(
@@ -5595,13 +5598,15 @@ export default function TradingViewChart({
         const fullData: any = {
           life: newCache['life'] || null,
           developing: newCache['developing'] || null,
-          momentum: newCache['momentum'] || null
+          momentum: newCache['momentum'] || null,
+          legacy: newCache['legacy'] || null
         };
         setMarketRegimeData(fullData as MarketRegimeData);
         console.log('📊 Full market regime data loaded:', {
           life: !!fullData.life,
           developing: !!fullData.developing,
-          momentum: !!fullData.momentum
+          momentum: !!fullData.momentum,
+          legacy: !!fullData.legacy
         });
 
         setAllRegimesLoaded(true);
@@ -5626,7 +5631,8 @@ export default function TradingViewChart({
       const tabConfigs = [
         { tab: 'life', days: 5 },
         { tab: 'developing', days: 21 },
-        { tab: 'momentum', days: 80 }
+        { tab: 'momentum', days: 80 },
+        { tab: 'legacy', days: 252 }
       ];
 
       const results = await Promise.allSettled(
@@ -5649,13 +5655,15 @@ export default function TradingViewChart({
       const fullData: any = {
         life: newCache['life'] || null,
         developing: newCache['developing'] || null,
-        momentum: newCache['momentum'] || null
+        momentum: newCache['momentum'] || null,
+        legacy: newCache['legacy'] || null
       };
       setMarketRegimeData(fullData as MarketRegimeData);
       console.log('📊 Full market regime data loaded:', {
         life: !!fullData.life,
         developing: !!fullData.developing,
-        momentum: !!fullData.momentum
+        momentum: !!fullData.momentum,
+        legacy: !!fullData.legacy
       });
 
       setAllRegimesLoaded(true);
@@ -6794,13 +6802,15 @@ export default function TradingViewChart({
               }
 
               // Select appropriate expiration based on market regime timeframe
-              // Life (5d): ~1-2 weeks | Developing (21d): ~3-5 weeks | Momentum (80d): ~3 months
+              // Life (5d): ~1-2 weeks | Developing (21d): ~3-5 weeks | Momentum (80d): ~3 months | Legacy (252d): ~6-7 months
               let targetDays = 10; // Life default
 
               if (regimeTab === 'developing') {
                 targetDays = 28; // ~4 weeks
               } else if (regimeTab === 'momentum') {
                 targetDays = 90; // ~3 months
+              } else if (regimeTab === 'legacy') {
+                targetDays = 195; // ~6.5 months
               }
 
               // Find closest available expiration to target, prioritizing next available
@@ -14381,6 +14391,9 @@ export default function TradingViewChart({
         case 'momentum':
           data = marketRegimeData.momentum;
           break;
+        case 'legacy':
+          data = marketRegimeData.legacy;
+          break;
         default:
           data = marketRegimeData.life;
       }
@@ -14445,11 +14458,12 @@ export default function TradingViewChart({
               border: '1px solid rgba(255, 102, 0, 0.2)',
               boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.8)'
             }}>
-              {['Life', 'Developing', 'Momentum'].map((tab, index) => {
+              {['Life', 'Developing', 'Momentum', 'Legacy'].map((tab, index) => {
                 const tabColors = {
                   'Life': { bg: 'rgba(76, 175, 80, 0.15)', border: 'rgba(76, 175, 80, 0.4)', color: '#4caf50', hoverBg: 'rgba(76, 175, 80, 0.25)' },
                   'Developing': { bg: 'rgba(33, 150, 243, 0.15)', border: 'rgba(33, 150, 243, 0.4)', color: '#2196f3', hoverBg: 'rgba(33, 150, 243, 0.25)' },
-                  'Momentum': { bg: 'rgba(156, 39, 176, 0.15)', border: 'rgba(156, 39, 176, 0.4)', color: '#9c27b0', hoverBg: 'rgba(156, 39, 176, 0.25)' }
+                  'Momentum': { bg: 'rgba(156, 39, 176, 0.15)', border: 'rgba(156, 39, 176, 0.4)', color: '#9c27b0', hoverBg: 'rgba(156, 39, 176, 0.25)' },
+                  'Legacy': { bg: 'rgba(255, 152, 0, 0.15)', border: 'rgba(255, 152, 0, 0.4)', color: '#ff9800', hoverBg: 'rgba(255, 152, 0, 0.25)' }
                 };
                 const tabStyle = tabColors[tab as keyof typeof tabColors];
                 return (
@@ -14748,7 +14762,7 @@ export default function TradingViewChart({
                                           border: `1px solid ${tabColor}30`
                                         }}>
                                           <span className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
-                                            {tradeTab === 'life' ? 'Short' : tradeTab === 'developing' ? 'Medium' : 'Long'}
+                                            {tradeTab === 'life' ? 'Short' : tradeTab === 'developing' ? 'Medium' : tradeTab === 'momentum' ? 'Long' : 'Legacy'}
                                           </span>
                                         </div>
                                       </div>
@@ -14951,7 +14965,7 @@ export default function TradingViewChart({
                                           border: `1px solid ${tabColor}30`
                                         }}>
                                           <span className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
-                                            {tradeTab === 'life' ? 'Short' : tradeTab === 'developing' ? 'Medium' : 'Long'}
+                                            {tradeTab === 'life' ? 'Short' : tradeTab === 'developing' ? 'Medium' : tradeTab === 'momentum' ? 'Long' : 'Legacy'}
                                           </span>
                                         </div>
                                       </div>
