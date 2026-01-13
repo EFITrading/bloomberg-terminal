@@ -3838,7 +3838,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [vexMode, setVexMode] = useState<'VEX' | 'Net VEX'>('VEX');
   const [useBloombergTheme, setUseBloombergTheme] = useState(true); // Bloomberg Terminal theme - default ON
   const [activeTab, setActiveTab] = useState<'WORKBENCH' | 'ATTRACTION'>('ATTRACTION');
-  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'MP' | 'SI' | 'MAXPAIN'>('MM');
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'MM' | 'SI'>('MM');
 
   const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
@@ -6014,7 +6014,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        {/* MM, MP, SI, OI/GEX Buttons */}
+                        {/* MM, SI Buttons */}
                         <div className="flex gap-4">
                           <button
                             onClick={() => setActiveWorkbenchTab('MM')}
@@ -6033,15 +6033,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               }`}
                           >
                             Stability Index
-                          </button>
-                          <button
-                            onClick={() => setActiveWorkbenchTab('MAXPAIN')}
-                            className={`px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all rounded-lg ${activeWorkbenchTab === 'MAXPAIN'
-                              ? 'bg-red-600 text-white border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
-                              : 'bg-gradient-to-b from-black via-gray-900 to-black text-red-400 hover:text-white border-2 border-gray-800 hover:border-red-500 hover:bg-red-900/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_4px_rgba(0,0,0,0.8)]'
-                              }`}
-                          >
-                            Max Pain
                           </button>
                         </div>
 
@@ -6790,15 +6781,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 </div>
                 <div style={{ display: activeWorkbenchTab === 'SI' ? 'block' : 'none' }}>
                   <SIDashboard
-                    selectedTicker={selectedTicker}
-                    currentPrice={currentPrice}
-                    gexByStrikeByExpiration={gexByStrikeByExpiration}
-                    vexByStrikeByExpiration={vexByStrikeByExpiration}
-                    expirations={expirations}
-                  />
-                </div>
-                <div style={{ display: activeWorkbenchTab === 'MAXPAIN' ? 'block' : 'none' }}>
-                  <MaxPainDashboard
                     selectedTicker={selectedTicker}
                     currentPrice={currentPrice}
                     gexByStrikeByExpiration={gexByStrikeByExpiration}

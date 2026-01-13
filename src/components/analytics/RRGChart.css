@@ -856,8 +856,13 @@
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Error state */
@@ -930,14 +935,14 @@
 }
 
 /* Enhanced tail styling with ticker-specific colors */
-.tail-path-smooth, 
+.tail-path-smooth,
 [class*="tail-path-"] {
   transition: stroke-opacity 0.2s ease, stroke-width 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
   stroke-dasharray: none;
   cursor: pointer;
 }
 
-.tail-path-smooth:hover, 
+.tail-path-smooth:hover,
 [class*="tail-path-"]:hover {
   stroke-opacity: 1 !important;
   stroke-width: 3.5px !important;
@@ -1071,7 +1076,8 @@
   will-change: filter, opacity;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  transform: translateZ(0); /* Force hardware acceleration */
+  transform: translateZ(0);
+  /* Force hardware acceleration */
 }
 
 .rrg-point text {
@@ -1090,11 +1096,13 @@
 
 /* Stable hover states */
 .rrg-point.hovered circle {
-  transform: none !important; /* Force no transform on hover */
+  transform: none !important;
+  /* Force no transform on hover */
 }
 
 .rrg-point.hovered text {
-  transform: none !important; /* Force no transform on hover */
+  transform: none !important;
+  /* Force no transform on hover */
 }
 
 /* Scrollbar for ticker legend */
@@ -1159,8 +1167,13 @@
 
 /* Long press animation */
 @keyframes longPressProgress {
-  0% { width: 0%; }
-  100% { width: 100%; }
+  0% {
+    width: 0%;
+  }
+
+  100% {
+    width: 100%;
+  }
 }
 
 /* Long press styling */
@@ -1169,8 +1182,13 @@
 }
 
 @keyframes longPressPulse {
-  0% { box-shadow: 0 0 5px rgba(255, 255, 255, 0.3); }
-  100% { box-shadow: 0 0 20px rgba(255, 255, 255, 0.8); }
+  0% {
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+  }
+
+  100% {
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+  }
 }
 
 /* Enhanced ticker toggle states */
@@ -1240,4 +1258,59 @@
 .rrg-controls .refresh-btn:active {
   transform: translateY(0);
   box-shadow: 0 0 8px rgba(255, 133, 0, 0.6);
+}
+
+/* Wave visualization styles */
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes waveGlow {
+
+  0%,
+  100% {
+    filter: drop-shadow(0 0 8px currentColor);
+  }
+
+  50% {
+    filter: drop-shadow(0 0 15px currentColor) brightness(1.2);
+  }
+}
+
+.wave-path {
+  animation: waveGlow 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.wave-hull {
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+
+.wave-label {
+  pointer-events: none;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.wave-growth .wave-hull {
+  fill: rgba(0, 255, 100, 0.2);
+}
+
+.wave-value .wave-hull {
+  fill: rgba(100, 150, 255, 0.2);
+}
+
+.wave-defensives .wave-hull {
+  fill: rgba(255, 200, 0, 0.2);
 }

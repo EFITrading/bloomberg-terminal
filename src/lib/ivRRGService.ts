@@ -1,14 +1,16 @@
 /**
  * IV-based Relative Rotation Graph (RRG) Service
  * 
- * This service calculates RRG metrics using Implied Volatility (IV) instead of Relative Strength (RS).
- * It follows the same JdK RS-Ratio and RS-Momentum methodology but applied to IV data.
+ * This service calculates RRG metrics using Implied Volatility (IV) instead of stock prices.
+ * It uses the SAME JdK RS-Ratio and RS-Momentum methodology as the regular RRG, but applies it to IV data.
  * 
- * Formula:
- * - IV Ratio = (Security IV / Benchmark IV) * 100
- * - IV-Ratio Normalized = (Current IV Ratio / SMA(IV Ratio, period)) * 100
- * - IV-Momentum = ((Current Normalized IV - Past Normalized IV) / Past Normalized IV) * 100 + 100
+ * Formula (identical to regular RRG, but with IV data):
+ * 1. IV Ratio = Security IV / Benchmark IV (raw ratio)
+ * 2. IV Trend = EMA(IV Ratio, ivPeriod) 
+ * 3. IV-Ratio (normalized) = 100 + (IV Trend - SMA(IV Trend, longPeriod)) / StdDev(IV Trend, longPeriod)
+ * 4. IV-Momentum = 100 + (IV-Ratio - SMA(IV-Ratio, momentumPeriod)) / StdDev(IV-Ratio, momentumPeriod)
  * 
+ * This ensures consistent behavior between regular RRG (price-based) and IV RRG (volatility-based)
  * SpotGamma Reference: IV percentile and IV rank calculations for historical context
  */
 
@@ -50,15 +52,15 @@ class IVRRGService {
   private async getHistoricalIV(symbol: string, days: number): Promise<IVData[]> {
     try {
       console.log(`📊 Fetching ${days} days of historical IV for ${symbol}`);
-      
+
       const response = await fetch(`/api/calculate-historical-iv?ticker=${symbol}&days=${days}`);
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      
+
       // Check if API call was successful
       if (!data.success || !data.data || !data.data.history || data.data.history.length === 0) {
         console.warn(`⚠️ No IV data for ${symbol} - API returned:`, data);
@@ -72,7 +74,7 @@ class IVRRGService {
         const callIV = (point.callIV || 0) / 100;
         const putIV = (point.putIV || 0) / 100;
         const netIV = point.netIV ? point.netIV / 100 : (callIV + putIV) / 2;
-        
+
         return {
           date: point.date,
           callIV: callIV,
@@ -99,10 +101,10 @@ class IVRRGService {
     benchmarkIVData: IVData[]
   ): Array<{ date: string; ivRatio: number }> {
     const ivRatioData: Array<{ date: string; ivRatio: number }> = [];
-    
+
     // Align dates between security and benchmark
     const benchmarkMap = new Map(benchmarkIVData.map(p => [p.date, p.avgIV]));
-    
+
     for (const secIV of securityIVData) {
       const benchIV = benchmarkMap.get(secIV.date);
       if (benchIV && benchIV > 0 && secIV.avgIV > 0) {
@@ -118,22 +120,99 @@ class IVRRGService {
   }
 
   /**
-   * Calculate JdK-style IV-Ratio normalization
-   * Formula: (Current IV Ratio / SMA(IV Ratio, period)) * 100
+   * Calculate EMA (Exponential Moving Average)
+   */
+  private calculateEMA(values: number[], period: number): number[] {
+    const ema: number[] = [];
+    const k = 2 / (period + 1); // EMA smoothing factor
+
+    // First EMA value is SMA of first 'period' values
+    let sum = 0;
+    for (let i = 0; i < period && i < values.length; i++) {
+      sum += values[i];
+    }
+    ema[period - 1] = sum / period;
+
+    // Calculate EMA for remaining values
+    for (let i = period; i < values.length; i++) {
+      ema[i] = values[i] * k + ema[i - 1] * (1 - k);
+    }
+
+    return ema;
+  }
+
+  /**
+   * Calculate SMA (Simple Moving Average)
+   */
+  private calculateSMA(values: number[], period: number): number[] {
+    const sma: number[] = [];
+    for (let i = period - 1; i < values.length; i++) {
+      let sum = 0;
+      for (let j = 0; j < period; j++) {
+        sum += values[i - j];
+      }
+      sma[i] = sum / period;
+    }
+    return sma;
+  }
+
+  /**
+   * Calculate Standard Deviation
+   */
+  private calculateStdDev(values: number[], period: number): number[] {
+    const stdDev: number[] = [];
+    for (let i = period - 1; i < values.length; i++) {
+      let sum = 0;
+      let sumSq = 0;
+      for (let j = 0; j < period; j++) {
+        const val = values[i - j];
+        sum += val;
+        sumSq += val * val;
+      }
+      const mean = sum / period;
+      const variance = (sumSq / period) - (mean * mean);
+      stdDev[i] = Math.sqrt(Math.max(0, variance));
+    }
+    return stdDev;
+  }
+
+  /**
+   * Calculate JdK-style IV-Ratio normalization using proper JdK RS-Ratio formula
+   * Formula: 100 + (EMA(IV_Ratio) - SMA(EMA(IV_Ratio))) / StdDev(EMA(IV_Ratio))
+   * This matches the exact same calculation as the regular RRG but uses IV data
    */
   private calculateNormalizedIVRatio(
     ivRatioData: Array<{ date: string; ivRatio: number }>,
-    period: number = 14
+    ivPeriod: number = 14,
+    longPeriod: number = 26
   ): Array<{ date: string; ivRatio: number; normalizedIV: number }> {
     const result: Array<{ date: string; ivRatio: number; normalizedIV: number }> = [];
-    
-    for (let i = period - 1; i < ivRatioData.length; i++) {
-      const window = ivRatioData.slice(i - period + 1, i + 1);
-      const sma = window.reduce((sum, item) => sum + item.ivRatio, 0) / period;
-      
-      if (sma > 0) {
-        const normalizedIV = (ivRatioData[i].ivRatio / sma) * 100;
-        
+
+    // Step 1: Calculate EMA of IV Ratio (IV_trend) with period n
+    const ivValues = ivRatioData.map(d => d.ivRatio);
+    const ivTrend = this.calculateEMA(ivValues, ivPeriod);
+
+    // Step 2: Get valid IV_trend values
+    const ivTrendValues: number[] = [];
+    const ivTrendStartIndex = ivPeriod - 1;
+    for (let i = ivTrendStartIndex; i < ivTrend.length; i++) {
+      if (ivTrend[i] !== undefined) {
+        ivTrendValues.push(ivTrend[i]);
+      }
+    }
+
+    // Step 3: Calculate SMA and StdDev of IV_trend with period L (longPeriod)
+    const ivTrendSMA = this.calculateSMA(ivTrendValues, longPeriod);
+    const ivTrendStdDev = this.calculateStdDev(ivTrendValues, longPeriod);
+
+    // Step 4: Calculate IV-Ratio = 100 + (IV_trend - SMA) / StdDev (z-score normalization)
+    const finalStartIndex = ivTrendStartIndex + longPeriod - 1;
+    for (let i = finalStartIndex; i < ivRatioData.length; i++) {
+      const trendIndex = i - ivTrendStartIndex;
+      if (ivTrend[i] !== undefined && ivTrendSMA[trendIndex] !== undefined && ivTrendStdDev[trendIndex] !== undefined) {
+        const stdDev = ivTrendStdDev[trendIndex];
+        const zScore = stdDev > 0 ? (ivTrend[i] - ivTrendSMA[trendIndex]) / stdDev : 0;
+        const normalizedIV = 100 + zScore;
         result.push({
           date: ivRatioData[i].date,
           ivRatio: ivRatioData[i].ivRatio,
@@ -146,25 +225,30 @@ class IVRRGService {
   }
 
   /**
-   * Calculate IV-Momentum (rate of change of normalized IV)
-   * Formula: ((Current Normalized IV - Past Normalized IV) / Past Normalized IV) * 100 + 100
+   * Calculate IV-Momentum using proper JdK RS-Momentum formula
+   * Formula: 100 + (IV-Ratio - SMA(IV-Ratio)) / StdDev(IV-Ratio)
+   * This matches the exact same calculation as the regular RRG but uses IV data
    */
   private calculateIVMomentum(
     normalizedIVData: Array<{ date: string; normalizedIV: number }>,
     momentumPeriod: number = 14
   ): Array<{ date: string; normalizedIV: number; ivMomentum: number }> {
     const result: Array<{ date: string; normalizedIV: number; ivMomentum: number }> = [];
-    
-    for (let i = momentumPeriod; i < normalizedIVData.length; i++) {
-      const currentIV = normalizedIVData[i].normalizedIV;
-      const pastIV = normalizedIVData[i - momentumPeriod].normalizedIV;
-      
-      if (pastIV > 0) {
-        const ivMomentum = ((currentIV - pastIV) / pastIV) * 100 + 100; // Center around 100
-        
+
+    // Calculate SMA and StdDev of IV-Ratio with period M
+    const ivRatioValues = normalizedIVData.map(d => d.normalizedIV);
+    const ivRatioSMA = this.calculateSMA(ivRatioValues, momentumPeriod);
+    const ivRatioStdDev = this.calculateStdDev(ivRatioValues, momentumPeriod);
+
+    // Calculate IV-Momentum = 100 + (IV-Ratio - SMA) / StdDev (z-score normalization)
+    for (let i = momentumPeriod - 1; i < normalizedIVData.length; i++) {
+      if (ivRatioSMA[i] !== undefined && ivRatioStdDev[i] !== undefined) {
+        const stdDev = ivRatioStdDev[i];
+        const zScore = stdDev > 0 ? (normalizedIVData[i].normalizedIV - ivRatioSMA[i]) / stdDev : 0;
+        const ivMomentum = 100 + zScore;
         result.push({
           date: normalizedIVData[i].date,
-          normalizedIV: currentIV,
+          normalizedIV: normalizedIVData[i].normalizedIV,
           ivMomentum
         });
       }
@@ -219,12 +303,12 @@ class IVRRGService {
       // Handle self-benchmark mode
       const isSelfBenchmark = benchmark === 'SELF';
       let benchmarkIVData: IVData[] = [];
-      
+
       if (!isSelfBenchmark) {
         // Fetch benchmark IV data first
         console.log(`📊 Fetching benchmark IV for ${benchmark}...`);
         benchmarkIVData = await this.getHistoricalIV(benchmark, lookbackDays);
-        
+
         if (benchmarkIVData.length === 0) {
           console.error(`❌ No IV data available for benchmark ${benchmark}`);
           console.error(`   This could be due to:`);
@@ -249,11 +333,11 @@ class IVRRGService {
       // Process each symbol
       for (const symbol of symbols) {
         console.log(`📊 Processing ${symbol}...`);
-        
+
         try {
           // Get historical IV
           const symbolIVData = await this.getHistoricalIV(symbol, lookbackDays);
-          
+
           if (symbolIVData.length === 0) {
             console.warn(`⚠️ No IV data for ${symbol}`);
             continue;
@@ -261,35 +345,36 @@ class IVRRGService {
 
           // Calculate IV ratio (like Relative Strength)
           let ivRatioData: Array<{ date: string; ivRatio: number }>;
-          
+
           if (isSelfBenchmark) {
             // Self-benchmark: Each ticker compared to its OWN historical average
             // This means AAPL compared to AAPL's average, TSLA to TSLA's average, etc.
             const avgIV = symbolIVData.reduce((sum, d) => sum + d.avgIV, 0) / symbolIVData.length;
-            
+
             // Create ratio of current IV / average IV for this specific ticker
             ivRatioData = symbolIVData.map(d => ({
               date: d.date,
               ivRatio: (d.avgIV / avgIV) * 100 // Current IV vs own average
             }));
-            
+
             console.log(`📊 ${symbol}: Self-benchmark - comparing to own avg IV = ${(avgIV * 100).toFixed(2)}%`);
           } else {
             // Normal benchmark: Compare ticker's IV to benchmark (e.g., SPY)
             ivRatioData = this.calculateIVRatio(symbolIVData, benchmarkIVData);
           }
-          
+
           if (ivRatioData.length < ivRatioPeriod + momentumPeriod) {
             console.warn(`⚠️ Insufficient data for ${symbol}`);
             continue;
           }
 
-          // Apply JdK normalization
-          const normalizedIV = this.calculateNormalizedIVRatio(ivRatioData, ivRatioPeriod);
-          
+          // Apply JdK normalization with proper longPeriod
+          const longPeriod = Math.max(26, ivRatioPeriod * 2);
+          const normalizedIV = this.calculateNormalizedIVRatio(ivRatioData, ivRatioPeriod, longPeriod);
+
           // Calculate IV-Momentum
           const ivMomentumData = this.calculateIVMomentum(normalizedIV, momentumPeriod);
-          
+
           if (ivMomentumData.length === 0) {
             console.warn(`⚠️ No momentum data for ${symbol}`);
             continue;
@@ -297,14 +382,14 @@ class IVRRGService {
 
           // Get current position (latest data point)
           const latest = ivMomentumData[ivMomentumData.length - 1];
-          
+
           console.log(`📊 ${symbol}: ivMomentumData has ${ivMomentumData.length} points, requesting ${tailLength} tail points`);
-          
+
           // Create tail (last N points for visualization)
           // Use Math.min to ensure we don't request more tail points than available
           const availableTailPoints = Math.max(0, ivMomentumData.length - 1);
           const actualTailLength = Math.min(tailLength, availableTailPoints);
-          
+
           const tail = ivMomentumData
             .slice(-actualTailLength - 1, -1) // Exclude the current point
             .map(point => ({
@@ -312,7 +397,7 @@ class IVRRGService {
               ivMomentum: point.ivMomentum,
               date: point.date
             }));
-          
+
           console.log(`📊 ${symbol}: Created tail with ${tail.length} points (requested: ${actualTailLength})`);
 
           // Calculate IV metrics (rank and percentile)

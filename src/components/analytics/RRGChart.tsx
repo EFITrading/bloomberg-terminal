@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as d3 from 'd3';
+import { curveBasis, line as d3Line } from 'd3-shape';
 import './RRGChart.css';
 
 interface RRGDataPoint {
@@ -32,7 +33,7 @@ interface RRGChartProps {
   onLookbackChange?: (index: number) => void;
   onRefresh?: () => void;
   // Control props
-  selectedMode?: 'sectors' | 'industries' | 'custom';
+  selectedMode?: 'sectors' | 'industries' | 'custom' | 'waves';
   selectedSectorETF?: string | null;
   selectedIndustryETF?: string | null;
   customSymbols?: string;
@@ -40,7 +41,7 @@ interface RRGChartProps {
   benchmarkOptions?: Array<{ label: string; value: string }>;
   sectorETFs?: any;
   industryETFs?: any;
-  onModeChange?: (mode: 'sectors' | 'industries' | 'custom') => void;
+  onModeChange?: (mode: 'sectors' | 'industries' | 'custom' | 'waves') => void;
   onSectorETFChange?: (etf: string | null) => void;
   onIndustryETFChange?: (etf: string | null) => void;
   onCustomSymbolsChange?: (symbols: string) => void;
@@ -59,8 +60,8 @@ const RRGChart: React.FC<RRGChartProps> = ({
   width = 1500,
   height = 950,
   showTails = true,
-  tailLength = 10,
-  timeframe = '14 weeks',
+  tailLength = 5,
+  timeframe = '12 weeks',
   onShowTailsChange,
   onTailLengthChange,
   onLookbackChange,
@@ -97,6 +98,8 @@ const RRGChart: React.FC<RRGChartProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [lastMousePos, setLastMousePos] = useState<{ x: number, y: number }>({ x: 0, y: 0 });
   const [currentDomain, setCurrentDomain] = useState<{ x: [number, number], y: [number, number] }>({ x: [80, 120], y: [80, 120] });
+  const [showWaves, setShowWaves] = useState<boolean>(false);
+  const [activeWaves, setActiveWaves] = useState<Array<{ group: string, symbols: string[], quadrant: string, isActive: boolean }>>([]);
 
   // State for ticker visibility toggles
   const [visibleTickers, setVisibleTickers] = useState<Set<string>>(new Set());
@@ -116,6 +119,13 @@ const RRGChart: React.FC<RRGChartProps> = ({
   const margin = { top: 40, right: 60, bottom: 80, left: 60 };
   const chartWidth = width - margin.left - margin.right;
   const chartHeight = height - margin.top - margin.bottom;
+
+  // Sector group definitions
+  const sectorGroups = {
+    growth: ['XLK', 'XLY', 'XLC'],
+    value: ['XLI', 'XLB', 'XLE', 'XLF'],
+    defensives: ['XLV', 'XLU', 'XLRE', 'XLP']
+  };
 
   // Generate historical dates for lookback slider
   const maxTailLength = Math.max(...data.map(d => d.tail.length));
@@ -155,7 +165,152 @@ const RRGChart: React.FC<RRGChartProps> = ({
     return currentData.filter(point => visibleTickers.has(point.symbol));
   };
 
-  const currentData = getCurrentData();
+  const currentData = useMemo(() => getCurrentData(), [data, lookbackIndex, visibleTickers]);
+
+  // Wave detection logic
+  useEffect(() => {
+    if (!showWaves || data.length === 0) {
+      setActiveWaves([]);
+      return;
+    }
+
+    const detectWaves = () => {
+      const waves: Array<{ group: string, symbols: string[], quadrant: string, isActive: boolean }> = [];
+
+      console.log('🌊 Detecting waves with currentData:', currentData.length, 'points');
+      console.log('🌊 Data length:', data.length);
+      console.log('🌊 visibleTickers:', Array.from(visibleTickers));
+      console.log('🌊 Sector groups:', sectorGroups);
+
+      // Helper to get quadrant
+      const getQuadrant = (rsRatio: number, rsMomentum: number) => {
+        if (rsRatio >= 100 && rsMomentum >= 100) return 'leading';
+        if (rsRatio >= 100 && rsMomentum < 100) return 'weakening';
+        if (rsRatio < 100 && rsMomentum < 100) return 'lagging';
+        return 'improving';
+      };
+
+      // Helper to calculate distance between two points
+      const distance = (p1: RRGDataPoint, p2: RRGDataPoint) => {
+        const dx = p1.rsRatio - p2.rsRatio;
+        const dy = p1.rsMomentum - p2.rsMomentum;
+        return Math.sqrt(dx * dx + dy * dy);
+      };
+
+      // Helper to check if vectors are aligned (moving in similar direction)
+      const areVectorsAligned = (p1: RRGDataPoint, p2: RRGDataPoint, threshold = 0.5) => {
+        if (!p1.tail.length || !p2.tail.length) return false;
+
+        const p1Prev = p1.tail[p1.tail.length - 1];
+        const p2Prev = p2.tail[p2.tail.length - 1];
+
+        const v1 = { x: p1.rsRatio - p1Prev.rsRatio, y: p1.rsMomentum - p1Prev.rsMomentum };
+        const v2 = { x: p2.rsRatio - p2Prev.rsRatio, y: p2.rsMomentum - p2Prev.rsMomentum };
+
+        const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+        const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+        if (mag1 === 0 || mag2 === 0) return false;
+
+        const dot = (v1.x * v2.x + v1.y * v2.y) / (mag1 * mag2);
+        return dot > threshold; // Vectors pointing in similar direction
+      };
+
+      // Check each group - ALWAYS show all three groups
+      Object.entries(sectorGroups).forEach(([groupName, symbols]) => {
+        const groupPoints = currentData.filter(d => symbols.includes(d.symbol));
+
+        if (groupPoints.length < 2) {
+          // Even if not enough points, add as inactive wave
+          waves.push({
+            group: groupName,
+            symbols: groupPoints.map(p => p.symbol),
+            quadrant: 'none',
+            isActive: false
+          });
+          return;
+        }
+
+        // Group points by quadrant
+        const quadrantGroups: { [key: string]: RRGDataPoint[] } = {};
+        groupPoints.forEach(point => {
+          const quad = getQuadrant(point.rsRatio, point.rsMomentum);
+          if (!quadrantGroups[quad]) quadrantGroups[quad] = [];
+          quadrantGroups[quad].push(point);
+        });
+
+        // Track if we found an active wave for this group
+        let foundActiveWave = false;
+
+        // Check each quadrant for clustering
+        Object.entries(quadrantGroups).forEach(([quadrant, points]) => {
+          const minPoints = groupName === 'growth' ? 2 : 3;
+          if (points.length < minPoints) return;
+
+          // Check if points are clustered (within proximity threshold)
+          const proximityThreshold = 5; // Adjust based on scale
+          let clustered = true;
+
+          for (let i = 0; i < points.length - 1; i++) {
+            for (let j = i + 1; j < points.length; j++) {
+              if (distance(points[i], points[j]) > proximityThreshold) {
+                clustered = false;
+                break;
+              }
+            }
+            if (!clustered) break;
+          }
+
+          // Check if they're moving together (aligned vectors)
+          if (clustered) {
+            let movingTogether = true;
+            for (let i = 0; i < points.length - 1; i++) {
+              if (!areVectorsAligned(points[i], points[i + 1])) {
+                movingTogether = false;
+                break;
+              }
+            }
+
+            if (movingTogether) {
+              waves.push({
+                group: groupName,
+                symbols: points.map(p => p.symbol),
+                quadrant,
+                isActive: true
+              });
+              foundActiveWave = true;
+            }
+          }
+        });
+
+        // If no active wave found, add as inactive
+        if (!foundActiveWave) {
+          waves.push({
+            group: groupName,
+            symbols: groupPoints.map(p => p.symbol),
+            quadrant: 'scattered',
+            isActive: false
+          });
+        }
+      });
+
+      console.log('🌊 Waves detected:', waves.length, 'waves');
+      console.log('🌊 Wave details:', waves);
+      setActiveWaves(waves);
+    };
+
+    detectWaves();
+  }, [showWaves, data, lookbackIndex, visibleTickers]);
+
+  // Auto-enable waves when in waves mode
+  useEffect(() => {
+    if (selectedMode === 'waves') {
+      console.log('🌊 Auto-enabling waves for waves mode');
+      setShowWaves(true);
+    } else {
+      setShowWaves(false);
+    }
+  }, [selectedMode]);
 
   // Auto-play functionality
   useEffect(() => {
@@ -618,6 +773,16 @@ const RRGChart: React.FC<RRGChartProps> = ({
       .attr('d', 'M0,0 L0,6 L9,3 z')
       .attr('fill', 'currentColor');
 
+    // Add invisible background rect FIRST (behind everything) to capture mouse events
+    const chartBackground = g.append('rect')
+      .attr('class', 'chart-background')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', chartWidth)
+      .attr('height', chartHeight)
+      .attr('fill', 'transparent')
+      .attr('pointer-events', 'all');
+
     // Create chart content group (moves with pan/zoom) with generous clipping
     const chartGroup = g.append('g')
       .attr('clip-path', `url(#${clipId})`);
@@ -986,12 +1151,14 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .text('Leading');
     }
 
-    // Draw tails if enabled
-    if (showTails) {
+    // Draw tails if enabled (hide in waves mode)
+    if (showTails && selectedMode !== 'waves') {
       currentData.forEach(point => {
         if (point.tail.length > 1) {
-          // Limit tail points based on tailLength parameter
-          const limitedTailPoints = point.tail.slice(-tailLength);
+          // Dynamic tail length based on timeframe - use the tailLength parameter
+          const dynamicTailLength = tailLength;
+
+          const limitedTailPoints = point.tail.slice(-dynamicTailLength);
 
           // Don't filter tail points - show full tail and let SVG clipping handle visibility
           // This prevents tails from jumping when zooming (StockCharts behavior)
@@ -1102,8 +1269,177 @@ const RRGChart: React.FC<RRGChartProps> = ({
       });
     }
 
+    // Draw waves if enabled
+    if (showWaves && activeWaves.length > 0) {
+      console.log('🌊 RENDERING WAVES - showWaves:', showWaves, 'activeWaves:', activeWaves.length);
+      activeWaves.forEach((wave, waveIndex) => {
+        const wavePoints = currentData.filter(d => wave.symbols.includes(d.symbol));
+        console.log('🌊 Wave', wave.group, '- points:', wavePoints.length, 'isActive:', wave.isActive);
+        if (wavePoints.length < 1) return; // Need at least 1 point to draw something
+
+        // Get wave color based on group
+        const waveColors = {
+          growth: 'rgba(0, 255, 100, 0.4)',
+          value: 'rgba(100, 150, 255, 0.4)',
+          defensives: 'rgba(255, 200, 0, 0.4)'
+        };
+        const waveColor = waveColors[wave.group as keyof typeof waveColors] || 'rgba(255, 255, 255, 0.3)';
+
+        // Find the starting point where they began moving together
+        // Look backwards through tails to find convergence point
+        let startIndex = 0;
+        const minTailLength = Math.min(...wavePoints.map(p => p.tail.length));
+
+        if (minTailLength > 0) {
+          // Find where they started clustering
+          for (let i = minTailLength - 1; i >= 0; i--) {
+            const tailPositions = wavePoints.map(p => p.tail[i]);
+            let allClose = true;
+
+            for (let j = 0; j < tailPositions.length - 1; j++) {
+              const dx = tailPositions[j].rsRatio - tailPositions[j + 1].rsRatio;
+              const dy = tailPositions[j].rsMomentum - tailPositions[j + 1].rsMomentum;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              if (dist > 5) { // Proximity threshold
+                allClose = false;
+                break;
+              }
+            }
+
+            if (!allClose) {
+              startIndex = i + 1;
+              break;
+            }
+          }
+        }
+
+        // Build wave path from tail history to current position (the tip)
+        const wavePath: [number, number][] = [];
+
+        // Only process tail data if we have points with tails
+        if (wavePoints.length > 0 && minTailLength > 0) {
+          // Add tail points from start to current
+          for (let i = startIndex; i < minTailLength; i++) {
+            const avgX = wavePoints.reduce((sum, p) => sum + p.tail[i].rsRatio, 0) / wavePoints.length;
+            const avgY = wavePoints.reduce((sum, p) => sum + p.tail[i].rsMomentum, 0) / wavePoints.length;
+            wavePath.push([xScale(avgX), yScale(avgY)]);
+          }
+        }
+
+        // Add current position as the tip (always add this)
+        const tipX = wavePoints.reduce((sum, p) => sum + xScale(p.rsRatio), 0) / wavePoints.length;
+        const tipY = wavePoints.reduce((sum, p) => sum + yScale(p.rsMomentum), 0) / wavePoints.length;
+        wavePath.push([tipX, tipY]);
+
+        // If we only have 1 point, duplicate it to create a short path
+        if (wavePath.length < 2 && wavePoints.length > 0) {
+          // Add a small offset to create a minimal visible line
+          wavePath.unshift([tipX - 10, tipY - 10]);
+        }
+
+        if (wavePath.length < 2) return; // Still need at least 2 points to draw a line
+
+        // Create smooth wave body line
+        const lineGenerator = d3Line()
+          .curve(curveBasis)
+          .x(d => d[0])
+          .y(d => d[1]);
+
+        // Determine styling based on active status
+        const isDashed = !wave.isActive;
+        const strokeDashArray = isDashed ? '10,8' : 'none';
+        const bodyOpacity = wave.isActive ? 0.6 : 0.3;
+        const centerOpacity = wave.isActive ? 1 : 0.5;
+        const bodyWidth = wave.isActive ? 12 : 8;
+        const centerWidth = wave.isActive ? 3 : 2;
+
+        // Draw wave body (thick glowing line)
+        chartGroup.append('path')
+          .attr('class', `wave-body wave-${wave.group} ${isDashed ? 'wave-inactive' : 'wave-active'}`)
+          .attr('d', lineGenerator(wavePath as any))
+          .attr('fill', 'none')
+          .attr('stroke', waveColor.replace('0.4', '0.8'))
+          .attr('stroke-width', bodyWidth)
+          .attr('stroke-linecap', 'round')
+          .attr('stroke-linejoin', 'round')
+          .attr('stroke-dasharray', strokeDashArray)
+          .style('filter', wave.isActive ? `drop-shadow(0 0 8px ${waveColor}) blur(1px)` : 'blur(1px)')
+          .style('opacity', bodyOpacity);
+
+        // Draw wave center line
+        chartGroup.append('path')
+          .attr('class', `wave-center wave-${wave.group} ${isDashed ? 'wave-inactive' : 'wave-active'}`)
+          .attr('d', lineGenerator(wavePath as any))
+          .attr('fill', 'none')
+          .attr('stroke', waveColor.replace('0.4', '1'))
+          .attr('stroke-width', centerWidth)
+          .attr('stroke-linecap', 'round')
+          .attr('stroke-linejoin', 'round')
+          .attr('stroke-dasharray', strokeDashArray)
+          .style('filter', wave.isActive ? `drop-shadow(0 0 10px ${waveColor})` : 'none')
+          .style('opacity', centerOpacity);
+
+        // Draw wave tip (triangular arrow pointing in movement direction)
+        const tipPoint = wavePath[wavePath.length - 1];
+        const preTipPoint = wavePath[wavePath.length - 2];
+
+        // Calculate angle of movement
+        const angle = Math.atan2(tipPoint[1] - preTipPoint[1], tipPoint[0] - preTipPoint[0]);
+
+        // Create arrow tip (only for active waves)
+        const arrowSize = wave.isActive ? 15 : 10;
+        const arrowPoints = [
+          [tipPoint[0], tipPoint[1]], // Tip
+          [tipPoint[0] - arrowSize * Math.cos(angle - Math.PI / 6), tipPoint[1] - arrowSize * Math.sin(angle - Math.PI / 6)],
+          [tipPoint[0] - arrowSize * Math.cos(angle + Math.PI / 6), tipPoint[1] - arrowSize * Math.sin(angle + Math.PI / 6)]
+        ];
+
+        chartGroup.append('polygon')
+          .attr('class', `wave-tip wave-${wave.group} ${isDashed ? 'wave-inactive' : 'wave-active'}`)
+          .attr('points', arrowPoints.map(p => p.join(',')).join(' '))
+          .attr('fill', waveColor.replace('0.4', wave.isActive ? '1' : '0.6'))
+          .attr('stroke', wave.isActive ? '#ffffff' : 'rgba(255,255,255,0.5)')
+          .attr('stroke-width', wave.isActive ? 2 : 1)
+          .style('filter', wave.isActive ? `drop-shadow(0 0 12px ${waveColor})` : 'none')
+          .style('opacity', wave.isActive ? 1 : 0.5);
+
+        // Add wave label near the tip
+        chartGroup.append('text')
+          .attr('class', `wave-label wave-${wave.group} ${isDashed ? 'wave-inactive' : 'wave-active'}`)
+          .attr('x', tipPoint[0])
+          .attr('y', tipPoint[1] - 25)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', wave.isActive ? '12px' : '10px')
+          .attr('font-weight', 'bold')
+          .attr('fill', waveColor.replace('0.4', wave.isActive ? '1' : '0.7'))
+          .attr('stroke', '#000')
+          .attr('stroke-width', 3)
+          .attr('paint-order', 'stroke')
+          .text(`${wave.group.toUpperCase()} ${wave.isActive ? 'WAVE' : '(INACTIVE)'}`)
+          .style('filter', wave.isActive ? 'drop-shadow(0 0 4px rgba(0,0,0,0.8))' : 'none')
+          .style('opacity', wave.isActive ? 1 : 0.6);
+
+        // Add symbol labels
+        chartGroup.append('text')
+          .attr('class', `wave-symbols wave-${wave.group} ${isDashed ? 'wave-inactive' : 'wave-active'}`)
+          .attr('x', tipPoint[0])
+          .attr('y', tipPoint[1] - 10)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', wave.isActive ? '10px' : '9px')
+          .attr('font-weight', '600')
+          .attr('fill', '#ffffff')
+          .attr('stroke', '#000')
+          .attr('stroke-width', 2)
+          .attr('paint-order', 'stroke')
+          .text(wave.symbols.join(', '))
+          .style('opacity', wave.isActive ? 0.9 : 0.5);
+      });
+    }
+
     // Draw main points (only those within visible bounds with strict containment)
-    const visiblePoints = currentData.filter(d => {
+    // Hide points when in waves mode
+    const visiblePoints = selectedMode === 'waves' ? [] : currentData.filter(d => {
       const x = xScale(d.rsRatio);
       const y = yScale(d.rsMomentum);
       return x >= 0 && x <= chartWidth && y >= 0 && y <= chartHeight &&
@@ -1116,75 +1452,61 @@ const RRGChart: React.FC<RRGChartProps> = ({
       .enter()
       .append('g')
       .attr('class', d => `rrg-point ticker-element ticker-${d.symbol.replace(/[^a-zA-Z0-9]/g, '')}`)
+      .style('cursor', 'pointer')
       .on('mouseenter', function (event, d) {
-        // Add chart-level dimming class
-        d3.select(svgRef.current).classed('chart-dimmed', true);
+        // Stop propagation to prevent background from resetting
+        event.stopPropagation();
 
-        // Stop all ongoing transitions first
+        // Stop all ongoing transitions
         chartGroup.selectAll('.ticker-element').interrupt();
         chartGroup.selectAll('[class*="tail-path-"]').interrupt();
         chartGroup.selectAll('.tail-arrow').interrupt();
 
-        // Gray out all other elements
+        // Dim all other elements
         chartGroup.selectAll('.ticker-element')
-          .classed('dimmed', true)
+          .filter(function (this: any) {
+            return !d3.select(this).classed(`ticker-${d.symbol.replace(/[^a-zA-Z0-9]/g, '')}`);
+          })
           .transition()
-          .duration(150) // Slightly faster for more responsive feel
+          .duration(150)
           .style('opacity', 0.08)
           .style('filter', 'grayscale(70%)');
 
-        // Highlight current ticker elements with stable effects
+        // Highlight current ticker
         chartGroup.selectAll(`.ticker-${d.symbol.replace(/[^a-zA-Z0-9]/g, '')}`)
-          .classed('highlighted', true)
-          .classed('dimmed', false)
           .transition()
           .duration(150)
           .style('opacity', 1)
           .style('filter', `brightness(1.3) saturate(1.2) drop-shadow(0 0 8px ${tickerColors[d.symbol]})`);
 
-        // Make tail thicker and more prominent
+        // Enhance tail
         chartGroup.selectAll(`.tail-path-${d.symbol.replace(/[^a-zA-Z0-9]/g, '')}`)
           .transition()
           .duration(150)
-          .attr('stroke-width', 4) // Reduced from 5 to prevent jarring effect
+          .attr('stroke-width', 4)
           .style('filter', `drop-shadow(0 0 6px ${tickerColors[d.symbol]}) brightness(1.2)`);
 
-        // Enhanced arrow highlighting (removed scale transform to prevent bouncing)
+        // Enhance arrow
         chartGroup.selectAll(`.ticker-${d.symbol.replace(/[^a-zA-Z0-9]/g, '')}.tail-arrow`)
           .transition()
           .duration(150)
           .style('filter', `drop-shadow(0 0 5px ${tickerColors[d.symbol]}) brightness(1.3)`);
       })
       .on('mouseleave', function () {
-        // Remove chart-level dimming class
-        d3.select(svgRef.current).classed('chart-dimmed', false);
-
-        // Stop all ongoing transitions first
-        chartGroup.selectAll('.ticker-element').interrupt();
-        chartGroup.selectAll('[class*="tail-path-"]').interrupt();
-        chartGroup.selectAll('.tail-arrow').interrupt();
-
-        // Restore all elements with stable timing - explicitly remove grayscale
+        // FORCE immediate reset - no transitions that can be interrupted
         chartGroup.selectAll('.ticker-element')
-          .classed('highlighted', false)
-          .classed('dimmed', false)
-          .transition()
-          .duration(250) // Slightly faster restore
+          .interrupt()
           .style('opacity', 1)
-          .style('filter', 'none'); // Use 'none' instead of null to force clear
+          .style('filter', null);
 
-        // Restore tail thickness
         chartGroup.selectAll('[class*="tail-path-"]')
-          .transition()
-          .duration(250)
+          .interrupt()
           .attr('stroke-width', 2.5)
-          .style('filter', 'none');
+          .style('filter', null);
 
-        // Restore arrow styling
         chartGroup.selectAll('.tail-arrow')
-          .transition()
-          .duration(250)
-          .style('filter', 'none'); // Use 'none' to force clear
+          .interrupt()
+          .style('filter', null);
       });
 
     points.append('circle')
@@ -1227,7 +1549,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         svgElement.removeEventListener('wheel', handleWheel);
       }
     };
-  }, [currentData, width, height, showTails, tailLength, lookbackIndex, zoomLevel, selectedQuadrant, panOffset, autoFit, isDragging, lastMousePos, currentDomain]);
+  }, [currentData, width, height, showTails, tailLength, lookbackIndex, zoomLevel, selectedQuadrant, panOffset, autoFit, isDragging, lastMousePos, currentDomain, showWaves, activeWaves]);
 
   const handleLookbackChange = (value: number) => {
     setLookbackIndex(value);
@@ -1282,10 +1604,14 @@ const RRGChart: React.FC<RRGChartProps> = ({
               value={selectedIndustryETF || selectedSectorETF || selectedMode}
               onChange={(e) => {
                 const value = e.target.value;
-                if (value === 'sectors' || value === 'industries' || value === 'custom') {
-                  onModeChange?.(value as 'sectors' | 'industries' | 'custom');
+                if (value === 'sectors' || value === 'industries' || value === 'custom' || value === 'waves') {
+                  onModeChange?.(value as 'sectors' | 'industries' | 'custom' | 'waves');
                   onSectorETFChange?.(null);
                   onIndustryETFChange?.(null);
+                  // Auto-enable waves when switching to waves mode
+                  if (value === 'waves') {
+                    setShowWaves(true);
+                  }
                 } else if (industryETFs && industryETFs[value]) {
                   onModeChange?.('industries');
                   onIndustryETFChange?.(value);
@@ -1309,6 +1635,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
               }}
             >
               <option value="custom">CUSTOM</option>
+              <option value="waves">WAVES</option>
               <option value="sectors">SECTORS</option>
               {Object.entries(sectorETFs).map(([symbol, info]: [string, any]) => (
                 <option key={symbol} value={symbol}>
@@ -1376,22 +1703,75 @@ const RRGChart: React.FC<RRGChartProps> = ({
           </select>
         </div>
 
+        {/* Wave Toggle Button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button
+            onClick={() => setShowWaves(!showWaves)}
+            style={{
+              padding: '6px 16px',
+              background: showWaves ? 'linear-gradient(135deg, #ff6b00 0%, #ff8844 100%)' : '#1a1a1a',
+              border: `1px solid ${showWaves ? '#ff6b00' : 'rgba(255, 107, 0, 0.3)'}`,
+              borderRadius: '4px',
+              color: '#ffffff',
+              fontSize: '12px',
+              fontWeight: '700',
+              cursor: 'pointer',
+              textTransform: 'uppercase',
+              transition: 'all 0.2s ease',
+              boxShadow: showWaves ? '0 0 10px rgba(255, 107, 0, 0.3)' : 'none'
+            }}
+          >
+            <span style={{ marginRight: '6px' }}>🌊</span>
+            Waves {showWaves ? 'ON' : 'OFF'}
+          </button>
+          {showWaves && (
+            <span style={{
+              padding: '4px 10px',
+              background: activeWaves.filter(w => w.isActive).length > 0 ? 'rgba(255, 107, 0, 0.2)' : 'rgba(100, 100, 100, 0.2)',
+              border: `1px solid ${activeWaves.filter(w => w.isActive).length > 0 ? 'rgba(255, 107, 0, 0.5)' : 'rgba(150, 150, 150, 0.5)'}`,
+              borderRadius: '3px',
+              color: activeWaves.filter(w => w.isActive).length > 0 ? '#ff8844' : '#aaaaaa',
+              fontSize: '11px',
+              fontWeight: '700',
+              animation: activeWaves.filter(w => w.isActive).length > 0 ? 'pulse 2s ease-in-out infinite' : 'none'
+            }}>
+              {activeWaves.filter(w => w.isActive).length} Active / {activeWaves.length} Total
+            </span>
+          )}
+        </div>
+
         {/* Tail Length */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' }}>Tail Length:</label>
+          <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' }}>
+            Tail Length: {tailLength >= maxTailLength ? 'MAX' : ''}
+          </label>
           <input
             type="number"
             min="0"
-            max="52"
+            max={maxTailLength}
             value={tailLength}
-            onChange={(e) => onTailLengthChange?.(parseInt(e.target.value, 10))}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === '' || value === '-') return; // Allow temporary empty state
+              const newValue = parseInt(value, 10);
+              if (!isNaN(newValue) && newValue >= 0) {
+                onTailLengthChange?.(Math.min(newValue, maxTailLength));
+              }
+            }}
+            onBlur={(e) => {
+              // On blur, ensure we have a valid value
+              const value = e.target.value;
+              if (value === '' || value === '-') {
+                onTailLengthChange?.(5); // Reset to default if empty
+              }
+            }}
             style={{
               width: '60px',
               padding: '6px 8px',
               background: '#0a0a0a',
-              border: '1px solid rgba(255, 107, 0, 0.3)',
+              border: `1px solid ${tailLength >= maxTailLength ? 'rgba(255, 0, 0, 0.5)' : 'rgba(255, 107, 0, 0.3)'}`,
               borderRadius: '3px',
-              color: '#ffffff',
+              color: tailLength >= maxTailLength ? '#ff6b00' : '#ffffff',
               fontSize: '12px',
               fontWeight: '600',
               textAlign: 'center'

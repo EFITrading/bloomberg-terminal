@@ -43,7 +43,9 @@ import {
   TbTextSize,
   TbArrowsVertical,
   TbArrowUpRight,
-  TbSlash
+  TbSlash,
+  TbStar,
+  TbStarFilled
 } from 'react-icons/tb';
 import { IndustryAnalysisService, MarketRegimeData, IndustryPerformance, TimeframeAnalysis } from '../../lib/industryAnalysisService';
 import PolygonService from '../../lib/polygonService';
@@ -74,6 +76,7 @@ import { useChatStore } from '../../store/chatStore';
 import HVScreener from '../HVScreener';
 import RSScreener from '../RSScreener';
 import LeadershipScan from '../LeadershipScan';
+import RRGScreener from '../RRGScreener';
 import RRGAnalytics from '../analytics/RRGAnalytics';
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics';
 import SeasonalityChart from '../analytics/SeasonalityChart';
@@ -4016,17 +4019,23 @@ export default function TradingViewChart({
                 const [hourStr, minStr] = key.split(':');
                 const hour = parseInt(hourStr);
                 const minute = parseInt(minStr);
+
+                // Get yesterday's date in ET timezone
                 const now = new Date();
                 const etNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-                const tradingDate = new Date(etNow);
-                tradingDate.setDate(tradingDate.getDate() - 1);
-                tradingDate.setHours(hour, minute, 0, 0);
-                timestamp = tradingDate.getTime();
+                const year = etNow.getFullYear();
+                const month = String(etNow.getMonth() + 1).padStart(2, '0');
+                const day = String(etNow.getDate() - 1).padStart(2, '0');
+
+                // Create ET timestamp using ISO string with ET offset
+                const etDateStr = `${year}-${month}-${day}T${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}:00-05:00`;
+                timestamp = new Date(etDateStr).getTime();
+
                 const hour12 = hour % 12 === 0 ? 12 : hour % 12;
                 const ampm = hour < 12 ? 'AM' : 'PM';
                 displayLabel = `${hour12}:${minStr} ${ampm}`;
               } else {
-                // Multi-day: Create timestamp in UTC that represents ET time
+                // Multi-day: Create timestamp for ET time
                 const [date, time] = key.split('_');
                 const [year, month, day] = date.split('-');
                 const [hourStr, minStr] = time.split(':');
@@ -5535,6 +5544,1354 @@ export default function TradingViewChart({
   const [allRegimesLoaded, setAllRegimesLoaded] = useState(false);
   const [highlightFilter, setHighlightFilter] = useState<'all' | 'gold' | 'purple' | 'highlights'>('all');
   const [sortByPercentage, setSortByPercentage] = useState(true); // true = highest first, false = lowest first
+
+  // Build a Trade panel state
+  const [buildTradeTickerInput, setBuildTradeTickerInput] = useState('');
+  const [buildTradeTimeframe, setBuildTradeTimeframe] = useState<'1D' | '3D'>('1D');
+  const [buildTradeScanning, setBuildTradeScanning] = useState(false);
+  const [buildTradeScanProgress, setBuildTradeScanProgress] = useState<{ current: number; total: number } | null>(null);
+  const [buildTradeSweetSpot, setBuildTradeSweetSpot] = useState<{ period: string; startDay: number; endDay: number; totalReturn: number } | null>(null);
+  const [buildTradePainPoint, setBuildTradePainPoint] = useState<{ period: string; startDay: number; endDay: number; totalReturn: number } | null>(null);
+  const [buildTradeHVSignals, setBuildTradeHVSignals] = useState<{ hv10Day: boolean; hv20Day: boolean; hv52Week: boolean }>({ hv10Day: false, hv20Day: false, hv52Week: false });
+  const [buildTradeRRGSignal, setBuildTradeRRGSignal] = useState<{ quadrant: string; dominantQuadrant: string; consistency: number; rsRatio: number; rsMomentum: number; timeframes: Record<string, string> }>({ quadrant: '', dominantQuadrant: '', consistency: 0, rsRatio: 0, rsMomentum: 0, timeframes: { '4w': '', '8w': '', '14w': '', '26w': '' } });
+  const [buildTradeMarketRegime, setBuildTradeMarketRegime] = useState<Array<{ highlightType: 'gold' | 'purple'; timeframe: string; score: number; trend: string; industry: string; relativePerformance: number; tradeDetails: any | null }>>([]);
+  const [buildTradeExpectedRange, setBuildTradeExpectedRange] = useState<{ weekly80Call: number; weekly90Call: number; weekly80Put: number; weekly90Put: number; monthly80Call: number; monthly90Call: number; monthly80Put: number; monthly90Put: number; currentPrice: number; weeklyIV: number; monthlyIV: number } | null>(null);
+  const [buildTradeEvents, setBuildTradeEvents] = useState<Array<{ eventName: string; eventDate: Date; data: Array<{ tradingDay: number; avgReturn: number }>; occurrences: number }>>([]);
+  const [buildTradePatterns, setBuildTradePatterns] = useState<Array<{ patternName: string; data: Array<{ tradingDay: number; avgReturn: number }>; occurrences: number; occurrenceDetails: Array<{ date: Date; priceAtEvent: number; changePercent?: number }> }>>([]);
+  const [buildTradeIntensity, setBuildTradeIntensity] = useState<{ score: number; signal: string; color: string } | null>(null);
+  const [buildTradeStability, setBuildTradeStability] = useState<{ si: number; stability: string; behavior: string; color: string } | null>(null);
+
+  // Calculate Historical Volatility (EXACT same as HVScreener)
+  const calculateHV = (prices: number[], period: number): number => {
+    if (prices.length < period + 1) return 0;
+
+    const returns: number[] = [];
+    for (let i = 1; i < prices.length; i++) {
+      if (prices[i - 1] !== 0) {
+        returns.push(Math.log(prices[i] / prices[i - 1]));
+      }
+    }
+
+    if (returns.length === 0) return 0;
+
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / returns.length;
+    const stdDev = Math.sqrt(variance);
+
+    // Annualize the volatility
+    return stdDev * Math.sqrt(252) * 100;
+  };
+
+  // Check RS criteria (EXACT same logic as RSScreener with 1 year)
+  // Check Market Regime status (EXACT same logic as Market Regimes panel)
+  const checkMarketRegimeCriteria = async (symbol: string): Promise<Array<{ highlightType: 'gold' | 'purple'; timeframe: string; score: number; trend: string; industry: string; relativePerformance: number; tradeDetails: any | null }>> => {
+    const results: Array<{ highlightType: 'gold' | 'purple'; timeframe: string; score: number; trend: string; industry: string; relativePerformance: number; tradeDetails: any | null }> = [];
+
+    try {
+      // Use EXACT same logic as Market Regimes panel - check highlightedTradesCache for all timeframes
+      const timeframes = ['life', 'developing', 'momentum', 'legacy'];
+
+      for (const tf of timeframes) {
+        // Check if symbol exists in highlighted trades for this timeframe
+        const tfTrades = highlightedTradesCache[tf];
+        if (tfTrades && tfTrades[symbol]) {
+          const trade = tfTrades[symbol];
+          results.push({
+            highlightType: trade.highlightType, // This is already 'gold' or 'purple' from Market Regimes calculation
+            timeframe: tf,
+            score: trade.score || 0,
+            trend: trade.trend || '',
+            industry: trade.industry || '',
+            relativePerformance: trade.relativePerformance || 0,
+            tradeDetails: trade
+          });
+        }
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error checking Market Regime criteria:', error);
+      return results;
+    }
+  };
+
+  // Check for relevant events within 1 month timeframe (EXACT same logic as Events button)
+  const checkEventsForTicker = async (symbol: string): Promise<Array<{ eventName: string; eventDate: Date; data: Array<{ tradingDay: number; avgReturn: number }>; occurrences: number }>> => {
+    const API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    const currentYear = new Date().getFullYear();
+    const today = new Date();
+    const oneMonthBefore = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const oneMonthAfter = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const events = [
+      { key: 'thanksgiving', name: 'Thanksgiving' },
+      { key: 'christmas', name: 'Christmas' },
+      { key: 'newyear', name: 'New Year' },
+      { key: 'presidentsday', name: 'Presidents Day' },
+      { key: 'mlkday', name: 'MLK Day' },
+      { key: 'memorialday', name: 'Memorial Day' },
+      { key: 'july4th', name: 'July 4th' },
+      { key: 'laborday', name: 'Labor Day' }
+    ];
+
+    const getEventDates = (event: string): Date[] => {
+      const dates: Date[] = [];
+      for (let year = currentYear - 5; year <= currentYear + 1; year++) {
+        switch (event) {
+          case 'thanksgiving':
+            const nov1 = new Date(year, 10, 1);
+            const firstThursday = (4 - nov1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 10, firstThursday + 21));
+            break;
+          case 'christmas':
+            dates.push(new Date(year, 11, 25));
+            break;
+          case 'newyear':
+            dates.push(new Date(year, 0, 1));
+            break;
+          case 'presidentsday':
+            const feb1 = new Date(year, 1, 1);
+            const firstMonday = (1 - feb1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 1, firstMonday + 14));
+            break;
+          case 'mlkday':
+            const jan1 = new Date(year, 0, 1);
+            const firstMondayJan = (1 - jan1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 0, firstMondayJan + 14));
+            break;
+          case 'memorialday':
+            const may31 = new Date(year, 4, 31);
+            const lastMonday = 31 - ((may31.getDay() + 6) % 7);
+            dates.push(new Date(year, 4, lastMonday));
+            break;
+          case 'july4th':
+            dates.push(new Date(year, 6, 4));
+            break;
+          case 'laborday':
+            const sep1 = new Date(year, 8, 1);
+            const firstMondaySep = (1 - sep1.getDay() + 7) % 7 + 1;
+            dates.push(new Date(year, 8, firstMondaySep));
+            break;
+        }
+      }
+      return dates;
+    };
+
+    const isWeekend = (date: Date) => date.getDay() === 0 || date.getDay() === 6;
+    const isHoliday = (date: Date) => {
+      const month = date.getMonth(), day = date.getDate(), dayOfWeek = date.getDay();
+      if (month === 0 && day === 1) return true;
+      if (month === 6 && day === 4) return true;
+      if (month === 11 && day === 25) return true;
+      if (month === 0 && dayOfWeek === 1 && day >= 15 && day <= 21) return true;
+      if (month === 1 && dayOfWeek === 1 && day >= 15 && day <= 21) return true;
+      if (month === 4 && dayOfWeek === 1 && day >= 25) return true;
+      if (month === 8 && dayOfWeek === 1 && day <= 7) return true;
+      if (month === 10 && dayOfWeek === 4 && day >= 22 && day <= 28) return true;
+      return false;
+    };
+
+    const getTradingDays = (startDate: Date, count: number, forward: boolean): Date[] => {
+      const days: Date[] = [];
+      const current = new Date(startDate);
+      let found = 0;
+      while (found < count) {
+        current.setDate(current.getDate() + (forward ? 1 : -1));
+        if (!isWeekend(current) && !isHoliday(current)) {
+          days.push(new Date(current));
+          found++;
+        }
+      }
+      return forward ? days : days.reverse();
+    };
+
+    const relevantEvents: Array<{ eventName: string; eventDate: Date; data: Array<{ tradingDay: number; avgReturn: number }>; occurrences: number }> = [];
+
+    for (const event of events) {
+      const eventDates = getEventDates(event.key);
+      const closestEvent = eventDates.find(d => d >= oneMonthBefore && d <= oneMonthAfter);
+
+      if (!closestEvent) continue;
+
+      try {
+        const allReturns: number[][] = Array(13).fill(0).map(() => []);
+
+        for (const eventDate of eventDates) {
+          const before = getTradingDays(eventDate, 5, false);
+          const after = getTradingDays(eventDate, 7, true);
+          const allDays = [...before, eventDate, ...after];
+
+          const from = allDays[0].toISOString().split('T')[0];
+          const to = allDays[allDays.length - 1].toISOString().split('T')[0];
+
+          const response = await fetch(
+            `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${API_KEY}`
+          );
+
+          if (!response.ok) continue;
+          const data = await response.json();
+          if (!data.results || data.results.length === 0) continue;
+
+          const prices = data.results.map((r: any) => r.c);
+          const eventIndex = 5;
+          const eventPrice = prices[eventIndex];
+
+          for (let i = 0; i < prices.length && i < 13; i++) {
+            const returnPct = ((prices[i] - eventPrice) / eventPrice) * 100;
+            allReturns[i].push(returnPct);
+          }
+        }
+
+        const avgReturns = allReturns.map(returns =>
+          returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
+        );
+
+        const perfData = avgReturns.map((avgReturn, index) => ({
+          tradingDay: index - 5,
+          avgReturn
+        }));
+
+        relevantEvents.push({
+          eventName: event.name,
+          eventDate: closestEvent,
+          data: perfData,
+          occurrences: allReturns[0].length
+        });
+      } catch (error) {
+        console.error(`Error calculating event ${event.name}:`, error);
+      }
+    }
+
+    return relevantEvents;
+  };
+
+  // Check for pattern matches (EXACT same logic as Pattern Analysis)
+  const checkPatternsForTicker = async (symbol: string): Promise<Array<{ patternName: string; data: Array<{ tradingDay: number; avgReturn: number }>; occurrences: number; occurrenceDetails: Array<{ date: Date; priceAtEvent: number; changePercent?: number }> }>> => {
+    const patterns = [
+      { id: '52week-high-cooldown', label: '52W High (90d Cooldown)', forwardDays: 20 },
+      { id: '52week-high-annual', label: '52W High (Annual)', forwardDays: 20 },
+      { id: '52week-low-cooldown', label: '52W Low (90d Cooldown)', forwardDays: 20 },
+      { id: '52week-low-annual', label: '52W Low (Annual)', forwardDays: 20 },
+      { id: 'move-8-11-up-cooldown', label: '8-11% UP (90d Cooldown)', forwardDays: 29 },
+      { id: 'move-8-11-up-annual', label: '8-11% UP (Annual)', forwardDays: 29 },
+      { id: 'move-8-11-down-cooldown', label: '8-11% DOWN (90d Cooldown)', forwardDays: 29 },
+      { id: 'move-8-11-down-annual', label: '8-11% DOWN (Annual)', forwardDays: 29 },
+      { id: 'move-18-22-up-cooldown', label: '18-22% UP (90d Cooldown)', forwardDays: 29 },
+      { id: 'move-18-22-up-annual', label: '18-22% UP (Annual)', forwardDays: 29 },
+      { id: 'move-18-22-down-cooldown', label: '18-22% DOWN (90d Cooldown)', forwardDays: 29 },
+      { id: 'move-18-22-down-annual', label: '18-22% DOWN (Annual)', forwardDays: 29 }
+    ];
+
+    const matchedPatterns: Array<{ patternName: string; data: Array<{ tradingDay: number; avgReturn: number }>; occurrences: number; occurrenceDetails: Array<{ date: Date; priceAtEvent: number; changePercent?: number }> }> = [];
+
+    try {
+      const yearsBack = 19;
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setFullYear(startDate.getFullYear() - yearsBack);
+
+      const startStr = startDate.toISOString().split('T')[0];
+      const endStr = endDate.toISOString().split('T')[0];
+
+      const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+      const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${apiKey}`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (!data.results || data.results.length < 252) {
+        return matchedPatterns;
+      }
+
+      const prices: Array<{ date: Date; close: number; high: number; low: number }> = data.results.map((r: any) => ({
+        date: new Date(r.t),
+        close: r.c,
+        high: r.h,
+        low: r.l
+      }));
+
+      const recentPrice = prices[prices.length - 1];
+      const recentDate = recentPrice.date;
+      const twentyDaysAgo = new Date(recentDate.getTime() - 20 * 24 * 60 * 60 * 1000);
+
+      for (const pattern of patterns) {
+        const occurrences: Date[] = [];
+        const occurrenceDetails: Array<{ date: Date; priceAtEvent: number; changePercent?: number }> = [];
+
+        if (pattern.id === '52week-high-cooldown' || pattern.id === '52week-high-annual') {
+          for (let i = 252; i < prices.length; i++) {
+            const last252 = prices.slice(i - 252, i);
+            const high52Week = Math.max(...last252.map(p => p.high));
+
+            if (prices[i].close > high52Week) {
+              const occDate = prices[i].date;
+
+              if (pattern.id === '52week-high-cooldown') {
+                const lastOcc = occurrences[occurrences.length - 1];
+                if (!lastOcc || (occDate.getTime() - lastOcc.getTime()) / (1000 * 60 * 60 * 24) >= 90) {
+                  occurrences.push(occDate);
+                  occurrenceDetails.push({
+                    date: occDate,
+                    priceAtEvent: prices[i].close,
+                    changePercent: ((prices[i].close - high52Week) / high52Week) * 100
+                  });
+                }
+              } else {
+                // Annual: first occurrence per year
+                const year = occDate.getFullYear();
+                if (!occurrences.find(d => d.getFullYear() === year)) {
+                  occurrences.push(occDate);
+                  occurrenceDetails.push({
+                    date: occDate,
+                    priceAtEvent: prices[i].close,
+                    changePercent: ((prices[i].close - high52Week) / high52Week) * 100
+                  });
+                }
+              }
+            }
+          }
+        } else if (pattern.id === '52week-low-cooldown' || pattern.id === '52week-low-annual') {
+          for (let i = 252; i < prices.length; i++) {
+            const last252 = prices.slice(i - 252, i);
+            const low52Week = Math.min(...last252.map(p => p.low));
+
+            if (prices[i].close < low52Week) {
+              const occDate = prices[i].date;
+
+              if (pattern.id === '52week-low-cooldown') {
+                const lastOcc = occurrences[occurrences.length - 1];
+                if (!lastOcc || (occDate.getTime() - lastOcc.getTime()) / (1000 * 60 * 60 * 24) >= 90) {
+                  occurrences.push(occDate);
+                  occurrenceDetails.push({
+                    date: occDate,
+                    priceAtEvent: prices[i].close,
+                    changePercent: ((prices[i].close - low52Week) / low52Week) * 100
+                  });
+                }
+              } else {
+                const year = occDate.getFullYear();
+                if (!occurrences.find(d => d.getFullYear() === year)) {
+                  occurrences.push(occDate);
+                  occurrenceDetails.push({
+                    date: occDate,
+                    priceAtEvent: prices[i].close,
+                    changePercent: ((prices[i].close - low52Week) / low52Week) * 100
+                  });
+                }
+              }
+            }
+          }
+        } else if (pattern.id.startsWith('move-')) {
+          const [_, minPct, maxPct, direction, method] = pattern.id.split('-');
+          const minMove = parseFloat(minPct);
+          const maxMove = parseFloat(maxPct);
+
+          for (let i = 1; i < prices.length; i++) {
+            const pctChange = ((prices[i].close - prices[i - 1].close) / prices[i - 1].close) * 100;
+            const absChange = Math.abs(pctChange);
+
+            if (absChange >= minMove && absChange <= maxMove) {
+              if ((direction === 'up' && pctChange > 0) || (direction === 'down' && pctChange < 0)) {
+                const occDate = prices[i].date;
+
+                if (method === 'cooldown') {
+                  const lastOcc = occurrences[occurrences.length - 1];
+                  if (!lastOcc || (occDate.getTime() - lastOcc.getTime()) / (1000 * 60 * 60 * 24) >= 90) {
+                    occurrences.push(occDate);
+                    occurrenceDetails.push({
+                      date: occDate,
+                      priceAtEvent: prices[i].close,
+                      changePercent: pctChange
+                    });
+                  }
+                } else if (method === 'annual') {
+                  const year = occDate.getFullYear();
+                  if (!occurrences.find(d => d.getFullYear() === year)) {
+                    occurrences.push(occDate);
+                    occurrenceDetails.push({
+                      date: occDate,
+                      priceAtEvent: prices[i].close,
+                      changePercent: pctChange
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Check if most recent occurrence is within 20 days
+        const recentOccurrence = occurrences.length > 0 ? occurrences[occurrences.length - 1] : null;
+        if (!recentOccurrence || recentOccurrence < twentyDaysAgo) continue;
+
+        if (occurrences.length > 0) {
+          const allReturns: number[][] = Array.from({ length: pattern.forwardDays + 1 }, () => []);
+
+          for (const occDate of occurrences) {
+            const occIndex = prices.findIndex(p => p.date.getTime() === occDate.getTime());
+            if (occIndex === -1 || occIndex + pattern.forwardDays >= prices.length) continue;
+
+            const basePrice = prices[occIndex].close;
+
+            for (let day = 0; day <= pattern.forwardDays; day++) {
+              if (occIndex + day < prices.length) {
+                const returnPct = ((prices[occIndex + day].close - basePrice) / basePrice) * 100;
+                allReturns[day].push(returnPct);
+              }
+            }
+          }
+
+          const avgReturns = allReturns.map(returns =>
+            returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
+          );
+
+          const perfData = avgReturns.map((avgReturn, index) => ({
+            tradingDay: index + 1,
+            avgReturn
+          }));
+
+          matchedPatterns.push({
+            patternName: pattern.label,
+            data: perfData,
+            occurrences: occurrences.length,
+            occurrenceDetails: occurrenceDetails
+          });
+        }
+      }
+
+      return matchedPatterns;
+    } catch (error) {
+      console.error('Error checking patterns:', error);
+      return matchedPatterns;
+    }
+  };
+
+  // Check RRG criteria (EXACT same logic as RRG Screener with SPY benchmark)
+  const checkRRGCriteria = async (symbol: string): Promise<{ quadrant: string; dominantQuadrant: string; consistency: number; rsRatio: number; rsMomentum: number; timeframes: Record<string, string> }> => {
+    const result = { quadrant: '', dominantQuadrant: '', consistency: 0, rsRatio: 0, rsMomentum: 0, timeframes: { '4w': '', '8w': '', '14w': '', '26w': '' } };
+
+    try {
+      const response = await fetch('/api/rrg-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbols: [symbol],
+          benchmark: 'SPY',
+          batchIndex: 0,
+          totalBatches: 1
+        })
+      });
+
+      if (!response.ok) {
+        console.error('RRG API error:', response.statusText);
+        return result;
+      }
+
+      const data = await response.json();
+      if (data.success && data.results && data.results.length > 0) {
+        const rrgData = data.results[0];
+        result.quadrant = rrgData.quadrant;
+        result.dominantQuadrant = rrgData.dominantQuadrant;
+        result.consistency = rrgData.consistency;
+        result.rsRatio = rrgData.rsRatio;
+        result.rsMomentum = rrgData.rsMomentum;
+        result.timeframes = rrgData.timeframes;
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error checking RRG criteria:', error);
+      return result;
+    }
+  };
+
+  // Check HV criteria (EXACT same logic as HVScreener)
+  const checkHVCriteria = async (symbol: string): Promise<{ hv10Day: boolean; hv20Day: boolean; hv52Week: boolean }> => {
+    const result = { hv10Day: false, hv20Day: false, hv52Week: false };
+
+    try {
+      // Get historical data for all three periods
+      const endDate = new Date().toISOString().split('T')[0];
+
+      // 10-day HV: 90-day lookback
+      const start10Day = new Date(Date.now() - (90 + 10 + 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      // 20-day HV: 365-day lookback
+      const start20Day = new Date(Date.now() - (365 + 20 + 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      // 52-week HV: 1825-day (5-year) lookback
+      const start52Week = new Date(Date.now() - (1825 + 252 + 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      // Fetch all data in parallel
+      const [data10, data20, data52] = await Promise.all([
+        polygonService.getHistoricalData(symbol, start10Day, endDate, 'day', 1),
+        polygonService.getHistoricalData(symbol, start20Day, endDate, 'day', 1),
+        polygonService.getHistoricalData(symbol, start52Week, endDate, 'day', 1)
+      ]);
+
+      // Check 10-day HV
+      if (data10?.results && data10.results.length >= 20) {
+        const prices = data10.results.map(r => r.c);
+        const hvValues: number[] = [];
+
+        for (let i = 10; i < prices.length; i++) {
+          const periodPrices = prices.slice(i - 10, i + 1);
+          const hv = calculateHV(periodPrices, 10);
+          if (hv > 0) hvValues.push(hv);
+        }
+
+        if (hvValues.length > 0) {
+          const currentHV = hvValues[hvValues.length - 1];
+          const hvLow = Math.min(...hvValues);
+          const percentFromLow = hvLow > 0 ? ((currentHV - hvLow) / hvLow) * 100 : 0;
+          result.hv10Day = percentFromLow <= 20;
+        }
+      }
+
+      // Check 20-day HV
+      if (data20?.results && data20.results.length >= 40) {
+        const prices = data20.results.map(r => r.c);
+        const hvValues: number[] = [];
+
+        for (let i = 20; i < prices.length; i++) {
+          const periodPrices = prices.slice(i - 20, i + 1);
+          const hv = calculateHV(periodPrices, 20);
+          if (hv > 0) hvValues.push(hv);
+        }
+
+        if (hvValues.length > 0) {
+          const currentHV = hvValues[hvValues.length - 1];
+          const hvLow = Math.min(...hvValues);
+          const percentFromLow = hvLow > 0 ? ((currentHV - hvLow) / hvLow) * 100 : 0;
+          result.hv20Day = percentFromLow <= 20;
+        }
+      }
+
+      // Check 52-week HV
+      if (data52?.results && data52.results.length >= 504) {
+        const prices = data52.results.map(r => r.c);
+        const hvValues: number[] = [];
+
+        for (let i = 252; i < prices.length; i++) {
+          const periodPrices = prices.slice(i - 252, i + 1);
+          const hv = calculateHV(periodPrices, 252);
+          if (hv > 0) hvValues.push(hv);
+        }
+
+        if (hvValues.length > 0) {
+          const currentHV = hvValues[hvValues.length - 1];
+          const hvLow = Math.min(...hvValues);
+          const percentFromLow = hvLow > 0 ? ((currentHV - hvLow) / hvLow) * 100 : 0;
+          result.hv52Week = percentFromLow <= 20;
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error checking HV criteria:', error);
+      return result;
+    }
+  };
+
+  // Build a Trade: Scan flow and grade with EFI Highlights logic
+  const handleBuildTradeScan = async () => {
+    if (!buildTradeTickerInput.trim()) return;
+
+    const ticker = buildTradeTickerInput.trim().toUpperCase();
+
+    setBuildTradeScanning(true);
+    setBuildTradeScanProgress(null);
+    setBuildTradeHVSignals({ hv10Day: false, hv20Day: false, hv52Week: false });
+    setBuildTradeRRGSignal({ quadrant: '', dominantQuadrant: '', consistency: 0, rsRatio: 0, rsMomentum: 0, timeframes: { '4w': '', '8w': '', '14w': '', '26w': '' } });
+    setBuildTradeMarketRegime([]);
+    setBuildTradeExpectedRange(null);
+    setBuildTradeEvents([]);
+    setBuildTradePatterns([]);
+    setBuildTradeIntensity(null);
+    setBuildTradeStability(null);
+
+    try {
+      // Fetch seasonality data for sweet spot and pain point analysis
+      try {
+        console.log(`🔍 Fetching seasonality data for ${ticker}...`);
+
+        // Try up to 20 years of data (max available)
+        const yearsToTry = [20, 15, 10, 5];
+        let seasonalData = null;
+
+        for (const years of yearsToTry) {
+          try {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setFullYear(endDate.getFullYear() - years);
+
+            const startDateStr = startDate.toISOString().split('T')[0];
+            const endDateStr = endDate.toISOString().split('T')[0];
+
+            const response = await fetch(`/api/seasonal-data?symbol=${ticker}&startDate=${startDateStr}&endDate=${endDateStr}`);
+
+            if (response.ok) {
+              const data = await response.json();
+              if (data.dailyData && data.dailyData.length > 0) {
+                seasonalData = data;
+                console.log(`✅ Got ${years} years of seasonality data for ${ticker}`);
+                break;
+              }
+            }
+          } catch (err) {
+            console.log(`Failed to get ${years} years, trying less...`);
+          }
+        }
+
+        if (seasonalData && seasonalData.dailyData) {
+          // Analyze using EXACT same logic as SeasonalityChart
+          const { bestSweetSpot, worstPainPoint } = analyzeLongTermPatterns(seasonalData.dailyData);
+
+          setBuildTradeSweetSpot({
+            period: bestSweetSpot.period,
+            startDay: bestSweetSpot.startDay,
+            endDay: bestSweetSpot.endDay,
+            totalReturn: bestSweetSpot.totalReturn
+          });
+
+          setBuildTradePainPoint({
+            period: worstPainPoint.period,
+            startDay: worstPainPoint.startDay,
+            endDay: worstPainPoint.endDay,
+            totalReturn: worstPainPoint.totalReturn
+          });
+
+          console.log('📊 Sweet Spot:', bestSweetSpot.period, `+${bestSweetSpot.totalReturn.toFixed(2)}%`);
+          console.log('📊 Pain Point:', worstPainPoint.period, `${worstPainPoint.totalReturn.toFixed(2)}%`);
+        } else {
+          console.log('⚠️ No seasonality data available');
+          setBuildTradeSweetSpot(null);
+          setBuildTradePainPoint(null);
+        }
+      } catch (err) {
+        console.error('Failed to fetch seasonality:', err);
+        setBuildTradeSweetSpot(null);
+        setBuildTradePainPoint(null);
+      }
+
+      // Check HV criteria using EXACT same logic as HVScreener
+      try {
+        console.log(`🔍 Checking HV criteria for ${ticker}...`);
+        const hvResults = await checkHVCriteria(ticker);
+        setBuildTradeHVSignals(hvResults);
+
+        const metCriteria = [];
+        if (hvResults.hv10Day) metCriteria.push('10-day');
+        if (hvResults.hv20Day) metCriteria.push('20-day');
+        if (hvResults.hv52Week) metCriteria.push('52-week');
+
+        if (metCriteria.length > 0) {
+          console.log(`✅ ${ticker} meets HV criteria: ${metCriteria.join(', ')}`);
+        } else {
+          console.log(`⚠️ ${ticker} does not meet any HV criteria`);
+        }
+      } catch (err) {
+        console.error('Failed to check HV criteria:', err);
+        setBuildTradeHVSignals({ hv10Day: false, hv20Day: false, hv52Week: false });
+      }
+
+      // Check RRG criteria using EXACT same logic as RRG Screener (SPY benchmark)
+      try {
+        console.log(`🔍 Checking RRG position for ${ticker}...`);
+        const rrgResults = await checkRRGCriteria(ticker);
+        setBuildTradeRRGSignal(rrgResults);
+
+        if (rrgResults.dominantQuadrant) {
+          console.log(`✅ ${ticker} RRG: ${rrgResults.dominantQuadrant} (${rrgResults.consistency}/4 timeframes)`);
+        } else {
+          console.log(`⚠️ ${ticker} RRG data unavailable`);
+        }
+      } catch (err) {
+        console.error('Failed to check RRG criteria:', err);
+        setBuildTradeRRGSignal({ quadrant: '', dominantQuadrant: '', consistency: 0, rsRatio: 0, rsMomentum: 0, timeframes: { '4w': '', '8w': '', '14w': '', '26w': '' } });
+      }
+
+      // Check Market Regime status using EXACT same logic as Market Regimes panel
+      try {
+        console.log(`🔍 Checking Market Regime status for ${ticker}...`);
+        const regimeResults = await checkMarketRegimeCriteria(ticker);
+        setBuildTradeMarketRegime(regimeResults);
+
+        if (regimeResults.length > 0) {
+          console.log(`✅ ${ticker} found in ${regimeResults.length} Market Regime timeframe(s): ${regimeResults.map(r => `${r.highlightType?.toUpperCase()} in ${r.timeframe}`).join(', ')}`);
+        } else {
+          console.log(`⚠️ ${ticker} not found in Market Regimes`);
+        }
+      } catch (err) {
+        console.error('Failed to check Market Regime status:', err);
+        setBuildTradeMarketRegime([]);
+      }
+
+      // Calculate Expected Range using EXACT same logic as Expected Range button
+      try {
+        console.log(`📊 Calculating Expected Range for ${ticker}...`);
+        const rangeData = await calculateExpectedRangeLevels(ticker);
+        if (rangeData) {
+          const { levels, marketData } = rangeData;
+          setBuildTradeExpectedRange({
+            weekly80Call: levels.weekly80Call,
+            weekly90Call: levels.weekly90Call,
+            weekly80Put: levels.weekly80Put,
+            weekly90Put: levels.weekly90Put,
+            monthly80Call: levels.monthly80Call,
+            monthly90Call: levels.monthly90Call,
+            monthly80Put: levels.monthly80Put,
+            monthly90Put: levels.monthly90Put,
+            currentPrice: marketData.currentPrice,
+            weeklyIV: marketData.weeklyIV,
+            monthlyIV: marketData.monthlyIV
+          });
+          console.log(`✅ Expected Range calculated for ${ticker}`);
+        } else {
+          console.log(`⚠️ Failed to calculate Expected Range for ${ticker}`);
+        }
+      } catch (err) {
+        console.error('Failed to calculate Expected Range:', err);
+        setBuildTradeExpectedRange(null);
+      }
+
+      // Check for relevant Events within 1 month (EXACT same logic as Events button)
+      try {
+        console.log(`🎯 Checking for relevant events for ${ticker}...`);
+        const eventsData = await checkEventsForTicker(ticker);
+        setBuildTradeEvents(eventsData);
+        if (eventsData.length > 0) {
+          console.log(`✅ Found ${eventsData.length} relevant event(s) for ${ticker}`);
+        } else {
+          console.log(`⚠️ No relevant events found for ${ticker}`);
+        }
+      } catch (err) {
+        console.error('Failed to check events:', err);
+        setBuildTradeEvents([]);
+      }
+
+      // Check for Pattern Analysis matches (EXACT same logic as Pattern Analysis)
+      try {
+        console.log(`📈 Checking for pattern matches for ${ticker}...`);
+        const patternsData = await checkPatternsForTicker(ticker);
+        setBuildTradePatterns(patternsData);
+        if (patternsData.length > 0) {
+          console.log(`✅ Found ${patternsData.length} pattern match(es) for ${ticker}`);
+        } else {
+          console.log(`⚠️ No recent pattern matches found for ${ticker}`);
+        }
+      } catch (err) {
+        console.error('Failed to check patterns:', err);
+        setBuildTradePatterns([]);
+      }
+
+      // Fetch GEX data for Intensity and Stability gauges (EXACT same as DealerAttraction)
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds like DealerAttraction
+
+        const response = await fetch(`/api/options-chain?ticker=${ticker}`, {
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          setBuildTradeIntensity(null);
+          setBuildTradeStability(null);
+        } else {
+          const result = await response.json();
+
+          if (!result.success || !result.data) {
+            setBuildTradeIntensity(null);
+            setBuildTradeStability(null);
+          } else {
+            const currentPrice = result.currentPrice;
+            const optionsData = result.data;
+
+            if (!currentPrice || currentPrice <= 0) {
+              setBuildTradeIntensity(null);
+              setBuildTradeStability(null);
+            } else {
+              // === STABILITY INDEX (45-day window) ===
+              const today = new Date();
+              const maxDate45 = new Date(today.getTime() + (45 * 24 * 60 * 60 * 1000));
+              const siExps = Object.keys(optionsData).filter(exp => {
+                const expDate = new Date(exp + 'T00:00:00Z');
+                return expDate >= today && expDate <= maxDate45;
+              }).sort();
+
+              // === INTENSITY GAUGE (45-day window, same as DealerAttraction mmExpirations) ===
+              const mmExps = Object.keys(optionsData).filter(exp => {
+                const expDate = new Date(exp + 'T00:00:00Z');
+                return expDate >= today && expDate <= maxDate45;
+              }).sort();
+
+              if (siExps.length === 0 || mmExps.length === 0) {
+                setBuildTradeIntensity(null);
+                setBuildTradeStability(null);
+              } else {
+                // === STABILITY INDEX CALCULATION (45-day expirations) ===
+                const gexByStrike: { [strike: number]: { call: number, put: number, callOI: number, putOI: number } } = {};
+                const vexByStrike: { [strike: number]: { call: number, put: number } } = {};
+
+                siExps.forEach(exp => {
+                  const expData = optionsData[exp];
+
+                  if (!expData?.calls || !expData?.puts) return;
+
+                  const { calls, puts } = expData;
+                  console.log(`  Calls strikes: ${Object.keys(calls).length}, Puts strikes: ${Object.keys(puts).length}`);
+
+                  // Process calls - NO STRIKE FILTERING for SI
+                  Object.entries(calls).forEach(([strike, data]: [string, any]) => {
+                    const strikeNum = parseFloat(strike);
+                    const oi = data.open_interest || 0;
+
+                    if (oi > 0) {
+                      if (!gexByStrike[strikeNum]) {
+                        gexByStrike[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+                      }
+                      if (!vexByStrike[strikeNum]) {
+                        vexByStrike[strikeNum] = { call: 0, put: 0 };
+                      }
+
+                      gexByStrike[strikeNum].callOI += oi;
+
+                      const gamma = data.greeks?.gamma || 0;
+                      if (gamma) {
+                        const gex = gamma * oi * (currentPrice * currentPrice) * 100;
+                        gexByStrike[strikeNum].call += gex;
+                      }
+
+                      const vega = data.greeks?.vega || 0;
+                      if (vega) {
+                        const vex = vega * oi * 100;
+                        vexByStrike[strikeNum].call += vex;
+                      }
+                    }
+                  });
+
+                  // Process puts - NO STRIKE FILTERING for SI
+                  Object.entries(puts).forEach(([strike, data]: [string, any]) => {
+                    const strikeNum = parseFloat(strike);
+                    const oi = data.open_interest || 0;
+
+                    if (oi > 0) {
+                      if (!gexByStrike[strikeNum]) {
+                        gexByStrike[strikeNum] = { call: 0, put: 0, callOI: 0, putOI: 0 };
+                      }
+                      if (!vexByStrike[strikeNum]) {
+                        vexByStrike[strikeNum] = { call: 0, put: 0 };
+                      }
+
+                      gexByStrike[strikeNum].putOI += oi;
+
+                      const gamma = data.greeks?.gamma || 0;
+                      if (gamma) {
+                        const gex = -gamma * oi * (currentPrice * currentPrice) * 100;
+                        gexByStrike[strikeNum].put += gex;
+                      }
+
+                      const vega = data.greeks?.vega || 0;
+                      if (vega) {
+                        const vex = -vega * oi * 100;
+                        vexByStrike[strikeNum].put += vex;
+                      }
+                    }
+                  });
+                });
+
+                console.log(`📊 Strikes processed: ${Object.keys(gexByStrike).length}`);
+
+                // Calculate totals - EXACT same as DealerAttraction
+                let totalGEX = 0;
+                let totalVEX = 0;
+                let totalDEX = 0;
+
+                Object.entries(gexByStrike).forEach(([strike, data]) => {
+                  const strikePrice = parseFloat(strike);
+
+                  // Add GEX
+                  totalGEX += data.call + data.put;
+
+                  // Add VEX
+                  if (vexByStrike[strikePrice]) {
+                    totalVEX += vexByStrike[strikePrice].call + vexByStrike[strikePrice].put;
+                  }
+
+                  // Calculate DEX using moneyness approximation (EXACT same as DealerAttraction)
+                  const callOI = data.callOI || 0;
+                  const putOI = data.putOI || 0;
+
+                  const moneyness = strikePrice / currentPrice;
+                  let callDelta = 0;
+                  let putDelta = 0;
+
+                  if (moneyness > 1.05) {
+                    callDelta = Math.max(0, Math.min(1, (moneyness - 1) * 2));
+                  } else if (moneyness < 0.95) {
+                    callDelta = Math.max(0, Math.min(1, 0.8 + (1 - moneyness) * 0.4));
+                  } else {
+                    callDelta = 0.5;
+                  }
+
+                  putDelta = callDelta - 1;
+
+                  const callDEX = callDelta * callOI * 100 * currentPrice;
+                  const putDEX = putDelta * putOI * 100 * currentPrice;
+
+                  totalDEX += callDEX + putDEX;
+                });
+
+                console.log(`💹 Totals - GEX: ${totalGEX.toFixed(2)}, VEX: ${totalVEX.toFixed(2)}, DEX: ${totalDEX.toFixed(2)}`);
+
+                // Calculate Stability Index (EXACT formula from DealerAttraction)
+                const denominator = Math.abs(totalVEX) + Math.abs(totalDEX);
+                let si = 0;
+                let stability = 'NO DATA';
+                let behavior = 'Insufficient options data';
+                let stabilityColor = 'text-gray-400';
+
+                if (denominator > 0) {
+                  si = totalGEX / denominator;
+
+                  // Classify stability (EXACT same thresholds as DealerAttraction)
+                  if (si >= 2.0) {
+                    stability = 'EXTREMELY STABLE';
+                    behavior = 'GEX domination: Massive mean reversion pressure';
+                    stabilityColor = 'text-blue-600';
+                  } else if (si >= 0.5) {
+                    stability = 'HIGHLY STABLE';
+                    behavior = 'Strong GEX buffer: Gamma walls limiting price swings';
+                    stabilityColor = 'text-blue-500';
+                  } else if (si >= 0) {
+                    stability = 'MILDLY SUPPORTIVE';
+                    behavior = 'Balanced exposure: GEX provides modest support';
+                    stabilityColor = 'text-green-500';
+                  } else if (si >= -0.5) {
+                    stability = 'VOLATILITY BUILDING';
+                    behavior = 'VEX/DEX rising: Gamma protection eroding';
+                    stabilityColor = 'text-yellow-500';
+                  } else if (si >= -2.0) {
+                    stability = 'REFLEXIVE MARKET';
+                    behavior = 'Negative feedback loop: Moves beget more moves';
+                    stabilityColor = 'text-orange-500';
+                  } else {
+                    stability = 'EXTREMELY REFLEXIVE';
+                    behavior = 'VEX/DEX domination: Explosive potential both ways';
+                    stabilityColor = 'text-red-600';
+                  }
+                }
+
+                setBuildTradeStability({ si, stability, behavior, color: stabilityColor });
+
+                // === INTENSITY GAUGE CALCULATION (3-month expirations, ±20% strikes) ===
+                let totalNetDelta = 0;
+                let totalNetGamma = 0;
+                let totalNetTheta = 0;
+                let totalNetVega = 0;
+
+                // Strike range filter for Intensity (±20%)
+                const strikeRange = currentPrice * 0.20;
+                const minStrike = currentPrice - strikeRange;
+                const maxStrike = currentPrice + strikeRange;
+
+                // Recalculate with DTE weighting like DealerAttraction
+                mmExps.forEach(exp => {
+                  const expData = optionsData[exp];
+                  if (!expData?.calls || !expData?.puts) return;
+
+                  // Calculate days to expiry
+                  const expDate = new Date(exp + 'T00:00:00Z');
+                  const today = new Date();
+                  const daysToExp = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                  const dteWeight = daysToExp >= 0 ? (8 - Math.min(7, daysToExp)) / 7 : 1;
+
+                  const { calls, puts } = expData;
+
+                  // Process calls
+                  Object.entries(calls).forEach(([strike, data]: [string, any]) => {
+                    const strikePrice = parseFloat(strike);
+
+                    // Filter strikes to ±20% range (same as DealerAttraction)
+                    if (strikePrice < minStrike || strikePrice > maxStrike) return;
+
+                    const oi = data.open_interest || 0;
+
+                    if (oi > 0) {
+                      // Delta approximation based on moneyness
+                      const moneyness = strikePrice / currentPrice;
+                      let callDelta = 0;
+                      if (moneyness > 1.1) { callDelta = 0.1; }
+                      else if (moneyness > 1.05) { callDelta = 0.3; }
+                      else if (moneyness > 1.0) { callDelta = 0.4; }
+                      else if (moneyness > 0.95) { callDelta = 0.6; }
+                      else if (moneyness > 0.9) { callDelta = 0.7; }
+                      else { callDelta = 0.9; }
+
+                      totalNetDelta += (callDelta * oi * 100) * dteWeight;
+
+                      const gamma = data.greeks?.gamma || 0;
+                      totalNetGamma += (gamma * oi) * dteWeight;
+
+                      const theta = data.greeks?.theta || 0;
+                      totalNetTheta += (theta * oi) * dteWeight;
+
+                      const vega = data.greeks?.vega || 0;
+                      totalNetVega += (vega * oi) * dteWeight;
+                    }
+                  });
+
+                  // Process puts
+                  Object.entries(puts).forEach(([strike, data]: [string, any]) => {
+                    const strikePrice = parseFloat(strike);
+
+                    // Filter strikes to ±20% range (same as DealerAttraction)
+                    if (strikePrice < minStrike || strikePrice > maxStrike) return;
+
+                    const oi = data.open_interest || 0;
+
+                    if (oi > 0) {
+                      // Delta approximation based on moneyness
+                      const moneyness = strikePrice / currentPrice;
+                      let putDelta = 0;
+                      if (moneyness > 1.1) { putDelta = -0.9; }
+                      else if (moneyness > 1.05) { putDelta = -0.7; }
+                      else if (moneyness > 1.0) { putDelta = -0.6; }
+                      else if (moneyness > 0.95) { putDelta = -0.4; }
+                      else if (moneyness > 0.9) { putDelta = -0.3; }
+                      else { putDelta = -0.1; }
+
+                      totalNetDelta += (putDelta * oi * 100) * dteWeight;
+
+                      const gamma = data.greeks?.gamma || 0;
+                      totalNetGamma += (gamma * oi) * dteWeight;
+
+                      const theta = data.greeks?.theta || 0;
+                      totalNetTheta += (theta * oi) * dteWeight;
+
+                      const vega = data.greeks?.vega || 0;
+                      totalNetVega += (vega * oi) * dteWeight;
+                    }
+                  });
+                });
+
+                // Normalize using EXACT same divisors as DealerAttraction
+                const deltaScore = Math.max(-100, Math.min(100, totalNetDelta / 100000));
+                const gammaScore = Math.max(-100, Math.min(100, totalNetGamma / 1000));
+                const thetaScore = Math.max(-100, Math.min(100, totalNetTheta / 1000));
+                const vegaScore = Math.max(-100, Math.min(100, totalNetVega / 1000));
+
+                // Apply weights (EXACT same as DealerAttraction)
+                const DELTA_WEIGHT = 0.30;
+                const GAMMA_WEIGHT = 0.35;
+                const THETA_WEIGHT = 0.20;
+                const VEGA_WEIGHT = 0.15;
+
+                const compositeScore = (
+                  deltaScore * DELTA_WEIGHT +
+                  gammaScore * GAMMA_WEIGHT +
+                  thetaScore * THETA_WEIGHT +
+                  vegaScore * VEGA_WEIGHT
+                );
+
+                // Classify signal (EXACT same thresholds as DealerAttraction)
+                let signal = 'WAIT';
+                let intensityColor = 'text-yellow-500';
+
+                if (compositeScore > 3) {
+                  signal = 'BUY SETUP';
+                  intensityColor = 'text-green-600';
+                } else if (compositeScore > 1) {
+                  signal = 'LEAN BUY';
+                  intensityColor = 'text-green-500';
+                } else if (compositeScore >= -1) {
+                  signal = 'WAIT';
+                  intensityColor = 'text-yellow-500';
+                } else if (compositeScore >= -3) {
+                  signal = 'LEAN SELL';
+                  intensityColor = 'text-orange-500';
+                } else {
+                  signal = 'SELL SETUP';
+                  intensityColor = 'text-red-600';
+                }
+
+                setBuildTradeIntensity({ score: compositeScore, signal, color: intensityColor });
+
+                console.log(`✅ GAUGES COMPLETE!`);
+                console.log(`   Intensity: ${signal} (Score: ${compositeScore.toFixed(2)})`);
+                console.log(`   Stability: ${stability} (SI: ${si.toFixed(2)})`);
+                console.log(`   State set - buildTradeIntensity:`, { score: compositeScore, signal, color: intensityColor });
+                console.log(`   State set - buildTradeStability:`, { si, stability, behavior, color: stabilityColor });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('❌ Failed to calculate gauges:', err);
+        console.error('Error stack:', err);
+        setBuildTradeIntensity(null);
+        setBuildTradeStability(null);
+      }
+
+      // Scan complete
+      setBuildTradeScanning(false);
+      setBuildTradeScanProgress(null);
+
+    } catch (error) {
+      setBuildTradeScanning(false);
+    }
+  };
+
+  // EXACT Sweet Spot and Pain Point analysis from SeasonalityChart
+  const analyzeLongTermPatterns = (dailyData: any[]) => {
+    let bestSweetSpot = { startDay: 1, endDay: 50, avgReturn: -999, period: '', totalReturn: 0 };
+    let worstPainPoint = { startDay: 1, endDay: 50, avgReturn: 999, period: '', totalReturn: 0 };
+
+    // Test different window sizes from 50 to 90 days
+    for (let windowSize = 50; windowSize <= 90; windowSize++) {
+      // Slide through the year
+      for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+        const endDay = startDay + windowSize - 1;
+        const windowData = dailyData.filter((d: any) => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
+
+        if (windowData.length >= Math.floor(windowSize * 0.8)) { // Ensure we have at least 80% of data points
+          // Calculate cumulative return for the period
+          const sortedWindowData = windowData.sort((a: any, b: any) => a.dayOfYear - b.dayOfYear);
+          let cumulativeReturn = 0;
+          let avgReturn = 0;
+
+          sortedWindowData.forEach((d: any) => {
+            cumulativeReturn += d.avgReturn;
+            avgReturn += d.avgReturn;
+          });
+
+          avgReturn = avgReturn / sortedWindowData.length;
+
+          // Check for best sweet spot
+          if (cumulativeReturn > bestSweetSpot.totalReturn) {
+            const startDataPoint = dailyData.find((d: any) => d.dayOfYear === startDay);
+            const endDataPoint = dailyData.find((d: any) => d.dayOfYear === endDay);
+
+            if (startDataPoint && endDataPoint) {
+              bestSweetSpot = {
+                startDay,
+                endDay,
+                avgReturn,
+                totalReturn: cumulativeReturn,
+                period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day} (${windowSize} days)`
+              };
+            }
+          }
+
+          // Check for worst pain point
+          if (cumulativeReturn < worstPainPoint.totalReturn) {
+            const startDataPoint = dailyData.find((d: any) => d.dayOfYear === startDay);
+            const endDataPoint = dailyData.find((d: any) => d.dayOfYear === endDay);
+
+            if (startDataPoint && endDataPoint) {
+              worstPainPoint = {
+                startDay,
+                endDay,
+                avgReturn,
+                totalReturn: cumulativeReturn,
+                period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day} (${windowSize} days)`
+              };
+            }
+          }
+        }
+      }
+    }
+
+    return { bestSweetSpot, worstPainPoint };
+  };
+
+  // EFI Highlights criteria checker - EXACT from OptionsFlowTable
+  const meetsEfiCriteria = (trade: any): boolean => {
+    if (trade.days_to_expiry < 0 || trade.days_to_expiry > 35) return false;
+    if (trade.total_premium < 100000 || trade.total_premium > 450000) return false;
+    if (trade.trade_size < 650 || trade.trade_size > 1999) return false;
+    if (!trade.moneyness || trade.moneyness !== 'OTM') return false;
+    return true;
+  };
+
+  // Calculate positioning grade - USES SAME LOGIC AS OptionsFlowTable
+  const calculatePositioningGrade = (
+    trade: any,
+    allTrades: any[],
+    currentStockPrices: Record<string, number>,
+    historicalStdDevs: Map<string, number>,
+    currentOptionPrices: Record<string, number>
+  ): {
+    grade: string;
+    score: number;
+    color: string;
+  } => {
+    // Get option ticker for current price lookup
+    const expiry = trade.expiry.replace(/-/g, '').slice(2);
+    const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+    const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+    const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+    const currentPrice = currentOptionPrices[optionTicker];
+    const entryPrice = trade.premium_per_contract;
+
+    let confidenceScore = 0;
+    const scores = {
+      expiration: 0,
+      contractPrice: 0,
+      combo: 0,
+      priceAction: 0,
+      stockReaction: 0
+    };
+
+    // 1. Expiration Score (25 points max)
+    const daysToExpiry = trade.days_to_expiry;
+    if (daysToExpiry <= 7) scores.expiration = 25;
+    else if (daysToExpiry <= 14) scores.expiration = 20;
+    else if (daysToExpiry <= 21) scores.expiration = 15;
+    else if (daysToExpiry <= 28) scores.expiration = 10;
+    else if (daysToExpiry <= 42) scores.expiration = 5;
+    confidenceScore += scores.expiration;
+
+    // 2. Contract Price Score (25 points max) - based on position P&L
+    if (!currentPrice || currentPrice <= 0) {
+      throw new Error(`Missing current option price for ${trade.underlying_ticker} ${trade.type} $${trade.strike}`);
+    }
+
+    const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+
+    if (percentChange <= -40) scores.contractPrice = 25;
+    else if (percentChange <= -20) scores.contractPrice = 20;
+    else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 15;
+    else if (percentChange >= 20) scores.contractPrice = 5;
+    else scores.contractPrice = 10;
+
+    confidenceScore += scores.contractPrice;
+
+    // 3. Combo Trade Score (10 points max)
+    const isCall = trade.type === 'call';
+    const fillStyle = trade.fill_style || '';
+    const hasComboTrade = allTrades.some(t => {
+      if (t.underlying_ticker !== trade.underlying_ticker) return false;
+      if (t.expiry !== trade.expiry) return false;
+      if (Math.abs(t.strike - trade.strike) > trade.strike * 0.05) return false;
+
+      const oppositeFill = t.fill_style || '';
+      const oppositeType = t.type.toLowerCase();
+
+      // Bullish combo: Calls with A/AA + Puts with B/BB
+      if (isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+        return oppositeType === 'put' && (oppositeFill === 'B' || oppositeFill === 'BB');
+      }
+      // Bearish combo: Calls with B/BB + Puts with A/AA
+      if (isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+        return oppositeType === 'put' && (oppositeFill === 'A' || oppositeFill === 'AA');
+      }
+      // For puts, reverse logic
+      if (!isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+        return oppositeType === 'call' && (oppositeFill === 'A' || oppositeFill === 'AA');
+      }
+      if (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+        return oppositeType === 'call' && (oppositeFill === 'B' || oppositeFill === 'BB');
+      }
+      return false;
+    });
+    if (hasComboTrade) scores.combo = 10;
+    confidenceScore += scores.combo;
+
+    // Shared variables for sections 4 and 5
+    const entryStockPrice = trade.spot_price;
+    const currentStockPrice = currentStockPrices[trade.underlying_ticker];
+    const tradeTime = new Date(trade.trade_timestamp);
+    const currentTime = new Date();
+
+    // 4. Price Action Score (25 points max) - Stock within standard deviation
+    const stdDev = historicalStdDevs.get(trade.underlying_ticker);
+
+    if (!currentStockPrice || !entryStockPrice || !stdDev) {
+      throw new Error(`Missing price action data for ${trade.underlying_ticker}`);
+    }
+
+    const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
+    const tradingDaysElapsed = Math.floor(hoursElapsed / 6.5); // 6.5-hour trading day
+
+    // Calculate current stock move in percentage
+    const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
+    const absMove = Math.abs(stockPercentChange);
+
+    // Check if stock is within 1 standard deviation
+    const withinStdDev = absMove <= stdDev;
+
+    // Award points based on how many days stock stayed within std dev
+    if (withinStdDev && tradingDaysElapsed >= 3) scores.priceAction = 25;
+    else if (withinStdDev && tradingDaysElapsed >= 2) scores.priceAction = 20;
+    else if (withinStdDev && tradingDaysElapsed >= 1) scores.priceAction = 15;
+    else scores.priceAction = 10;
+
+    confidenceScore += scores.priceAction;
+
+    // 5. Stock Reaction Score (15 points max)
+    // Measure stock movement 1 hour and 3 hours after trade placement
+    if (currentStockPrice && entryStockPrice) {
+      const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
+
+      // Determine trade direction (bullish or bearish)
+      const isBullish = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) ||
+        (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+      const isBearish = (isCall && (fillStyle === 'B' || fillStyle === 'BB')) ||
+        (!isCall && (fillStyle === 'A' || fillStyle === 'AA'));
+
+      // Check if stock reversed against trade direction
+      const reversed = (isBullish && stockPercentChange <= -1.0) ||
+        (isBearish && stockPercentChange >= 1.0);
+      const followed = (isBullish && stockPercentChange >= 1.0) ||
+        (isBearish && stockPercentChange <= -1.0);
+      const chopped = Math.abs(stockPercentChange) < 1.0;
+
+      // Calculate time elapsed since trade
+      const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
+
+      // Award points based on time checkpoints
+      if (hoursElapsed >= 1) {
+        // 1-hour checkpoint (50% of points)
+        if (reversed) scores.stockReaction += 7.5;
+        else if (chopped) scores.stockReaction += 5;
+        else if (followed) scores.stockReaction += 2.5;
+
+        if (hoursElapsed >= 3) {
+          // 3-hour checkpoint (remaining 50%)
+          if (reversed) scores.stockReaction += 7.5;
+          else if (chopped) scores.stockReaction += 5;
+          else if (followed) scores.stockReaction += 2.5;
+        }
+      }
+    }
+    confidenceScore += scores.stockReaction;
+
+    // Color code confidence score
+    let scoreColor = '#ff0000'; // F = Red
+    if (confidenceScore >= 85) scoreColor = '#00ff00'; // A = Bright Green
+    else if (confidenceScore >= 70) scoreColor = '#84cc16'; // B = Lime Green
+    else if (confidenceScore >= 50) scoreColor = '#fbbf24'; // C = Yellow
+    else if (confidenceScore >= 33) scoreColor = '#3b82f6'; // D = Blue
+
+    // Grade letter
+    let grade = 'F';
+    if (confidenceScore >= 85) grade = 'A+';
+    else if (confidenceScore >= 80) grade = 'A';
+    else if (confidenceScore >= 75) grade = 'A-';
+    else if (confidenceScore >= 70) grade = 'B+';
+    else if (confidenceScore >= 65) grade = 'B';
+    else if (confidenceScore >= 60) grade = 'B-';
+    else if (confidenceScore >= 55) grade = 'C+';
+    else if (confidenceScore >= 50) grade = 'C';
+    else if (confidenceScore >= 48) grade = 'C-';
+    else if (confidenceScore >= 43) grade = 'D+';
+    else if (confidenceScore >= 38) grade = 'D';
+    else if (confidenceScore >= 33) grade = 'D-';
+
+    return { grade, score: confidenceScore, color: scoreColor };
+  };
 
   // Switch regime tabs instantly from cache
   useEffect(() => {
@@ -13731,11 +15088,14 @@ export default function TradingViewChart({
                     // Calculate 80% and 90% probability targets using Black-Scholes
                     const expiryDate = new Date(option.expiration);
                     const now = new Date();
-                    const daysToExpiry = Math.max(0, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                    const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
                     const T = daysToExpiry / 365;
                     const r = 0.0387; // Risk-free rate
                     const sigma = impliedVolatility;
-                    const stockPrice = option.stockPrice || 0;
+                    let stockPrice = option.stockPrice || 0;
+                    if (!stockPrice || stockPrice === 0) {
+                      stockPrice = option.strike;
+                    }
 
                     const isCall = option.type === 'call';
                     const intrinsicValue = Math.max(0, isCall ? stockPrice - option.strike : option.strike - stockPrice);
@@ -14767,7 +16127,7 @@ export default function TradingViewChart({
                                         </div>
                                       </div>
 
-                                      <div className="text-center">
+                                      <div className="text-center flex items-center justify-center gap-2">
                                         <span className="font-black tracking-tight" style={{
                                           fontSize: '2rem',
                                           background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
@@ -14779,6 +16139,92 @@ export default function TradingViewChart({
                                         }}>
                                           {symbol}
                                         </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (trade && trade.strike && trade.expiration && trade.contractPrice) {
+                                              // Get current stock price - use strike if stockPrice not available
+                                              let currentStockPrice = trade.stockPrice;
+                                              if (!currentStockPrice || currentStockPrice === 0) {
+                                                currentStockPrice = trade.strike;
+                                              }
+
+                                              // Calculate targets using Black-Scholes expected move
+                                              const expiryDate = new Date(trade.expiration);
+                                              const now = new Date();
+                                              const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                                              const T = daysToExpiry / 365;
+                                              const sigma = (trade.impliedVolatility || 50) / 100;
+                                              const isCall = trade.optionType?.toLowerCase() === 'call';
+
+                                              let target80StockPrice = 0;
+                                              let target90StockPrice = 0;
+
+                                              if (T > 0 && sigma > 0 && currentStockPrice > 0) {
+                                                if (isCall) {
+                                                  const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
+                                                  target80StockPrice = currentStockPrice + (expectedMove1SD * 0.84);
+                                                  target90StockPrice = currentStockPrice + (expectedMove1SD * 1.28);
+                                                } else {
+                                                  const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
+                                                  target80StockPrice = currentStockPrice - (expectedMove1SD * 0.84);
+                                                  target90StockPrice = currentStockPrice - (expectedMove1SD * 1.28);
+                                                }
+                                              }
+
+                                              const watchlistItem = {
+                                                id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
+                                                ticker: trade.optionTicker || `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'call' ? 'C' : 'P'}${trade.strike}`,
+                                                symbol: symbol,
+                                                strike: trade.strike,
+                                                type: trade.optionType?.toLowerCase() || 'call',
+                                                contract_type: trade.optionType?.toLowerCase() || 'call',
+                                                expiration: trade.expiration,
+                                                bid: trade.contractPrice * 0.98,
+                                                ask: trade.contractPrice * 1.02,
+                                                lastPrice: trade.contractPrice,
+                                                last_price: trade.contractPrice,
+                                                delta: trade.delta || 0,
+                                                theta: trade.thetaDecay ? -Math.abs(trade.thetaDecay) : 0,
+                                                implied_volatility: trade.impliedVolatility || 0,
+                                                strike_price: trade.strike,
+                                                expiration_date: trade.expiration,
+                                                addedAt: new Date(),
+                                                entryPrice: trade.contractPrice,
+                                                stockPrice: currentStockPrice,
+                                                stockTarget80: target80StockPrice,
+                                                stockTarget90: target90StockPrice,
+                                                stopLoss: trade.contractPrice * 0.75
+                                              };
+                                              const saved = localStorage.getItem('optionsWatchlist');
+                                              const existing = saved ? JSON.parse(saved) : [];
+                                              const alreadyExists = existing.some((item: any) =>
+                                                item.symbol === watchlistItem.symbol &&
+                                                item.strike === watchlistItem.strike &&
+                                                item.expiration === watchlistItem.expiration
+                                              );
+                                              if (!alreadyExists) {
+                                                localStorage.setItem('optionsWatchlist', JSON.stringify([...existing, watchlistItem]));
+                                                setHighlightFilter(highlightFilter);
+                                              }
+                                            }
+                                          }}
+                                          className="hover:scale-110 transition-transform"
+                                          title="Add to Options Watchlist"
+                                        >
+                                          {(() => {
+                                            const saved = localStorage.getItem('optionsWatchlist');
+                                            const existing = saved ? JSON.parse(saved) : [];
+                                            const isInWatchlist = existing.some((item: any) =>
+                                              item.symbol === symbol &&
+                                              item.strike === trade.strike &&
+                                              item.expiration === trade.expiration
+                                            );
+                                            return isInWatchlist ?
+                                              <TbStarFilled className="w-5 h-5 text-yellow-400" /> :
+                                              <TbStar className="w-5 h-5 text-yellow-400 hover:text-yellow-300" />;
+                                          })()}
+                                        </button>
                                       </div>
 
                                       <div className="flex-1">
@@ -14970,7 +16416,7 @@ export default function TradingViewChart({
                                         </div>
                                       </div>
 
-                                      <div className="text-center">
+                                      <div className="text-center flex items-center justify-center gap-2">
                                         <span className="font-black tracking-tight" style={{
                                           fontSize: '2rem',
                                           background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
@@ -14982,6 +16428,92 @@ export default function TradingViewChart({
                                         }}>
                                           {symbol}
                                         </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (trade && trade.strike && trade.expiration && trade.contractPrice) {
+                                              // Get current stock price - use strike if stockPrice not available
+                                              let currentStockPrice = trade.stockPrice;
+                                              if (!currentStockPrice || currentStockPrice === 0) {
+                                                currentStockPrice = trade.strike;
+                                              }
+
+                                              // Calculate targets using Black-Scholes expected move
+                                              const expiryDate = new Date(trade.expiration);
+                                              const now = new Date();
+                                              const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                                              const T = daysToExpiry / 365;
+                                              const sigma = (trade.impliedVolatility || 50) / 100;
+                                              const isPut = trade.optionType?.toLowerCase() === 'put';
+
+                                              let target80StockPrice = 0;
+                                              let target90StockPrice = 0;
+
+                                              if (T > 0 && sigma > 0 && currentStockPrice > 0) {
+                                                if (isPut) {
+                                                  const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
+                                                  target80StockPrice = currentStockPrice - (expectedMove1SD * 0.84);
+                                                  target90StockPrice = currentStockPrice - (expectedMove1SD * 1.28);
+                                                } else {
+                                                  const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
+                                                  target80StockPrice = currentStockPrice + (expectedMove1SD * 0.84);
+                                                  target90StockPrice = currentStockPrice + (expectedMove1SD * 1.28);
+                                                }
+                                              }
+
+                                              const watchlistItem = {
+                                                id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
+                                                ticker: trade.optionTicker || `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'put' ? 'P' : 'C'}${trade.strike}`,
+                                                symbol: symbol,
+                                                strike: trade.strike,
+                                                type: trade.optionType?.toLowerCase() || 'put',
+                                                contract_type: trade.optionType?.toLowerCase() || 'put',
+                                                expiration: trade.expiration,
+                                                bid: trade.contractPrice * 0.98,
+                                                ask: trade.contractPrice * 1.02,
+                                                lastPrice: trade.contractPrice,
+                                                last_price: trade.contractPrice,
+                                                delta: trade.delta || 0,
+                                                theta: trade.thetaDecay ? -Math.abs(trade.thetaDecay) : 0,
+                                                implied_volatility: trade.impliedVolatility || 0,
+                                                strike_price: trade.strike,
+                                                expiration_date: trade.expiration,
+                                                addedAt: new Date(),
+                                                entryPrice: trade.contractPrice,
+                                                stockPrice: currentStockPrice,
+                                                stockTarget80: target80StockPrice,
+                                                stockTarget90: target90StockPrice,
+                                                stopLoss: trade.contractPrice * 0.75
+                                              };
+                                              const saved = localStorage.getItem('optionsWatchlist');
+                                              const existing = saved ? JSON.parse(saved) : [];
+                                              const alreadyExists = existing.some((item: any) =>
+                                                item.symbol === watchlistItem.symbol &&
+                                                item.strike === watchlistItem.strike &&
+                                                item.expiration === watchlistItem.expiration
+                                              );
+                                              if (!alreadyExists) {
+                                                localStorage.setItem('optionsWatchlist', JSON.stringify([...existing, watchlistItem]));
+                                                setHighlightFilter(highlightFilter);
+                                              }
+                                            }
+                                          }}
+                                          className="hover:scale-110 transition-transform"
+                                          title="Add to Options Watchlist"
+                                        >
+                                          {(() => {
+                                            const saved = localStorage.getItem('optionsWatchlist');
+                                            const existing = saved ? JSON.parse(saved) : [];
+                                            const isInWatchlist = existing.some((item: any) =>
+                                              item.symbol === symbol &&
+                                              item.strike === trade.strike &&
+                                              item.expiration === trade.expiration
+                                            );
+                                            return isInWatchlist ?
+                                              <TbStarFilled className="w-5 h-5 text-yellow-400" /> :
+                                              <TbStar className="w-5 h-5 text-yellow-400 hover:text-yellow-300" />;
+                                          })()}
+                                        </button>
                                       </div>
 
                                       <div className="flex-1">
@@ -18482,7 +20014,7 @@ export default function TradingViewChart({
                   return (
                     <div key={item.id} className="flex flex-col items-center w-full px-2 mb-2">
                       <button
-                        className="group relative w-full py-6 flex flex-col items-center justify-center gap-2.5
+                        className="group relative w-full py-8 flex flex-col items-center justify-center gap-2.5
  transition-all duration-500 ease-out active:scale-95 rounded-lg overflow-hidden backdrop-blur-xl"
                         style={{
                           background: isActive
@@ -19278,13 +20810,13 @@ export default function TradingViewChart({
           {/* Sidebar Panels */}
           {activeSidebarPanel && (
             <div
-              className={`fixed top-32 md:top-45 bottom-4 left-0 md:left-[100px] w-full md:w-[1200px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg overflow-hidden`}
+              className={`fixed top-32 md:top-45 bottom-4 left-0 md:left-[100px] w-full md:w-[1200px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
               data-sidebar-panel={activeSidebarPanel}
             >
               {/* Sidebar panel debugging */}
 
               {/* Panel Content */}
-              <div className="h-full overflow-y-auto">
+              <div className={`h-full ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}>
                 {activeSidebarPanel === 'liquid' && (
                   <DealerAttraction onClose={() => setActiveSidebarPanel(null)} />
                 )}
@@ -19794,7 +21326,7 @@ export default function TradingViewChart({
                       </button>
                       {/* Tab Navigation */}
                       <div className="flex border-2 border-rose-500/30 rounded-md overflow-hidden shadow-lg">
-                        {['Price', 'IV'].map(tab => (
+                        {['Price', 'IV', 'Screener'].map(tab => (
                           <button
                             key={tab}
                             onClick={() => setRrgTab(tab)}
@@ -19823,7 +21355,7 @@ export default function TradingViewChart({
                               e.currentTarget.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)';
                             }}
                           >
-                            {tab} RRG
+                            {tab === 'Screener' ? tab : `${tab} RRG`}
                           </button>
                         ))}
                       </div>
@@ -19833,6 +21365,7 @@ export default function TradingViewChart({
                     <div className="flex-1 overflow-hidden">
                       {rrgTab === 'Price' && <RRGAnalytics />}
                       {rrgTab === 'IV' && <IVRRGAnalytics />}
+                      {rrgTab === 'Screener' && <RRGScreener hideTitle={true} sectorUnderTicker={true} compactLayout={true} />}
                     </div>
                   </div>
                 )}
@@ -20653,7 +22186,832 @@ export default function TradingViewChart({
                   </div>
                 )}
                 {activeSidebarPanel === 'trades' && (
-                  <div className="p-6 text-gray-400">AI Trade Recommendations removed</div>
+                  <div className="h-full overflow-y-auto overflow-x-hidden" style={{
+                    background: '#000000',
+                    borderBottom: '2px solid rgba(30, 58, 138, 0.4)',
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+                    maxHeight: '100vh',
+                    overflowY: 'scroll'
+                  }}>
+                    {/* Premium Title Section */}
+                    <div className="px-6 py-6 relative overflow-hidden">
+                      <div className="absolute inset-0 opacity-30" style={{
+                        background: 'radial-gradient(ellipse at top, rgba(30, 58, 138, 0.1) 0%, transparent 70%)'
+                      }} />
+                      <div className="absolute inset-0 opacity-20" style={{
+                        background: 'linear-gradient(90deg, transparent 0%, rgba(30, 58, 138, 0.05) 50%, transparent 100%)'
+                      }} />
+
+                      <div className="relative z-10 flex items-center justify-center">
+                        <div className="text-center">
+                          <h1 className="text-4xl font-bold tracking-wider uppercase mb-1" style={{
+                            fontFamily: '"JetBrains Mono", monospace',
+                            background: 'linear-gradient(135deg, #ffffff 0%, #93c5fd 25%, #3b82f6 50%, #93c5fd 75%, #ffffff 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            textShadow: '0 2px 10px rgba(59, 130, 246, 0.3)',
+                            filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8))'
+                          }}>
+                            Build A Trade
+                          </h1>
+                        </div>
+
+                        <button
+                          onClick={() => setActiveSidebarPanel(null)}
+                          className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors"
+                          aria-label="Close panel"
+                        >
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Panel Content */}
+                    <div className="px-6 pb-48" style={{ minHeight: '100%' }}>
+                      {/* Search Bar Section */}
+                      <div className="mb-6">
+                        <label className="block text-sm font-bold text-gray-400 mb-2 uppercase tracking-wider" style={{ fontFamily: 'monospace' }}>
+                          Enter Ticker Symbol
+                        </label>
+                        <div className="flex gap-3 mb-4">
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              value={buildTradeTickerInput}
+                              onChange={(e) => setBuildTradeTickerInput(e.target.value.toUpperCase())}
+                              onKeyPress={(e) => e.key === 'Enter' && handleBuildTradeScan()}
+                              placeholder="Type ticker (e.g., AAPL, TSLA, SPY)"
+                              className="w-full px-4 py-3 bg-black border-2 rounded-lg font-mono text-lg text-white placeholder-gray-600 focus:outline-none transition-all"
+                              style={{
+                                borderColor: 'rgba(59, 130, 246, 0.3)',
+                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.6)',
+                              }}
+                              onFocus={(e) => {
+                                e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.8)';
+                                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.2), 0 2px 8px rgba(0, 0, 0, 0.6)';
+                              }}
+                              onBlur={(e) => {
+                                e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.6)';
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <select
+                              value={buildTradeTimeframe}
+                              onChange={(e) => setBuildTradeTimeframe(e.target.value as '1D' | '3D')}
+                              className="px-4 py-3 bg-black border-2 rounded-lg font-mono text-sm text-white focus:outline-none transition-all"
+                              style={{
+                                borderColor: 'rgba(59, 130, 246, 0.3)',
+                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.6)',
+                                minWidth: '100px'
+                              }}
+                            >
+                              <option value="1D">1 DAY</option>
+                              <option value="3D">3 DAYS</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleBuildTradeScan}
+                          disabled={buildTradeScanning || !buildTradeTickerInput.trim()}
+                          className="w-full py-3 rounded-lg font-bold uppercase tracking-wider transition-all"
+                          style={{
+                            background: buildTradeScanning ? 'rgba(59, 130, 246, 0.3)' : 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                            color: '#ffffff',
+                            border: '2px solid rgba(59, 130, 246, 0.5)',
+                            boxShadow: buildTradeScanning ? 'none' : '0 4px 12px rgba(59, 130, 246, 0.4)',
+                            cursor: buildTradeScanning ? 'not-allowed' : 'pointer',
+                            opacity: buildTradeScanning ? 0.6 : 1
+                          }}
+                        >
+                          {buildTradeScanning ? (
+                            buildTradeScanProgress ?
+                              `Scanning... ${buildTradeScanProgress.current}/${buildTradeScanProgress.total}` :
+                              'Scanning...'
+                          ) : (
+                            'Scan For Opportunities'
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Analysis Results - ALWAYS SHOW */}
+                      {(buildTradeSweetSpot || buildTradePainPoint || buildTradeHVSignals.hv10Day || buildTradeHVSignals.hv20Day || buildTradeHVSignals.hv52Week || buildTradeIntensity || buildTradeStability || !buildTradeScanning) && (
+                        <div>
+                          {/* Dealer Workbench Gauges - TOP PRIORITY */}
+                          {(buildTradeIntensity || buildTradeStability) && (
+                            <div className="mb-6 grid grid-cols-2 gap-4" style={{ position: 'relative', zIndex: 10 }}>
+                              {/* Intensity Gauge */}
+                              {buildTradeIntensity && (
+                                <div className="p-4 rounded-lg" style={{
+                                  background: 'rgba(59, 130, 246, 0.1)',
+                                  border: '1px solid rgba(59, 130, 246, 0.3)'
+                                }}>
+                                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2" style={{ fontFamily: 'monospace' }}>
+                                    Dealer Intensity
+                                  </div>
+                                  <div className={`text-lg font-bold mb-1 ${buildTradeIntensity.color}`} style={{ fontFamily: 'monospace' }}>
+                                    {buildTradeIntensity.signal}
+                                  </div>
+                                  <div className="text-sm text-gray-400" style={{ fontFamily: 'monospace' }}>
+                                    Score: {buildTradeIntensity.score.toFixed(2)}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Stability Gauge */}
+                              {buildTradeStability && (
+                                <div className="p-4 rounded-lg" style={{
+                                  background: 'rgba(168, 85, 247, 0.1)',
+                                  border: '1px solid rgba(168, 85, 247, 0.3)'
+                                }}>
+                                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2" style={{ fontFamily: 'monospace' }}>
+                                    Market Stability
+                                  </div>
+                                  <div className={`text-lg font-bold mb-1 ${buildTradeStability.color}`} style={{ fontFamily: 'monospace' }}>
+                                    {buildTradeStability.stability}
+                                  </div>
+                                  <div className="text-sm text-gray-400" style={{ fontFamily: 'monospace' }}>
+                                    SI: {buildTradeStability.si.toFixed(2)}
+                                  </div>
+                                  <div className="text-xs text-gray-500 mt-1" style={{ fontFamily: 'monospace' }}>
+                                    {buildTradeStability.behavior}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Seasonality Analysis Results */}
+                          {(buildTradeSweetSpot || buildTradePainPoint) && (
+                            <div className="mb-6 grid grid-cols-2 gap-4">
+                              {buildTradeSweetSpot && (
+                                <div className="p-4 rounded-lg" style={{
+                                  background: 'rgba(34, 197, 94, 0.1)',
+                                  border: '1px solid rgba(34, 197, 94, 0.3)'
+                                }}>
+                                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2" style={{ fontFamily: 'monospace' }}>
+                                    Sweet Spot
+                                  </div>
+                                  <div className="text-sm font-bold text-green-400 mb-1" style={{ fontFamily: 'monospace' }}>
+                                    {buildTradeSweetSpot.period}
+                                  </div>
+                                  <div className="text-lg font-bold text-green-400" style={{ fontFamily: 'monospace' }}>
+                                    +{buildTradeSweetSpot.totalReturn.toFixed(2)}%
+                                  </div>
+                                </div>
+                              )}
+                              {buildTradePainPoint && (
+                                <div className="p-4 rounded-lg" style={{
+                                  background: 'rgba(239, 68, 68, 0.1)',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)'
+                                }}>
+                                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2" style={{ fontFamily: 'monospace' }}>
+                                    Pain Point
+                                  </div>
+                                  <div className="text-sm font-bold text-red-400 mb-1" style={{ fontFamily: 'monospace' }}>
+                                    {buildTradePainPoint.period}
+                                  </div>
+                                  <div className="text-lg font-bold text-red-400" style={{ fontFamily: 'monospace' }}>
+                                    {buildTradePainPoint.totalReturn.toFixed(2)}%
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Historical Volatility Signals */}
+                          {(buildTradeHVSignals.hv10Day || buildTradeHVSignals.hv20Day || buildTradeHVSignals.hv52Week) && (
+                            <div className="mb-6 p-4 rounded-lg" style={{
+                              background: 'rgba(255, 140, 0, 0.1)',
+                              border: '1px solid rgba(255, 140, 0, 0.3)'
+                            }}>
+                              <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3" style={{ fontFamily: 'monospace' }}>
+                                HV Screener Signals
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {buildTradeHVSignals.hv10Day && (
+                                  <div className="px-3 py-2 rounded-lg font-bold" style={{
+                                    background: 'rgba(34, 197, 94, 0.2)',
+                                    border: '1px solid rgba(34, 197, 94, 0.4)',
+                                    color: '#22c55e',
+                                    fontSize: '13px',
+                                    fontFamily: 'monospace'
+                                  }}>
+                                    ✓ 10-Day HV Near Low
+                                  </div>
+                                )}
+                                {buildTradeHVSignals.hv20Day && (
+                                  <div className="px-3 py-2 rounded-lg font-bold" style={{
+                                    background: 'rgba(34, 197, 94, 0.2)',
+                                    border: '1px solid rgba(34, 197, 94, 0.4)',
+                                    color: '#22c55e',
+                                    fontSize: '13px',
+                                    fontFamily: 'monospace'
+                                  }}>
+                                    ✓ 20-Day HV Near Low
+                                  </div>
+                                )}
+                                {buildTradeHVSignals.hv52Week && (
+                                  <div className="px-3 py-2 rounded-lg font-bold" style={{
+                                    background: 'rgba(34, 197, 94, 0.2)',
+                                    border: '1px solid rgba(34, 197, 94, 0.4)',
+                                    color: '#22c55e',
+                                    fontSize: '13px',
+                                    fontFamily: 'monospace'
+                                  }}>
+                                    ✓ 52-Week HV Near Low
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* RRG Screener Status - ALWAYS SHOW */}
+                          <div className="mb-6 p-4 rounded-lg" style={{
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)'
+                          }}>
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3" style={{ fontFamily: 'monospace' }}>
+                              RRG Screener Status (vs SPY)
+                            </div>
+                            {buildTradeRRGSignal.dominantQuadrant ? (
+                              <>
+                                <div className="flex flex-wrap gap-2 mb-3">
+                                  <div className="px-3 py-2 rounded-lg font-bold" style={{
+                                    background: buildTradeRRGSignal.dominantQuadrant === 'leading' ? 'rgba(34, 197, 94, 0.2)' :
+                                      buildTradeRRGSignal.dominantQuadrant === 'improving' ? 'rgba(59, 130, 246, 0.2)' :
+                                        buildTradeRRGSignal.dominantQuadrant === 'weakening' ? 'rgba(234, 179, 8, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                                    border: buildTradeRRGSignal.dominantQuadrant === 'leading' ? '1px solid rgba(34, 197, 94, 0.4)' :
+                                      buildTradeRRGSignal.dominantQuadrant === 'improving' ? '1px solid rgba(59, 130, 246, 0.4)' :
+                                        buildTradeRRGSignal.dominantQuadrant === 'weakening' ? '1px solid rgba(234, 179, 8, 0.4)' : '1px solid rgba(239, 68, 68, 0.4)',
+                                    color: buildTradeRRGSignal.dominantQuadrant === 'leading' ? '#22c55e' :
+                                      buildTradeRRGSignal.dominantQuadrant === 'improving' ? '#3b82f6' :
+                                        buildTradeRRGSignal.dominantQuadrant === 'weakening' ? '#eab308' : '#ef4444',
+                                    fontSize: '13px',
+                                    fontFamily: 'monospace',
+                                    textTransform: 'uppercase' as const
+                                  }}>
+                                    {buildTradeRRGSignal.dominantQuadrant}
+                                  </div>
+                                  <div className="px-3 py-2 rounded-lg font-bold" style={{
+                                    background: 'rgba(16, 185, 129, 0.2)',
+                                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                                    color: '#10b981',
+                                    fontSize: '13px',
+                                    fontFamily: 'monospace'
+                                  }}>
+                                    {buildTradeRRGSignal.consistency}/4 Consistent
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 text-xs mb-2" style={{ fontFamily: 'monospace' }}>
+                                  <div>
+                                    <span className="text-gray-400">RS Ratio:</span>
+                                    <span className="ml-2 text-white font-bold">{buildTradeRRGSignal.rsRatio.toFixed(2)}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-400">RS Momentum:</span>
+                                    <span className="ml-2 text-white font-bold">{buildTradeRRGSignal.rsMomentum.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                                <div className="mt-3 text-xs" style={{ fontFamily: 'monospace' }}>
+                                  <div className="text-gray-400 mb-2">Timeframe Breakdown:</div>
+                                  <div className="grid grid-cols-4 gap-2">
+                                    {Object.entries(buildTradeRRGSignal.timeframes).map(([tf, quad]) => (
+                                      <div key={tf} className="px-2 py-1 rounded text-center" style={{
+                                        background: quad === 'leading' ? 'rgba(34, 197, 94, 0.1)' :
+                                          quad === 'improving' ? 'rgba(59, 130, 246, 0.1)' :
+                                            quad === 'weakening' ? 'rgba(234, 179, 8, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                                        border: quad === 'leading' ? '1px solid rgba(34, 197, 94, 0.3)' :
+                                          quad === 'improving' ? '1px solid rgba(59, 130, 246, 0.3)' :
+                                            quad === 'weakening' ? '1px solid rgba(234, 179, 8, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+                                        color: quad === 'leading' ? '#22c55e' :
+                                          quad === 'improving' ? '#3b82f6' :
+                                            quad === 'weakening' ? '#eab308' : '#ef4444'
+                                      }}>
+                                        <div className="font-bold">{tf.toUpperCase()}</div>
+                                        <div className="text-xs" style={{ textTransform: 'capitalize' }}>{quad}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-sm text-gray-500 font-bold" style={{ fontFamily: 'monospace' }}>
+                                ✗ RRG data unavailable
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Market Regime Status - ALWAYS SHOW */}
+                          <div className="mb-6 p-4 rounded-lg" style={{
+                            background: 'rgba(75, 85, 99, 0.1)',
+                            border: '1px solid rgba(75, 85, 99, 0.3)'
+                          }}>
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3" style={{ fontFamily: 'monospace' }}>
+                              Market Regime Status
+                            </div>
+                            {buildTradeMarketRegime.length > 0 ? (
+                              <div className="space-y-3">
+                                {buildTradeMarketRegime.map((regime, index) => (
+                                  <div key={index} className="p-3 rounded-lg" style={{
+                                    background: regime.highlightType === 'gold' ? 'rgba(218, 165, 32, 0.1)' : 'rgba(147, 51, 234, 0.1)',
+                                    border: regime.highlightType === 'gold' ? '1px solid rgba(218, 165, 32, 0.3)' : '1px solid rgba(147, 51, 234, 0.3)'
+                                  }}>
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                      <div className="px-3 py-2 rounded-lg font-bold" style={{
+                                        background: regime.highlightType === 'gold' ? 'rgba(218, 165, 32, 0.2)' : 'rgba(147, 51, 234, 0.2)',
+                                        border: regime.highlightType === 'gold' ? '1px solid rgba(218, 165, 32, 0.4)' : '1px solid rgba(147, 51, 234, 0.4)',
+                                        color: regime.highlightType === 'gold' ? '#daa520' : '#9333ea',
+                                        fontSize: '13px',
+                                        fontFamily: 'monospace',
+                                        textTransform: 'uppercase' as const
+                                      }}>
+                                        ⭐ {regime.highlightType === 'gold' ? 'BEST OF FRAME' : 'INDUSTRY PICK'}
+                                      </div>
+                                      <div className="px-3 py-2 rounded-lg font-bold" style={{
+                                        background: regime.trend === 'bullish' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                                        border: regime.trend === 'bullish' ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(239, 68, 68, 0.4)',
+                                        color: regime.trend === 'bullish' ? '#22c55e' : '#ef4444',
+                                        fontSize: '13px',
+                                        fontFamily: 'monospace',
+                                        textTransform: 'capitalize' as const
+                                      }}>
+                                        {regime.trend}
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 text-xs" style={{ fontFamily: 'monospace' }}>
+                                      <div>
+                                        <span className="text-gray-400">Timeframe:</span>
+                                        <span className="ml-2 text-white font-bold" style={{ textTransform: 'capitalize' }}>{regime.timeframe}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-400">Industry:</span>
+                                        <span className="ml-2 text-white font-bold">{regime.industry}</span>
+                                      </div>
+                                      <div className="col-span-2">
+                                        <span className="text-gray-400">Relative Performance:</span>
+                                        <span className={`ml-2 font-bold ${regime.relativePerformance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                          {regime.relativePerformance >= 0 ? '+' : ''}{regime.relativePerformance.toFixed(2)}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-sm text-gray-500 font-bold" style={{ fontFamily: 'monospace' }}>
+                                ✗ Not found in Market Regime picks
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Expected Range - ALWAYS SHOW */}
+                          <div className="mb-6 p-4 rounded-lg" style={{
+                            background: 'rgba(75, 85, 99, 0.1)',
+                            border: '1px solid rgba(75, 85, 99, 0.3)'
+                          }}>
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3" style={{ fontFamily: 'monospace' }}>
+                              Expected Range (80% / 90% Probability)
+                            </div>
+                            {buildTradeExpectedRange ? (
+                              <div className="space-y-4">
+                                {/* Weekly Range */}
+                                <div className="p-3 rounded-lg" style={{
+                                  background: 'rgba(59, 130, 246, 0.1)',
+                                  border: '1px solid rgba(59, 130, 246, 0.3)'
+                                }}>
+                                  <div className="text-sm font-bold text-blue-400 mb-2" style={{ fontFamily: 'monospace' }}>
+                                    📅 WEEKLY (IV: {(buildTradeExpectedRange.weeklyIV * 100).toFixed(2)}%)
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3 text-xs" style={{ fontFamily: 'monospace' }}>
+                                    <div>
+                                      <span className="text-gray-400">80% Range:</span>
+                                      <div className="ml-2 mt-1">
+                                        <div className="text-green-400 font-bold">${buildTradeExpectedRange.weekly80Call.toFixed(2)} (Call)</div>
+                                        <div className="text-red-400 font-bold">${buildTradeExpectedRange.weekly80Put.toFixed(2)} (Put)</div>
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">90% Range:</span>
+                                      <div className="ml-2 mt-1">
+                                        <div className="text-green-400 font-bold">${buildTradeExpectedRange.weekly90Call.toFixed(2)} (Call)</div>
+                                        <div className="text-red-400 font-bold">${buildTradeExpectedRange.weekly90Put.toFixed(2)} (Put)</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                {/* Monthly Range */}
+                                <div className="p-3 rounded-lg" style={{
+                                  background: 'rgba(168, 85, 247, 0.1)',
+                                  border: '1px solid rgba(168, 85, 247, 0.3)'
+                                }}>
+                                  <div className="text-sm font-bold text-purple-400 mb-2" style={{ fontFamily: 'monospace' }}>
+                                    📅 MONTHLY (IV: {(buildTradeExpectedRange.monthlyIV * 100).toFixed(2)}%)
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3 text-xs" style={{ fontFamily: 'monospace' }}>
+                                    <div>
+                                      <span className="text-gray-400">80% Range:</span>
+                                      <div className="ml-2 mt-1">
+                                        <div className="text-green-400 font-bold">${buildTradeExpectedRange.monthly80Call.toFixed(2)} (Call)</div>
+                                        <div className="text-red-400 font-bold">${buildTradeExpectedRange.monthly80Put.toFixed(2)} (Put)</div>
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">90% Range:</span>
+                                      <div className="ml-2 mt-1">
+                                        <div className="text-green-400 font-bold">${buildTradeExpectedRange.monthly90Call.toFixed(2)} (Call)</div>
+                                        <div className="text-red-400 font-bold">${buildTradeExpectedRange.monthly90Put.toFixed(2)} (Put)</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-xs text-gray-400 mt-2" style={{ fontFamily: 'monospace' }}>
+                                  Current Price: <span className="text-white font-bold">${buildTradeExpectedRange.currentPrice.toFixed(2)}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-sm text-gray-500 font-bold" style={{ fontFamily: 'monospace' }}>
+                                ⚠ Expected Range calculation in progress...
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Events Analysis - ALWAYS SHOW */}
+                          {buildTradeEvents.length > 0 && (
+                            <div className="mb-6 p-4 rounded-lg" style={{
+                              background: 'rgba(75, 85, 99, 0.1)',
+                              border: '1px solid rgba(75, 85, 99, 0.3)'
+                            }}>
+                              <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3" style={{ fontFamily: 'monospace' }}>
+                                Relevant Events (Within 1 Month)
+                              </div>
+                              <div className="space-y-4">
+                                {buildTradeEvents.map((event, index) => (
+                                  <div key={index} className="p-3 rounded-lg" style={{
+                                    background: 'rgba(34, 197, 94, 0.1)',
+                                    border: '1px solid rgba(34, 197, 94, 0.3)'
+                                  }}>
+                                    <div className="flex justify-between items-center mb-3">
+                                      <div className="text-sm font-bold text-green-400" style={{ fontFamily: 'monospace' }}>
+                                        🎯 {event.eventName}
+                                      </div>
+                                      <div className="text-xs text-gray-400" style={{ fontFamily: 'monospace' }}>
+                                        {event.eventDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} • {event.occurrences} occurrences
+                                      </div>
+                                    </div>
+                                    <canvas
+                                      ref={(canvas) => {
+                                        if (!canvas) return;
+                                        const ctx = canvas.getContext('2d');
+                                        if (!ctx) return;
+
+                                        const dpr = window.devicePixelRatio || 1;
+                                        const width = 550;
+                                        const height = 234;
+                                        canvas.width = width * dpr;
+                                        canvas.height = height * dpr;
+                                        canvas.style.width = `${width}px`;
+                                        canvas.style.height = `${height}px`;
+                                        ctx.scale(dpr, dpr);
+
+                                        const padding = { top: 25, right: 30, bottom: 45, left: 60 };
+                                        const chartWidth = width - padding.left - padding.right;
+                                        const chartHeight = height - padding.top - padding.bottom;
+
+                                        ctx.fillStyle = '#000000';
+                                        ctx.fillRect(0, 0, width, height);
+
+                                        const returns = event.data.map(d => d.avgReturn);
+                                        const maxReturn = Math.max(...returns, 0);
+                                        const minReturn = Math.min(...returns, 0);
+                                        const range = Math.max(Math.abs(maxReturn), Math.abs(minReturn)) * 1.2;
+
+                                        // Draw horizontal gridlines with labels
+                                        ctx.strokeStyle = '#333333';
+                                        ctx.lineWidth = 0.5;
+                                        ctx.fillStyle = '#FFFFFF';
+                                        ctx.font = '10px "JetBrains Mono", monospace';
+                                        ctx.textAlign = 'right';
+
+                                        for (let i = 0; i <= 8; i++) {
+                                          const y = padding.top + (chartHeight * i / 8);
+                                          const pct = range - (range * 2 * i / 8);
+
+                                          ctx.strokeStyle = i === 4 ? '#666666' : '#333333';
+                                          ctx.lineWidth = i === 4 ? 1.5 : 0.5;
+                                          ctx.beginPath();
+                                          ctx.moveTo(padding.left, y);
+                                          ctx.lineTo(padding.left + chartWidth, y);
+                                          ctx.stroke();
+
+                                          ctx.fillStyle = '#FFFFFF';
+                                          ctx.fillText(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, padding.left - 8, y + 4);
+                                        }
+
+                                        // Draw vertical line at Event day (index 5 out of 13 points: -5 to +7)
+                                        const zeroY = padding.top + chartHeight / 2;
+                                        const eventX = padding.left + (chartWidth * 5 / 12);
+                                        ctx.strokeStyle = '#FFD700';
+                                        ctx.lineWidth = 2;
+                                        ctx.setLineDash([5, 3]);
+                                        ctx.beginPath();
+                                        ctx.moveTo(eventX, padding.top);
+                                        ctx.lineTo(eventX, padding.top + chartHeight);
+                                        ctx.stroke();
+                                        ctx.setLineDash([]);
+
+                                        // Draw performance line
+                                        ctx.strokeStyle = '#22c55e';
+                                        ctx.lineWidth = 2.5;
+                                        ctx.beginPath();
+                                        event.data.forEach((point, i) => {
+                                          const x = padding.left + (chartWidth * i / (event.data.length - 1));
+                                          const y = zeroY - (point.avgReturn / range) * (chartHeight / 2);
+                                          if (i === 0) ctx.moveTo(x, y);
+                                          else ctx.lineTo(x, y);
+                                        });
+                                        ctx.stroke();
+
+                                        // Draw x-axis labels (trading days relative to event)
+                                        ctx.fillStyle = '#FFFFFF';
+                                        ctx.font = '10px "JetBrains Mono", monospace';
+                                        ctx.textAlign = 'center';
+                                        // Event data: -5 to +7 trading days (13 points)
+                                        ctx.fillText('-5d', padding.left, height - 28);
+                                        ctx.fillText('-3d', padding.left + chartWidth * 2 / 12, height - 28);
+                                        ctx.fillText('Event', padding.left + chartWidth * 5 / 12, height - 28);
+                                        ctx.fillText('+3d', padding.left + chartWidth * 8 / 12, height - 28);
+                                        ctx.fillText('+7d', padding.left + chartWidth, height - 28);
+
+                                        // Add forward performance label
+                                        ctx.fillStyle = '#888888';
+                                        ctx.font = '11px "JetBrains Mono", monospace';
+                                        ctx.fillText('Event Performance', width / 2, height - 8);
+                                      }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Pattern Analysis - ALWAYS SHOW */}
+                          {buildTradePatterns.length > 0 && (
+                            <div className="mb-6 p-4 rounded-lg" style={{
+                              background: 'rgba(75, 85, 99, 0.1)',
+                              border: '1px solid rgba(75, 85, 99, 0.3)'
+                            }}>
+                              <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3" style={{ fontFamily: 'monospace' }}>
+                                Pattern Analysis
+                              </div>
+                              <div className="space-y-5">
+                                {/* Group patterns by base type */}
+                                {(() => {
+                                  const baseTypes = ['52W High', '52W Low', '8-11% UP', '8-11% DOWN', '18-22% UP', '18-22% DOWN'];
+                                  return baseTypes.map(baseType => {
+                                    const cooldownPattern = buildTradePatterns.find(p => p.patternName.startsWith(baseType) && p.patternName.includes('90d Cooldown'));
+                                    const annualPattern = buildTradePatterns.find(p => p.patternName.startsWith(baseType) && p.patternName.includes('Annual'));
+
+                                    if (!cooldownPattern && !annualPattern) return null;
+
+                                    return (
+                                      <div key={baseType} className="p-3 rounded-lg" style={{
+                                        background: 'rgba(0, 206, 209, 0.05)',
+                                        border: '1px solid rgba(0, 206, 209, 0.3)'
+                                      }}>
+                                        <div className="text-sm font-bold text-cyan-400 mb-3" style={{ fontFamily: 'monospace' }}>
+                                          📊 {baseType}
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                          {/* 90d Cooldown Chart */}
+                                          {cooldownPattern && (
+                                            <div>
+                                              <div className="flex justify-between items-center mb-2">
+                                                <div className="text-xs font-bold text-cyan-400" style={{ fontFamily: 'monospace' }}>
+                                                  90d Cooldown
+                                                </div>
+                                                <div className="text-xs text-gray-400" style={{ fontFamily: 'monospace' }}>
+                                                  {cooldownPattern.occurrences} occ
+                                                </div>
+                                              </div>
+                                              <canvas
+                                                ref={(canvas) => {
+                                                  if (!canvas) return;
+                                                  const ctx = canvas.getContext('2d');
+                                                  if (!ctx) return;
+
+                                                  const dpr = window.devicePixelRatio || 1;
+                                                  const width = 550;
+                                                  const height = 234;
+                                                  canvas.width = width * dpr;
+                                                  canvas.height = height * dpr;
+                                                  canvas.style.width = `${width}px`;
+                                                  canvas.style.height = `${height}px`;
+                                                  ctx.scale(dpr, dpr);
+
+                                                  const padding = { top: 25, right: 30, bottom: 45, left: 60 };
+                                                  const chartWidth = width - padding.left - padding.right;
+                                                  const chartHeight = height - padding.top - padding.bottom;
+
+                                                  ctx.fillStyle = '#000000';
+                                                  ctx.fillRect(0, 0, width, height);
+
+                                                  const returns = cooldownPattern.data.map(d => d.avgReturn);
+                                                  const maxReturn = Math.max(...returns, 0);
+                                                  const minReturn = Math.min(...returns, 0);
+                                                  const range = Math.max(Math.abs(maxReturn), Math.abs(minReturn)) * 1.2;
+
+                                                  // Draw horizontal gridlines with labels
+                                                  ctx.strokeStyle = '#333333';
+                                                  ctx.lineWidth = 0.5;
+                                                  ctx.fillStyle = '#FFFFFF';
+                                                  ctx.font = '10px "JetBrains Mono", monospace';
+                                                  ctx.textAlign = 'right';
+
+                                                  for (let i = 0; i <= 8; i++) {
+                                                    const y = padding.top + (chartHeight * i / 8);
+                                                    const pct = range - (range * 2 * i / 8);
+
+                                                    ctx.strokeStyle = i === 4 ? '#666666' : '#333333';
+                                                    ctx.lineWidth = i === 4 ? 1.5 : 0.5;
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(padding.left, y);
+                                                    ctx.lineTo(padding.left + chartWidth, y);
+                                                    ctx.stroke();
+
+                                                    ctx.fillStyle = '#FFFFFF';
+                                                    ctx.fillText(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, padding.left - 8, y + 4);
+                                                  }
+
+                                                  // Draw vertical line at Day 0 (today/pattern occurrence)
+                                                  const zeroY = padding.top + chartHeight / 2;
+                                                  ctx.strokeStyle = '#3B82F6';
+                                                  ctx.lineWidth = 2;
+                                                  ctx.setLineDash([5, 3]);
+                                                  ctx.beginPath();
+                                                  ctx.moveTo(padding.left, padding.top);
+                                                  ctx.lineTo(padding.left, padding.top + chartHeight);
+                                                  ctx.stroke();
+                                                  ctx.setLineDash([]);
+
+                                                  // Draw performance line
+                                                  ctx.strokeStyle = '#00CED1';
+                                                  ctx.lineWidth = 2.5;
+                                                  ctx.beginPath();
+                                                  cooldownPattern.data.forEach((point, i) => {
+                                                    const x = padding.left + (chartWidth * i / (cooldownPattern.data.length - 1));
+                                                    const y = zeroY - (point.avgReturn / range) * (chartHeight / 2);
+                                                    if (i === 0) ctx.moveTo(x, y);
+                                                    else ctx.lineTo(x, y);
+                                                  });
+                                                  ctx.stroke();
+
+                                                  // Draw x-axis labels (show every 5 days)
+                                                  ctx.fillStyle = '#FFFFFF';
+                                                  ctx.font = '10px "JetBrains Mono", monospace';
+                                                  ctx.textAlign = 'center';
+                                                  const totalDays = cooldownPattern.data.length - 1;
+                                                  const xLabelInterval = Math.ceil(totalDays / 6);
+
+                                                  for (let i = 0; i <= totalDays; i += xLabelInterval) {
+                                                    const x = padding.left + (chartWidth * i / totalDays);
+                                                    ctx.fillText(`Day ${i}`, x, height - 28);
+                                                  }
+                                                  if (totalDays % xLabelInterval !== 0) {
+                                                    ctx.fillText(`Day ${totalDays}`, padding.left + chartWidth, height - 28);
+                                                  }
+
+                                                  // Add forward performance label
+                                                  ctx.fillStyle = '#888888';
+                                                  ctx.font = '11px "JetBrains Mono", monospace';
+                                                  ctx.fillText('Forward Performance', width / 2, height - 8);
+                                                }}
+                                              />
+                                            </div>
+                                          )}
+                                          {/* Annual Chart */}
+                                          {annualPattern && (
+                                            <div>
+                                              <div className="flex justify-between items-center mb-2">
+                                                <div className="text-xs font-bold" style={{ fontFamily: 'monospace', color: '#FFD700' }}>
+                                                  Annual Average
+                                                </div>
+                                                <div className="text-xs text-gray-400" style={{ fontFamily: 'monospace' }}>
+                                                  {annualPattern.occurrences} occ
+                                                </div>
+                                              </div>
+                                              <canvas
+                                                ref={(canvas) => {
+                                                  if (!canvas) return;
+                                                  const ctx = canvas.getContext('2d');
+                                                  if (!ctx) return;
+
+                                                  const dpr = window.devicePixelRatio || 1;
+                                                  const width = 550;
+                                                  const height = 234;
+                                                  canvas.width = width * dpr;
+                                                  canvas.height = height * dpr;
+                                                  canvas.style.width = `${width}px`;
+                                                  canvas.style.height = `${height}px`;
+                                                  ctx.scale(dpr, dpr);
+
+                                                  const padding = { top: 25, right: 30, bottom: 45, left: 60 };
+                                                  const chartWidth = width - padding.left - padding.right;
+                                                  const chartHeight = height - padding.top - padding.bottom;
+
+                                                  ctx.fillStyle = '#000000';
+                                                  ctx.fillRect(0, 0, width, height);
+
+                                                  const returns = annualPattern.data.map(d => d.avgReturn);
+                                                  const maxReturn = Math.max(...returns, 0);
+                                                  const minReturn = Math.min(...returns, 0);
+                                                  const range = Math.max(Math.abs(maxReturn), Math.abs(minReturn)) * 1.2;
+
+                                                  // Draw horizontal gridlines with labels
+                                                  ctx.strokeStyle = '#333333';
+                                                  ctx.lineWidth = 0.5;
+                                                  ctx.fillStyle = '#FFFFFF';
+                                                  ctx.font = '10px "JetBrains Mono", monospace';
+                                                  ctx.textAlign = 'right';
+
+                                                  for (let i = 0; i <= 8; i++) {
+                                                    const y = padding.top + (chartHeight * i / 8);
+                                                    const pct = range - (range * 2 * i / 8);
+
+                                                    ctx.strokeStyle = i === 4 ? '#666666' : '#333333';
+                                                    ctx.lineWidth = i === 4 ? 1.5 : 0.5;
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(padding.left, y);
+                                                    ctx.lineTo(padding.left + chartWidth, y);
+                                                    ctx.stroke();
+
+                                                    ctx.fillStyle = '#FFFFFF';
+                                                    ctx.fillText(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, padding.left - 8, y + 4);
+                                                  }
+
+                                                  // Draw vertical line at Day 0 (today/pattern occurrence)
+                                                  const zeroY = padding.top + chartHeight / 2;
+                                                  ctx.strokeStyle = '#3B82F6';
+                                                  ctx.lineWidth = 2;
+                                                  ctx.setLineDash([5, 3]);
+                                                  ctx.beginPath();
+                                                  ctx.moveTo(padding.left, padding.top);
+                                                  ctx.lineTo(padding.left, padding.top + chartHeight);
+                                                  ctx.stroke();
+                                                  ctx.setLineDash([]);
+
+                                                  // Draw performance line
+                                                  ctx.strokeStyle = '#FFD700';
+                                                  ctx.lineWidth = 2.5;
+                                                  ctx.beginPath();
+                                                  annualPattern.data.forEach((point, i) => {
+                                                    const x = padding.left + (chartWidth * i / (annualPattern.data.length - 1));
+                                                    const y = zeroY - (point.avgReturn / range) * (chartHeight / 2);
+                                                    if (i === 0) ctx.moveTo(x, y);
+                                                    else ctx.lineTo(x, y);
+                                                  });
+                                                  ctx.stroke();
+
+                                                  // Draw x-axis labels (show every 5 days)
+                                                  ctx.fillStyle = '#FFFFFF';
+                                                  ctx.font = '10px "JetBrains Mono", monospace';
+                                                  ctx.textAlign = 'center';
+                                                  const totalDays = annualPattern.data.length - 1;
+                                                  const xLabelInterval = Math.ceil(totalDays / 6);
+
+                                                  for (let i = 0; i <= totalDays; i += xLabelInterval) {
+                                                    const x = padding.left + (chartWidth * i / totalDays);
+                                                    ctx.fillText(`Day ${i}`, x, height - 28);
+                                                  }
+                                                  if (totalDays % xLabelInterval !== 0) {
+                                                    ctx.fillText(`Day ${totalDays}`, padding.left + chartWidth, height - 28);
+                                                  }
+
+                                                  // Add forward performance label
+                                                  ctx.fillStyle = '#888888';
+                                                  ctx.font = '11px "JetBrains Mono", monospace';
+                                                  ctx.fillText('Forward Performance', width / 2, height - 8);
+                                                }}
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  });
+                                })()}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

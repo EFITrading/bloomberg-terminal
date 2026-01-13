@@ -812,17 +812,18 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     confidenceScore += scores.expiration;
 
     // 2. Contract Price Score (25 points max) - based on position P&L
-    if (currentPrice && currentPrice > 0) {
-      const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
-
-      if (percentChange <= -40) scores.contractPrice = 25;
-      else if (percentChange <= -20) scores.contractPrice = 20;
-      else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 15;
-      else if (percentChange >= 20) scores.contractPrice = 5;
-      else scores.contractPrice = 10;
-    } else {
-      scores.contractPrice = 12;
+    if (!currentPrice || currentPrice <= 0) {
+      throw new Error(`Missing current option price for ${trade.underlying_ticker} ${trade.type} $${trade.strike}`);
     }
+
+    const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+
+    if (percentChange <= -40) scores.contractPrice = 25;
+    else if (percentChange <= -20) scores.contractPrice = 20;
+    else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 15;
+    else if (percentChange >= 20) scores.contractPrice = 5;
+    else scores.contractPrice = 10;
+
     confidenceScore += scores.contractPrice;
 
     // 3. Combo Trade Score (10 points max)
@@ -865,25 +866,26 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     // 4. Price Action Score (25 points max) - Stock within standard deviation
     const stdDev = historicalStdDevs.get(trade.underlying_ticker);
 
-    if (currentStockPrice && entryStockPrice && stdDev) {
-      const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
-      const tradingDaysElapsed = Math.floor(hoursElapsed / 6.5); // 6.5-hour trading day
-
-      // Calculate current stock move in percentage
-      const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
-      const absMove = Math.abs(stockPercentChange);
-
-      // Check if stock is within 1 standard deviation
-      const withinStdDev = absMove <= stdDev;
-
-      // Award points based on how many days stock stayed within std dev
-      if (withinStdDev && tradingDaysElapsed >= 3) scores.priceAction = 25;
-      else if (withinStdDev && tradingDaysElapsed >= 2) scores.priceAction = 20;
-      else if (withinStdDev && tradingDaysElapsed >= 1) scores.priceAction = 15;
-      else scores.priceAction = 10;
-    } else {
-      scores.priceAction = 12;
+    if (!currentStockPrice || !entryStockPrice || !stdDev) {
+      throw new Error(`Missing price action data for ${trade.underlying_ticker}`);
     }
+
+    const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
+    const tradingDaysElapsed = Math.floor(hoursElapsed / 6.5); // 6.5-hour trading day
+
+    // Calculate current stock move in percentage
+    const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
+    const absMove = Math.abs(stockPercentChange);
+
+    // Check if stock is within 1 standard deviation
+    const withinStdDev = absMove <= stdDev;
+
+    // Award points based on how many days stock stayed within std dev
+    if (withinStdDev && tradingDaysElapsed >= 3) scores.priceAction = 25;
+    else if (withinStdDev && tradingDaysElapsed >= 2) scores.priceAction = 20;
+    else if (withinStdDev && tradingDaysElapsed >= 1) scores.priceAction = 15;
+    else scores.priceAction = 10;
+
     confidenceScore += scores.priceAction;
 
     // 5. Stock Reaction Score (15 points max)
@@ -1442,8 +1444,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-red-600 bg-black border-orange-500 rounded focus:ring-red-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedOptionTypes.includes('put')
-                            ? 'text-red-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-red-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Puts</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1460,8 +1462,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedOptionTypes.includes('call')
-                            ? 'text-green-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-green-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Calls</span>
                       </label>
                     </div>
@@ -1487,8 +1489,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('50000')
-                            ? 'text-green-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-green-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>≥ $50,000</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1505,8 +1507,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('99000')
-                            ? 'text-green-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-green-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>≥ $99,000</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1523,8 +1525,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('200000')
-                            ? 'text-green-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-green-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>≥ $200,000</span>
                       </label>
 
@@ -1575,8 +1577,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('ETF_ONLY')
-                            ? 'text-blue-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-blue-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>ETF Only</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1593,8 +1595,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('STOCK_ONLY')
-                            ? 'text-blue-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-blue-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Stock Only</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1611,8 +1613,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('MAG7_ONLY')
-                            ? 'text-blue-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-blue-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Mag 7 Only</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1629,8 +1631,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('EXCLUDE_MAG7')
-                            ? 'text-blue-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-blue-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Exclude Mag 7</span>
                       </label>
                     </div>
@@ -1658,8 +1660,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('ITM')
-                            ? 'text-yellow-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>In The Money</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1676,8 +1678,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('OTM')
-                            ? 'text-yellow-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Out The Money</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1694,8 +1696,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('SWEEP_ONLY')
-                            ? 'text-yellow-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Sweep Only</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1712,8 +1714,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('BLOCK_ONLY')
-                            ? 'text-yellow-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Block Only</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1730,8 +1732,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('WEEKLY_ONLY')
-                            ? 'text-yellow-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Weekly Only</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1748,8 +1750,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('MULTI_LEG_ONLY')
-                            ? 'text-yellow-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-yellow-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Multi Leg Only</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1766,8 +1768,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-5 h-5 text-green-600 bg-black border-green-500 rounded focus:ring-green-500"
                         />
                         <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('MINI_ONLY')
-                            ? 'text-green-400 font-bold drop-shadow-lg'
-                            : 'text-gray-300'
+                          ? 'text-green-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
                           }`}>Mini Only</span>
                       </label>
                     </div>
@@ -2411,8 +2413,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     onClick={() => onRefresh?.()}
                     disabled={loading}
                     className={`px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 focus:outline-none ${loading
-                        ? 'cursor-not-allowed opacity-40'
-                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
                       }`}
                     style={{
                       height: '48px',
@@ -2461,8 +2463,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       onClick={onClearData}
                       disabled={loading}
                       className={`px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 focus:outline-none ${loading
-                          ? 'cursor-not-allowed opacity-40'
-                          : 'hover:scale-[1.02] active:scale-[0.98]'
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
                         }`}
                       style={{
                         height: '48px',
@@ -2584,8 +2586,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               key={pageNum}
                               onClick={() => setCurrentPage(pageNum)}
                               className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center text-xs border rounded transition-all duration-150 ${currentPage === pageNum
-                                  ? 'bg-orange-500 text-black border-orange-500 font-bold'
-                                  : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
+                                ? 'bg-orange-500 text-black border-orange-500 font-bold'
+                                : 'bg-black border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white'
                                 }`}
                             >
                               {pageNum}
@@ -2751,10 +2753,10 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               </span>
                               {(trade as any).fill_style && (
                                 <span className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${(trade as any).fill_style === 'A' ? 'text-green-400 bg-green-400/10 border border-green-400/30' :
-                                    (trade as any).fill_style === 'AA' ? 'text-green-300 bg-green-300/10 border border-green-300/30' :
-                                      (trade as any).fill_style === 'B' ? 'text-red-400 bg-red-400/10 border border-red-400/30' :
-                                        (trade as any).fill_style === 'BB' ? 'text-red-300 bg-red-300/10 border border-red-300/30' :
-                                          'text-gray-500 bg-gray-500/10 border border-gray-500/30'
+                                  (trade as any).fill_style === 'AA' ? 'text-green-300 bg-green-300/10 border border-green-300/30' :
+                                    (trade as any).fill_style === 'B' ? 'text-red-400 bg-red-400/10 border border-red-400/30' :
+                                      (trade as any).fill_style === 'BB' ? 'text-red-300 bg-red-300/10 border border-red-300/30' :
+                                        'text-gray-500 bg-gray-500/10 border border-gray-500/30'
                                   }`} style={{ fontSize: '12px' }}>
                                   <span className="md:hidden">{(trade as any).fill_style}</span>
                                   <span className="hidden md:inline" style={{ fontSize: '15px' }}>{(trade as any).fill_style}</span>

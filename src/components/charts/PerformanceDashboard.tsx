@@ -44,6 +44,25 @@ const SPECIAL = [
   { symbol: 'VLUE', name: 'Value Factor', color: '#e71d36' }
 ];
 
+// Wave groups - same as RRG groupings
+const WAVE_GROUPS = {
+  growth: {
+    name: 'Growth',
+    tickers: ['XLK', 'XLY', 'XLC'],
+    color: 'rgba(0, 255, 100, 0.9)'
+  },
+  value: {
+    name: 'Value',
+    tickers: ['XLI', 'XLB', 'XLE', 'XLF'],
+    color: 'rgba(100, 150, 255, 0.9)'
+  },
+  defensives: {
+    name: 'Defensives',
+    tickers: ['XLV', 'XLU', 'XLRE', 'XLP'],
+    color: 'rgba(255, 200, 0, 0.9)'
+  }
+};
+
 type Timeframe = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | '2Y' | '5Y' | '10Y' | '20Y' | 'YTD';
 
 interface DataPoint {
@@ -82,19 +101,23 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   });
   const [seriesData, setSeriesData] = useState<SeriesData[]>([]);
   const [loading, setLoading] = useState(false);
-  
+
+  // Wave mode state
+  const [isWaveMode, setIsWaveMode] = useState(false);
+  const [waveData, setWaveData] = useState<SeriesData[]>([]);
+
   // UI State
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(null);
   const [hoveredSeries, setHoveredSeries] = useState<string | null>(null);
-  
+
   // Chart State
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, rangeStart: 0, rangeEnd: 1 });
   const [crosshair, setCrosshair] = useState<{ x: number; y: number } | null>(null);
-  
+
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -113,7 +136,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   const toggleCategory = (category: typeof SECTORS) => {
     const categorySymbols = category.map(item => item.symbol);
     const allSelected = isAllSelected(category);
-    
+
     if (allSelected) {
       // Deselect all from this category
       setSelectedSymbols(prev => prev.filter(s => !categorySymbols.includes(s)));
@@ -128,8 +151,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   // Utility: Toggle individual symbol
   const toggleSymbol = (symbol: string) => {
-    setSelectedSymbols(prev => 
-      prev.includes(symbol) 
+    setSelectedSymbols(prev =>
+      prev.includes(symbol)
         ? prev.filter(s => s !== symbol)
         : [...prev, symbol]
     );
@@ -143,8 +166,18 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       return;
     }
     lastFetchKeyRef.current = fetchKey;
-    
-    if (selectedSymbols.length === 0) {
+
+    // In wave mode, we need to fetch all wave constituent symbols
+    let symbolsToFetch = selectedSymbols;
+    if (isWaveMode) {
+      const allWaveSymbols = new Set<string>();
+      Object.values(WAVE_GROUPS).forEach(group => {
+        group.tickers.forEach(ticker => allWaveSymbols.add(ticker));
+      });
+      symbolsToFetch = Array.from(allWaveSymbols);
+    }
+
+    if (symbolsToFetch.length === 0) {
       setSeriesData([]);
       return;
     }
@@ -158,7 +191,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     setLoading(true);
 
     try {
-      // Map timeframe to API format
+      // Map timeframe to API format and calculate date range
       const timeframeMap: Record<Timeframe, string> = {
         '1D': '5m',
         '1W': '1h',
@@ -175,13 +208,42 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
       const apiTimeframe = timeframeMap[timeframe];
 
-      // Batch symbols (max 10 per request)
-      const chunks: string[][] = [];
-      for (let i = 0; i < selectedSymbols.length; i += 10) {
-        chunks.push(selectedSymbols.slice(i, i + 10));
+      // Calculate start and end dates based on timeframe
+      const now = new Date();
+      const endDate = now.toISOString().split('T')[0];
+      let startDate: string;
+
+      if (timeframe === 'YTD') {
+        // Year to date: from Jan 1 of current year
+        startDate = `${now.getFullYear()}-01-01`;
+      } else {
+        // Calculate days back based on timeframe (with buffer for weekends/holidays)
+        const daysBack: Record<Timeframe, number> = {
+          '1D': 5,      // 1 day + 4 day buffer for weekends
+          '1W': 10,     // 1 week + 3 day buffer
+          '1M': 35,     // 1 month + 5 day buffer
+          '3M': 95,     // 3 months + 5 day buffer
+          '6M': 185,    // 6 months + 5 day buffer
+          '1Y': 370,    // 1 year + 5 day buffer
+          '2Y': 735,    // 2 years + 5 day buffer
+          '5Y': 1830,   // 5 years + 5 day buffer
+          '10Y': 3655,  // 10 years + 5 day buffer
+          '20Y': 7305,  // 20 years + 5 day buffer
+          'YTD': 365    // fallback
+        };
+
+        const days = daysBack[timeframe];
+        startDate = new Date(now.getTime() - (days * 24 * 60 * 60 * 1000))
+          .toISOString().split('T')[0];
       }
 
-      // Fetch all chunks
+      // Batch symbols (max 10 per request)
+      const chunks: string[][] = [];
+      for (let i = 0; i < symbolsToFetch.length; i += 10) {
+        chunks.push(symbolsToFetch.slice(i, i + 10));
+      }
+
+      // Fetch all chunks with custom date range
       const responses = await Promise.all(
         chunks.map(chunk =>
           fetch('/api/bulk-chart-data', {
@@ -190,7 +252,9 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
             body: JSON.stringify({
               symbols: chunk,
               timeframe: apiTimeframe,
-              optimized: true
+              startDate,
+              endDate,
+              optimized: false // Use custom date range
             }),
             signal: abortControllerRef.current!.signal
           })
@@ -210,26 +274,56 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
       // Get metadata for symbols
       const allSymbols = [...SECTORS, ...INDUSTRIES, ...SPECIAL];
-      
+
       // First pass: filter and collect all data
       const symbolDataMap: Record<string, any[]> = {};
       const allTimestamps = new Set<number>();
-      
-      selectedSymbols.forEach(symbol => {
+
+      symbolsToFetch.forEach(symbol => {
         const rawData = allData[symbol];
         if (rawData && rawData.length > 0) {
-          // Filter market hours for 1D
+          // For 1D, show most recent day with extended hours filtering
           let filteredData = rawData;
           if (timeframe === '1D') {
+            // Find the most recent date in the dataset
+            const mostRecentTimestamp = Math.max(...rawData.map(p => p.timestamp));
+            const mostRecentDate = new Date(mostRecentTimestamp);
+
+            const formatter = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/New_York',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: 'numeric',
+              minute: 'numeric',
+              hour12: false
+            });
+
+            const recentParts = formatter.formatToParts(mostRecentDate);
+            const targetYear = recentParts.find(p => p.type === 'year')?.value;
+            const targetMonth = recentParts.find(p => p.type === 'month')?.value;
+            const targetDay = recentParts.find(p => p.type === 'day')?.value;
+
             filteredData = rawData.filter(point => {
-              const date = new Date(point.timestamp);
-              const hours = date.getUTCHours();
-              const minutes = date.getUTCMinutes();
-              const totalMinutes = hours * 60 + minutes;
-              return totalMinutes >= 810 && totalMinutes <= 1200; // 13:30-20:00 UTC
+              const pointDate = new Date(point.timestamp);
+              const parts = formatter.formatToParts(pointDate);
+
+              const year = parts.find(p => p.type === 'year')?.value;
+              const month = parts.find(p => p.type === 'month')?.value;
+              const day = parts.find(p => p.type === 'day')?.value;
+
+              // Check if this point is from the most recent day
+              if (year === targetYear && month === targetMonth && day === targetDay) {
+                // Also check if it's within extended hours (4 AM - 8 PM ET)
+                const hours = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+                const minutes = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+                const timeInMinutes = hours * 60 + minutes;
+                return timeInMinutes >= 240 && timeInMinutes <= 1200;
+              }
+              return false;
             });
           }
-          
+
           if (filteredData.length > 0) {
             symbolDataMap[symbol] = filteredData;
             // Collect all unique timestamps
@@ -241,18 +335,18 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           console.warn(`No data received for ${symbol}`);
         }
       });
-      
+
       // Sort timestamps to create common timeline
       const commonTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
-      
+
       if (commonTimestamps.length === 0) {
         console.error('No common timestamps found across symbols');
         setSeriesData([]);
         return;
       }
-      
+
       // Process data into series with interpolation
-      const series: SeriesData[] = selectedSymbols
+      const series: SeriesData[] = symbolsToFetch
         .map(symbol => {
           const metadata = allSymbols.find(s => s.symbol === symbol);
           const symbolData = symbolDataMap[symbol];
@@ -263,11 +357,11 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
           // Create a map for quick lookup
           const dataMap = new Map(symbolData.map(point => [point.timestamp, point.close]));
-          
+
           // Build aligned data using common timestamps with forward-fill for missing values
           let lastKnownPrice = symbolData[0].close;
-          const alignedData: Array<{timestamp: number, close: number}> = [];
-          
+          const alignedData: Array<{ timestamp: number, close: number }> = [];
+
           for (const timestamp of commonTimestamps) {
             const price = dataMap.get(timestamp);
             if (price !== undefined) {
@@ -278,7 +372,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               alignedData.push({ timestamp, close: lastKnownPrice });
             }
           }
-          
+
           if (alignedData.length === 0) {
             console.warn(`No aligned data for ${symbol}`);
             return null;
@@ -314,7 +408,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     } finally {
       setLoading(false);
     }
-  }, [selectedSymbols, timeframe]);
+  }, [selectedSymbols, timeframe, isWaveMode]);
 
   // Save timeframe to localStorage
   useEffect(() => {
@@ -330,16 +424,59 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     }
   }, [selectedSymbols]);
 
-  // Fetch data when symbols or timeframe change
+  // Fetch data when symbols or timeframe or wave mode change
   useEffect(() => {
-    if (isVisible && selectedSymbols.length > 0) {
+    if (isVisible && (selectedSymbols.length > 0 || isWaveMode)) {
       fetchData();
-    } else if (selectedSymbols.length === 0) {
+    } else if (selectedSymbols.length === 0 && !isWaveMode) {
       // Clear data when no symbols selected
       setSeriesData([]);
       lastFetchKeyRef.current = ''; // Reset fetch key
     }
   }, [isVisible, fetchData, selectedSymbols.length]);
+
+  // Calculate wave data when in wave mode
+  useEffect(() => {
+    if (!isWaveMode || seriesData.length === 0) {
+      setWaveData([]);
+      return;
+    }
+
+    // Calculate aggregate performance for each wave group
+    const waves: SeriesData[] = [];
+
+    Object.entries(WAVE_GROUPS).forEach(([groupKey, group]) => {
+      // Find all series that belong to this group
+      const groupSeries = seriesData.filter(s => group.tickers.includes(s.symbol));
+
+      if (groupSeries.length === 0) return;
+
+      // Calculate average performance across all data points
+      // First, find common data length (minimum across group)
+      const minLength = Math.min(...groupSeries.map(s => s.data.length));
+      if (minLength === 0) return;
+
+      // Calculate average value at each timestamp
+      const avgData: DataPoint[] = [];
+      for (let i = 0; i < minLength; i++) {
+        const timestamp = groupSeries[0].data[i].timestamp;
+        const avgValue = groupSeries.reduce((sum, s) => sum + s.data[i].value, 0) / groupSeries.length;
+        avgData.push({ timestamp, value: avgValue });
+      }
+
+      const avgPerformance = avgData[avgData.length - 1]?.value || 0;
+
+      waves.push({
+        symbol: group.name.toUpperCase(),
+        name: group.name,
+        color: group.color,
+        data: avgData,
+        performance: avgPerformance
+      });
+    });
+
+    setWaveData(waves);
+  }, [isWaveMode, seriesData]);
 
   // Measure container dimensions
   useEffect(() => {
@@ -365,7 +502,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   const drawChart = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
-    
+
     if (!canvas || !ctx || dimensions.width === 0 || dimensions.height === 0 || seriesData.length === 0) {
       return;
     }
@@ -388,19 +525,23 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
     if (chartWidth <= 0 || chartHeight <= 0) return;
 
-    // Calculate visible data range
-    const maxDataPoints = Math.max(...seriesData.map(s => s.data.length));
+    // Calculate visible data range - use waveData in wave mode
+    const activeData = isWaveMode ? waveData : seriesData;
+    const maxDataPoints = Math.max(...activeData.map(s => s.data.length));
     const startIdx = Math.floor(zoomRange.start * maxDataPoints);
     const endIdx = Math.ceil(zoomRange.end * maxDataPoints);
 
     // Find min/max values in visible range
     let minVal = Infinity;
     let maxVal = -Infinity;
-    
-    seriesData.forEach(series => {
+
+    // Use waveData if in wave mode, otherwise use seriesData
+    const dataForRange = isWaveMode ? waveData : seriesData;
+
+    dataForRange.forEach(series => {
       const start = Math.min(startIdx, series.data.length - 1);
       const end = Math.min(endIdx, series.data.length);
-      
+
       for (let i = start; i < end; i++) {
         const val = series.data[i]?.value;
         if (val !== undefined) {
@@ -428,15 +569,16 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       return margin.top + chartHeight - (normalized * chartHeight);
     };
 
-    // Y-axis labels
-    ctx.font = 'bold 15px monospace';
+    // Y-axis labels - enhanced with 20% bigger font
+    ctx.font = 'bold 18px monospace'; // Increased from 15px to 18px (20% bigger)
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
+    ctx.imageSmoothingEnabled = false; // Crispy rendering
 
     for (let i = 0; i <= 10; i++) {
       const value = minVal + (valueRange * (10 - i) / 10);
       const y = margin.top + (chartHeight * i / 10);
-      
+
       // Color based on positive/negative
       if (value > 0) {
         ctx.fillStyle = '#00ff00'; // Crispy green for positive
@@ -445,9 +587,23 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       } else {
         ctx.fillStyle = '#888888'; // Gray for zero
       }
-      
+
       ctx.fillText(`${Math.abs(value).toFixed(1)}%`, margin.left - 10, y);
     }
+
+    ctx.imageSmoothingEnabled = true; // Reset
+
+    // Draw L-shaped axis lines to separate axes
+    ctx.strokeStyle = '#cc4400'; // Dark navy orange
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    // Vertical line (Y-axis)
+    ctx.moveTo(margin.left, margin.top);
+    ctx.lineTo(margin.left, margin.top + chartHeight);
+    // Horizontal line (X-axis)
+    ctx.lineTo(margin.left + chartWidth, margin.top + chartHeight);
+    ctx.stroke();
 
     // Zero line with dashes
     if (minVal < 0 && maxVal > 0) {
@@ -462,47 +618,214 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       ctx.setLineDash([]); // Reset to solid line
     }
 
+    // Draw pre-market and after-hours shading for intraday timeframes
+    if (timeframe === '1D' || timeframe === '1W') {
+      ctx.globalAlpha = 0.15;
+
+      // Shade entire visible area first, then we'll overlay with correct periods
+      for (let i = startIdx; i < endIdx; i++) {
+        if (seriesData[0]?.data[i]) {
+          const timestamp = seriesData[0].data[i].timestamp;
+          const date = new Date(timestamp);
+
+          const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: false
+          });
+          const parts = formatter.formatToParts(date);
+          const hours = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+          const minutes = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+          const timeInMinutes = hours * 60 + minutes;
+
+          const x = xScale(i, maxDataPoints);
+          const nextX = i < endIdx - 1 ? xScale(i + 1, maxDataPoints) : x + (x - xScale(i - 1, maxDataPoints));
+          const width = nextX - x;
+
+          // Determine color based on time
+          let color: string;
+          if (timeInMinutes >= 240 && timeInMinutes < 570) {
+            // Pre-market: 4:00 AM - 9:30 AM
+            color = 'rgba(255, 140, 0, 1)';
+          } else if (timeInMinutes >= 960 && timeInMinutes <= 1200) {
+            // After-hours: 4:00 PM - 8:00 PM
+            color = 'rgba(30, 58, 138, 1)';
+          } else if (timeInMinutes > 1200 || timeInMinutes < 240) {
+            // Overnight: after 8 PM or before 4 AM
+            color = 'rgba(20, 20, 40, 1)';
+          } else {
+            // Market hours: 9:30 AM - 4:00 PM (no shading)
+            continue;
+          }
+
+          ctx.fillStyle = color;
+          ctx.fillRect(x, margin.top, width, chartHeight);
+        }
+      }
+
+      ctx.globalAlpha = 1;
+    }
+
     // Draw lines and collect end positions
     const labelPositions: Array<{ symbol: string; color: string; performance: number; x: number; y: number; isHovered: boolean }> = [];
-    
-    seriesData.forEach(series => {
+
+    // Choose which data to render: waves or regular series
+    const dataToRender = isWaveMode ? waveData : seriesData;
+
+    // Helper function to calculate activity status at each point in time
+    const calculateActivityMap = (waveSeries: SeriesData): boolean[] => {
+      if (!isWaveMode) return [];
+
+      // Find the wave group
+      const waveGroup = Object.values(WAVE_GROUPS).find(g => g.name === waveSeries.name);
+      if (!waveGroup) return [];
+
+      // Get all individual series for this wave
+      const constituents = seriesData.filter(s => waveGroup.tickers.includes(s.symbol));
+      if (constituents.length < 2) return [];
+
+      const activityMap: boolean[] = [];
+      const windowSize = Math.max(5, Math.floor(waveSeries.data.length * 0.05)); // 5% window or minimum 5 points
+
+      // Calculate activity for each point using a rolling window
+      for (let i = 0; i < waveSeries.data.length; i++) {
+        const windowStart = Math.max(0, i - windowSize);
+        const windowEnd = Math.min(waveSeries.data.length, i + 1);
+
+        // Calculate direction vectors for each constituent in this window
+        const vectors = constituents.map(series => {
+          if (series.data.length < windowEnd) return null;
+
+          const startVal = series.data[windowStart]?.value;
+          const endVal = series.data[i]?.value;
+          if (startVal === undefined || endVal === undefined) return null;
+
+          return endVal - startVal;
+        }).filter((v): v is number => v !== null);
+
+        if (vectors.length < 2) {
+          activityMap.push(false);
+          continue;
+        }
+
+        // Check if vectors are aligned (same direction and similar magnitude)
+        const avgVector = vectors.reduce((sum, v) => sum + v, 0) / vectors.length;
+
+        // Calculate alignment score
+        const alignmentScores = vectors.map(v => {
+          if (avgVector === 0) return 0;
+          const ratio = v / avgVector;
+          return Math.abs(ratio) > 0.5 ? Math.min(1, Math.abs(ratio)) : 0;
+        });
+
+        const avgAlignment = alignmentScores.reduce((sum, s) => sum + s, 0) / alignmentScores.length;
+
+        // Active if average alignment > 0.7 (70% aligned)
+        activityMap.push(avgAlignment > 0.7);
+      }
+
+      return activityMap;
+    };
+
+    dataToRender.forEach(series => {
       const isHovered = hoveredSeries === series.symbol;
-      
+
       ctx.strokeStyle = series.color;
-      ctx.lineWidth = isHovered ? 3 : 2;
+      ctx.lineWidth = isHovered ? 4 : (isWaveMode ? 3 : 2);
       ctx.globalAlpha = isHovered ? 1 : 0.85;
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
-
-      ctx.beginPath();
-      let started = false;
-      let lastX = 0;
-      let lastY = 0;
 
       const visibleData = series.data.slice(
         Math.max(0, startIdx),
         Math.min(series.data.length, endIdx)
       );
 
-      visibleData.forEach((point, idx) => {
-        const actualIdx = startIdx + idx;
-        const x = xScale(actualIdx, maxDataPoints);
-        const y = yScale(point.value);
+      let lastX = 0;
+      let lastY = 0;
 
-        if (!started) {
-          ctx.moveTo(x, y);
-          started = true;
-        } else {
-          ctx.lineTo(x, y);
+      // For wave mode, calculate activity at each point
+      if (isWaveMode) {
+        const activityMap = calculateActivityMap(series);
+
+        // Draw line in segments based on activity
+        let currentSegmentActive: boolean | null = null;
+        let segmentPath: Array<{ x: number; y: number }> = [];
+
+        visibleData.forEach((point, idx) => {
+          const actualIdx = startIdx + idx;
+          const x = xScale(actualIdx, maxDataPoints);
+          const y = yScale(point.value);
+
+          const isActive = activityMap[actualIdx] ?? false;
+
+          // If activity state changed, draw previous segment and start new one
+          if (currentSegmentActive !== null && currentSegmentActive !== isActive) {
+            // Draw previous segment if exists
+            if (segmentPath.length > 1) {
+              ctx.setLineDash(currentSegmentActive ? [] : [10, 5]);
+              ctx.beginPath();
+              ctx.moveTo(segmentPath[0].x, segmentPath[0].y);
+              for (let i = 1; i < segmentPath.length; i++) {
+                ctx.lineTo(segmentPath[i].x, segmentPath[i].y);
+              }
+              ctx.stroke();
+            }
+
+            // Start new segment with LAST point from previous segment to connect smoothly
+            segmentPath = segmentPath.length > 0 ? [segmentPath[segmentPath.length - 1], { x, y }] : [{ x, y }];
+            currentSegmentActive = isActive;
+          } else {
+            // Continue current segment or start first segment
+            segmentPath.push({ x, y });
+            if (currentSegmentActive === null) {
+              currentSegmentActive = isActive;
+            }
+          }
+
+          lastX = x;
+          lastY = y;
+        });
+
+        // Draw final segment
+        if (segmentPath.length > 1) {
+          ctx.setLineDash(currentSegmentActive ? [] : [10, 5]);
+          ctx.beginPath();
+          ctx.moveTo(segmentPath[0].x, segmentPath[0].y);
+          for (let i = 1; i < segmentPath.length; i++) {
+            ctx.lineTo(segmentPath[i].x, segmentPath[i].y);
+          }
+          ctx.stroke();
         }
-        
-        // Track last point
-        lastX = x;
-        lastY = y;
-      });
 
-      ctx.stroke();
-      
+        // Reset dash
+        ctx.setLineDash([]);
+      } else {
+        // Regular mode: draw entire line as solid
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        let started = false;
+
+        visibleData.forEach((point, idx) => {
+          const actualIdx = startIdx + idx;
+          const x = xScale(actualIdx, maxDataPoints);
+          const y = yScale(point.value);
+
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+
+          lastX = x;
+          lastY = y;
+        });
+
+        ctx.stroke();
+      }
+
       // Store end position for label
       if (visibleData.length > 0) {
         labelPositions.push({
@@ -517,34 +840,34 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     });
 
     ctx.globalAlpha = 1;
-    
+
     // Adjust label positions to prevent overlap
     const labelHeight = 16; // Approximate height of label
     const minSpacing = 20; // Minimum vertical spacing between labels
-    
+
     // Sort by y position
     labelPositions.sort((a, b) => a.y - b.y);
-    
+
     // Adjust overlapping labels
     for (let i = 1; i < labelPositions.length; i++) {
       const current = labelPositions[i];
       const previous = labelPositions[i - 1];
-      
+
       if (current.y - previous.y < minSpacing) {
         current.y = previous.y + minSpacing;
       }
     }
-    
+
     // Draw all labels at adjusted positions and store their bounding boxes
     const storedLabelPositions: Array<{ symbol: string; x: number; y: number; width: number; height: number }> = [];
-    
+
     labelPositions.forEach(label => {
       // Draw small circle at original end point
       ctx.fillStyle = label.color;
       ctx.beginPath();
       ctx.arc(label.x, label.y, 3, 0, Math.PI * 2);
       ctx.fill();
-      
+
       // Draw ticker symbol in line color with crisp rendering
       ctx.fillStyle = label.color;
       ctx.font = label.isHovered ? 'bold 15px monospace' : 'bold 14px monospace';
@@ -552,7 +875,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       ctx.textBaseline = 'middle';
       ctx.imageSmoothingEnabled = false;
       ctx.fillText(label.symbol, label.x + 8, label.y);
-      
+
       // Draw percentage
       const perfColor = label.performance >= 0 ? '#00ff88' : '#ff4444';
       ctx.fillStyle = perfColor;
@@ -562,7 +885,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       const perfWidth = ctx.measureText(perfText).width;
       ctx.fillText(perfText, label.x + 12 + symbolWidth, label.y);
       ctx.imageSmoothingEnabled = true;
-      
+
       // Store label bounding box for hover detection
       const totalWidth = symbolWidth + perfWidth + 20;
       storedLabelPositions.push({
@@ -573,16 +896,9 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         height: 20
       });
     });
-    
+
     // Store in ref for mouse handler
     labelPositionsRef.current = storedLabelPositions;
-
-    // Title
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px monospace';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText('PERFORMANCE COMPARISON', margin.left, 15);
 
     // X-axis labels
     ctx.fillStyle = '#ffffff';
@@ -592,21 +908,77 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
     const numXLabels = 8;
     const visiblePoints = endIdx - startIdx;
+
+    // For weekly view, find indices where market opens (9:30 AM ET) to mark day boundaries
+    const dayBoundaries: number[] = [];
+    if (timeframe === '1W') {
+      let lastDate = '';
+      for (let i = startIdx; i < endIdx; i++) {
+        if (seriesData[0]?.data[i]) {
+          const timestamp = seriesData[0].data[i].timestamp;
+          const date = new Date(timestamp);
+
+          const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: false
+          });
+          const parts = formatter.formatToParts(date);
+          const dateStr = `${parts.find(p => p.type === 'year')?.value}-${parts.find(p => p.type === 'month')?.value}-${parts.find(p => p.type === 'day')?.value}`;
+          const hours = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+          const minutes = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+          const timeInMinutes = hours * 60 + minutes;
+
+          // Mark first point at or after 9:30 AM each day
+          if (dateStr !== lastDate && timeInMinutes >= 570) {
+            dayBoundaries.push(i);
+            lastDate = dateStr;
+          }
+        }
+      }
+    }
+
     for (let i = 0; i <= numXLabels; i++) {
-      const dataIdx = startIdx + Math.floor(visiblePoints * i / numXLabels);
+      let dataIdx = startIdx + Math.floor(visiblePoints * i / numXLabels);
+
+      // For weekly view, snap to day boundaries (9:30 AM)
+      if (timeframe === '1W' && dayBoundaries.length > 0) {
+        const targetIdx = startIdx + Math.floor(visiblePoints * i / numXLabels);
+        // Find closest day boundary
+        const closestBoundary = dayBoundaries.reduce((prev, curr) =>
+          Math.abs(curr - targetIdx) < Math.abs(prev - targetIdx) ? curr : prev
+        );
+        dataIdx = closestBoundary;
+      }
+
       if (seriesData[0]?.data[dataIdx]) {
         const x = xScale(dataIdx, maxDataPoints);
         const timestamp = seriesData[0].data[dataIdx].timestamp;
         const date = new Date(timestamp);
+
         let label = '';
-        
+
         if (timeframe === '1D') {
-          // Show time only for intraday
-          label = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          // Show time with AM/PM for intraday in ET
+          label = date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'America/New_York'
+          });
         } else if (timeframe === '1W') {
-          // Show day and time for 1 week
-          const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
-          const timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          // Show day, date and time for 1 week in ET (at 9:30 AM)
+          const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', timeZone: 'America/New_York' });
+          const timeLabel = date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'America/New_York'
+          });
           label = `${dayLabel} ${timeLabel}`;
         } else if (timeframe === '1M') {
           // Show date for 1 month
@@ -615,16 +987,10 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           // Show month/year for longer timeframes
           label = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
         }
-        
+
         ctx.fillText(label, x, margin.top + chartHeight + 10);
       }
     }
-
-    // Timeframe indicator
-    ctx.fillStyle = '#888888';
-    ctx.font = '12px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(timeframe, dimensions.width - margin.right - 10, 15);
 
     // Draw crosshair with labels
     if (crosshair) {
@@ -638,37 +1004,48 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         ctx.moveTo(crosshair.x, margin.top);
         ctx.lineTo(crosshair.x, margin.top + chartHeight);
         ctx.stroke();
-        
+
         // Find the data point at crosshair position
         const normalizedX = (crosshair.x - margin.left) / chartWidth;
         const dataIdx = Math.floor(startIdx + normalizedX * (endIdx - startIdx));
-        
+
         if (seriesData[0]?.data[dataIdx]) {
           const timestamp = seriesData[0].data[dataIdx].timestamp;
           const date = new Date(timestamp);
+
           let label = '';
-          
+
           if (timeframe === '1D') {
-            label = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            label = date.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              timeZone: 'America/New_York'
+            });
           } else if (timeframe === '1W') {
-            const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
-            const timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/New_York' });
+            const timeLabel = date.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              timeZone: 'America/New_York'
+            });
             label = `${dayLabel} ${timeLabel}`;
           } else if (timeframe === '1M') {
             label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
           } else {
             label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
           }
-          
+
           // Draw label box at bottom
           ctx.fillStyle = '#ff8800';
-          ctx.font = 'bold 12px monospace';
+          ctx.font = 'bold 16px monospace'; // Increased from 12px to 16px (33% bigger, rounded to 30%)
           const textWidth = ctx.measureText(label).width;
-          ctx.fillRect(crosshair.x - textWidth / 2 - 5, margin.top + chartHeight + 5, textWidth + 10, 20);
+          ctx.fillRect(crosshair.x - textWidth / 2 - 5, margin.top + chartHeight + 5, textWidth + 10, 24);
           ctx.fillStyle = '#000000';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(label, crosshair.x, margin.top + chartHeight + 15);
+          ctx.fillText(label, crosshair.x, margin.top + chartHeight + 17);
         }
       }
 
@@ -678,17 +1055,17 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         ctx.moveTo(margin.left, crosshair.y);
         ctx.lineTo(margin.left + chartWidth, crosshair.y);
         ctx.stroke();
-        
+
         // Calculate Y value
         const normalizedY = 1 - ((crosshair.y - margin.top) / chartHeight);
         const yValue = minVal + (normalizedY * valueRange);
-        
+
         // Draw label box on left
         ctx.fillStyle = '#ff8800';
         const yLabel = `${Math.abs(yValue).toFixed(2)}%`;
-        ctx.font = 'bold 12px monospace';
+        ctx.font = 'bold 16px monospace'; // Increased from 12px to 16px (33% bigger, rounded to 30%)
         const yTextWidth = ctx.measureText(yLabel).width;
-        ctx.fillRect(margin.left - yTextWidth - 15, crosshair.y - 10, yTextWidth + 10, 20);
+        ctx.fillRect(margin.left - yTextWidth - 15, crosshair.y - 12, yTextWidth + 10, 24);
         ctx.fillStyle = '#000000';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
@@ -709,7 +1086,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
-    
+
     const draw = () => {
       try {
         drawChart();
@@ -717,9 +1094,9 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         console.error('Chart draw error:', err);
       }
     };
-    
+
     animationFrameRef.current = requestAnimationFrame(draw);
-    
+
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -735,7 +1112,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    
+
     setIsPanning(true);
     setPanStart({ x, rangeStart: zoomRange.start, rangeEnd: zoomRange.end });
   }, [zoomRange]);
@@ -752,8 +1129,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     const mouseY = e.clientY - rect.top;
 
     // Update crosshair position if in chart area
-    if (mouseX >= margin.left && mouseX <= dimensions.width - margin.right && 
-        mouseY >= margin.top && mouseY <= dimensions.height - margin.bottom) {
+    if (mouseX >= margin.left && mouseX <= dimensions.width - margin.right &&
+      mouseY >= margin.top && mouseY <= dimensions.height - margin.bottom) {
       setCrosshair({ x: mouseX, y: mouseY });
     } else {
       setCrosshair(null);
@@ -763,13 +1140,13 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     let foundHover = false;
     for (const labelPos of labelPositionsRef.current) {
       if (mouseX >= labelPos.x && mouseX <= labelPos.x + labelPos.width &&
-          mouseY >= labelPos.y && mouseY <= labelPos.y + labelPos.height) {
+        mouseY >= labelPos.y && mouseY <= labelPos.y + labelPos.height) {
         setHoveredSeries(labelPos.symbol);
         foundHover = true;
         break;
       }
     }
-    
+
     if (!foundHover && hoveredSeries !== null) {
       setHoveredSeries(null);
     }
@@ -779,7 +1156,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       const chartWidth = dimensions.width - margin.left - margin.right;
       const dx = (e.clientX - rect.left - panStart.x) / chartWidth;
       const rangeSize = panStart.rangeEnd - panStart.rangeStart;
-      
+
       let newStart = panStart.rangeStart - dx;
       let newEnd = panStart.rangeEnd - dx;
 
@@ -807,41 +1184,53 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     setCrosshair(null);
   }, []);
 
-  // Zoom with wheel
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    
+  // Zoom with wheel - prevent page zoom
+  useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || dimensions.width === 0) return;
+    if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const margin = { top: 50, right: 100, bottom: 60, left: 70 };
-    const chartWidth = dimensions.width - margin.left - margin.right;
-    const mouseX = e.clientX - rect.left;
+    const wheelHandler = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-    // Only zoom in chart area
-    if (mouseX < margin.left || mouseX > margin.left + chartWidth) return;
+      if (dimensions.width === 0) return;
 
-    const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-    const mousePos = (mouseX - margin.left) / chartWidth;
-    const currentRange = zoomRange.end - zoomRange.start;
-    const newRange = Math.min(1, Math.max(0.05, currentRange * zoomFactor));
+      const rect = canvas.getBoundingClientRect();
+      const margin = { top: 50, right: 100, bottom: 60, left: 70 };
+      const chartWidth = dimensions.width - margin.left - margin.right;
+      const mouseX = e.clientX - rect.left;
 
-    const pivot = zoomRange.start + currentRange * mousePos;
-    let newStart = pivot - newRange * mousePos;
-    let newEnd = newStart + newRange;
+      // Only zoom in chart area
+      if (mouseX < margin.left || mouseX > margin.left + chartWidth) return;
 
-    // Clamp
-    if (newStart < 0) {
-      newStart = 0;
-      newEnd = newRange;
-    }
-    if (newEnd > 1) {
-      newEnd = 1;
-      newStart = 1 - newRange;
-    }
+      const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+      const mousePos = (mouseX - margin.left) / chartWidth;
+      const currentRange = zoomRange.end - zoomRange.start;
+      const newRange = Math.min(1, Math.max(0.05, currentRange * zoomFactor));
 
-    setZoomRange({ start: newStart, end: newEnd });
+      const pivot = zoomRange.start + currentRange * mousePos;
+      let newStart = pivot - newRange * mousePos;
+      let newEnd = newStart + newRange;
+
+      // Clamp
+      if (newStart < 0) {
+        newStart = 0;
+        newEnd = newRange;
+      }
+      if (newEnd > 1) {
+        newEnd = 1;
+        newStart = 1 - newRange;
+      }
+
+      setZoomRange({ start: newStart, end: newEnd });
+    };
+
+    // Add listener with passive: false to prevent default zoom
+    canvas.addEventListener('wheel', wheelHandler, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('wheel', wheelHandler);
+    };
   }, [dimensions.width, zoomRange]);
 
   // Reset zoom
@@ -864,253 +1253,312 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   if (!isVisible) return null;
 
   return (
-    <div style={{ 
-      width: '100%', 
-      height: '100%', 
-      display: 'flex', 
+    <div style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
       flexDirection: 'column',
       background: '#000000',
       fontFamily: 'monospace',
       position: 'relative',
       overflow: 'hidden'
     }}>
-      {/* Controls Bar */}
+      {/* Bloomberg-Style Professional Header Bar */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '16px',
-        padding: '20px 24px',
-        borderBottom: '1px solid #1a1a1a',
-        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        padding: '12px 32px',
+        background: 'linear-gradient(180deg, #0a1a15 0%, #050d0a 100%)',
+        borderBottom: '2px solid #ff8800',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.8)',
         position: 'relative',
         zIndex: 1,
         overflow: 'visible'
       }}>
-        {/* Timeframe Selector */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ color: '#666', fontSize: '11px', textTransform: 'uppercase' }}>Timeframe:</span>
-          <select
-            value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-            style={{
-              padding: '8px 16px',
-              background: '#1a1a1a',
-              color: '#fff',
-              border: '1px solid #333',
-              borderRadius: '4px',
-              fontSize: '12px',
-              fontFamily: 'monospace',
-              cursor: 'pointer',
-              outline: 'none'
-            }}
-          >
-            <option value="1D">1D</option>
-            <option value="1W">1W</option>
-            <option value="1M">1M</option>
-            <option value="3M">3M</option>
-            <option value="6M">6M</option>
-            <option value="1Y">1Y</option>
-            <option value="2Y">2Y</option>
-            <option value="5Y">5Y</option>
-            <option value="10Y">10Y</option>
-            <option value="20Y">20Y</option>
-            <option value="YTD">YTD</option>
-          </select>
-        </div>
+        {/* Left Section - Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {/* Timeframe Selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: 'bold',
+              letterSpacing: '0.5px',
+              textTransform: 'uppercase'
+            }}>TIMEFRAME:</span>
+            <select
+              value={timeframe}
+              onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+              style={{
+                padding: '10px 20px',
+                background: '#000000',
+                color: '#ffffff',
+                border: '2px solid #333333',
+                borderRadius: '0',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+                outline: 'none',
+                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5), 0 2px 4px rgba(255,255,255,0.1)',
+                letterSpacing: '1px'
+              }}
+            >
+              <option value="1D">1D</option>
+              <option value="1W">1W</option>
+              <option value="1M">1M</option>
+              <option value="3M">3M</option>
+              <option value="6M">6M</option>
+              <option value="1Y">1Y</option>
+              <option value="2Y">2Y</option>
+              <option value="5Y">5Y</option>
+              <option value="10Y">10Y</option>
+              <option value="20Y">20Y</option>
+              <option value="YTD">YTD</option>
+            </select>
+          </div>
 
-        {/* Category Buttons */}
-        {[
-          { key: 'sectors', label: 'Sectors', data: SECTORS, color: '#00d4ff' },
-          { key: 'industries', label: 'Industries', data: INDUSTRIES, color: '#ff6b35' },
-          { key: 'special', label: 'Special', data: SPECIAL, color: '#a855f7' }
-        ].map(category => {
-          const allSelected = isAllSelected(category.data);
-          const someSelected = category.data.some(item => selectedSymbols.includes(item.symbol));
-          const isOpen = openDropdown === category.key;
+          {/* Category Buttons */}
+          {[
+            { key: 'sectors', label: 'SECTORS', data: SECTORS, color: '#00d4ff' },
+            { key: 'industries', label: 'INDUSTRIES', data: INDUSTRIES, color: '#ff6b35' },
+            { key: 'special', label: 'SPECIAL', data: SPECIAL, color: '#a855f7' }
+          ].map(category => {
+            const allSelected = isAllSelected(category.data);
+            const someSelected = category.data.some(item => selectedSymbols.includes(item.symbol));
+            const isOpen = openDropdown === category.key;
 
-          return (
-            <div key={category.key} style={{ position: 'relative' }}>
-              <button
-                ref={(el) => { buttonRefs.current[category.key] = el; }}
-                data-dropdown-button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  if (isOpen) {
-                    setOpenDropdown(null);
-                    setDropdownPosition(null);
-                  } else {
-                    const rect = buttonRefs.current[category.key]?.getBoundingClientRect();
-                    if (rect) {
-                      setDropdownPosition({
-                        top: rect.bottom + 4,
-                        left: rect.left
-                      });
-                    }
-                    setOpenDropdown(category.key);
-                  }
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  toggleCategory(category.data);
-                  setOpenDropdown(null);
-                }}
-                style={{
-                  padding: '8px 16px',
-                  background: someSelected ? category.color : '#1a1a1a',
-                  color: someSelected ? '#000' : '#fff',
-                  border: `1px solid ${category.color}`,
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  fontFamily: 'monospace',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  textTransform: 'uppercase',
-                  userSelect: 'none'
-                }}
-              >
-                {allSelected ? '☑' : someSelected ? '◩' : '☐'} {category.label} ▼
-              </button>
-
-              {/* Dropdown - Rendered via Portal */}
-              {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
-                <div
-                  data-dropdown
+            return (
+              <div key={category.key} style={{ position: 'relative' }}>
+                <button
+                  ref={(el) => { buttonRefs.current[category.key] = el; }}
+                  data-dropdown-button
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
+                    if (isOpen) {
+                      setOpenDropdown(null);
+                      setDropdownPosition(null);
+                    } else {
+                      const rect = buttonRefs.current[category.key]?.getBoundingClientRect();
+                      if (rect) {
+                        setDropdownPosition({
+                          top: rect.bottom + 4,
+                          left: rect.left
+                        });
+                      }
+                      setOpenDropdown(category.key);
+                    }
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    toggleCategory(category.data);
+                    setOpenDropdown(null);
                   }}
                   style={{
-                    position: 'fixed',
-                    top: `${dropdownPosition.top}px`,
-                    left: `${dropdownPosition.left}px`,
-                    background: '#1a1a1a',
+                    padding: '10px 20px',
+                    background: '#000000',
+                    color: '#ffffff',
                     border: `2px solid ${category.color}`,
-                    borderRadius: '4px',
-                    padding: '8px',
-                    zIndex: 999999,
-                    minWidth: '240px',
-                    maxHeight: '400px',
-                    overflowY: 'auto',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.9)'
+                    borderRadius: '0',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    fontFamily: 'monospace',
+                    cursor: 'pointer',
+                    textTransform: 'uppercase',
+                    userSelect: 'none',
+                    letterSpacing: '1px',
+                    boxShadow: someSelected
+                      ? `0 0 15px ${category.color}88, inset 0 0 10px ${category.color}33`
+                      : `0 2px 4px rgba(0,0,0,0.8)`,
+                    transition: 'all 0.15s'
                   }}
                 >
-                  {/* Select All Option */}
+                  {allSelected ? '☑' : someSelected ? '◩' : '☐'} {category.label} ▼
+                </button>
+
+                {/* Dropdown - Rendered via Portal */}
+                {isOpen && dropdownPosition && typeof window !== 'undefined' && createPortal(
                   <div
+                    data-dropdown
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
-                      toggleCategory(category.data);
                     }}
                     style={{
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      color: allSelected ? category.color : '#999',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      borderBottom: '1px solid #333',
-                      marginBottom: '4px',
-                      background: allSelected ? 'rgba(255,255,255,0.05)' : 'transparent',
-                      userSelect: 'none',
-                      transition: 'background 0.15s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = allSelected ? 'rgba(255,255,255,0.05)' : 'transparent';
+                      position: 'fixed',
+                      top: `${dropdownPosition.top}px`,
+                      left: `${dropdownPosition.left}px`,
+                      background: '#000000',
+                      border: `3px solid ${category.color}`,
+                      borderRadius: '0',
+                      padding: '12px',
+                      zIndex: 999999,
+                      minWidth: '280px',
+                      maxHeight: '450px',
+                      overflowY: 'auto',
+                      boxShadow: `0 12px 32px rgba(0,0,0,0.95), 0 0 20px ${category.color}33`
                     }}
                   >
-                    {allSelected ? '☑' : '☐'} SELECT ALL
-                  </div>
+                    {/* Select All Option */}
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        toggleCategory(category.data);
+                      }}
+                      style={{
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                        color: allSelected ? category.color : '#ffffff',
+                        fontSize: '13px',
+                        fontWeight: 'bold',
+                        borderBottom: `2px solid ${category.color}44`,
+                        marginBottom: '6px',
+                        background: allSelected ? 'rgba(255,255,255,0.08)' : 'transparent',
+                        userSelect: 'none',
+                        transition: 'background 0.15s',
+                        letterSpacing: '0.5px'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.12)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = allSelected ? 'rgba(255,255,255,0.08)' : 'transparent';
+                      }}
+                    >
+                      {allSelected ? '☑' : '☐'} SELECT ALL
+                    </div>
 
-                  {/* Individual Items */}
-                  {category.data.map(item => {
-                    const isSelected = selectedSymbols.includes(item.symbol);
-                    return (
-                      <div
-                        key={item.symbol}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          toggleSymbol(item.symbol);
-                        }}
-                        style={{
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          fontSize: '11px',
-                          color: isSelected ? '#fff' : '#999',
-                          background: isSelected ? 'rgba(255,255,255,0.05)' : 'transparent',
-                          borderRadius: '2px',
-                          transition: 'background 0.15s',
-                          userSelect: 'none'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = isSelected ? 'rgba(255,255,255,0.05)' : 'transparent';
-                        }}
-                      >
-                        <span style={{ color: item.color, fontSize: '14px' }}>●</span>
-                        <span>{isSelected ? '☑' : '☐'}</span>
-                        <span style={{ fontWeight: isSelected ? 'bold' : 'normal' }}>{item.symbol}</span>
-                        <span style={{ fontSize: '9px', color: '#666', marginLeft: 'auto' }}>{item.name}</span>
-                      </div>
-                    );
-                  })}
-                </div>,
-                document.body
-              )}
-            </div>
-          );
-        })}
+                    {/* Individual Items */}
+                    {category.data.map(item => {
+                      const isSelected = selectedSymbols.includes(item.symbol);
+                      return (
+                        <div
+                          key={item.symbol}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            toggleSymbol(item.symbol);
+                          }}
+                          style={{
+                            padding: '10px 14px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            fontSize: '13px',
+                            color: isSelected ? '#ffffff' : '#999999',
+                            background: isSelected ? 'rgba(255,255,255,0.08)' : 'transparent',
+                            background: isSelected ? 'rgba(255,255,255,0.08)' : 'transparent',
+                            borderRadius: '0',
+                            transition: 'background 0.15s',
+                            userSelect: 'none',
+                            fontWeight: isSelected ? 'bold' : 'normal'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.12)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = isSelected ? 'rgba(255,255,255,0.08)' : 'transparent';
+                          }}
+                        >
+                          <span style={{ color: item.color, fontSize: '16px' }}>●</span>
+                          <span>{isSelected ? '☑' : '☐'}</span>
+                          <span style={{ fontWeight: isSelected ? 'bold' : 'normal' }}>{item.symbol}</span>
+                          <span style={{ fontSize: '10px', color: '#666', marginLeft: 'auto' }}>{item.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>,
+                  document.body
+                )}
+              </div>
+            );
+          })}
 
-        {/* Selected Count */}
-        {selectedSymbols.length > 0 && (
-          <div style={{
-            padding: '8px 16px',
-            background: '#1a1a1a',
-            border: '1px solid #333',
-            borderRadius: '4px',
-            fontSize: '11px',
-            color: '#00ff88'
-          }}>
-            {selectedSymbols.length} symbol{selectedSymbols.length !== 1 ? 's' : ''} selected
-          </div>
-        )}
-
-        {/* Reset Zoom */}
-        {(zoomRange.start !== 0 || zoomRange.end !== 1) && (
+          {/* Waves Button */}
           <button
-            onClick={resetZoom}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setIsWaveMode(!isWaveMode);
+              setOpenDropdown(null);
+            }}
             style={{
-              padding: '8px 16px',
-              background: '#1a1a1a',
-              color: '#fff',
-              border: '1px solid #666',
-              borderRadius: '4px',
-              fontSize: '11px',
+              padding: '10px 20px',
+              background: '#000000',
+              color: '#ffffff',
+              border: '2px solid #ff8800',
+              borderRadius: '0',
+              fontSize: '14px',
+              fontWeight: 'bold',
               fontFamily: 'monospace',
               cursor: 'pointer',
-              marginLeft: 'auto'
+              textTransform: 'uppercase',
+              userSelect: 'none',
+              letterSpacing: '1px',
+              boxShadow: isWaveMode
+                ? '0 0 15px #ff880088, inset 0 0 10px #ff880033'
+                : '0 2px 4px rgba(0,0,0,0.8)',
+              transition: 'all 0.15s'
             }}
           >
-            Reset Zoom
+            {isWaveMode ? '☑' : '☐'} WAVES 🌊
           </button>
-        )}
+
+          {/* Selected Count */}
+          {selectedSymbols.length > 0 && !isWaveMode && (
+            <div style={{
+              padding: '10px 20px',
+              background: '#000000',
+              border: '2px solid #00ff88',
+              borderRadius: '0',
+              fontSize: '13px',
+              fontWeight: 'bold',
+              color: '#00ff88',
+              letterSpacing: '0.5px',
+              boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5), 0 0 8px #00ff8833'
+            }}>
+              {selectedSymbols.length} SYMBOL{selectedSymbols.length !== 1 ? 'S' : ''} SELECTED
+            </div>
+          )}
+        </div>
+
+        {/* Right Section - Reset Zoom */}
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          {(zoomRange.start !== 0 || zoomRange.end !== 1) && (
+            <button
+              onClick={resetZoom}
+              style={{
+                padding: '10px 20px',
+                background: '#000000',
+                color: '#ffffff',
+                border: '2px solid #ff0000',
+                borderRadius: '0',
+                fontSize: '13px',
+                fontWeight: 'bold',
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.8)',
+                transition: 'all 0.15s'
+              }}
+            >
+              RESET ZOOM
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Chart Container */}
-      <div 
+      <div
         ref={containerRef}
-        style={{ 
-          flex: 1, 
+        style={{
+          flex: 1,
           position: 'relative',
           minHeight: '500px',
           overflow: 'hidden'
@@ -1160,7 +1608,6 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
-          onWheel={handleWheel}
           style={{
             position: 'absolute',
             top: 0,
@@ -1168,7 +1615,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
             width: '100%',
             height: '100%',
             cursor: isPanning ? 'grabbing' : 'grab',
-            display: seriesData.length > 0 ? 'block' : 'none',
+            display: !loading && seriesData.length > 0 ? 'block' : 'none',
             touchAction: 'none'
           }}
         />
