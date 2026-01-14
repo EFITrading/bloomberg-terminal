@@ -33,7 +33,7 @@ interface RRGChartProps {
   onLookbackChange?: (index: number) => void;
   onRefresh?: () => void;
   // Control props
-  selectedMode?: 'sectors' | 'industries' | 'custom' | 'waves';
+  selectedMode?: 'sectors' | 'industries' | 'custom' | 'waves' | 'weightedRRG';
   selectedSectorETF?: string | null;
   selectedIndustryETF?: string | null;
   customSymbols?: string;
@@ -41,7 +41,7 @@ interface RRGChartProps {
   benchmarkOptions?: Array<{ label: string; value: string }>;
   sectorETFs?: any;
   industryETFs?: any;
-  onModeChange?: (mode: 'sectors' | 'industries' | 'custom' | 'waves') => void;
+  onModeChange?: (mode: 'sectors' | 'industries' | 'custom' | 'waves' | 'weightedRRG') => void;
   onSectorETFChange?: (etf: string | null) => void;
   onIndustryETFChange?: (etf: string | null) => void;
   onCustomSymbolsChange?: (symbols: string) => void;
@@ -912,40 +912,40 @@ const RRGChart: React.FC<RRGChartProps> = ({
       // Leading quadrant (top-right) - RS Ratio >= 100, RS Momentum >= 100
       chartGroup.append('rect')
         .attr('class', 'quadrant-bg leading')
-        .attr('x', xScale(100))
-        .attr('y', yScale(domainMaxY))
-        .attr('width', xScale(domainMaxX) - xScale(100))
-        .attr('height', yScale(100) - yScale(domainMaxY))
+        .attr('x', Math.min(xScale(100), xScale(domainMaxX)))
+        .attr('y', Math.min(yScale(domainMaxY), yScale(100)))
+        .attr('width', Math.max(0, Math.abs(xScale(domainMaxX) - xScale(100))))
+        .attr('height', Math.max(0, Math.abs(yScale(100) - yScale(domainMaxY))))
         .attr('fill', 'url(#leading-gradient)')
         .attr('opacity', 1);
 
       // Weakening quadrant (bottom-right) - RS Ratio >= 100, RS Momentum < 100
       chartGroup.append('rect')
         .attr('class', 'quadrant-bg weakening')
-        .attr('x', xScale(100))
-        .attr('y', yScale(100))
-        .attr('width', xScale(domainMaxX) - xScale(100))
-        .attr('height', yScale(domainMinY) - yScale(100))
+        .attr('x', Math.min(xScale(100), xScale(domainMaxX)))
+        .attr('y', Math.min(yScale(100), yScale(domainMinY)))
+        .attr('width', Math.max(0, Math.abs(xScale(domainMaxX) - xScale(100))))
+        .attr('height', Math.max(0, Math.abs(yScale(domainMinY) - yScale(100))))
         .attr('fill', 'url(#weakening-gradient)')
         .attr('opacity', 1);
 
       // Lagging quadrant (bottom-left) - RS Ratio < 100, RS Momentum < 100
       chartGroup.append('rect')
         .attr('class', 'quadrant-bg lagging')
-        .attr('x', xScale(domainMinX))
-        .attr('y', yScale(100))
-        .attr('width', xScale(100) - xScale(domainMinX))
-        .attr('height', yScale(domainMinY) - yScale(100))
+        .attr('x', Math.min(xScale(domainMinX), xScale(100)))
+        .attr('y', Math.min(yScale(100), yScale(domainMinY)))
+        .attr('width', Math.max(0, Math.abs(xScale(100) - xScale(domainMinX))))
+        .attr('height', Math.max(0, Math.abs(yScale(domainMinY) - yScale(100))))
         .attr('fill', 'url(#lagging-gradient)')
         .attr('opacity', 1);
 
       // Improving quadrant (top-left) - RS Ratio < 100, RS Momentum >= 100
       chartGroup.append('rect')
         .attr('class', 'quadrant-bg improving')
-        .attr('x', xScale(domainMinX))
-        .attr('y', yScale(domainMaxY))
-        .attr('width', xScale(100) - xScale(domainMinX))
-        .attr('height', yScale(100) - yScale(domainMaxY))
+        .attr('x', Math.min(xScale(domainMinX), xScale(100)))
+        .attr('y', Math.min(yScale(domainMaxY), yScale(100)))
+        .attr('width', Math.max(0, Math.abs(xScale(100) - xScale(domainMinX))))
+        .attr('height', Math.max(0, Math.abs(yScale(100) - yScale(domainMaxY))))
         .attr('fill', 'url(#improving-gradient)')
         .attr('opacity', 1);
     } else {
@@ -1604,8 +1604,8 @@ const RRGChart: React.FC<RRGChartProps> = ({
               value={selectedIndustryETF || selectedSectorETF || selectedMode}
               onChange={(e) => {
                 const value = e.target.value;
-                if (value === 'sectors' || value === 'industries' || value === 'custom' || value === 'waves') {
-                  onModeChange?.(value as 'sectors' | 'industries' | 'custom' | 'waves');
+                if (value === 'sectors' || value === 'industries' || value === 'custom' || value === 'waves' || value === 'weightedRRG') {
+                  onModeChange?.(value as 'sectors' | 'industries' | 'custom' | 'waves' | 'weightedRRG');
                   onSectorETFChange?.(null);
                   onIndustryETFChange?.(null);
                   // Auto-enable waves when switching to waves mode
@@ -1649,6 +1649,32 @@ const RRGChart: React.FC<RRGChartProps> = ({
                 </option>
               ))}
             </select>
+
+            {/* Weighted RRG button - shows for all modes */}
+            <button
+              onClick={() => {
+                if (selectedMode === 'weightedRRG') {
+                  onModeChange?.('sectors');
+                } else {
+                  onModeChange?.('weightedRRG');
+                }
+              }}
+              disabled={loading}
+              style={{
+                padding: '6px 12px',
+                background: selectedMode === 'weightedRRG' ? 'rgba(255, 107, 0, 0.3)' : '#0a0a0a',
+                border: '1px solid rgba(255, 107, 0, 0.3)',
+                borderRadius: '3px',
+                color: selectedMode === 'weightedRRG' ? '#ff6b00' : '#ffffff',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+                transition: 'all 0.2s ease'
+              }}
+            >
+              Weighted RRG
+            </button>
           </div>
         )}
 
@@ -1681,26 +1707,43 @@ const RRGChart: React.FC<RRGChartProps> = ({
         {/* Timeframe */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <label style={{ color: '#ff8844', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' }}>Timeframe:</label>
-          <select
-            value={timeframe}
-            onChange={(e) => onTimeframeChange?.(e.target.value)}
-            disabled={loading}
-            style={{
-              padding: '6px 12px',
-              background: '#0a0a0a',
-              border: '1px solid rgba(255, 107, 0, 0.3)',
-              borderRadius: '3px',
-              color: '#ffffff',
-              fontSize: '12px',
-              fontWeight: '600'
-            }}
-          >
-            {timeframeOptions.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          {selectedMode === 'weightedRRG' ? (
+            <div
+              style={{
+                padding: '6px 12px',
+                background: '#0a0a0a',
+                border: '1px solid rgba(255, 107, 0, 0.3)',
+                borderRadius: '3px',
+                color: '#ff6b00',
+                fontSize: '12px',
+                fontWeight: '700',
+                textTransform: 'uppercase'
+              }}
+            >
+              MAX
+            </div>
+          ) : (
+            <select
+              value={timeframe}
+              onChange={(e) => onTimeframeChange?.(e.target.value)}
+              disabled={loading}
+              style={{
+                padding: '6px 12px',
+                background: '#0a0a0a',
+                border: '1px solid rgba(255, 107, 0, 0.3)',
+                borderRadius: '3px',
+                color: '#ffffff',
+                fontSize: '12px',
+                fontWeight: '600'
+              }}
+            >
+              {timeframeOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Wave Toggle Button */}

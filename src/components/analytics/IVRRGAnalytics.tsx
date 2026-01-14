@@ -53,10 +53,10 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
   const loadIVChartData = async (symbols: string[], benchmarkSymbol: string, days: number) => {
     try {
       const chartData = [];
-      
+
       // Color palette
       const colors = ['#00CED1', '#FF1493', '#FFD700', '#32CD32', '#FF6347', '#9370DB'];
-      
+
       // Fetch benchmark (SPY) first
       const benchmarkResponse = await fetch(`/api/calculate-historical-iv?ticker=${benchmarkSymbol}&days=${days}`);
       if (benchmarkResponse.ok) {
@@ -76,7 +76,7 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
           });
         }
       }
-      
+
       // Fetch each ticker's IV
       for (let i = 0; i < symbols.length; i++) {
         const symbol = symbols[i];
@@ -99,7 +99,7 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
           }
         }
       }
-      
+
       setIvChartData(chartData);
     } catch (error) {
       console.error('Error loading IV chart data:', error);
@@ -114,9 +114,9 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
   };
 
   const timeframeOptions = [
-    { label: '30 days', value: '30 days', weeks: 5, rsPeriod: 4, momentumPeriod: 4 },
-    { label: '120 days', value: '120 days', weeks: 18, rsPeriod: 16, momentumPeriod: 16 },
-    { label: '365 days', value: '365 days', weeks: 52, rsPeriod: 48, momentumPeriod: 48 }
+    { label: '30 days', value: '30 days', weeks: 8, rsPeriod: 6, momentumPeriod: 6 },  // Increased from 5 weeks to 8 to get more data points
+    { label: '120 days', value: '120 days', weeks: 18, rsPeriod: 14, momentumPeriod: 14 },
+    { label: '365 days', value: '365 days', weeks: 52, rsPeriod: 26, momentumPeriod: 26 }
   ];
 
   // IV RRG specific benchmark options
@@ -140,16 +140,16 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
       }
 
       const symbols = symbolsString.split(',').map(s => s.trim().toUpperCase()).filter(s => s);
-      
+
       // Multi-timeframe analysis for single ticker
       if (symbols.length === 1) {
         console.log(`🔄 Loading multi-timeframe IV RRG for ${symbols[0]}...`);
-        
-        // Define the three timeframes for comparison
+
+        // Define the three timeframes for comparison (matched with timeframeOptions)
         const multiTimeframes = [
-          { label: '30d', value: '30 days', weeks: 5, rsPeriod: 4, momentumPeriod: 4 },
-          { label: '120d', value: '120 days', weeks: 18, rsPeriod: 16, momentumPeriod: 16 },
-          { label: '365d', value: '365 days', weeks: 52, rsPeriod: 48, momentumPeriod: 48 }
+          { label: '30d', value: '30 days', weeks: 8, rsPeriod: 6, momentumPeriod: 6 },
+          { label: '120d', value: '120 days', weeks: 18, rsPeriod: 14, momentumPeriod: 14 },
+          { label: '365d', value: '365 days', weeks: 52, rsPeriod: 26, momentumPeriod: 26 }
         ];
 
         // Fetch data for all three timeframes in parallel
@@ -158,11 +158,11 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
             const days = tf.weeks * 7;
             // Always fetch max tail data (50 points), tailLength is used only for display
             const data = await ivRRGService.calculateIVBasedRRG(
-              symbols, 
-              benchmark, 
-              days, 
-              tf.rsPeriod, 
-              tf.momentumPeriod, 
+              symbols,
+              benchmark,
+              days,
+              tf.rsPeriod,
+              tf.momentumPeriod,
               50
             );
             return { timeframe: tf.label, data };
@@ -192,18 +192,18 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
         );
 
         setRrgData(transformedData);
-        
+
         // Load IV chart data for the longest timeframe (1Y)
         const longestTF = multiTimeframes[2];
         await loadIVChartData(symbols, benchmark, longestTF.weeks * 7);
-        
+
         console.log(`✅ Loaded ${symbols[0]} across 3 timeframes`);
 
       } else {
         // Normal multi-ticker single timeframe analysis
         console.log(`🔄 Loading IV RRG data for ${symbolMode} mode...`);
         console.log(`📊 TailLength state value: ${tailLength}`);
-        
+
         const selectedTimeframe = timeframeOptions.find(tf => tf.value === timeframe);
         if (!selectedTimeframe) {
           throw new Error(`Invalid timeframe selected: ${timeframe}`);
@@ -213,14 +213,14 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
         const days = weeks * 7;
 
         console.log(`📊 Calling calculateIVBasedRRG - fetching max tail data (50 points)`);
-        
+
         // Always fetch max tail data (50 points), tailLength state is used only for display filtering
         const data = await ivRRGService.calculateIVBasedRRG(
-          symbols, 
-          benchmark, 
-          days, 
-          rsPeriod, 
-          momentumPeriod, 
+          symbols,
+          benchmark,
+          days,
+          rsPeriod,
+          momentumPeriod,
           50
         );
 
@@ -246,10 +246,10 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
         }));
 
         setRrgData(transformedData);
-        
+
         // Fetch raw IV data for line chart
         await loadIVChartData(symbols, benchmark, days);
-        
+
         console.log(`✅ Loaded ${data.length} IV RRG positions`);
       }
 
@@ -347,7 +347,7 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
             symbolMode={symbolMode}
             onSymbolModeChange={setSymbolMode}
           />
-          
+
           {/* IV Line Chart */}
           {ivChartData.length > 0 && (
             <div style={{ marginTop: '30px', width: '100%' }}>

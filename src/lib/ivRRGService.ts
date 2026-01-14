@@ -363,20 +363,31 @@ class IVRRGService {
             ivRatioData = this.calculateIVRatio(symbolIVData, benchmarkIVData);
           }
 
-          if (ivRatioData.length < ivRatioPeriod + momentumPeriod) {
-            console.warn(`⚠️ Insufficient data for ${symbol}`);
+          // Check minimum data requirements with better diagnostics
+          const minRequired = ivRatioPeriod + momentumPeriod + 15; // Need buffer for longPeriod calculations
+          if (ivRatioData.length < minRequired) {
+            console.warn(`⚠️ Insufficient data for ${symbol}: have ${ivRatioData.length} points, need ${minRequired} (ivRatio=${ivRatioPeriod}, momentum=${momentumPeriod})`);
+            console.warn(`   Tip: Increase lookback days or use longer timeframe`);
             continue;
           }
 
-          // Apply JdK normalization with proper longPeriod
-          const longPeriod = Math.max(26, ivRatioPeriod * 2);
+          // Apply JdK normalization with ADAPTIVE longPeriod based on available data
+          // For sparse IV data, use smaller longPeriod to ensure we get results
+          const minRequiredPoints = ivRatioPeriod + momentumPeriod + 10; // Minimum buffer
+          const idealLongPeriod = Math.max(26, ivRatioPeriod * 2);
+          const maxPossibleLongPeriod = Math.max(10, ivRatioData.length - ivRatioPeriod - momentumPeriod - 5);
+          const longPeriod = Math.min(idealLongPeriod, maxPossibleLongPeriod);
+
+          console.log(`📊 ${symbol}: ivRatioData=${ivRatioData.length} points, using longPeriod=${longPeriod} (ideal=${idealLongPeriod})`);
+
           const normalizedIV = this.calculateNormalizedIVRatio(ivRatioData, ivRatioPeriod, longPeriod);
 
           // Calculate IV-Momentum
           const ivMomentumData = this.calculateIVMomentum(normalizedIV, momentumPeriod);
 
           if (ivMomentumData.length === 0) {
-            console.warn(`⚠️ No momentum data for ${symbol}`);
+            console.warn(`⚠️ No momentum data for ${symbol}: normalizedIV has ${normalizedIV.length} points, need ${momentumPeriod + 1} minimum`);
+            console.warn(`   This usually means insufficient IV data from API. Try: (1) Longer timeframe, (2) Different symbol with more options liquidity`);
             continue;
           }
 

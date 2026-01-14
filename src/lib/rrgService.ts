@@ -78,7 +78,7 @@ class RRGService {
 
         // Use 1-hour, 4-hour, daily, or weekly intervals
         const [multiplier, timespan] = interval === '1hour' ? ['1', 'hour'] : interval === '4hour' ? ['4', 'hour'] : interval === 'week' ? ['1', 'week'] : ['1', 'day'];
-        const endpoint = `/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}`;
+        const endpoint = `/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?limit=50000`;
         const response = await this.makeRequest<any>(endpoint);
 
         if (!response || !response.results) {
@@ -157,7 +157,7 @@ class RRGService {
 
         // Use 1-hour, 4-hour, daily, or weekly intervals
         const [multiplier, timespan] = interval === '1hour' ? ['1', 'hour'] : interval === '4hour' ? ['4', 'hour'] : interval === 'week' ? ['1', 'week'] : ['1', 'day'];
-        const endpoint = `/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}`;
+        const endpoint = `/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?limit=50000`;
         const response = await this.makeRequest<any>(endpoint);
 
         if (!response || !response.results) {

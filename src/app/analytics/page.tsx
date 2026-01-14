@@ -12,6 +12,10 @@ import PerformanceDashboard from '@/components/charts/PerformanceDashboard';
 import MarketHeatmap from '@/components/analytics/MarketHeatmap';
 import IVRRGAnalytics from '@/components/analytics/IVRRGAnalytics';
 import RRGScreener from '@/components/RRGScreener';
+import ForwardReturns from '@/components/analytics/ForwardReturns';
+import RangeProjection from '@/components/analytics/RangeProjection';
+import VolSurface from '@/components/analytics/VolSurface';
+import CharmExposure from '@/components/analytics/CharmExposure';
 
 export default function Analytics() {
   const [activePanels, setActivePanels] = useState<string[]>(['rrg', 'performance']);
@@ -81,6 +85,30 @@ export default function Analytics() {
         return (
           <div key={id} style={panelStyle}>
             <IVRRGAnalytics defaultTimeframe="120 days" defaultBenchmark="SPY" />
+          </div>
+        );
+      case 'forward-returns':
+        return (
+          <div key={id} style={panelStyle}>
+            <ForwardReturns />
+          </div>
+        );
+      case 'range-projection':
+        return (
+          <div key={id} style={panelStyle}>
+            <RangeProjection />
+          </div>
+        );
+      case 'vol-surface':
+        return (
+          <div key={id} style={panelStyle}>
+            <VolSurface />
+          </div>
+        );
+      case 'charm-exposure':
+        return (
+          <div key={id} style={panelStyle}>
+            <CharmExposure />
           </div>
         );
       default:
@@ -155,6 +183,37 @@ export default function Analytics() {
           <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="#fbbf24" opacity="0.4" />
           <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" stroke="#eab308" strokeWidth="2" strokeLinejoin="round" />
           <path d="M12 3 C16 6, 18 8, 21 12" stroke="#fbbf24" strokeWidth="1.5" fill="none" opacity="0.5" strokeLinecap="round" />
+        </svg>
+      ),
+      'forward-returns': (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 12 Q8 6, 12 10 T21 12" stroke="#06b6d4" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          <circle cx="12" cy="10" r="2.5" fill="#22d3ee" opacity="0.8" />
+          <path d="M12 10 L12 20" stroke="#22d3ee" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 2" />
+          <path d="M18 8 L21 11 L18 14" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+      ),
+      'range-projection': (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 18 Q6 12, 9 15 T15 12 T21 18" stroke="#a855f7" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          <path d="M3 6 Q6 12, 9 9 T15 12 T21 6" stroke="#c084fc" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity="0.5" />
+          <rect x="11" y="10" width="2" height="8" fill="#a855f7" opacity="0.4" />
+        </svg>
+      ),
+      'vol-surface': (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 12 L4 8 L6 14 L8 6 L10 16 L12 10 L14 18 L16 8 L18 14 L20 10 L22 16" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M2 12 L22 12" stroke="#10b981" strokeWidth="1" opacity="0.3" />
+          <circle cx="12" cy="10" r="3" stroke="#22c55e" strokeWidth="2" fill="none" opacity="0.5" />
+        </svg>
+      ),
+      'charm-exposure': (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2 L12 22" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" />
+          <path d="M2 12 L22 12" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" />
+          <circle cx="12" cy="12" r="7" stroke="#fbbf24" strokeWidth="2.5" fill="none" opacity="0.4" />
+          <path d="M12 5 L15 9 L12 12 L9 9 Z" fill="#f59e0b" opacity="0.7" />
+          <path d="M12 19 L9 15 L12 12 L15 15 Z" fill="#fbbf24" opacity="0.5" />
         </svg>
       )
     };
@@ -297,7 +356,6 @@ export default function Analytics() {
             position: 'relative',
             overflow: 'hidden'
           }}>
-
             <h2 style={{
               margin: 0,
               fontSize: '18px',
@@ -313,7 +371,6 @@ export default function Analytics() {
             }}>
               Analytics
             </h2>
-
           </div>
 
           <TabButton id="rrg" label="RRG" />
@@ -323,6 +380,30 @@ export default function Analytics() {
           <TabButton id="leadership-scan" label="Leadership" />
           <TabButton id="hv-screener" label="HV Screener" />
           <TabButton id="heatmap" label="Heatmap" />
+
+          {/* Advanced Options Analytics */}
+          <div style={{
+            margin: '24px 12px 12px 12px',
+            padding: '12px 0',
+            borderTop: '1px solid rgba(212, 175, 55, 0.3)'
+          }}>
+            <div style={{
+              fontSize: '11px',
+              fontWeight: '700',
+              color: '#D4AF37',
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              padding: '0 20px 12px 20px',
+              opacity: 0.7
+            }}>
+              Advanced Options
+            </div>
+          </div>
+
+          <TabButton id="forward-returns" label="Forward Returns" />
+          <TabButton id="range-projection" label="Range Projection" />
+          <TabButton id="vol-surface" label="Vol Surface" />
+          <TabButton id="charm-exposure" label="Charm Exposure" />
         </div>
 
         {/* Full Page Content Area - With left margin for fixed sidebar */}
