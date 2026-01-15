@@ -486,7 +486,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({});
+  const [optionPricesFetching, setOptionPricesFetching] = useState<boolean>(false);
   const [tradesWithFillStyles, setTradesWithFillStyles] = useState<OptionsFlowData[]>([]);
+  const [stockChartData, setStockChartData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
+  const [optionsPremiumData, setOptionsPremiumData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
+  const [chartTimeframe, setChartTimeframe] = useState<'1D' | '1W' | '1M'>('1D');
   const [isMounted, setIsMounted] = useState(false);
 
   // State for historical price data and standard deviations
@@ -682,7 +686,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const fetchCurrentOptionPrices = async (trades: OptionsFlowData[]) => {
     const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
     const pricesUpdate: Record<string, number> = {};
+    const failed: string[] = [];
 
+    setOptionPricesFetching(true);
     console.log(`📊 Fetching current option prices for ${trades.length} EFI trades...`);
 
     for (const trade of trades) {
@@ -707,11 +713,17 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
             if (currentPrice > 0) {
               pricesUpdate[optionTicker] = currentPrice;
+            } else {
+              failed.push(`${trade.underlying_ticker} ${trade.type} $${trade.strike} (zero bid/ask)`);
             }
+          } else {
+            failed.push(`${trade.underlying_ticker} ${trade.type} $${trade.strike} (no quote data)`);
           }
+        } else {
+          failed.push(`${trade.underlying_ticker} ${trade.type} $${trade.strike} (HTTP ${response.status})`);
         }
       } catch (error) {
-        console.error(`Failed to fetch price for ${trade.ticker}:`, error);
+        failed.push(`${trade.underlying_ticker} ${trade.type} $${trade.strike} (${error instanceof Error ? error.message : 'unknown error'})`);
       }
 
       // Add small delay to avoid rate limiting
@@ -719,7 +731,110 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     setCurrentOptionPrices(prev => ({ ...prev, ...pricesUpdate }));
-    console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} option prices`);
+    setOptionPricesFetching(false);
+    console.log(`✅ Fetched ${Object.keys(pricesUpdate).length}/${trades.length} option prices`);
+    if (failed.length > 0) {
+      console.warn(`⚠️ Failed to fetch ${failed.length} prices:`, failed);
+    }
+  };
+
+  // Fetch stock chart data for mini charts
+  const fetchStockChartData = async (tickers: string[]) => {
+    const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    const chartData: Record<string, { price: number; timestamp: number }[]> = {};
+
+    console.log(`📈 Fetching stock chart data for ${tickers.length} tickers...`);
+
+    for (const ticker of tickers) {
+      try {
+        let multiplier = 5;
+        let timespan = 'minute';
+        let from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // Yesterday
+        let to = new Date().toISOString().split('T')[0]; // Today
+
+        if (chartTimeframe === '1W') {
+          multiplier = 1;
+          timespan = 'hour';
+          from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } else if (chartTimeframe === '1M') {
+          multiplier = 1;
+          timespan = 'day';
+          from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+
+        const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
+        const response = await fetch(url);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.results && data.results.length > 0) {
+            chartData[ticker] = data.results.map((bar: any) => ({
+              price: bar.c,
+              timestamp: bar.t
+            }));
+          }
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        console.error(`Failed to fetch chart data for ${ticker}:`, error);
+      }
+    }
+
+    setStockChartData(prev => ({ ...prev, ...chartData }));
+    console.log(`✅ Fetched chart data for ${Object.keys(chartData).length} tickers`);
+  };
+
+  // Fetch options premium data for mini charts
+  const fetchOptionsPremiumData = async (trades: OptionsFlowData[]) => {
+    const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    const premiumData: Record<string, { price: number; timestamp: number }[]> = {};
+
+    console.log(`📊 Fetching options premium data for ${trades.length} options...`);
+
+    for (const trade of trades) {
+      try {
+        const expiry = trade.expiry.replace(/-/g, '').slice(2);
+        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+        const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+
+        let multiplier = 5;
+        let timespan = 'minute';
+        let from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        let to = new Date().toISOString().split('T')[0];
+
+        if (chartTimeframe === '1W') {
+          multiplier = 30;
+          timespan = 'minute';
+          from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } else if (chartTimeframe === '1M') {
+          multiplier = 1;
+          timespan = 'hour';
+          from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+
+        const url = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
+        const response = await fetch(url);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.results && data.results.length > 0) {
+            premiumData[optionTicker] = data.results.map((bar: any) => ({
+              price: bar.c,
+              timestamp: bar.t
+            }));
+          }
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 120));
+      } catch (error) {
+        console.error(`Failed to fetch premium data for ${trade.underlying_ticker}:`, error);
+      }
+    }
+
+    setOptionsPremiumData(prev => ({ ...prev, ...premiumData }));
+    console.log(`✅ Fetched premium data for ${Object.keys(premiumData).length} options`);
   };
 
   // Function to fetch historical prices and calculate standard deviation
@@ -813,7 +928,14 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     // 2. Contract Price Score (25 points max) - based on position P&L
     if (!currentPrice || currentPrice <= 0) {
-      throw new Error(`Missing current option price for ${trade.underlying_ticker} ${trade.type} $${trade.strike}`);
+      // Return early with a neutral grade if price is unavailable
+      console.warn(`⚠️ Missing price for ${trade.underlying_ticker} ${trade.type} $${trade.strike}`);
+      return {
+        grade: 'N/A' as const,
+        score: confidenceScore,
+        maxScore: 100,
+        breakdown: scores
+      };
     }
 
     const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
@@ -966,13 +1088,13 @@ Stock Reaction: ${scores.stockReaction}/15`;
       return false;
     }
 
-    // 2. Check premium ($100k - $450k)
-    if (trade.total_premium < 100000 || trade.total_premium > 450000) {
+    // 2. Check premium ($85k - $690k)
+    if (trade.total_premium < 85000 || trade.total_premium > 690000) {
       return false;
     }
 
-    // 3. Check contracts (650 - 1999)
-    if (trade.trade_size < 650 || trade.trade_size > 1999) {
+    // 3. Check contracts (350 minimum, no max)
+    if (trade.trade_size < 350) {
       return false;
     }
 
@@ -1248,8 +1370,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
       filtered = filtered.filter(trade => trade.underlying_ticker === selectedTickerFilter);
     }
 
-    // A+ grade filter (only active when EFI Highlights is on)
-    if (efiHighlightsActive && aGradeFilterActive) {
+    // A+ grade filter (only active when EFI Highlights is on AND prices are loaded)
+    if (efiHighlightsActive && aGradeFilterActive && !optionPricesFetching) {
       filtered = filtered.filter(trade => {
         const gradeData = calculatePositioningGrade(trade, filtered);
         return gradeData.grade === 'A+' || gradeData.grade === 'A' || gradeData.grade === 'A-';
@@ -1329,8 +1451,16 @@ Stock Reaction: ${scores.stockReaction}/15`;
   useEffect(() => {
     if (efiHighlightsActive && filteredAndSortedData.length > 0) {
       fetchCurrentOptionPrices(filteredAndSortedData);
+
+      // Fetch stock chart data for unique tickers (ONLY if single ticker)
+      const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
+      if (uniqueTickers.length === 1) {
+        fetchStockChartData(uniqueTickers);
+        // Fetch options premium data
+        fetchOptionsPremiumData(filteredAndSortedData);
+      }
     }
-  }, [efiHighlightsActive, filteredAndSortedData]);
+  }, [efiHighlightsActive, filteredAndSortedData, chartTimeframe]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -2629,8 +2759,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
         {/* Main Table */}
         <div className="bg-black border border-gray-800 flex-1 options-flow-table-container">
           <div className="p-0">
-            <div className="table-scroll-container overflow-y-auto overflow-x-auto" style={{ height: 'calc(100vh - 140px)' }}>
-              <table className="w-full options-flow-table">
+            <div className="table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto" style={{ height: 'calc(100vh - 140px)', paddingBottom: '100px', scrollBehavior: 'smooth' }}>
+              <table className="w-full options-flow-table" style={{ marginBottom: '80px' }}>
                 <thead className="sticky top-0 bg-gradient-to-b from-yellow-900/10 via-gray-900 to-black z-10 border-b-2 border-gray-600 shadow-2xl">
                   <tr>
                     <th
@@ -2705,6 +2835,26 @@ Stock Reaction: ${scores.stockReaction}/15`;
                         Position {sortField === 'positioning_grade' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
                     )}
+                    {efiHighlightsActive && (() => {
+                      const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
+                      return uniqueTickers.length === 1 ? (
+                        <th
+                          className="text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                        >
+                          Stock Chart
+                        </th>
+                      ) : null;
+                    })()}
+                    {efiHighlightsActive && (() => {
+                      const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
+                      return uniqueTickers.length === 1 ? (
+                        <th
+                          className="text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-cyan-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                        >
+                          Contract Chart
+                        </th>
+                      ) : null;
+                    })()}
                   </tr>
                 </thead>
                 <tbody>
@@ -2806,6 +2956,21 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
                           const currentPrice = currentOptionPrices[optionTicker];
                           const entryPrice = trade.premium_per_contract;
+
+                          // Only calculate grade when prices are fetched
+                          if (optionPricesFetching) {
+                            return (
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-center">
+                                <div className="inline-flex items-center gap-2">
+                                  <svg className="animate-spin h-4 w-4 text-orange-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  <span className="text-gray-400 text-xs">Loading...</span>
+                                </div>
+                              </td>
+                            );
+                          }
 
                           // Calculate grade using the centralized function
                           const gradeData = calculatePositioningGrade(trade, filteredAndSortedData);
@@ -3061,6 +3226,299 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               </td>
                             );
                           }
+                        })()}
+                        {/* Stock Chart Column - Only for single ticker */}
+                        {efiHighlightsActive && (() => {
+                          const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
+                          if (uniqueTickers.length !== 1) return null;
+
+                          const chartData = stockChartData[trade.underlying_ticker] || [];
+
+                          if (chartData.length === 0) {
+                            return (
+                              <td className="p-2 md:p-4 border-r border-gray-700/30">
+                                <div className="flex items-center justify-center h-16 w-32">
+                                  <span className="text-gray-600 text-xs">Loading...</span>
+                                </div>
+                              </td>
+                            );
+                          }
+
+                          // Calculate chart dimensions and points
+                          const width = 300;
+                          const height = 50;
+                          const prices = chartData.map(d => d.price);
+                          const minPrice = Math.min(...prices);
+                          const maxPrice = Math.max(...prices);
+                          const priceRange = maxPrice - minPrice || 1;
+
+                          const points = chartData.map((point, i) => {
+                            const x = (i / (chartData.length - 1)) * width;
+                            const y = height - ((point.price - minPrice) / priceRange) * height;
+                            return `${x.toFixed(2)},${y.toFixed(2)}`;
+                          }).join(' ');
+
+                          const currentPrice = prices[prices.length - 1];
+                          const prevClose = trade.spot_price;
+                          const change = currentPrice - prevClose;
+                          const changePercent = (change / prevClose) * 100;
+                          const isUp = change >= 0;
+
+                          // Find trade execution time position on chart
+                          const tradeTimestamp = new Date(trade.trade_timestamp).getTime();
+                          const firstTimestamp = chartData[0].timestamp;
+                          const lastTimestamp = chartData[chartData.length - 1].timestamp;
+                          const tradePosition = ((tradeTimestamp - firstTimestamp) / (lastTimestamp - firstTimestamp)) * width;
+                          const tradeLineColor = '#9b59b6'; // Purple
+
+                          // Check if point is during market hours (9:30 AM - 4:00 PM ET)
+                          const isMarketHours = (timestamp: number) => {
+                            const date = new Date(timestamp);
+                            const hours = date.getUTCHours() - 5; // Convert to ET
+                            const minutes = date.getUTCMinutes();
+                            const totalMinutes = hours * 60 + minutes;
+                            const marketOpen = 9 * 60 + 30; // 9:30 AM
+                            const marketClose = 16 * 60; // 4:00 PM
+                            return totalMinutes >= marketOpen && totalMinutes < marketClose;
+                          };
+
+                          // Generate shading rectangles for pre/post market (only for 1D)
+                          const shadingRects = chartTimeframe === '1D' ? chartData.map((point, i) => {
+                            const x = (i / (chartData.length - 1)) * width;
+                            const nextX = i < chartData.length - 1 ? ((i + 1) / (chartData.length - 1)) * width : width;
+                            const rectWidth = nextX - x;
+                            const isMarket = isMarketHours(point.timestamp);
+
+                            if (!isMarket) {
+                              return (
+                                <rect
+                                  key={`shade-${i}`}
+                                  x={x}
+                                  y="0"
+                                  width={rectWidth}
+                                  height={height}
+                                  fill="#555555"
+                                  opacity="0.15"
+                                />
+                              );
+                            }
+                            return null;
+                          }) : [];
+
+                          return (
+                            <td className="p-2 md:p-4 border-r border-gray-700/30">
+                              <div className="flex flex-col items-center space-y-1" style={{ width: '320px' }}>
+                                {/* Timeframe Selector */}
+                                <div className="flex gap-1 mb-1">
+                                  {(['1D', '1W', '1M'] as const).map(tf => (
+                                    <button
+                                      key={tf}
+                                      onClick={() => setChartTimeframe(tf)}
+                                      className="px-2 py-0.5 text-xs font-bold rounded transition-all"
+                                      style={{
+                                        background: chartTimeframe === tf ? '#ff8500' : '#1a1a1a',
+                                        color: chartTimeframe === tf ? '#000' : '#888',
+                                        border: chartTimeframe === tf ? '1px solid #ffaa00' : '1px solid #333'
+                                      }}
+                                    >
+                                      {tf}
+                                    </button>
+                                  ))}
+                                </div>
+
+                                {/* Chart SVG */}
+                                <svg width={width} height={height} className="overflow-visible">
+                                  {shadingRects}
+
+                                  {/* Previous close line */}
+                                  {prevClose && (() => {
+                                    const prevY = height - ((prevClose - minPrice) / priceRange) * height;
+                                    return (
+                                      <line
+                                        x1="0"
+                                        y1={prevY}
+                                        x2={width}
+                                        y2={prevY}
+                                        stroke="#444444"
+                                        strokeWidth="1"
+                                        strokeDasharray="3,2"
+                                        opacity="0.4"
+                                      />
+                                    );
+                                  })()}
+
+                                  {/* Trade execution time line */}
+                                  {tradePosition >= 0 && tradePosition <= width && (
+                                    <line
+                                      x1={tradePosition}
+                                      y1="0"
+                                      x2={tradePosition}
+                                      y2={height}
+                                      stroke={tradeLineColor}
+                                      strokeWidth="1.5"
+                                      strokeDasharray="4,3"
+                                      opacity="1"
+                                    />
+                                  )}
+
+                                  {/* Price line */}
+                                  <polyline
+                                    fill="none"
+                                    stroke={isUp ? '#00ff00' : '#ff0000'}
+                                    strokeWidth="2"
+                                    points={points}
+                                    opacity="0.25"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                  <polyline
+                                    fill="none"
+                                    stroke={isUp ? '#00ff00' : '#ff0000'}
+                                    strokeWidth="1.5"
+                                    points={points}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+
+                                {/* Price info */}
+                                <div className="flex items-center justify-between w-full px-1">
+                                  <span className="text-xs font-bold text-white">
+                                    ${currentPrice.toFixed(2)}
+                                  </span>
+                                  <span className={`text-xs font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
+                                    {isUp ? '+' : ''}{changePercent.toFixed(2)}%
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                          );
+                        })()}
+                        {/* Options Premium Chart Column - Only for single ticker */}
+                        {efiHighlightsActive && (() => {
+                          const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
+                          if (uniqueTickers.length !== 1) return null;
+
+                          const expiry = trade.expiry.replace(/-/g, '').slice(2);
+                          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+                          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+                          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+                          const premiumData = optionsPremiumData[optionTicker] || [];
+
+                          if (premiumData.length === 0) {
+                            return (
+                              <td className="p-2 md:p-4 border-r border-gray-700/30">
+                                <div className="flex items-center justify-center h-16 w-32">
+                                  <span className="text-gray-600 text-xs">Loading...</span>
+                                </div>
+                              </td>
+                            );
+                          }
+
+                          // Calculate chart dimensions and points
+                          const width = 300;
+                          const height = 50;
+                          const prices = premiumData.map(d => d.price);
+                          const minPrice = Math.min(...prices);
+                          const maxPrice = Math.max(...prices);
+                          const priceRange = maxPrice - minPrice || 1;
+
+                          const points = premiumData.map((point, i) => {
+                            const x = (i / (premiumData.length - 1)) * width;
+                            const y = height - ((point.price - minPrice) / priceRange) * height;
+                            return `${x.toFixed(2)},${y.toFixed(2)}`;
+                          }).join(' ');
+
+                          const currentPrice = prices[prices.length - 1];
+                          const entryPrice = trade.premium_per_contract;
+                          const change = currentPrice - entryPrice;
+                          const changePercent = (change / entryPrice) * 100;
+                          const isUp = change >= 0;
+
+                          // Find trade execution time position on chart
+                          const tradeTimestamp = new Date(trade.trade_timestamp).getTime();
+                          const firstTimestamp = premiumData[0].timestamp;
+                          const lastTimestamp = premiumData[premiumData.length - 1].timestamp;
+                          const tradePosition = ((tradeTimestamp - firstTimestamp) / (lastTimestamp - firstTimestamp)) * width;
+                          const tradeLineColor = '#9b59b6'; // Purple
+
+                          // Create area path for fill
+                          const areaPath = `M 0,${height} L ${points.split(' ').map(p => `${p}`).join(' L ')} L ${width},${height} Z`;
+
+                          return (
+                            <td className="p-2 md:p-4 border-r border-gray-700/30">
+                              <div className="flex flex-col items-center space-y-1" style={{ width: '320px' }}>
+                                {/* Chart SVG */}
+                                <svg width={width} height={height} className="overflow-visible">
+                                  {/* Area fill */}
+                                  <path
+                                    d={areaPath}
+                                    fill={isUp ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 68, 102, 0.15)'}
+                                  />
+
+                                  {/* Entry price line */}
+                                  {(() => {
+                                    const entryY = height - ((entryPrice - minPrice) / priceRange) * height;
+                                    return (
+                                      <line
+                                        x1="0"
+                                        y1={entryY}
+                                        x2={width}
+                                        y2={entryY}
+                                        stroke="#ffaa00"
+                                        strokeWidth="1"
+                                        strokeDasharray="3,2"
+                                        opacity="0.5"
+                                      />
+                                    );
+                                  })()}
+
+                                  {/* Trade execution time line */}
+                                  {tradePosition >= 0 && tradePosition <= width && (
+                                    <line
+                                      x1={tradePosition}
+                                      y1="0"
+                                      x2={tradePosition}
+                                      y2={height}
+                                      stroke={tradeLineColor}
+                                      strokeWidth="1.5"
+                                      strokeDasharray="4,3"
+                                      opacity="1"
+                                    />
+                                  )}
+
+                                  {/* Price line with glow */}
+                                  <polyline
+                                    fill="none"
+                                    stroke={isUp ? '#00ff88' : '#ff4466'}
+                                    strokeWidth="2"
+                                    points={points}
+                                    opacity="0.25"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                  <polyline
+                                    fill="none"
+                                    stroke={isUp ? '#00ff88' : '#ff4466'}
+                                    strokeWidth="1.5"
+                                    points={points}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+
+                                {/* Price info */}
+                                <div className="flex items-center justify-between w-full px-1">
+                                  <span className="text-xs font-bold text-cyan-400">
+                                    ${currentPrice.toFixed(2)}
+                                  </span>
+                                  <span className={`text-xs font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
+                                    {isUp ? '+' : ''}{changePercent.toFixed(2)}%
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                          );
                         })()}
                       </tr>
                     );

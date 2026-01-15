@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
     'Access-Control-Allow-Methods': 'GET',
     'Access-Control-Allow-Headers': 'Cache-Control',
     'X-Accel-Buffering': 'no', // Disable nginx buffering
-    'Transfer-Encoding': 'chunked'
+    'Transfer-Encoding': 'chunked',
+    'Content-Encoding': 'none' // Prevent compression that can delay SSE
   };
 
   // Create shared state for the stream
@@ -89,6 +90,14 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+
+      // Send IMMEDIATE connection comment to establish the stream
+      // This ensures Vercel/edge doesn't buffer the response
+      try {
+        controller.enqueue(encoder.encode(': connected\n\n'));
+      } catch (error) {
+        console.error('Failed to send initial comment:', error);
+      }
 
       // Enhanced data sending with error handling
       const sendData = (data: any) => {

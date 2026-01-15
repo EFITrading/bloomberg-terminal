@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { flushSync } from 'react-dom';
 import {
@@ -4454,6 +4454,7 @@ export default function TradingViewChart({
       close: number;
       change?: number;
       changePercent?: number;
+      volume?: number;
     };
   }>({
     price: '',
@@ -7658,6 +7659,7 @@ export default function TradingViewChart({
       change5d: number;
       change13d: number;
       change21d: number;
+      change50d: number;
       changeYTD: number;
       performance: string;
       performanceColor: string;
@@ -7754,6 +7756,7 @@ export default function TradingViewChart({
           change5d: number;
           change13d: number;
           change21d: number;
+          change50d: number;
           changeYTD: number;
           performance: string;
           performanceColor: string;
@@ -7815,6 +7818,7 @@ export default function TradingViewChart({
             const price5DaysAgo = dataLength >= 6 ? data[dataLength - 6]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
             const price13DaysAgo = dataLength >= 14 ? data[dataLength - 14]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
             const price21DaysAgo = dataLength >= 22 ? data[dataLength - 22]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
+            const price50DaysAgo = dataLength >= 51 ? data[dataLength - 51]?.c : (dataLength >= 2 ? data[0]?.c : currentPrice);
 
             // Calculate YTD (Year to Date) - find LAST trading day of PREVIOUS year
             // This gives us the proper year-end close to compare against
@@ -7828,6 +7832,7 @@ export default function TradingViewChart({
             const change5d = (price5DaysAgo && price5DaysAgo !== currentPrice) ? ((currentPrice - price5DaysAgo) / price5DaysAgo) * 100 : 0;
             const change13d = (price13DaysAgo && price13DaysAgo !== currentPrice) ? ((currentPrice - price13DaysAgo) / price13DaysAgo) * 100 : 0;
             const change21d = (price21DaysAgo && price21DaysAgo !== currentPrice) ? ((currentPrice - price21DaysAgo) / price21DaysAgo) * 100 : 0;
+            const change50d = (price50DaysAgo && price50DaysAgo !== currentPrice) ? ((currentPrice - price50DaysAgo) / price50DaysAgo) * 100 : 0;
             const changeYTD = yearStartPrice && yearStartPrice !== currentPrice ? ((currentPrice - yearStartPrice) / yearStartPrice) * 100 : 0;
 
             return {
@@ -7838,6 +7843,7 @@ export default function TradingViewChart({
                 change5d,
                 change13d,
                 change21d,
+                change50d,
                 changeYTD,
                 performance: 'Neutral',
                 performanceColor: 'text-white'
@@ -8812,11 +8818,9 @@ export default function TradingViewChart({
   // Y-Axis Dynamic Scaling State
   const [isAutoScale, setIsAutoScale] = useState(true);
   const [manualPriceRange, setManualPriceRange] = useState<{ min: number; max: number } | null>(null);
-  const [isDraggingYAxis, _setIsDraggingYAxis] = useState(false);
-  const setIsDraggingYAxis = useCallback((value: boolean) => {
-    _setIsDraggingYAxis(value);
-  }, []);
-  const [yAxisDragStart, setYAxisDragStart] = useState<{ y: number; priceRange: { min: number; max: number } } | null>(null);
+  const manualPriceRangeRef = useRef<{ min: number; max: number } | null>(null); // For real-time drag updates
+  const lastRenderedPriceRangeRef = useRef<{ min: number; max: number }>({ min: 0, max: 100 }); // Store actual rendered range
+  // Y-axis drag/pan removed - only zoom remains
 
   const [boxZoomStart, setBoxZoomStart] = useState<{ x: number; y: number } | null>(null);
   const [boxZoomEnd, setBoxZoomEnd] = useState<{ x: number; y: number } | null>(null);
@@ -8824,9 +8828,12 @@ export default function TradingViewChart({
 
   // Momentum Scrolling State
   const [lastMouseTimestamp, setLastMouseTimestamp] = useState(0);
-  const [lastMousePosition, setLastMousePosition] = useState({ x: 0, y: 0 });
   const [velocity, setVelocity] = useState({ x: 0, y: 0 });
   const [momentumAnimationId, setMomentumAnimationId] = useState<number | null>(null);
+
+  // Y-axis drag to zoom state
+  const [isDraggingYAxisZoom, setIsDraggingYAxisZoom] = useState(false);
+  const [yAxisZoomDragStart, setYAxisZoomDragStart] = useState<{ y: number; priceRange: { min: number; max: number } } | null>(null);
 
   // TradingView Y-axis resize state
   const [isResizingYAxis, setIsResizingYAxis] = useState(false);
@@ -8835,10 +8842,17 @@ export default function TradingViewChart({
 
   // Track if this is the first frame of a new drag (to avoid jumps)
   const [isFirstDragFrame, setIsFirstDragFrame] = useState(false);
+  const isFirstDragFrameRef = useRef(false); // Ref for synchronous updates
 
   // TradingView-style navigation state
   const [scrollOffset, setScrollOffset] = useState(9999999); // Start at end - will be corrected when data loads
   const [visibleCandleCount, setVisibleCandleCount] = useState(150); // Number of visible candles
+
+  // Mouse tracking for drag
+  const [lastMouseX, setLastMouseX] = useState(0);
+  const [lastMouseY, setLastMouseY] = useState(0);
+  const [dragStartX, setDragStartX] = useState(0);
+  const [dragStartOffset, setDragStartOffset] = useState(0);
 
   // Y-axis zoom state (TradingView-style price scaling)
   const [priceZoomLevel, setPriceZoomLevel] = useState(1.0); // 1.0 = auto-fit, >1 = zoomed in, <1 = zoomed out
@@ -8908,11 +8922,7 @@ export default function TradingViewChart({
   }, [isAutoScale, manualPriceRange, calculateAutoPriceRange]);
 
   const setManualPriceRangeAndDisableAuto = useCallback((newRange: { min: number; max: number }) => {
-    console.log('📌 setManualPriceRangeAndDisableAuto CALLED:', {
-      newRange,
-      previousRange: manualPriceRange,
-      callStack: new Error().stack?.split('\n').slice(1, 4).join('\n')
-    });
+    manualPriceRangeRef.current = newRange; // Set ref immediately for real-time rendering
     setManualPriceRange(newRange);
     setIsAutoScale(false);
   }, [manualPriceRange]);
@@ -9052,7 +9062,6 @@ export default function TradingViewChart({
 
       if (response.ok && result.status === 'OK' && result.results?.p) {
         const livePrice = result.results.p; // Polygon's last trade price
-        console.log(`?? LIVE PRICE: ${sym} = $${livePrice}`);
         setCurrentPrice(livePrice);
 
         // For price change calculation, use current dates - NOT HARDCODED
@@ -9649,8 +9658,8 @@ export default function TradingViewChart({
           const ohlc = crosshairInfo.ohlc;
           const panelX = 20;
           const panelY = 20;
-          const panelWidth = 220;
-          const panelHeight = 100;
+          const panelWidth = 200;
+          const panelHeight = 80;
 
           // Panel background - solid black with border
           ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
@@ -9664,34 +9673,58 @@ export default function TradingViewChart({
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
 
-          const lineHeight = 20;
-          let currentY = panelY + 12;
+          const lineHeight = 18;
+          let currentY = panelY + 8;
+
+          // Crispy orange color for labels at 100% opacity
+          const labelColor = '#FF6600';
 
           // OHLC values in a clean grid layout
           // First row: Open and High
-          ctx.fillStyle = '#888888';
+          ctx.fillStyle = labelColor;
+          ctx.globalAlpha = 1.0;
           ctx.fillText('O:', panelX + 12, currentY);
           ctx.fillStyle = '#ffffff';
           ctx.fillText(`$${ohlc.open.toFixed(2)}`, panelX + 35, currentY);
 
-          ctx.fillStyle = '#888888';
+          ctx.fillStyle = labelColor;
           ctx.fillText('H:', panelX + 120, currentY);
           ctx.fillStyle = '#00ff88'; // Bright green for high
           ctx.fillText(`$${ohlc.high.toFixed(2)}`, panelX + 143, currentY);
           currentY += lineHeight;
 
           // Second row: Low and Close
-          ctx.fillStyle = '#888888';
+          ctx.fillStyle = labelColor;
           ctx.fillText('L:', panelX + 12, currentY);
           ctx.fillStyle = '#ff4444'; // Bright red for low
           ctx.fillText(`$${ohlc.low.toFixed(2)}`, panelX + 35, currentY);
 
-          ctx.fillStyle = '#888888';
+          ctx.fillStyle = labelColor;
           ctx.fillText('C:', panelX + 120, currentY);
           const closeColor = (ohlc.change !== undefined && ohlc.change >= 0) ? '#00ff88' : '#ff4444';
           ctx.fillStyle = closeColor;
           ctx.fillText(`$${ohlc.close.toFixed(2)}`, panelX + 143, currentY);
           currentY += lineHeight;
+
+          // Third row: Volume
+          if (ohlc.volume !== undefined && ohlc.volume > 0) {
+            ctx.fillStyle = labelColor;
+            ctx.fillText('V:', panelX + 12, currentY);
+
+            // Format volume for display
+            let volumeText = '';
+            if (ohlc.volume >= 1000000) {
+              volumeText = `${(ohlc.volume / 1000000).toFixed(2)}M`;
+            } else if (ohlc.volume >= 1000) {
+              volumeText = `${(ohlc.volume / 1000).toFixed(2)}K`;
+            } else {
+              volumeText = ohlc.volume.toFixed(0);
+            }
+
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(volumeText, panelX + 35, currentY);
+            currentY += lineHeight;
+          }
 
           // Change and percentage in one line
           if (ohlc.change !== undefined && ohlc.changePercent !== undefined) {
@@ -9703,6 +9736,9 @@ export default function TradingViewChart({
             ctx.fillText(`${changeText} (${percentText})`, panelX + 12, currentY);
             currentY += lineHeight - 2;
           }
+
+          // Reset global alpha
+          ctx.globalAlpha = 1.0;
         }
       }
     }
@@ -9941,7 +9977,7 @@ export default function TradingViewChart({
         } else {
           // Y-AXIS ZOOM - TradingView exact behavior
           const zoomIn = e.deltaY < 0;
-          const zoomFactor = zoomIn ? 0.95 : 1.05; // 5% per scroll tick
+          const zoomFactor = zoomIn ? 0.925 : 1.075; // 7.5% per scroll tick (50% faster)
 
           const startIndex = Math.max(0, Math.floor(scrollOffset));
           const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
@@ -9988,7 +10024,7 @@ export default function TradingViewChart({
           const chartWidth = canvasWidth - Y_AXIS_WIDTH;
 
           // Calculate zoom factor - faster zoom speed
-          const baseZoomFactor = e.ctrlKey || e.metaKey ? 0.25 : 0.12; // Ctrl = faster zoom
+          const baseZoomFactor = e.ctrlKey || e.metaKey ? 0.375 : 0.18; // Ctrl = faster zoom (50% faster)
           const zoomMultiplier = zoomIn ? (1 - baseZoomFactor) : (1 + baseZoomFactor);
 
           const currentCount = visibleCandleCount;
@@ -10091,10 +10127,8 @@ export default function TradingViewChart({
   // Render main price chart
   const renderChart = useCallback(() => {
     const canvas = chartCanvasRef.current;
-    console.log(`?? renderChart called - data.length: ${data.length}, dimensions: ${dimensions.width}x${dimensions.height}`);
 
     if (!canvas || !data.length || dimensions.width === 0 || dimensions.height === 0) {
-      console.log(`?? renderChart early return - canvas: ${!!canvas}, data.length: ${data.length}, dimensions: ${dimensions.width}x${dimensions.height}`);
       return;
     }
 
@@ -10153,7 +10187,8 @@ export default function TradingViewChart({
     const beyondDataOffset = Math.max(0, scrollOffset + visibleCandleCount - data.length);
     const showingFutureSpace = beyondDataOffset > 0;
 
-    if (visibleData.length === 0 && !showingFutureSpace) return;
+    // Only return if no data at all (not even in future space mode)
+    if (visibleData.length === 0 && !showingFutureSpace && data.length === 0) return;
 
     // Calculate chart dimensions - only extend when scrolled near the end
     const chartWidth = width - 120; // Leave more space for price scale to prevent overlap
@@ -10175,7 +10210,15 @@ export default function TradingViewChart({
     drawMarketHoursBackground(ctx, width, priceChartHeight, visibleData, chartWidth, visibleCandleCount);
 
     // Calculate price range for visible data using shared function
-    const currentPriceRange = getCurrentChartPriceRange();
+    // If showing only future space (no visible data), use the last 100 candles for price range
+    let currentPriceRange;
+    if (visibleData.length === 0 && data.length > 0) {
+      // In future space - use last 100 candles for price context
+      const lastDataSlice = data.slice(Math.max(0, data.length - 100));
+      currentPriceRange = getCurrentPriceRange(lastDataSlice);
+    } else {
+      currentPriceRange = getCurrentChartPriceRange();
+    }
     let adjustedMin = currentPriceRange.min;
     let adjustedMax = currentPriceRange.max;
 
@@ -10217,7 +10260,10 @@ export default function TradingViewChart({
       adjustedMax = Math.max(adjustedMax, maxLevel + padding);
     }
 
-    console.log(`?? Final price range: $${adjustedMin.toFixed(2)} - $${adjustedMax.toFixed(2)}`); // Draw chart in price chart area - use consistent spacing regardless of future area
+    // Store the FINAL rendered range AFTER all adjustments for drag initialization
+    lastRenderedPriceRangeRef.current = { min: adjustedMin, max: adjustedMax };
+
+    // Draw chart in price chart area - use consistent spacing regardless of future area
     const candleWidth = Math.max(2, chartWidth / visibleCandleCount * 0.8);
     const candleSpacing = chartWidth / visibleCandleCount;
 
@@ -10615,7 +10661,6 @@ export default function TradingViewChart({
         visibleCandleCount,
         technalysisFeatures
       );
-      console.log('✅ Technalysis indicators rendered');
     }
 
     // Draw flow chart above volume if active (only on 5min timeframe)
@@ -11904,12 +11949,13 @@ export default function TradingViewChart({
     const crispX = Math.round(x);
     const crispWidth = Math.max(1, Math.round(width));
 
-    // Draw wick (high-low line)
+    // Draw wick (high-low line) - ensure all coordinates are pixel-aligned
     ctx.strokeStyle = candleColors.wick;
     ctx.lineWidth = Math.max(1, Math.round(width * 0.05)); // Reduced from 0.1 to 0.05 for thinner wicks
     ctx.beginPath();
-    ctx.moveTo(crispX + crispWidth / 2, highY);
-    ctx.lineTo(crispX + crispWidth / 2, lowY);
+    const wickCenterX = Math.round(crispX + crispWidth / 2) + 0.5; // Add 0.5 for crisp 1px lines
+    ctx.moveTo(wickCenterX, Math.round(highY));
+    ctx.lineTo(wickCenterX, Math.round(lowY));
     ctx.stroke();
 
     // Draw body (open-close rectangle)
@@ -11918,14 +11964,20 @@ export default function TradingViewChart({
       const bodyY = Math.min(openY, closeY);
       const bodyWidth = Math.max(2, crispWidth - 2);
 
+      // Round all coordinates to pixel boundaries for crispy rendering
+      const crispBodyX = Math.round(crispX + 1);
+      const crispBodyY = Math.round(bodyY);
+      const crispBodyWidth = Math.round(bodyWidth);
+      const crispBodyHeight = Math.round(bodyHeight);
+
       // Fill the body
       ctx.fillStyle = candleColors.body;
-      ctx.fillRect(crispX + 1, bodyY, bodyWidth, bodyHeight);
+      ctx.fillRect(crispBodyX, crispBodyY, crispBodyWidth, crispBodyHeight);
 
       // Draw body border
       ctx.strokeStyle = candleColors.border;
       ctx.lineWidth = 1;
-      ctx.strokeRect(crispX + 1, bodyY, bodyWidth, bodyHeight);
+      ctx.strokeRect(crispBodyX, crispBodyY, crispBodyWidth, crispBodyHeight);
     }
   };
 
@@ -11978,7 +12030,8 @@ export default function TradingViewChart({
     scrollOffset: number,
     allData: ChartDataPoint[]
   ) => {
-    if (visibleData.length === 0) return;
+    // Allow drawing axis even in future space (when visibleData is empty)
+    if (visibleData.length === 0 && allData.length === 0) return;
 
     ctx.fillStyle = config.axisStyle.xAxis.textColor;
     ctx.font = `bold ${config.axisStyle.xAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
@@ -12039,7 +12092,9 @@ export default function TradingViewChart({
     // Calculate time span of visible data
     const timeSpan = visibleData.length > 1 ?
       visibleData[visibleData.length - 1].timestamp - visibleData[0].timestamp :
-      24 * 60 * 60 * 1000; // 1 day fallback
+      visibleData.length === 1 ? 24 * 60 * 60 * 1000 : // 1 day fallback for single candle
+        allData.length > 0 ? 24 * 60 * 60 * 1000 : // 1 day fallback when in future space
+          24 * 60 * 60 * 1000; // Default 1 day fallback
 
     const labelConfig = getOptimalLabelFormat(config.timeframe, visibleCandleCount, timeSpan);
 
@@ -12206,11 +12261,14 @@ export default function TradingViewChart({
       // Use much smaller spacing for future area - show way more labels
       const futureSpacing = Math.max(1, Math.floor(labelStep / 3)); // 3x denser than historical
 
-      for (let i = 1; i <= futurePeriodsShown; i++) {
-        if (i % futureSpacing === 0) {
-          const futureIndex = visibleData.length + i - 1;
-          const x = 40 + (futureIndex * candleSpacing) + candleSpacing / 2;
-          const futureTimestamp = getFutureTimestamp(lastDataTimestamp, i);
+      // Calculate starting index for future labels
+      const futureStartOffset = visibleData.length > 0 ? 1 : (startIndex - allData.length + 1);
+
+      for (let i = futureStartOffset; i <= futurePeriodsShown; i++) {
+        if (i % futureSpacing === 0 || visibleData.length === 0) {
+          const futureIndexOnScreen = visibleData.length > 0 ? (visibleData.length + i - 1) : (i - futureStartOffset);
+          const x = 40 + (futureIndexOnScreen * candleSpacing) + candleSpacing / 2;
+          const futureTimestamp = getFutureTimestamp(lastDataTimestamp, startIndex - allData.length + i);
           const timeLabel = formatDateLabel(futureTimestamp, labelConfig.format);
           addLabel(x, timeLabel, true);
         }
@@ -12273,12 +12331,9 @@ export default function TradingViewChart({
       renderChart();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow, chartLayout]);
+  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow, chartLayout, manualPriceRange]);
 
   // TradingView-style interaction handlers
-  const [lastMouseX, setLastMouseX] = useState(0);
-  const [dragStartX, setDragStartX] = useState(0);
-  const [dragStartOffset, setDragStartOffset] = useState(0);
 
   // Stable helper function to get EXACT same priceChartHeight as renderChart function
   const actualPriceChartHeight = useMemo((): number => {
@@ -12471,6 +12526,31 @@ export default function TradingViewChart({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // Check Y-axis drag to zoom FIRST (before everything else)
+    const canvasWidth = canvas.width / window.devicePixelRatio;
+    const isOverYAxis = isInYAxisArea(x, canvasWidth);
+
+    if (isOverYAxis) {
+      e.preventDefault();
+      setIsDraggingYAxisZoom(true);
+
+      // Get current price range
+      const startIndex = Math.max(0, Math.floor(scrollOffset));
+      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+      const visibleData = data.slice(startIndex, endIndex);
+
+      if (visibleData.length > 0) {
+        const currentRange = manualPriceRange || getCurrentPriceRange(visibleData);
+        setYAxisZoomDragStart({ y, priceRange: currentRange });
+
+        // Ensure we have manual range for resizing
+        if (!manualPriceRange) {
+          setManualPriceRangeAndDisableAuto(currentRange);
+        }
+      }
+      return;
+    }
+
     // Handle alert placement mode FIRST
     if (isAlertPlacementMode) {
       const startIndex = Math.max(0, Math.floor(scrollOffset));
@@ -12496,8 +12576,6 @@ export default function TradingViewChart({
       return;
     }
 
-    console.log('??? CLICK DETECTED at:', { x, y, button: e.button });
-
     // Default chart panning behavior
     setIsDragging(true);
     setLastMouseX(x);
@@ -12507,7 +12585,8 @@ export default function TradingViewChart({
     scrollOffset,
     dimensions, data, visibleCandleCount,
     screenToTimePriceCoordinates, screenToPrice, priceToScreenForDrawings,
-    isAlertPlacementMode, alerts, newAlertPrice, showAlertDialog
+    isAlertPlacementMode, alerts, newAlertPrice, showAlertDialog,
+    isInYAxisArea, getCurrentPriceRange, manualPriceRange, setManualPriceRangeAndDisableAuto
   ]);
 
   // ? NEW: Advanced Hit Detection System
@@ -12768,6 +12847,34 @@ export default function TradingViewChart({
     setShowContextMenu(false);
     setShowPropertiesPanel(false);
 
+    // Check Y-axis drag to zoom FIRST (before drawing checks)
+    const canvas = e.currentTarget as HTMLCanvasElement;
+    const canvasWidth = canvas.width / window.devicePixelRatio;
+    const isOverYAxis = isInYAxisArea(x, canvasWidth);
+
+    if (isOverYAxis) {
+      console.log('✅ STARTING Y-AXIS ZOOM DRAG');
+      e.preventDefault();
+      setIsDraggingYAxisZoom(true);
+
+      // Get current price range
+      const startIndex = Math.max(0, Math.floor(scrollOffset));
+      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
+      const visibleData = data.slice(startIndex, endIndex);
+
+      if (visibleData.length > 0) {
+        const currentRange = manualPriceRange || getCurrentPriceRange(visibleData);
+        console.log('📍 SET DRAG START:', { y, currentRange });
+        setYAxisZoomDragStart({ y, priceRange: currentRange });
+
+        // Ensure we have manual range for resizing
+        if (!manualPriceRange) {
+          setManualPriceRangeAndDisableAuto(currentRange);
+        }
+      }
+      return;
+    }
+
     // Check for box zoom mode (Shift key held)
     if (e.shiftKey && !activeTool) {
       setIsBoxZooming(true);
@@ -12834,67 +12941,38 @@ export default function TradingViewChart({
     setSelectedDrawing(null);
     setSelectedDrawings([]);
 
-    // Check if mouse is over Y-axis area for Y-axis dragging
-    const canvas = e.currentTarget as HTMLCanvasElement;
-    const canvasWidth = canvas.width / window.devicePixelRatio;
-    const isOverYAxis = isInYAxisArea(x, canvasWidth);
-    const onBorder = isOnYAxisBorder(x, canvasWidth);
+    // Check if click is within valid chart bounds
+    const timeAxisHeight = 25;
+    const priceChartHeight = dimensions.height - timeAxisHeight;
 
-    // TradingView: Click on Y-axis border = start resize
-    if (onBorder) {
-      e.preventDefault();
-      setIsResizingYAxis(true);
-
-      // Get current price range
-      const startIndex = Math.max(0, Math.floor(scrollOffset));
-      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-      const visibleData = data.slice(startIndex, endIndex);
-
-      if (visibleData.length > 0) {
-        const currentRange = manualPriceRange || getCurrentPriceRange(visibleData);
-        setYAxisResizeStart({ y, priceRange: currentRange });
-
-        // Ensure we have manual range for resizing
-        if (!manualPriceRange) {
-          setManualPriceRangeAndDisableAuto(currentRange);
-        }
-      }
+    if (y > priceChartHeight) {
+      // Click is below the chart (in time axis area) - don't allow dragging
       return;
     }
 
     // Stop any ongoing momentum animation when starting new interaction
     stopMomentumAnimation();
 
-    // Initialize velocity tracking for TradingView-style drag
+    // Initialize velocity tracking
     const now = Date.now();
     setLastMouseTimestamp(now);
 
-    // Start full chart panning (both X and Y axes) - TradingView style
+    // Start X-axis panning only
     setIsDragging(true);
-    setIsDraggingYAxis(true);
     setLastMouseX(x);
+    setLastMouseY(y);
     setDragStartX(x);
     setDragStartOffset(scrollOffset);
 
-    // Mark this as first frame - we'll skip applying deltas on first frame to avoid jump
+    // DON'T set manualPriceRangeRef here - only set it when user actually drags Y
+
+    // Mark this as first frame
     setIsFirstDragFrame(true);
+    isFirstDragFrameRef.current = true;
 
-    // Store initial mouse position for THIS drag session
-    setLastMousePosition({ x, y });
+    // DON'T set manualPriceRange here - let it update only when user actually drags vertically
 
-    // If no manual price range exists yet, create one from current visible data
-    if (!manualPriceRange) {
-      const startIndex = Math.max(0, Math.floor(scrollOffset));
-      const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-      const visibleData = data.slice(startIndex, endIndex);
-
-      if (visibleData.length > 0) {
-        const currentRange = getCurrentPriceRange(visibleData);
-        setManualPriceRangeAndDisableAuto(currentRange);
-      }
-    }
-
-  }, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange, stopMomentumAnimation, setManualPriceRangeAndDisableAuto, isOnYAxisBorder]);
+  }, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange, stopMomentumAnimation, setManualPriceRangeAndDisableAuto, isOnYAxisBorder, isInYAxisArea]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -12903,6 +12981,33 @@ export default function TradingViewChart({
 
     // ALWAYS update crosshair position first
     setCrosshairPosition({ x, y });
+
+    // Handle Y-axis drag to zoom (drag UP = compress, drag DOWN = expand)
+    if (isDraggingYAxisZoom && yAxisZoomDragStart) {
+      const deltaY = y - yAxisZoomDragStart.y;
+      const timeAxisHeight = 25;
+      const priceChartHeight = dimensions.height - timeAxisHeight;
+
+      // Drag UP (negative deltaY) = compress (zoom in)
+      // Drag DOWN (positive deltaY) = expand (zoom out)
+      const zoomFactor = 1 + (deltaY / priceChartHeight) * 2; // Positive for correct direction, 2x sensitivity
+
+      const originalRange = yAxisZoomDragStart.priceRange;
+      const center = (originalRange.max + originalRange.min) / 2;
+      const originalSpan = originalRange.max - originalRange.min;
+
+      // Clamp zoom factor to prevent flipping (0.1 to 10x range)
+      const clampedZoomFactor = Math.max(0.1, Math.min(10, zoomFactor));
+      const newSpan = originalSpan * clampedZoomFactor;
+
+      const newRange = {
+        min: center - newSpan / 2,
+        max: center + newSpan / 2
+      };
+
+      setManualPriceRangeAndDisableAuto(newRange);
+      return;
+    }
 
     // TradingView: Check if hovering over Y-axis border for resize cursor
     const canvas = e.currentTarget as HTMLCanvasElement;
@@ -12992,7 +13097,8 @@ export default function TradingViewChart({
           low: closestCandle.low,
           close: closestCandle.close,
           change: closestCandle.close - closestCandle.open,
-          changePercent: ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100
+          changePercent: ((closestCandle.close - closestCandle.open) / closestCandle.open) * 100,
+          volume: closestCandle.volume
         } : undefined
       });
     }
@@ -13034,118 +13140,77 @@ export default function TradingViewChart({
     }
 
     // ============================================================================
-    // TRADINGVIEW-STYLE DRAG - EXACT IMPLEMENTATION (Both X and Y axes)
+    // TRADINGVIEW-STYLE DRAG - X-AXIS ONLY
     // ============================================================================
-    if (isDragging || isDraggingYAxis) {
-      // Skip first frame to avoid jump (position delta would be from previous drag)
-      if (isFirstDragFrame) {
-        console.log('🔴 FIRST DRAG FRAME - Skipping deltas. Position:', { x, y });
-        console.log('🔴 Current manualPriceRange:', manualPriceRange);
-
+    if (isDragging) {
+      // Skip first frame to avoid jump, but update positions so next frame has correct delta
+      if (isFirstDragFrameRef.current) {
         setIsFirstDragFrame(false);
+        isFirstDragFrameRef.current = false;
         setLastMouseX(x);
-        setLastMousePosition({ x, y });
-        setLastMouseTimestamp(Date.now());
-
+        setLastMouseY(y);
         return;
       }
 
-      // Track velocity for momentum scrolling (TradingView-style)
+      // Track velocity for momentum scrolling
       const now = Date.now();
       const deltaTime = now - lastMouseTimestamp;
 
-      // Calculate deltas from last position
+      // Calculate deltas for both X and Y
       const deltaX = x - lastMouseX;
-      const deltaY = y - lastMousePosition.y;
-
-      console.log('🟢 DRAG FRAME:', {
-        currentPos: { x, y },
-        lastPos: { x: lastMouseX, y: lastMousePosition.y },
-        deltas: { deltaX, deltaY },
-        currentPriceRange: manualPriceRange,
-        isDragging,
-        isDraggingYAxis
-      });
+      const deltaY = y - lastMouseY;
 
       if (deltaTime > 0 && deltaTime < 100) {
-        // TradingView: velocity in pixels per frame (60fps = 16.67ms per frame)
         const frameTime = 16.67;
         const velocityX = (deltaX / deltaTime) * frameTime;
         const velocityY = (deltaY / deltaTime) * frameTime;
-
         setVelocity({ x: velocityX, y: velocityY });
         setLastMouseTimestamp(now);
       }
 
-      // Y-axis dragging (price scale) - TradingView 1:1 pixel mapping
-      if (deltaY !== 0) {
-        setManualPriceRange(currentRange => {
-          if (!currentRange) return currentRange;
-
-          const timeAxisHeight = 25;
-          const priceChartHeight = dimensions.height - timeAxisHeight;
-
-          const priceHeight = currentRange.max - currentRange.min;
-          const pricePerPixel = priceHeight / priceChartHeight;
-          const priceShift = deltaY * pricePerPixel;
-
-          const newRange = {
-            min: currentRange.min + priceShift,
-            max: currentRange.max + priceShift
-          };
-
-          console.log('🔵 Y-AXIS DRAG - Applying price shift:', {
-            deltaY,
-            priceChartHeight,
-            priceHeight,
-            pricePerPixel,
-            priceShift,
-            oldRange: { ...currentRange },
-            newRange: { ...newRange }
-          });
-
-          console.log('✅ Y-AXIS DRAG - Price range updated');
-          return newRange;
-        });
-        setIsAutoScale(false);
-      }
-
-      // X-axis dragging (time scroll) - TradingView 1:1 pixel mapping
+      // X-axis dragging (time scroll)
       if (deltaX !== 0) {
         setScrollOffset(currentScrollOffset => {
           const Y_AXIS_WIDTH = 80;
           const chartWidth = dimensions.width - Y_AXIS_WIDTH;
           const pixelsPerCandle = chartWidth / visibleCandleCount;
-
-          // TradingView: 1:1 pixel drag = candle scroll
           const candlesDragged = deltaX / pixelsPerCandle;
           const newOffset = currentScrollOffset - candlesDragged;
-
-          console.log('🟣 X-AXIS DRAG - Applying scroll:', {
-            deltaX,
-            pixelsPerCandle,
-            candlesDragged,
-            oldOffset: currentScrollOffset,
-            newOffset
-          });
-
-          // Clamp with future periods
           const futurePeriods = getFuturePeriods(visibleCandleCount);
           const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
           const clampedOffset = Math.max(0, Math.min(maxScrollOffset, newOffset));
-
-          console.log('✅ X-AXIS DRAG - Scroll updated to:', clampedOffset);
           return clampedOffset;
         });
       }
 
-      // Update last positions for next frame - CRITICAL for continuous dragging
+      // Y-axis dragging (price panning) - simple vertical drag
+      if (deltaY !== 0 && !isDraggingYAxisZoom) {
+        // On first Y drag: get base from ref (if set) OR state OR last rendered range
+        const baseRange = manualPriceRangeRef.current || manualPriceRange || lastRenderedPriceRangeRef.current;
+
+        const timeAxisHeight = 25;
+        const priceChartHeight = dimensions.height - timeAxisHeight;
+        const priceHeight = baseRange.max - baseRange.min;
+        const pricePerPixel = priceHeight / priceChartHeight;
+        const priceShift = deltaY * pricePerPixel;
+
+        const newRange = {
+          min: baseRange.min + priceShift,
+          max: baseRange.max + priceShift
+        };
+
+        // Update ref immediately for next frame (synchronous)
+        manualPriceRangeRef.current = newRange;
+        // Update state to trigger re-render
+        setManualPriceRange(newRange);
+        setIsAutoScale(false);
+      }
 
       setLastMouseX(x);
-      setLastMousePosition({ x, y });
+      setLastMouseY(y);
       return;
     }
-  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isDraggingYAxis, yAxisDragStart, lastMousePosition, isAutoScale, getFuturePeriods, config.timeframe, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame, scrollOffset]);
+  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, lastMouseY, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isAutoScale, getFuturePeriods, config.timeframe, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame, scrollOffset, isDraggingYAxisZoom, yAxisZoomDragStart, setManualPriceRangeAndDisableAuto, getCurrentPriceRange, manualPriceRange, manualPriceRangeRef]);
 
   const handleMouseUp = useCallback(() => {
 
@@ -13201,7 +13266,7 @@ export default function TradingViewChart({
     // ============================================================================
     // TRADINGVIEW-STYLE MOMENTUM - Start if velocity is significant
     // ============================================================================
-    if ((isDragging || isDraggingYAxis)) {
+    if (isDragging) {
       const minMomentumVelocity = 0.5; // Minimum velocity to trigger momentum
       if (Math.abs(velocity.x) > minMomentumVelocity || Math.abs(velocity.y) > minMomentumVelocity) {
         console.log('🚀 Starting momentum animation:', velocity);
@@ -13212,11 +13277,13 @@ export default function TradingViewChart({
 
     setIsDragging(false);
     setIsDraggingDrawing(false);
-    setIsDraggingYAxis(false);
-    setYAxisDragStart(null);
     setIsBoxZooming(false);
     setBoxZoomStart(null);
     setBoxZoomEnd(null);
+
+    // Stop Y-axis drag to zoom
+    setIsDraggingYAxisZoom(false);
+    setYAxisZoomDragStart(null);
 
     // TradingView: Stop Y-axis resize
     setIsResizingYAxis(false);
@@ -13228,7 +13295,7 @@ export default function TradingViewChart({
 
     // DON'T clear selectedDrawing here - it closes the Property Editor!
     // setSelectedDrawing(null);
-  }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, isDraggingYAxis, velocity, startMomentumAnimation]);
+  }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, velocity, startMomentumAnimation]);
 
   // Simple drawing rendering effect - COMPLETELY DISABLED to prevent conflicts with main TradingView drawing system
   useEffect(() => {
@@ -13285,9 +13352,7 @@ export default function TradingViewChart({
       }
     }
 
-    // If no drawing was clicked, reset chart view
-    setVisibleCandleCount(Math.min(200, data.length));
-    setScrollOffset(Math.max(0, data.length - Math.min(200, data.length)));
+    // Double-click on empty space removed - no action
   }, [data.length, activeTool, isInYAxisArea, resetToAutoScale]);
 
   // Handle timeframe change - SIMPLE DIRECT FETCH (no broken cache)
@@ -13428,7 +13493,14 @@ export default function TradingViewChart({
   };
 
   // Helper function to get current chart price range (for chart rendering - changes with scrolling)
-  const getCurrentChartPriceRange = (): { min: number; max: number } => {
+  const getCurrentChartPriceRange = useCallback((): { min: number; max: number } => {
+    // PRIORITY: Use manualPriceRangeRef for real-time drag updates
+    const currentManualRange = manualPriceRangeRef.current || manualPriceRange;
+
+    if (currentManualRange) {
+      return currentManualRange;
+    }
+
     if (!data || data.length === 0) return { min: 0, max: 100 };
 
     // Get visible data range
@@ -13440,9 +13512,9 @@ export default function TradingViewChart({
 
     // Use the new Y-axis scaling logic
     return getCurrentPriceRange(visibleData);
-  };
+  }, [manualPriceRange, data, scrollOffset, visibleCandleCount, getCurrentPriceRange]);
 
-  // TradingView-style coordinate conversion: Time/Price ? Screen
+  // TradingView-style coordinate conversion: Time/Price → Screen
   const timePriceToScreenCoordinates = (timestamp: number, price: number, useStableRange: boolean = false): { x: number; y: number } => {
     const canvas = overlayCanvasRef.current;
     if (!canvas || !data.length) return { x: 0, y: 0 };
@@ -13471,24 +13543,10 @@ export default function TradingViewChart({
     }
 
     // Convert price to screen Y - use current range for all drawings to match chart
-    // For horizontal rays, we'll handle absolute positioning differently
     const priceChartHeight = rect.height * 0.7;
     const currentPriceRange = getCurrentChartPriceRange();
     const relativePrice = (price - currentPriceRange.min) / (currentPriceRange.max - currentPriceRange.min);
     const y = priceChartHeight - (relativePrice * priceChartHeight);
-
-    console.log('?? TimePriceToScreen (CURRENT RANGE):', {
-      timestamp,
-      price,
-      useStableRange,
-      candleIndex,
-      scrollOffset,
-      visibleRange: `${visibleStartIndex} to ${visibleEndIndex}`,
-      x,
-      y,
-      currentPriceRange,
-      rangeType: 'CURRENT'
-    });
 
     return { x, y };
   };
@@ -13838,15 +13896,12 @@ export default function TradingViewChart({
   // TradingView-style drawing renderer: converts time+price coordinates to screen position
   const drawStoredDrawings = (ctx: CanvasRenderingContext2D) => {
     const currentDrawings = drawingsRef.current;
-    console.log('?? [RENDER] Starting render cycle, total drawings:', currentDrawings.length);
-    console.log('?? [RENDER] Drawings to render:', currentDrawings.map(d => ({ id: d.id, type: d.type })));
 
     if (currentDrawings.length === 0) {
-      console.log('? [RENDER] No drawings to render');
       return;
     }
 
-    // TradingView coordinate conversion: time+price ? screen coordinates
+    // TradingView coordinate conversion: time+price → screen coordinates
     const timeToScreenX = (timestamp: number): number => {
       if (!data || data.length === 0) return 0;
 
@@ -14025,6 +14080,44 @@ export default function TradingViewChart({
 
   // Watchlist Panel Component - Bloomberg Terminal Style with 4-Column Performance
   const WatchlistPanel = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
+
+    // Ref to preserve scroll position during re-renders
+    const watchlistScrollRef = useRef<HTMLDivElement>(null);
+    const scrollPositionRef = useRef<number>(0);
+    const lastDataHashRef = useRef<string>('');
+
+    // Track scroll position continuously
+    useEffect(() => {
+      const scrollContainer = watchlistScrollRef.current;
+      if (!scrollContainer || activeTab !== 'Watchlist') return;
+
+      const handleScroll = () => {
+        scrollPositionRef.current = scrollContainer.scrollTop;
+      };
+
+      scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+      return () => scrollContainer.removeEventListener('scroll', handleScroll);
+    }, [activeTab]);
+
+    // Prevent scroll reset when data changes
+    useEffect(() => {
+      const dataHash = JSON.stringify(Object.keys(watchlistData).sort());
+
+      // Only restore if the data structure is the same (just values changed)
+      if (dataHash === lastDataHashRef.current) {
+        const scrollContainer = watchlistScrollRef.current;
+        if (scrollContainer && activeTab === 'Watchlist') {
+          const savedScroll = scrollPositionRef.current;
+          // Force scroll restoration synchronously
+          if (savedScroll > 0) {
+            scrollContainer.style.scrollBehavior = 'auto';
+            scrollContainer.scrollTop = savedScroll;
+          }
+        }
+      }
+
+      lastDataHashRef.current = dataHash;
+    }, [watchlistData, activeTab]);
 
     // Fetch data when tab, timeframe, or symbols change - stable reference
     const stableSymbols = useMemo(() => [...pdSelectedSymbols].sort().join(','), [pdSelectedSymbols]);
@@ -14244,13 +14337,14 @@ export default function TradingViewChart({
     const currentSymbols = marketSymbols[symbolKey as keyof typeof marketSymbols] || [];
 
     // Create a unified symbol list with ALL symbols in ONE place for easy styling
-    const allSymbols = [
+    // MEMOIZE this to prevent re-creating the array on every render (which causes scroll jump)
+    const allSymbols = useMemo(() => [
       ...currentSymbols.map((symbol, idx) => ({ symbol, section: 'markets', uniqueId: `markets-${idx}` })),
       { type: 'separator', label: 'INDUSTRIES', color: 'blue' },
       ...marketSymbols.Industries.map((symbol, idx) => ({ symbol, section: 'industries', uniqueId: `industries-${idx}` })),
       { type: 'separator', label: 'SPECIAL', color: 'purple' },
       ...marketSymbols.Special.map((symbol, idx) => ({ symbol, section: 'special', uniqueId: `special-${idx}` }))
-    ];
+    ], [currentSymbols, marketSymbols.Industries, marketSymbols.Special]);
 
     // Check if watchlist data is still loading
     const hasWatchlistData = Object.keys(watchlistData).length > 0;
@@ -14270,6 +14364,76 @@ export default function TradingViewChart({
       );
     }
 
+    // Calculate regime score (0-100) based on strength and consistency
+    const calculateRegimeScore = (regime: string, period: string) => {
+      if (regime === 'MIXED') return 0;
+
+      const periods = ['1d', '5d', '13d', '21d', '50d', 'ytd'];
+      const growthSectors = ['XLY', 'XLK', 'XLC'];
+      const defensiveSectors = ['XLP', 'XLU', 'XLRE', 'XLV'];
+      const valueSectors = ['XLB', 'XLI', 'XLF', 'XLE'];
+
+      const getChange = (symbol: string, per: string) => {
+        const data = watchlistData[symbol];
+        if (!data) return 0;
+        if (per === '1d') return data.change1d;
+        if (per === '5d') return data.change5d;
+        if (per === '13d') return data.change13d;
+        if (per === '21d') return data.change21d;
+        if (per === '50d') return data.change50d;
+        if (per === 'ytd') return data.changeYTD;
+        return 0;
+      };
+
+      const spyChange = getChange('SPY', period);
+
+      // Base score: 50 points for active regime
+      let score = 50;
+
+      // Calculate sector group averages
+      const growthAvg = growthSectors.reduce((sum, s) => sum + getChange(s, period), 0) / growthSectors.length;
+      const defensiveAvg = defensiveSectors.reduce((sum, s) => sum + getChange(s, period), 0) / defensiveSectors.length;
+      const valueAvg = valueSectors.reduce((sum, s) => sum + getChange(s, period), 0) / valueSectors.length;
+
+      const growthRelative = growthAvg - spyChange;
+      const defensiveRelative = defensiveAvg - spyChange;
+      const valueRelative = valueAvg - spyChange;
+
+      // Divergence score (10 points): Strength of rotation
+      let divergence = 0;
+      if (regime === 'RISK ON') {
+        divergence = Math.abs(growthRelative - defensiveRelative);
+      } else if (regime === 'DEFENSIVE') {
+        divergence = Math.abs(defensiveRelative - growthRelative);
+      } else if (regime === 'VALUE') {
+        divergence = (Math.abs(valueRelative - growthRelative) + Math.abs(valueRelative - defensiveRelative)) / 2;
+      }
+      score += Math.min((divergence / 2) * 10, 10);
+
+      // Multi-timeframe score (20 points): How many periods show this regime
+      const activeCount = periods.filter(per => getMarketRegimeForHeader(per) === regime).length;
+      if (activeCount >= 4) score += 20;
+      else if (activeCount === 3) score += 15;
+      else if (activeCount === 2) score += 10;
+      else if (activeCount === 1) score += 5;
+
+      // Holdings consistency (20 points): Check individual sector strength
+      let consistencyScore = 0;
+      if (regime === 'RISK ON') {
+        const growthStrength = growthSectors.filter(s => (getChange(s, period) - spyChange) > 0).length;
+        consistencyScore = (growthStrength / 3) * 20;
+      } else if (regime === 'DEFENSIVE') {
+        const defensiveStrength = defensiveSectors.filter(s => (getChange(s, period) - spyChange) > 0).length;
+        consistencyScore = (defensiveStrength / 4) * 20;
+      } else if (regime === 'VALUE') {
+        const valueStrength = valueSectors.filter(s => (getChange(s, period) - spyChange) > 0).length;
+        consistencyScore = (valueStrength / 4) * 20;
+      }
+      score += consistencyScore;
+
+      return Math.round(Math.min(score, 100));
+    };
+
     // Helper function to get performance status for a specific time period
     const getPerformanceStatus = (symbolChange: number, spyChange: number, symbol: string, period: string) => {
       if (symbol === 'SPY') return { status: 'NEUTRAL', color: 'text-yellow-400' };
@@ -14278,7 +14442,13 @@ export default function TradingViewChart({
       const relativePerformance = symbolChange - spyChange;
 
       // Determine status based on relative performance vs SPY
-      if (period === '21d') {
+      if (period === '50d') {
+        if (relativePerformance > 0) {
+          return { status: 'SWEET', color: 'text-pink-400 font-bold glow-pink' }; // Outperformed SPY over 50 days
+        } else {
+          return { status: 'SOUR', color: 'text-purple-500 font-bold glow-purple' }; // Underperformed SPY over 50 days
+        }
+      } else if (period === '21d') {
         if (relativePerformance > 0) {
           return { status: 'KING', color: 'text-yellow-400 font-bold glow-yellow' }; // Outperformed SPY over 21 days
         } else {
@@ -14341,6 +14511,9 @@ export default function TradingViewChart({
         } else if (period === '21d') {
           change = data.change21d;
           spyChange = spyData.change21d;
+        } else if (period === '50d') {
+          change = data.change50d;
+          spyChange = spyData.change50d;
         } else if (period === 'ytd') {
           change = data.changeYTD;
           spyChange = spyData.changeYTD;
@@ -14369,6 +14542,9 @@ export default function TradingViewChart({
         } else if (period === '21d') {
           change = data.change21d;
           spyChange = spyData.change21d;
+        } else if (period === '50d') {
+          change = data.change50d;
+          spyChange = spyData.change50d;
         } else if (period === 'ytd') {
           change = data.changeYTD;
           spyChange = spyData.changeYTD;
@@ -14416,6 +14592,9 @@ export default function TradingViewChart({
         } else if (period === '21d') {
           change = data.change21d;
           spyChange = spyData.change21d;
+        } else if (period === '50d') {
+          change = data.change50d;
+          spyChange = spyData.change50d;
         } else if (period === 'ytd') {
           change = data.changeYTD;
           spyChange = spyData.changeYTD;
@@ -14507,8 +14686,8 @@ export default function TradingViewChart({
         {/* Watchlist Tab Content */}
         {activeTab === 'Watchlist' && (
           <>
-            {/* Bloomberg-style Column Headers - 8 Columns */}
-            <div className="grid grid-cols-8 gap-0 border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner">
+            {/* Bloomberg-style Column Headers - 9 Columns */}
+            <div className="grid grid-cols-9 gap-0 border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner">
               <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
                 <span className="drop-shadow-lg text-shadow-carved text-orange-500">Symbol</span>
               </div>
@@ -14519,34 +14698,95 @@ export default function TradingViewChart({
                 <span className="drop-shadow-lg text-shadow-carved text-orange-500">Change</span>
               </div>
               <div className="md:p-3 p-2 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('1d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                  <span className="text-white font-bold">1D</span> {getMarketRegimeForHeader('1d')}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-white font-bold text-xs mb-1">TODAY</span>
+                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('1d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
+                    {(() => {
+                      const regime = getMarketRegimeForHeader('1d');
+                      if (regime === 'MIXED') return 'MIXED';
+                      const score = calculateRegimeScore(regime, '1d');
+                      return `${regime} ${score}`;
+                    })()}
+                  </span>
+                </div>
               </div>
               <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('5d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                  <span className="text-white font-bold">5D</span> {getMarketRegimeForHeader('5d')}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-white font-bold text-xs mb-1">WEEK</span>
+                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('5d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
+                    {(() => {
+                      const regime = getMarketRegimeForHeader('5d');
+                      if (regime === 'MIXED') return 'MIXED';
+                      const score = calculateRegimeScore(regime, '5d');
+                      return `${regime} ${score}`;
+                    })()}
+                  </span>
+                </div>
               </div>
               <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('13d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                  <span className="text-white font-bold">13D</span> {getMarketRegimeForHeader('13d')}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-white font-bold text-xs mb-1">13D</span>
+                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('13d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
+                    {(() => {
+                      const regime = getMarketRegimeForHeader('13d');
+                      if (regime === 'MIXED') return 'MIXED';
+                      const score = calculateRegimeScore(regime, '13d');
+                      return `${regime} ${score}`;
+                    })()}
+                  </span>
+                </div>
               </div>
               <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('21d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                  <span className="text-white font-bold">21D</span> {getMarketRegimeForHeader('21d')}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-white font-bold text-xs mb-1">MONTH</span>
+                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('21d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
+                    {(() => {
+                      const regime = getMarketRegimeForHeader('21d');
+                      if (regime === 'MIXED') return 'MIXED';
+                      const score = calculateRegimeScore(regime, '21d');
+                      return `${regime} ${score}`;
+                    })()}
+                  </span>
+                </div>
+              </div>
+              <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
+                <div className="flex flex-col">
+                  <span className="text-white font-bold text-xs mb-1">QUARTER</span>
+                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('50d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('50d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('50d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
+                    {(() => {
+                      const regime = getMarketRegimeForHeader('50d');
+                      if (regime === 'MIXED') return 'MIXED';
+                      const score = calculateRegimeScore(regime, '50d');
+                      return `${regime} ${score}`;
+                    })()}
+                  </span>
+                </div>
               </div>
               <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
-                <span className={`drop-shadow-lg text-shadow-carved ${getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('ytd') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                  <span className="text-white font-bold">YTD</span> {getMarketRegimeForHeader('ytd')}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-white font-bold text-xs mb-1">YTD</span>
+                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('ytd') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
+                    {(() => {
+                      const regime = getMarketRegimeForHeader('ytd');
+                      if (regime === 'MIXED') return 'MIXED';
+                      const score = calculateRegimeScore(regime, 'ytd');
+                      return `${regime} ${score}`;
+                    })()}
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* Bloomberg-style Content */}
-            <div className="flex-1 overflow-y-auto bg-black">
+            <div
+              ref={watchlistScrollRef}
+              className="flex-1 overflow-y-auto bg-black"
+              style={{
+                overflowAnchor: 'none',
+                scrollBehavior: 'auto',
+                contain: 'layout'
+              }}
+            >
               {allSymbols.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   <div className="text-lg font-bold mb-2">NO DATA</div>
@@ -14608,7 +14848,7 @@ export default function TradingViewChart({
                       return (
                         <div key={uniqueId}>
                           {separatorRows}
-                          <div className="grid grid-cols-8 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900">
+                          <div className="grid grid-cols-9 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900">
                             <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50">
                               <span className="font-mono font-bold text-white text-sm">{symbol}</span>
                             </div>
@@ -14617,6 +14857,9 @@ export default function TradingViewChart({
                             </div>
                             <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 border-b border-gray-900/50">
                               <div className="h-4 w-12 bg-gray-800/50 rounded animate-pulse"></div>
+                            </div>
+                            <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
+                              <div className="h-4 w-20 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
                             </div>
                             <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-3 text-center border-b border-gray-900/50">
                               <div className="h-4 w-20 bg-gray-800/50 rounded animate-pulse mx-auto"></div>
@@ -14644,13 +14887,14 @@ export default function TradingViewChart({
                     const perf5d = spyData ? getPerformanceStatus(data.change5d, spyData.change5d, symbol, '5d') : { status: '--', color: 'text-gray-400' };
                     const perf13d = spyData ? getPerformanceStatus(data.change13d, spyData.change13d, symbol, '13d') : { status: '--', color: 'text-gray-400' };
                     const perf21d = spyData ? getPerformanceStatus(data.change21d, spyData.change21d, symbol, '21d') : { status: '--', color: 'text-gray-400' };
+                    const perf50d = spyData ? getPerformanceStatus(data.change50d, spyData.change50d, symbol, '50d') : { status: '--', color: 'text-gray-400' };
                     const perfYTD = spyData ? getPerformanceStatus(data.changeYTD, spyData.changeYTD, symbol, 'ytd') : { status: '--', color: 'text-gray-400' };
 
                     return (
                       <div key={uniqueId}>
                         {separatorRows}
                         <div
-                          className="grid grid-cols-8 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900 hover:bg-[#FF6600]/5 transition-all duration-200 cursor-pointer group"
+                          className="grid grid-cols-9 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900 hover:bg-[#FF6600]/5 transition-all duration-200 cursor-pointer group"
                           title={(() => {
                             const excludedSymbols = ['SPY', 'IWM', 'QQQ', 'DIA'];
                             const isClickableETF = !excludedSymbols.includes(symbol);
@@ -14724,6 +14968,13 @@ export default function TradingViewChart({
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
                             <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf21d.color}`}>
                               {perf21d.status}
+                            </span>
+                          </div>
+
+                          {/* 50D Performance */}
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf50d.color}`}>
+                              {perf50d.status}
                             </span>
                           </div>
 
@@ -20269,7 +20520,6 @@ export default function TradingViewChart({
                   crosshair={crosshairPosition}
                   symbol={symbol}
                   isDragging={isDragging}
-                  isDraggingYAxis={isDraggingYAxis}
                   isAutoScale={isAutoScale}
                   manualPriceRange={manualPriceRange}
                   setScrollOffset={setScrollOffset}
@@ -20277,7 +20527,6 @@ export default function TradingViewChart({
                   setManualPriceRange={setManualPriceRange}
                   setIsAutoScale={setIsAutoScale}
                   setIsDragging={setIsDragging}
-                  setIsDraggingYAxis={setIsDraggingYAxis}
                   handleTimeframeChange={handleTimeframeChange}
                   handleMouseMove={handleMouseMove}
                   drawings={drawings}
@@ -20291,6 +20540,8 @@ export default function TradingViewChart({
                   handleUnifiedMouseDown={handleUnifiedMouseDown}
                   handleCanvasMouseMove={handleCanvasMouseMove}
                   handleMouseLeave={handleMouseLeave}
+                  isDraggingYAxis={isDraggingYAxisZoom}
+                  setIsDraggingYAxis={setIsDraggingYAxisZoom}
                 />
               ) : (
                 <>
@@ -20421,7 +20672,6 @@ export default function TradingViewChart({
                         setVisibleCandleCount(newCount);
                       }
                     }}
-                    onClick={(e) => console.log('?? SINGLE CLICK DETECTED on canvas!')}
                     onDoubleClick={handleDoubleClick}
                   />
 

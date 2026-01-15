@@ -86,6 +86,39 @@ body {
     background: linear-gradient(135deg, #FF8833, #FFAA55);
 }
 
+/* Enhanced Scrollbar for Options Flow Table */
+.table-scroll-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.table-scroll-container::-webkit-scrollbar-track {
+    background: #000000;
+    border-left: 1px solid #2a2a2a;
+}
+
+.table-scroll-container::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #ff9500 0%, #ff8500 50%, #ff7500 100%);
+    border-radius: 6px;
+    border: 2px solid #000000;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.table-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #ffaa00 0%, #ff9500 50%, #ff8500 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 0 8px rgba(255, 149, 0, 0.5);
+}
+
+.table-scroll-container::-webkit-scrollbar-corner {
+    background: #000000;
+}
+
+/* Firefox scrollbar for table */
+.table-scroll-container {
+    scrollbar-width: thin;
+    scrollbar-color: #ff8500 #000000;
+}
+
 /* Custom Animations for Trading Chart */
 @keyframes fadeIn {
     from {
