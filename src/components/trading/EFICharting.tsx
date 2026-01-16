@@ -16463,98 +16463,93 @@ export default function TradingViewChart({
               background: 'linear-gradient(90deg, transparent 0%, rgba(255, 102, 0, 0.05) 50%, transparent 100%)'
             }} />
 
+            {/* Close button */}
+            <button
+              onClick={() => setActiveSidebarPanel(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors z-50"
+              aria-label="Close panel"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+
             <div className="relative z-10 flex items-center justify-center">
               <div className="text-center">
-                <h1 className="text-4xl font-bold tracking-wider uppercase mb-1" style={{
+                <h1 className="text-2xl md:text-4xl font-bold tracking-wider uppercase" style={{
                   fontFamily: '"JetBrains Mono", monospace',
                   background: 'linear-gradient(135deg, #ffffff 0%, #ffcc80 25%, #ff9800 50%, #ffcc80 75%, #ffffff 100%)',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
                   textShadow: '0 2px 10px rgba(255, 152, 0, 0.3)',
-                  filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8))'
+                  filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8))',
+                  fontSize: window.innerWidth < 768 ? '2.4375rem' : undefined,
+                  marginBottom: window.innerWidth < 768 ? '0px' : undefined
                 }}>
                   Market Regimes
                 </h1>
-              </div>
-
-              {/* Status Indicator - positioned absolute top right */}
-              <div className="absolute top-6 right-6 flex items-center space-x-3">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" style={{
-                    boxShadow: '0 0 8px rgba(76, 175, 80, 0.6)'
-                  }} />
-                  <span className="text-xs text-green-400 font-mono font-medium">LIVE</span>
-                </div>
-                <div className="text-xs text-gray-500 font-mono">
-                  {new Date().toLocaleTimeString()}
-                </div>
               </div>
             </div>
           </div>
 
           {/* Premium Tab Navigation */}
-          <div className="px-6 pb-4">
-            <div className="flex rounded-lg p-2" style={{
-              background: '#000000',
-              border: '1px solid rgba(255, 102, 0, 0.2)',
-              boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.8)'
+          <div className="px-6 pb-4" style={{
+            marginTop: window.innerWidth < 768 ? '-8px' : undefined
+          }}>
+            <div className="flex gap-2 md:gap-3" style={{
+              background: 'transparent'
             }}>
               {['Life', 'Developing', 'Momentum', 'Legacy'].map((tab, index) => {
                 const tabColors = {
-                  'Life': { bg: 'rgba(76, 175, 80, 0.15)', border: 'rgba(76, 175, 80, 0.4)', color: '#4caf50', hoverBg: 'rgba(76, 175, 80, 0.25)' },
-                  'Developing': { bg: 'rgba(33, 150, 243, 0.15)', border: 'rgba(33, 150, 243, 0.4)', color: '#2196f3', hoverBg: 'rgba(33, 150, 243, 0.25)' },
-                  'Momentum': { bg: 'rgba(156, 39, 176, 0.15)', border: 'rgba(156, 39, 176, 0.4)', color: '#9c27b0', hoverBg: 'rgba(156, 39, 176, 0.25)' },
-                  'Legacy': { bg: 'rgba(255, 152, 0, 0.15)', border: 'rgba(255, 152, 0, 0.4)', color: '#ff9800', hoverBg: 'rgba(255, 152, 0, 0.25)' }
+                  'Life': { bg: '#4caf50', activeBg: '#4caf50', color: '#ffffff' },
+                  'Developing': { bg: '#2196f3', activeBg: '#2196f3', color: '#ffffff' },
+                  'Momentum': { bg: '#9c27b0', activeBg: '#9c27b0', color: '#ffffff' },
+                  'Legacy': { bg: '#ff9800', activeBg: '#ff9800', color: '#ffffff' }
                 };
                 const tabStyle = tabColors[tab as keyof typeof tabColors];
+                const isMobile = window.innerWidth < 768;
+                const isActive = activeTab === tab;
+
                 return (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    className="relative flex-1 px-8 py-4 text-lg font-mono font-bold uppercase tracking-wider transition-all duration-300"
+                    className="flex-1 font-mono font-bold uppercase transition-all duration-300"
                     style={{
-                      background: activeTab === tab ? tabStyle.bg : 'transparent',
-                      color: activeTab === tab ? tabStyle.color : '#666666',
-                      borderRadius: '8px',
-                      border: activeTab === tab ? `2px solid ${tabStyle.border}` : '2px solid transparent',
-                      textShadow: activeTab === tab
-                        ? `0 1px 3px ${tabStyle.color}80`
-                        : '0 1px 2px rgba(0, 0, 0, 0.8)',
-                      boxShadow: activeTab === tab
-                        ? `0 4px 12px ${tabStyle.color}40, inset 0 1px 0 rgba(255, 255, 255, 0.1)`
-                        : 'inset 0 1px 0 rgba(255, 255, 255, 0.02)',
-                      transform: activeTab === tab ? 'translateY(-2px) scale(1.02)' : 'translateY(0) scale(1)'
+                      padding: isMobile ? '12px 16px' : '16px 32px',
+                      fontSize: isMobile ? '0.875rem' : '1.125rem',
+                      background: isActive
+                        ? `linear-gradient(135deg, ${tabStyle.activeBg} 0%, ${tabStyle.activeBg}dd 100%)`
+                        : 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+                      color: '#ffffff',
+                      borderRadius: '20px',
+                      border: isActive ? `2px solid ${tabStyle.bg}` : '2px solid rgba(30, 30, 30, 0.8)',
+                      textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+                      boxShadow: isActive
+                        ? `inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.4)`
+                        : 'inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.5)',
+                      transform: isActive ? 'translateY(-2px)' : 'translateY(0)',
+                      cursor: 'pointer',
+                      letterSpacing: '0.05em',
+                      fontWeight: '900'
                     }}
                     onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
                       if (activeTab !== tab) {
-                        e.currentTarget.style.background = tabStyle.hoverBg;
-                        e.currentTarget.style.color = tabStyle.color;
-                        e.currentTarget.style.border = `2px solid ${tabStyle.border}60`;
-                        e.currentTarget.style.transform = 'translateY(-1px) scale(1.01)';
+                        e.currentTarget.style.background = `linear-gradient(135deg, #0d0d0d 0%, #1a1a1a 100%)`;
+                        e.currentTarget.style.borderColor = 'rgba(40, 40, 40, 0.8)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
                       }
                     }}
                     onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
                       if (activeTab !== tab) {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = '#666666';
-                        e.currentTarget.style.border = '2px solid transparent';
-                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                        e.currentTarget.style.background = 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)';
+                        e.currentTarget.style.borderColor = 'rgba(30, 30, 30, 0.8)';
+                        e.currentTarget.style.transform = 'translateY(0)';
                       }
                     }}
                   >
                     {tab}
-                    {activeTab === tab && (
-                      <div
-                        className="absolute -bottom-1 left-1/2 transform -translate-x-1/2"
-                        style={{
-                          width: '60%',
-                          height: '3px',
-                          background: `linear-gradient(90deg, transparent 0%, ${tabStyle.color} 50%, transparent 100%)`,
-                          borderRadius: '2px',
-                          boxShadow: `0 0 8px ${tabStyle.color}`
-                        }}
-                      />
-                    )}
                   </button>
                 );
               })}
@@ -16574,7 +16569,7 @@ export default function TradingViewChart({
                   borderRadius: '6px'
                 }}
               >
-                All Industries
+                All
               </button>
               <button
                 onClick={() => setHighlightFilter('gold')}
@@ -16588,7 +16583,7 @@ export default function TradingViewChart({
                   boxShadow: highlightFilter === 'gold' ? '0 6px 20px rgba(255, 215, 0, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
                 }}
               >
-                <TbTrendingUp size={20} /> Best of the Frame
+                <TbTrendingUp size={20} /> {window.innerWidth < 768 ? 'Best' : 'Best Performers'}
               </button>
               <button
                 onClick={() => setHighlightFilter('purple')}
@@ -16602,7 +16597,7 @@ export default function TradingViewChart({
                   boxShadow: highlightFilter === 'purple' ? '0 6px 20px rgba(138, 43, 226, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
                 }}
               >
-                <TbChartBar size={20} /> Industry Pick
+                <TbChartBar size={20} /> {window.innerWidth < 768 ? 'Picks' : 'Industry Picks'}
               </button>
               <button
                 onClick={() => setHighlightFilter('highlights')}
@@ -16616,7 +16611,7 @@ export default function TradingViewChart({
                   boxShadow: highlightFilter === 'highlights' ? '0 6px 20px rgba(205, 127, 50, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
                 }}
               >
-                <TbFilter size={20} /> All Highlights
+                <TbFilter size={20} /> {window.innerWidth < 768 ? 'Highlights' : 'Key Highlights'}
               </button>
             </div>
           </div>
@@ -16692,16 +16687,16 @@ export default function TradingViewChart({
                   <div className="px-6 pb-6">
                     <div className="text-center mb-6">
                       <h2 className="font-bold font-mono" style={{
-                        fontSize: '2.4rem',
+                        fontSize: '1.2rem',
                         color: highlightFilter === 'gold' ? '#FFD700' : highlightFilter === 'purple' ? '#8A2BE2' : '#ff6600'
                       }}>
-                        {highlightFilter === 'gold' ? '🥇 Best Overall Trades' : highlightFilter === 'purple' ? '👑 Top Industry Leaders' : '⭐ All Highlighted Trades'}
+                        {highlightFilter === 'gold' ? 'Best Overall Trades' : highlightFilter === 'purple' ? 'Top Industry Leaders' : 'All Highlighted Trades'}
                       </h2>
 
                       {/* Sort Button */}
                       <button
                         onClick={() => setSortByPercentage(!sortByPercentage)}
-                        className="mt-4 px-6 py-2 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2 mx-auto"
+                        className="mt-4 px-4 py-2 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2 mx-auto text-xs"
                         style={{
                           background: '#000000',
                           color: '#ff6600',
@@ -16710,11 +16705,11 @@ export default function TradingViewChart({
                           boxShadow: 'inset 2px 2px 5px rgba(0, 0, 0, 0.8), inset -2px -2px 5px rgba(30, 30, 30, 0.4), 3px 3px 8px rgba(0, 0, 0, 0.9), -1px -1px 4px rgba(40, 40, 40, 0.2)'
                         }}
                       >
-                        <TbArrowsSort size={20} /> {sortByPercentage ? 'Highest % First' : 'Lowest % First'}
+                        <TbArrowsSort size={16} /> {sortByPercentage ? 'Highest % First' : 'Lowest % First'}
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-8">
+                    <div className="grid grid-cols-2 gap-2 md:gap-8">
                       {/* Bullish Column */}
                       <div>
                         <div className="mb-6 pb-4 border-b-2 relative overflow-hidden" style={{
@@ -16725,13 +16720,13 @@ export default function TradingViewChart({
                             <div className="w-1 h-8 rounded-full bg-gradient-to-b from-green-400 to-emerald-600" style={{
                               boxShadow: '0 0 10px rgba(16, 185, 129, 0.5)'
                             }} />
-                            <h3 className="font-black uppercase tracking-[0.2em]" style={{
+                            <h3 className="font-black uppercase tracking-[0.2em] flex items-center gap-2" style={{
                               fontSize: '1.5rem',
                               color: '#ffffff',
                               textShadow: '0 0 20px rgba(16, 185, 129, 0.6), 2px 2px 4px rgba(0, 0, 0, 0.8)',
                               fontFamily: 'system-ui, -apple-system, sans-serif'
                             }}>
-                              <TbTrendingUp className="inline mr-2" size={24} /> BULLISH
+                              <TbTrendingUp size={24} /> BULLISH
                             </h3>
                             <div className="w-1 h-8 rounded-full bg-gradient-to-b from-green-400 to-emerald-600" style={{
                               boxShadow: '0 0 10px rgba(16, 185, 129, 0.5)'
@@ -16810,7 +16805,7 @@ export default function TradingViewChart({
 
                                       <div className="text-center flex items-center justify-center gap-2">
                                         <span className="font-black tracking-tight" style={{
-                                          fontSize: '2rem',
+                                          fontSize: window.innerWidth < 768 ? '1.4rem' : '2rem',
                                           background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
                                           WebkitBackgroundClip: 'text',
                                           WebkitTextFillColor: 'transparent',
@@ -16908,15 +16903,17 @@ export default function TradingViewChart({
                                         </button>
                                       </div>
 
-                                      <div className="flex-1">
+                                      <div className="flex-1" style={{
+                                        marginLeft: window.innerWidth < 768 ? '-20px' : '0'
+                                      }}>
                                         <div className="font-black tabular-nums" style={{
-                                          fontSize: '2rem',
+                                          fontSize: window.innerWidth < 768 ? '1.4rem' : '2rem',
                                           color: '#10b981',
                                           lineHeight: '1',
                                           textShadow: '0 0 20px rgba(16, 185, 129, 0.3)',
                                           fontFamily: 'system-ui, -apple-system, sans-serif'
                                         }}>
-                                          {trade.score}%
+                                          {trade.score}{window.innerWidth >= 768 ? '%' : ''}
                                         </div>
                                       </div>
                                     </div>
@@ -17014,13 +17011,13 @@ export default function TradingViewChart({
                             <div className="w-1 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600" style={{
                               boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)'
                             }} />
-                            <h3 className="font-black uppercase tracking-[0.2em]" style={{
+                            <h3 className="font-black uppercase tracking-[0.2em] flex items-center gap-2" style={{
                               fontSize: '1.5rem',
                               color: '#ffffff',
                               textShadow: '0 0 20px rgba(239, 68, 68, 0.6), 2px 2px 4px rgba(0, 0, 0, 0.8)',
                               fontFamily: 'system-ui, -apple-system, sans-serif'
                             }}>
-                              <TbTrendingDown className="inline mr-2" size={24} /> BEARISH
+                              <TbTrendingDown size={24} /> BEARISH
                             </h3>
                             <div className="w-1 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600" style={{
                               boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)'
@@ -17086,7 +17083,9 @@ export default function TradingViewChart({
                                   <div className="relative p-5">
                                     {/* Top: Ticker centered with score on sides */}
                                     <div className="flex items-center justify-center gap-6 mb-4">
-                                      <div className="flex-1 text-right">
+                                      <div className="flex-1 text-right" style={{
+                                        marginRight: window.innerWidth < 768 ? '-20px' : '0'
+                                      }}>
                                         <div className="inline-flex items-center px-3 py-1 rounded-md" style={{
                                           background: `${tabColor}15`,
                                           border: `1px solid ${tabColor}30`
@@ -17099,7 +17098,7 @@ export default function TradingViewChart({
 
                                       <div className="text-center flex items-center justify-center gap-2">
                                         <span className="font-black tracking-tight" style={{
-                                          fontSize: '2rem',
+                                          fontSize: window.innerWidth < 768 ? '1.4rem' : '2rem',
                                           background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
                                           WebkitBackgroundClip: 'text',
                                           WebkitTextFillColor: 'transparent',
@@ -17197,15 +17196,17 @@ export default function TradingViewChart({
                                         </button>
                                       </div>
 
-                                      <div className="flex-1">
+                                      <div className="flex-1" style={{
+                                        marginLeft: window.innerWidth < 768 ? '-20px' : '0'
+                                      }}>
                                         <div className="font-black tabular-nums" style={{
-                                          fontSize: '2rem',
+                                          fontSize: window.innerWidth < 768 ? '1.4rem' : '2rem',
                                           color: '#ef4444',
                                           lineHeight: '1',
                                           textShadow: '0 0 20px rgba(239, 68, 68, 0.3)',
                                           fontFamily: 'system-ui, -apple-system, sans-serif'
                                         }}>
-                                          {trade.score}%
+                                          {trade.score}{window.innerWidth >= 768 ? '%' : ''}
                                         </div>
                                       </div>
                                     </div>
@@ -17325,7 +17326,7 @@ export default function TradingViewChart({
                                   boxShadow: '0 0 8px rgba(76, 175, 80, 0.8)'
                                 }} />
                                 <span className="text-green-400 font-mono font-bold text-sm uppercase tracking-wider">
-                                  Bullish Momentum
+                                  Bullish
                                 </span>
                               </div>
                             </h3>
@@ -17487,7 +17488,7 @@ export default function TradingViewChart({
                                   boxShadow: '0 0 8px rgba(244, 67, 54, 0.8)'
                                 }} />
                                 <span className="text-red-400 font-mono font-bold text-sm uppercase tracking-wider">
-                                  Bearish Pressure
+                                  Bearish
                                 </span>
                               </div>
                             </h3>
