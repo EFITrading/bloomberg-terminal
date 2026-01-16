@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TbStar, TbStarFilled } from 'react-icons/tb';
 import '../app/options-flow/mobile.css';
 
 // Import your existing Polygon service
@@ -461,11 +462,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedOptionTypes, setSelectedOptionTypes] = useState<string[]>(['call', 'put']);
-  const [selectedPremiumFilters, setSelectedPremiumFilters] = useState<string[]>([]);
+  const [selectedPremiumFilters, setSelectedPremiumFilters] = useState<string[]>(typeof window !== 'undefined' && window.innerWidth < 768 ? ['50000'] : []);
   const [customMinPremium, setCustomMinPremium] = useState<string>('');
   const [customMaxPremium, setCustomMaxPremium] = useState<string>('');
   const [selectedTickerFilters, setSelectedTickerFilters] = useState<string[]>([]);
-  const [selectedUniqueFilters, setSelectedUniqueFilters] = useState<string[]>([]);
+  const [selectedUniqueFilters, setSelectedUniqueFilters] = useState<string[]>(typeof window !== 'undefined' && window.innerWidth < 768 ? ['OTM'] : []);
   const [expirationStartDate, setExpirationStartDate] = useState<string>('');
   const [expirationEndDate, setExpirationEndDate] = useState<string>('');
   const [blacklistedTickers, setBlacklistedTickers] = useState<string[]>(['', '', '', '', '']);
@@ -483,6 +484,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     block: boolean;
   }>({ otm: false, weekly: false, premium100k: false, sweep: false, block: false });
   const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false);
+  const [isFlowTrackingOpen, setIsFlowTrackingOpen] = useState<boolean>(false);
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({});
@@ -491,6 +493,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [stockChartData, setStockChartData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
   const [optionsPremiumData, setOptionsPremiumData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
   const [chartTimeframe, setChartTimeframe] = useState<'1D' | '1W' | '1M'>('1D');
+  const [flowChartTimeframes, setFlowChartTimeframes] = useState<Record<string, { stock: '1D' | '1W' | '1M', option: '1D' | '1W' | '1M' }>>({});
   const [isMounted, setIsMounted] = useState(false);
 
   // State for historical price data and standard deviations
@@ -499,9 +502,57 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null);
   const [aGradeFilterActive, setAGradeFilterActive] = useState<boolean>(false);
 
+  // Flow Tracking (Watchlist) state - panel always visible
+  const [trackedFlows, setTrackedFlows] = useState<OptionsFlowData[]>([]);
+
+  // Flow Tracking filters
+  const [flowTrackingFilters, setFlowTrackingFilters] = useState({
+    gradeFilter: 'ALL' as 'ALL' | 'A' | 'B' | 'C' | 'D' | 'F',
+    showDownSixtyPlus: false,
+    showCharts: typeof window !== 'undefined' && window.innerWidth < 768 ? false : true,
+    showWeeklies: false
+  });
+
+  // Swipe-to-delete state for mobile
+  const [swipedFlowId, setSwipedFlowId] = useState<string | null>(null);
+  const [touchStart, setTouchStart] = useState<number>(0);
+  const [touchCurrent, setTouchCurrent] = useState<number>(0);
+
   // Ensure component is mounted on client side to avoid hydration issues
   useEffect(() => {
     setIsMounted(true);
+
+    // Load tracked flows from localStorage
+    const savedFlows = localStorage.getItem('flowTrackingWatchlist');
+    if (savedFlows) {
+      try {
+        const flows = JSON.parse(savedFlows);
+        setTrackedFlows(flows);
+
+        // Fetch stdDev data for all loaded flows
+        const uniqueTickers: string[] = [...new Set(flows.map((f: OptionsFlowData) => f.underlying_ticker))] as string[];
+        Promise.all(uniqueTickers.map(async (ticker: string) => {
+          if (!historicalStdDevs.has(ticker) && !historicalDataLoading.has(ticker)) {
+            setHistoricalDataLoading(prev => new Set(prev).add(ticker));
+            try {
+              const stdDev = await fetchHistoricalStdDev(ticker);
+              setHistoricalStdDevs(prev => new Map(prev).set(ticker, stdDev));
+              console.log(`✅ Loaded stdDev for ${ticker} from localStorage: ${stdDev}`);
+            } catch (error) {
+              console.error(`Failed to fetch stdDev for ${ticker}:`, error);
+            } finally {
+              setHistoricalDataLoading(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(ticker);
+                return newSet;
+              });
+            }
+          }
+        }));
+      } catch (error) {
+        console.error('Error loading tracked flows:', error);
+      }
+    }
   }, []);
 
   // Debug: Monitor filter dialog state changes
@@ -738,6 +789,87 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
   };
 
+  // Fetch stock chart data for a single flow with specific timeframe
+  const fetchStockChartDataForFlow = async (flowId: string, ticker: string, timeframe: '1D' | '1W' | '1M') => {
+    const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    try {
+      let multiplier = 5;
+      let timespan = 'minute';
+      const now = new Date();
+      let from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0];
+      let to = now.toISOString().split('T')[0];
+
+      if (timeframe === '1W') {
+        multiplier = 1;
+        timespan = 'hour';
+        from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      } else if (timeframe === '1M') {
+        multiplier = 1;
+        timespan = 'day';
+        from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      }
+
+      const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
+      const response = await fetch(url);
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.results && data.results.length > 0) {
+          const chartData = data.results.map((bar: any) => ({
+            price: bar.c,
+            timestamp: bar.t
+          }));
+          setStockChartData(prev => ({ ...prev, [flowId]: chartData }));
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to fetch chart data for ${ticker}:`, error);
+    }
+  };
+
+  // Fetch options premium data for a single flow with specific timeframe
+  const fetchOptionPremiumDataForFlow = async (flowId: string, trade: OptionsFlowData, timeframe: '1D' | '1W' | '1M') => {
+    const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    try {
+      const expiry = trade.expiry.replace(/-/g, '').slice(2);
+      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+      const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+
+      let multiplier = 5;
+      let timespan = 'minute';
+      const now = new Date();
+      let from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0];
+      let to = now.toISOString().split('T')[0];
+
+      if (timeframe === '1W') {
+        multiplier = 30;
+        timespan = 'minute';
+        from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      } else if (timeframe === '1M') {
+        multiplier = 1;
+        timespan = 'hour';
+        from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      }
+
+      const url = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
+      const response = await fetch(url);
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.results && data.results.length > 0) {
+          const premiumData = data.results.map((bar: any) => ({
+            price: bar.c,
+            timestamp: bar.t
+          }));
+          setOptionsPremiumData(prev => ({ ...prev, [flowId]: premiumData }));
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to fetch premium data for ${trade.underlying_ticker}:`, error);
+    }
+  };
+
   // Fetch stock chart data for mini charts
   const fetchStockChartData = async (tickers: string[]) => {
     const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
@@ -749,17 +881,18 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       try {
         let multiplier = 5;
         let timespan = 'minute';
-        let from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // Yesterday
-        let to = new Date().toISOString().split('T')[0]; // Today
+        const now = new Date();
+        let from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0]; // Today at midnight
+        let to = now.toISOString().split('T')[0]; // Today
 
         if (chartTimeframe === '1W') {
           multiplier = 1;
           timespan = 'hour';
-          from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 7 days ago
         } else if (chartTimeframe === '1M') {
           multiplier = 1;
           timespan = 'day';
-          from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 30 days ago
         }
 
         const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
@@ -801,17 +934,18 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
         let multiplier = 5;
         let timespan = 'minute';
-        let from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        let to = new Date().toISOString().split('T')[0];
+        const now = new Date();
+        let from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0]; // Today at midnight
+        let to = now.toISOString().split('T')[0]; // Today
 
         if (chartTimeframe === '1W') {
           multiplier = 30;
           timespan = 'minute';
-          from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 7 days ago
         } else if (chartTimeframe === '1M') {
           multiplier = 1;
           timespan = 'hour';
-          from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 30 days ago
         }
 
         const url = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
@@ -931,10 +1065,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       // Return early with a neutral grade if price is unavailable
       console.warn(`⚠️ Missing price for ${trade.underlying_ticker} ${trade.type} $${trade.strike}`);
       return {
-        grade: 'N/A' as const,
+        grade: 'N/A',
         score: confidenceScore,
-        maxScore: 100,
-        breakdown: scores
+        color: '#9ca3af',
+        breakdown: `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: 0/25\nCombo Trade: 0/10\nPrice Action: 0/25\nStock Reaction: 0/15`,
+        scores
       };
     }
 
@@ -988,7 +1123,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     // 4. Price Action Score (25 points max) - Stock within standard deviation
     const stdDev = historicalStdDevs.get(trade.underlying_ticker);
 
-    if (!currentStockPrice || !entryStockPrice || !stdDev) {
+    if (!currentStockPrice || !entryStockPrice) {
       throw new Error(`Missing price action data for ${trade.underlying_ticker}`);
     }
 
@@ -1000,6 +1135,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const absMove = Math.abs(stockPercentChange);
 
     // Check if stock is within 1 standard deviation
+    if (!stdDev) {
+      throw new Error(`Missing standard deviation data for ${trade.underlying_ticker}`);
+    }
+
     const withinStdDev = absMove <= stdDev;
 
     // Award points based on how many days stock stayed within std dev
@@ -1104,6 +1243,61 @@ Stock Reaction: ${scores.stockReaction}/15`;
     }
 
     return true;
+  };
+
+  // Flow Tracking (Watchlist) Functions
+  const generateFlowId = (trade: OptionsFlowData): string => {
+    return `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`;
+  };
+
+  const isInFlowTracking = (trade: OptionsFlowData): boolean => {
+    const flowId = generateFlowId(trade);
+    return trackedFlows.some(t => generateFlowId(t) === flowId);
+  };
+
+  const addToFlowTracking = async (trade: OptionsFlowData) => {
+    // Store original data with timestamp - only current price and grade will update
+    const flowToTrack = {
+      ...trade,
+      addedAt: new Date().toISOString(),
+      originalPrice: trade.premium_per_contract,
+      originalStockPrice: trade.spot_price
+    };
+    const newTrackedFlows = [...trackedFlows, flowToTrack];
+    setTrackedFlows(newTrackedFlows);
+    localStorage.setItem('flowTrackingWatchlist', JSON.stringify(newTrackedFlows));
+
+    // Generate flow ID for chart data
+    const flowId = generateFlowId(trade);
+
+    // Fetch chart data for this flow with default 1D timeframe
+    fetchStockChartDataForFlow(flowId, trade.underlying_ticker, '1D');
+    fetchOptionPremiumDataForFlow(flowId, trade, '1D');
+
+    // Fetch historical standard deviation data for grading
+    if (!historicalStdDevs.has(trade.underlying_ticker) && !historicalDataLoading.has(trade.underlying_ticker)) {
+      setHistoricalDataLoading(prev => new Set(prev).add(trade.underlying_ticker));
+      try {
+        const stdDev = await fetchHistoricalStdDev(trade.underlying_ticker);
+        setHistoricalStdDevs(prev => new Map(prev).set(trade.underlying_ticker, stdDev));
+        console.log(`✅ Loaded stdDev for ${trade.underlying_ticker}: ${stdDev}`);
+      } catch (error) {
+        console.error(`Failed to fetch stdDev for ${trade.underlying_ticker}:`, error);
+      } finally {
+        setHistoricalDataLoading(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(trade.underlying_ticker);
+          return newSet;
+        });
+      }
+    }
+  };
+
+  const removeFromFlowTracking = (trade: OptionsFlowData) => {
+    const flowId = generateFlowId(trade);
+    const newTrackedFlows = trackedFlows.filter(t => generateFlowId(t) !== flowId);
+    setTrackedFlows(newTrackedFlows);
+    localStorage.setItem('flowTrackingWatchlist', JSON.stringify(newTrackedFlows));
   };
 
   const handleSort = (field: keyof OptionsFlowData | 'positioning_grade') => {
@@ -1243,6 +1437,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 return trade.total_premium >= 99000;
               case '200000':
                 return trade.total_premium >= 200000;
+              case '1000000':
+                return trade.total_premium >= 1000000;
               default:
                 return true;
             }
@@ -1451,16 +1647,40 @@ Stock Reaction: ${scores.stockReaction}/15`;
   useEffect(() => {
     if (efiHighlightsActive && filteredAndSortedData.length > 0) {
       fetchCurrentOptionPrices(filteredAndSortedData);
-
-      // Fetch stock chart data for unique tickers (ONLY if single ticker)
-      const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
-      if (uniqueTickers.length === 1) {
-        fetchStockChartData(uniqueTickers);
-        // Fetch options premium data
-        fetchOptionsPremiumData(filteredAndSortedData);
-      }
     }
-  }, [efiHighlightsActive, filteredAndSortedData, chartTimeframe]);
+  }, [efiHighlightsActive, filteredAndSortedData.length, chartTimeframe]);
+
+  // Fetch chart data for tracked flows when EFI is active or flows are added
+  // Use useRef to track previous flows length to avoid unnecessary re-renders
+  const prevTrackedFlowsLength = React.useRef(trackedFlows.length);
+
+  useEffect(() => {
+    // Only fetch if flows were added (length increased) or EFI is active
+    if (trackedFlows.length > 0 && (efiHighlightsActive || trackedFlows.length > prevTrackedFlowsLength.current)) {
+      // Fetch option prices for grading
+      fetchCurrentOptionPrices(trackedFlows);
+
+      // Fetch current stock prices for grading
+      const uniqueTickers = [...new Set(trackedFlows.map(t => t.underlying_ticker))];
+      fetchCurrentPrices(uniqueTickers);
+
+      // Fetch chart data for each flow with their individual timeframes
+      trackedFlows.forEach(flow => {
+        const flowId = generateFlowId(flow);
+        const stockTimeframe = flowChartTimeframes[flowId]?.stock || '1D';
+        const optionTimeframe = flowChartTimeframes[flowId]?.option || '1D';
+
+        // Fetch stock chart data for this flow
+        fetchStockChartDataForFlow(flowId, flow.underlying_ticker, stockTimeframe);
+
+        // Fetch options premium data for this flow
+        fetchOptionPremiumDataForFlow(flowId, flow, optionTimeframe);
+      });
+
+      // Update ref
+      prevTrackedFlowsLength.current = trackedFlows.length;
+    }
+  }, [trackedFlows.length, efiHighlightsActive]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -1530,17 +1750,34 @@ Stock Reaction: ${scores.stockReaction}/15`;
         <>
           {/* Invisible backdrop for click-to-close */}
           <div
-            className="fixed inset-0 z-[9998]"
+            className="fixed top-16 md:inset-0 bottom-0 left-0 right-0 z-[9998]"
             onClick={() => {
               console.log('Dialog backdrop clicked - closing dialog');
               setIsFilterDialogOpen(false);
             }}
           />
           {/* Modal Content */}
-          <div className="filter-dialog fixed top-0 md:top-56 left-0 md:left-1/2 transform md:-translate-x-1/2 bg-black border border-gray-600 rounded-none md:rounded-lg p-3 w-full md:w-auto md:max-w-4xl h-full md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]" style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)' }}>
+          <div className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 bg-black border border-gray-600 rounded-lg md:rounded-lg p-4 w-full md:w-auto md:max-w-4xl max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]" style={{ top: typeof window !== 'undefined' && window.innerWidth < 768 ? '180px' : '224px', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)' }}>
             <div className="filter-dialog-content">
               <div className="flex justify-center items-center mb-6 relative">
-                <h2 className="text-2xl font-bold italic text-orange-400" style={{ fontFamily: 'Georgia, serif', textShadow: '0 0 8px rgba(255, 165, 0, 0.3)', letterSpacing: '0.5px' }}>Options Flow Filters</h2>
+                <h2 className="text-2xl md:text-2xl font-bold italic text-orange-400 md:text-orange-400">
+                  <span className="hidden md:inline" style={{ fontFamily: 'Georgia, serif', textShadow: '0 0 8px rgba(255, 165, 0, 0.3)', letterSpacing: '0.5px' }}>Options Flow Filters</span>
+                  <span
+                    className="inline md:hidden text-3xl"
+                    style={{
+                      fontFamily: 'Georgia, serif',
+                      background: 'linear-gradient(145deg, #ff8c00 0%, #ffd700 50%, #ff8c00 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                      filter: 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 10px rgba(255, 140, 0, 0.4))',
+                      fontWeight: '900',
+                      letterSpacing: '0.05em'
+                    }}
+                  >
+                    Flow Filters
+                  </span>
+                </h2>
                 <button
                   onClick={() => setIsFilterDialogOpen(false)}
                   className="absolute right-0 text-gray-400 hover:text-white text-2xl font-bold"
@@ -1549,17 +1786,385 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 </button>
               </div>
 
-              <div className="-space-y-2 px-8">
+              {/* Mobile: Compact Single Panel Layout */}
+              <div className="md:hidden space-y-4">
+                {/* Options & Trade Type Row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden" style={{ background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)' }}>
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+                    <h3 className="text-2xl font-bold text-orange-400 mb-2 text-center relative z-10">Options</h3>
+                    <div className="space-y-2 relative z-10">
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedOptionTypes.includes('call')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedOptionTypes(prev => [...prev, 'call']);
+                            } else {
+                              setSelectedOptionTypes(prev => prev.filter(type => type !== 'call'));
+                            }
+                          }}
+                          className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-green-400 font-semibold">Calls</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedOptionTypes.includes('put')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedOptionTypes(prev => [...prev, 'put']);
+                            } else {
+                              setSelectedOptionTypes(prev => prev.filter(type => type !== 'put'));
+                            }
+                          }}
+                          className="w-4 h-4 text-red-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-red-400 font-semibold">Puts</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden" style={{ background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)' }}>
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+                    <h3 className="text-2xl font-bold text-yellow-400 mb-2 text-center relative z-10">Type</h3>
+                    <div className="space-y-2 relative z-10">
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('block')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'block']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'block'));
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-500 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-blue-400 font-semibold">Block</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('sweep')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'sweep']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'sweep'));
+                            }
+                          }}
+                          className="w-4 h-4 text-yellow-500 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-yellow-400 font-semibold">Sweep</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Premium Filters */}
+                <div className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden" style={{ background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+                  <h3 className="text-2xl font-bold text-green-400 mb-2 text-center relative z-10">Premium</h3>
+                  <div className="grid grid-cols-2 gap-2 relative z-10">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedPremiumFilters.includes('50000')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPremiumFilters(prev => [...prev, '50000']);
+                          } else {
+                            setSelectedPremiumFilters(prev => prev.filter(filter => filter !== '50000'));
+                          }
+                        }}
+                        className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
+                      />
+                      <span className="ml-2 text-lg text-white font-semibold">≥ $50K</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedPremiumFilters.includes('99000')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPremiumFilters(prev => [...prev, '99000']);
+                          } else {
+                            setSelectedPremiumFilters(prev => prev.filter(filter => filter !== '99000'));
+                          }
+                        }}
+                        className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
+                      />
+                      <span className="ml-2 text-lg text-white font-semibold">≥ $99K</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedPremiumFilters.includes('200000')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPremiumFilters(prev => [...prev, '200000']);
+                          } else {
+                            setSelectedPremiumFilters(prev => prev.filter(filter => filter !== '200000'));
+                          }
+                        }}
+                        className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
+                      />
+                      <span className="ml-2 text-lg text-white font-semibold">≥ $200K</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedPremiumFilters.includes('1000000')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPremiumFilters(prev => [...prev, '1000000']);
+                          } else {
+                            setSelectedPremiumFilters(prev => prev.filter(filter => filter !== '1000000'));
+                          }
+                        }}
+                        className="w-4 h-4 text-green-600 bg-black border-orange-500 rounded"
+                      />
+                      <span className="ml-2 text-lg text-white font-semibold">≥ $1M</span>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-gray-700">
+                    <div>
+                      <input
+                        type="number"
+                        value={customMinPremium}
+                        onChange={(e) => setCustomMinPremium(e.target.value)}
+                        placeholder="Min $"
+                        className="w-full px-2 py-1 text-lg bg-black text-white border border-orange-500/50 rounded"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="number"
+                        value={customMaxPremium}
+                        onChange={(e) => setCustomMaxPremium(e.target.value)}
+                        placeholder="Max $"
+                        className="w-full px-2 py-1 text-lg bg-black text-white border border-orange-500/50 rounded"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ticker & Special Filters */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden" style={{ background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)' }}>
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+                    <h3 className="text-2xl font-bold text-blue-400 mb-2 text-center relative z-10">Ticker</h3>
+                    <div className="space-y-2 relative z-10">
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedTickerFilters.includes('ETF_ONLY')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTickerFilters(prev => [...prev, 'ETF_ONLY']);
+                            } else {
+                              setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'ETF_ONLY'));
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">ETF</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedTickerFilters.includes('STOCK_ONLY')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTickerFilters(prev => [...prev, 'STOCK_ONLY']);
+                            } else {
+                              setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'STOCK_ONLY'));
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">Stock</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedTickerFilters.includes('MAG7_ONLY')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTickerFilters(prev => [...prev, 'MAG7_ONLY']);
+                            } else {
+                              setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'MAG7_ONLY'));
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">Mag 7</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedTickerFilters.includes('EXCLUDE_MAG7')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTickerFilters(prev => [...prev, 'EXCLUDE_MAG7']);
+                            } else {
+                              setSelectedTickerFilters(prev => prev.filter(filter => filter !== 'EXCLUDE_MAG7'));
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">No Mag 7</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden" style={{ background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)' }}>
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+                    <h3 className="text-2xl font-bold text-cyan-400 mb-2 text-center relative z-10">Special</h3>
+                    <div className="space-y-2">
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('ITM')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'ITM']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'ITM'));
+                            }
+                          }}
+                          className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">ITM</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('OTM')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'OTM']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'OTM'));
+                            }
+                          }}
+                          className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">OTM</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('WEEKLY_ONLY')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'WEEKLY_ONLY']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'WEEKLY_ONLY'));
+                            }
+                          }}
+                          className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">Weekly</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('MULTI_LEG_ONLY')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'MULTI_LEG_ONLY']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'MULTI_LEG_ONLY'));
+                            }
+                          }}
+                          className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">Multi Leg</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('MINI_ONLY')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'MINI_ONLY']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'MINI_ONLY'));
+                            }
+                          }}
+                          className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
+                        />
+                        <span className="ml-2 text-lg text-white font-semibold">Mini</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Blacklist */}
+                <div className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden" style={{ background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+                  <h3 className="text-2xl font-bold text-red-400 mb-2 text-center relative z-10">Blacklist</h3>
+                  <div className="grid grid-cols-3 gap-2">
+                    {blacklistedTickers.slice(0, 3).map((ticker, index) => (
+                      <input
+                        key={index}
+                        type="text"
+                        value={ticker}
+                        onChange={(e) => {
+                          const newTickers = [...blacklistedTickers];
+                          newTickers[index] = e.target.value.toUpperCase();
+                          setBlacklistedTickers(newTickers);
+                        }}
+                        placeholder={`Ticker ${index + 1}`}
+                        className="px-2 py-1 text-lg bg-gray-800 text-white border border-gray-600 rounded"
+                        maxLength={6}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Expiration Dates */}
+                <div className="rounded-lg p-3 border border-orange-500/30 relative overflow-hidden" style={{ background: 'linear-gradient(145deg, #0a0a0a 0%, #000000 100%)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1), 0 4px 8px rgba(0,0,0,0.8)' }}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+                  <h3 className="text-2xl font-bold text-purple-400 mb-2 text-center relative z-10">Expiration</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-base text-white mb-1 block font-semibold">Start</label>
+                      <input
+                        type="date"
+                        value={expirationStartDate}
+                        onChange={(e) => setExpirationStartDate(e.target.value)}
+                        className="w-full px-2 py-1 text-lg bg-gray-800 text-white border border-gray-600 rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-base text-white mb-1 block font-semibold">End</label>
+                      <input
+                        type="date"
+                        value={expirationEndDate}
+                        onChange={(e) => setExpirationEndDate(e.target.value)}
+                        className="w-full px-2 py-1 text-lg bg-gray-800 text-white border border-gray-600 rounded"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desktop: Original Complex Layout */}
+              <div className="hidden md:block -space-y-2 px-8">
                 {/* Top Row - Option Type, Value Premium, Ticker Filter */}
                 <div className="flex flex-wrap justify-start items-start gap-3 mx-2">
                   {/* Option Type */}
                   <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
                     <div className="absolute inset-0 bg-gradient-to-br from-gray-400/3 to-transparent rounded-lg animate-pulse"></div>
-                    <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px' }}>
+                    <label className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px' }}>
                       <span style={{ color: '#10b981', textShadow: '0 0 6px rgba(16, 185, 129, 0.4)' }}>Options</span>
                       <span style={{ color: '#ef4444', textShadow: '0 0 6px rgba(239, 68, 68, 0.4)' }}> Type</span>
                     </label>
-                    <div className="space-y-3 relative z-10">
+                    <div className="space-y-3 md:space-y-3 relative z-10">
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
                         <input
                           type="checkbox"
@@ -1573,7 +2178,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-red-600 bg-black border-orange-500 rounded focus:ring-red-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedOptionTypes.includes('put')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedOptionTypes.includes('put')
                           ? 'text-red-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Puts</span>
@@ -1591,10 +2196,46 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedOptionTypes.includes('call')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedOptionTypes.includes('call')
                           ? 'text-green-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Calls</span>
+                      </label>
+                      <label className="flex md:hidden items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('block')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'block']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'block'));
+                            }
+                          }}
+                          className="w-5 h-5 text-blue-500 bg-black border-orange-500 rounded focus:ring-blue-500"
+                        />
+                        <span className={`ml-3 text-2xl font-medium transition-all duration-200 ${selectedUniqueFilters.includes('block')
+                          ? 'text-blue-500 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                          }`}>Block</span>
+                      </label>
+                      <label className="flex md:hidden items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('sweep')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'sweep']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'sweep'));
+                            }
+                          }}
+                          className="w-5 h-5 text-yellow-500 bg-black border-orange-500 rounded focus:ring-yellow-500"
+                        />
+                        <span className={`ml-3 text-2xl font-medium transition-all duration-200 ${selectedUniqueFilters.includes('sweep')
+                          ? 'text-yellow-500 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                          }`}>Sweep</span>
                       </label>
                     </div>
                   </div>
@@ -1602,7 +2243,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   {/* Value (Premium) */}
                   <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
                     <div className="absolute inset-0 bg-gradient-to-br from-green-400/3 to-transparent rounded-lg animate-pulse"></div>
-                    <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#10b981', textShadow: '0 0 6px rgba(16, 185, 129, 0.4)' }}>Premium</label>
+                    <label className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#10b981', textShadow: '0 0 6px rgba(16, 185, 129, 0.4)' }}>Premium</label>
                     <div className="space-y-3 relative z-10">
                       {/* Preset Checkboxes */}
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
@@ -1618,7 +2259,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('50000')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('50000')
                           ? 'text-green-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>≥ $50,000</span>
@@ -1636,7 +2277,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('99000')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('99000')
                           ? 'text-green-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>≥ $99,000</span>
@@ -1654,33 +2295,51 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('200000')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('200000')
                           ? 'text-green-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>≥ $200,000</span>
+                      </label>
+                      <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                        <input
+                          type="checkbox"
+                          checked={selectedPremiumFilters.includes('1000000')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedPremiumFilters(prev => [...prev, '1000000']);
+                            } else {
+                              setSelectedPremiumFilters(prev => prev.filter(filter => filter !== '1000000'));
+                            }
+                          }}
+                          className="w-5 h-5 text-green-600 bg-black border-orange-500 rounded focus:ring-green-500"
+                        />
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedPremiumFilters.includes('1000000')
+                          ? 'text-green-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                          }`}>≥ $1M</span>
                       </label>
 
                       {/* Custom Range Inputs */}
                       <div className="border-t border-orange-500 pt-3 mt-3">
                         <div className="space-y-2">
                           <div>
-                            <label className="text-sm text-orange-300 mb-1 block font-medium">Min ($)</label>
+                            <label className="text-2xl md:text-sm text-orange-300 mb-1 block font-medium">Min ($)</label>
                             <input
                               type="number"
                               value={customMinPremium}
                               onChange={(e) => setCustomMinPremium(e.target.value)}
                               placeholder="0"
-                              className="border border-orange-500 rounded px-3 py-2 text-sm bg-black text-green-400 placeholder-gray-500 focus:border-orange-400 focus:ring-1 focus:ring-orange-400 focus:outline-none w-full transition-all"
+                              className="border border-orange-500 rounded px-3 py-2 text-2xl md:text-base bg-black text-green-400 placeholder-gray-500 focus:border-orange-400 focus:ring-1 focus:ring-orange-400 focus:outline-none w-full transition-all"
                             />
                           </div>
                           <div>
-                            <label className="text-sm text-orange-300 mb-1 block font-medium">Max ($)</label>
+                            <label className="text-2xl md:text-sm text-orange-300 mb-1 block font-medium">Max ($)</label>
                             <input
                               type="number"
                               value={customMaxPremium}
                               onChange={(e) => setCustomMaxPremium(e.target.value)}
                               placeholder="∞"
-                              className="border border-orange-500 rounded px-3 py-2 text-sm bg-black text-green-400 placeholder-gray-500 focus:border-orange-400 focus:ring-1 focus:ring-orange-400 focus:outline-none w-full transition-all"
+                              className="border border-orange-500 rounded px-3 py-2 text-2xl md:text-base bg-black text-green-400 placeholder-gray-500 focus:border-orange-400 focus:ring-1 focus:ring-orange-400 focus:outline-none w-full transition-all"
                             />
                           </div>
                         </div>
@@ -1691,7 +2350,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   {/* Ticker Filter */}
                   <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
                     <div className="absolute inset-0 bg-gradient-to-br from-blue-400/3 to-transparent rounded-lg animate-pulse"></div>
-                    <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#3b82f6', textShadow: '0 0 6px rgba(59, 130, 246, 0.4)' }}>Ticker Filter</label>
+                    <label className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#3b82f6', textShadow: '0 0 6px rgba(59, 130, 246, 0.4)' }}>Ticker Filter</label>
                     <div className="space-y-3 relative z-10">
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
                         <input
@@ -1706,7 +2365,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('ETF_ONLY')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('ETF_ONLY')
                           ? 'text-blue-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>ETF Only</span>
@@ -1724,7 +2383,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('STOCK_ONLY')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('STOCK_ONLY')
                           ? 'text-blue-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Stock Only</span>
@@ -1742,7 +2401,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-blue-600 bg-black border-orange-500 rounded focus:ring-blue-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('MAG7_ONLY')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedTickerFilters.includes('MAG7_ONLY')
                           ? 'text-blue-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Mag 7 Only</span>
@@ -1774,7 +2433,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   {/* Unique Filters */}
                   <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
                     <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/3 to-transparent rounded-lg animate-pulse"></div>
-                    <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#fbbf24', textShadow: '0 0 6px rgba(251, 191, 36, 0.4)' }}>Unique</label>
+                    <label className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#fbbf24', textShadow: '0 0 6px rgba(251, 191, 36, 0.4)' }}>Unique</label>
                     <div className="space-y-3 relative z-10">
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
                         <input
@@ -1789,7 +2448,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('ITM')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('ITM')
                           ? 'text-yellow-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>In The Money</span>
@@ -1807,12 +2466,12 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('OTM')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('OTM')
                           ? 'text-yellow-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Out The Money</span>
                       </label>
-                      <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <label className="hidden md:flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
                         <input
                           type="checkbox"
                           checked={selectedUniqueFilters.includes('SWEEP_ONLY')}
@@ -1830,7 +2489,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           : 'text-gray-300'
                           }`}>Sweep Only</span>
                       </label>
-                      <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                      <label className="hidden md:flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
                         <input
                           type="checkbox"
                           checked={selectedUniqueFilters.includes('BLOCK_ONLY')}
@@ -1861,7 +2520,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('WEEKLY_ONLY')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('WEEKLY_ONLY')
                           ? 'text-yellow-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Weekly Only</span>
@@ -1879,7 +2538,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('MULTI_LEG_ONLY')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('MULTI_LEG_ONLY')
                           ? 'text-yellow-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Multi Leg Only</span>
@@ -1897,7 +2556,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }}
                           className="w-5 h-5 text-green-600 bg-black border-green-500 rounded focus:ring-green-500"
                         />
-                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('MINI_ONLY')
+                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('MINI_ONLY')
                           ? 'text-green-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Mini Only</span>
@@ -1908,10 +2567,10 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   {/* Black List */}
                   <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
                     <div className="absolute inset-0 bg-gradient-to-br from-orange-400/3 to-transparent rounded-lg animate-pulse"></div>
-                    <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#f97316', textShadow: '0 0 6px rgba(249, 115, 22, 0.4)' }}>Black List</label>
+                    <label className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#f97316', textShadow: '0 0 6px rgba(249, 115, 22, 0.4)' }}>Black List</label>
                     <div className="space-y-2 relative z-10">
                       {blacklistedTickers.map((ticker, index) => (
-                        <div key={index}>
+                        <div key={index} className={index === 4 ? 'hidden md:block' : ''}>
                           <input
                             type="text"
                             value={ticker}
@@ -1921,7 +2580,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               setBlacklistedTickers(newTickers);
                             }}
                             placeholder={`Ticker ${index + 1}`}
-                            className="border border-gray-600 rounded px-2 py-1 text-sm bg-gray-800 text-white placeholder-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:outline-none w-20 transition-all"
+                            className="border border-gray-600 rounded px-2 py-1 text-2xl md:text-sm bg-gray-800 text-white placeholder-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:outline-none w-20 transition-all"
                             maxLength={6}
                           />
                         </div>
@@ -1932,24 +2591,24 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   {/* Options Expiration */}
                   <div className="relative bg-black rounded-lg p-4 border border-orange-500/40 transition-all duration-300 m-2" style={{ background: '#000000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.8)' }}>
                     <div className="absolute inset-0 bg-gradient-to-br from-red-400/3 to-transparent rounded-lg animate-pulse"></div>
-                    <label className="text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#ffffff', textShadow: '0 0 6px rgba(255, 255, 255, 0.3)' }}>Options Expiration</label>
+                    <label className="text-2xl md:text-xl font-bold mb-3 block text-center relative z-10 italic" style={{ fontFamily: 'Georgia, serif', letterSpacing: '0.3px', color: '#ffffff', textShadow: '0 0 6px rgba(255, 255, 255, 0.3)' }}>Options Expiration</label>
                     <div className="space-y-3 relative z-10">
                       <div>
-                        <label className="text-lg text-gray-300 mb-2 block">Start Date</label>
+                        <label className="text-xl md:text-sm text-gray-300 mb-2 block">Start Date</label>
                         <input
                           type="date"
                           value={expirationStartDate}
                           onChange={(e) => setExpirationStartDate(e.target.value)}
-                          className="border-2 border-gray-600 rounded-lg px-2 py-2 text-sm bg-gray-800 text-white focus:border-gray-500 focus:outline-none shadow-lg w-auto transition-all"
+                          className="border-2 border-gray-600 rounded-lg px-2 py-2 text-2xl md:text-base bg-gray-800 text-white focus:border-gray-500 focus:outline-none shadow-lg w-auto transition-all"
                         />
                       </div>
                       <div>
-                        <label className="text-lg text-gray-300 mb-2 block">End Date</label>
+                        <label className="text-xl md:text-sm text-gray-300 mb-2 block">End Date</label>
                         <input
                           type="date"
                           value={expirationEndDate}
                           onChange={(e) => setExpirationEndDate(e.target.value)}
-                          className="border-2 border-gray-600 rounded-lg px-2 py-2 text-sm bg-gray-800 text-white focus:border-gray-500 focus:outline-none shadow-lg w-auto transition-all"
+                          className="border-2 border-gray-600 rounded-lg px-2 py-2 text-2xl md:text-base bg-gray-800 text-white focus:border-gray-500 focus:outline-none shadow-lg w-auto transition-all"
                         />
                       </div>
                     </div>
@@ -1971,14 +2630,14 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     setExpirationEndDate('');
                     setBlacklistedTickers(['', '', '', '', '']);
                   }}
-                  className="px-6 py-3 bg-gray-700 text-white rounded-lg border border-gray-600 hover:bg-gray-600 hover:border-gray-500 transition-all font-medium shadow-lg"
+                  className="px-6 py-3 bg-gray-700 text-white text-xl md:text-base rounded-lg border border-gray-600 hover:bg-gray-600 hover:border-gray-500 transition-all font-medium shadow-lg"
                   style={{ boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3)' }}
                 >
                   Clear All
                 </button>
                 <Button
                   onClick={() => setIsFilterDialogOpen(false)}
-                  className="px-8 py-3 bg-orange-600 text-white rounded-lg border border-orange-500 hover:bg-orange-500 hover:border-orange-400 transition-all font-bold shadow-lg"
+                  className="px-8 py-3 bg-orange-600 text-white text-xl md:text-base rounded-lg border border-orange-500 hover:bg-orange-500 hover:border-orange-400 transition-all font-bold shadow-lg"
                   style={{ boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 4px 8px rgba(255, 165, 0, 0.3)' }}
                 >
                   Apply Filters
@@ -1990,10 +2649,11 @@ Stock Reaction: ${scores.stockReaction}/15`;
       )}
 
       <div
-        className="bg-black flex flex-col"
+        className={`bg-black flex flex-col ${isFlowTrackingOpen ? 'md:flex hidden' : 'flex'}`}
         style={{
           minHeight: '100vh',
-          width: '100%'
+          width: 'calc(100% - 801px)',
+          marginRight: '0'
         }}
       >
         {/* Premium Control Bar */}
@@ -2003,7 +2663,156 @@ Stock Reaction: ${scores.stockReaction}/15`;
           overflow: 'visible',
           marginTop: '15px'
         }}>
-          <div className="px-8 py-5 bg-black" style={{
+          {/* Mobile Layout - 2 Rows */}
+          <div className="md:hidden px-4 py-3">
+            {/* Row 1: Search, Highlights, Clear, Filter, Track */}
+            <div className="flex items-center gap-3">
+              {/* Search Bar */}
+              <div className="relative" style={{ width: '150px', flexShrink: 0 }}>
+                <div className="absolute left-3 top-1/2 transform -translate-y-1/2 z-10 pointer-events-none">
+                  <svg className="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  value={inputTicker}
+                  onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && inputTicker.trim()) {
+                      const ticker = inputTicker.trim();
+                      onTickerChange(ticker);
+                      onRefresh?.(ticker);
+                    }
+                  }}
+                  placeholder="TICKER"
+                  className="text-white font-mono placeholder-gray-500 transition-all duration-200 w-full"
+                  style={{
+                    height: '40px',
+                    paddingLeft: '2rem',
+                    paddingRight: '0.5rem',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    letterSpacing: '1px',
+                    background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 100%)',
+                    border: '2px solid #1f1f1f',
+                    textTransform: 'uppercase',
+                    boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+                    outline: 'none'
+                  }}
+                  maxLength={20}
+                />
+              </div>
+
+              {/* Right side buttons */}
+              <div className="flex items-center gap-2">
+                {/* Highlights Button */}
+                <button
+                  onClick={() => setEfiHighlightsActive(!efiHighlightsActive)}
+                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+                  style={{
+                    height: '40px',
+                    background: efiHighlightsActive
+                      ? 'linear-gradient(180deg, #ff9500 0%, #ff8500 50%, #ff7500 100%)'
+                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                    border: efiHighlightsActive ? '1px solid #ffaa00' : '2px solid #2a2a2a',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    letterSpacing: '0.5px',
+                    fontWeight: '900',
+                    boxShadow: efiHighlightsActive
+                      ? 'inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 0 rgba(0, 0, 0, 0.3)'
+                      : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                  }}
+                >
+                  <svg className={`w-3 h-3 transition-all duration-200 ${efiHighlightsActive ? 'text-black' : 'text-orange-500'}`}
+                    fill={efiHighlightsActive ? 'currentColor' : 'none'}
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                  </svg>
+                  <span style={{ color: efiHighlightsActive ? '#000000' : '#ffffff' }}>HIGHLIGHTS</span>
+                </button>
+
+                {/* Filter Button */}
+                <button
+                  onClick={() => {
+                    console.log('Filter button clicked - opening dialog');
+                    setIsFilterDialogOpen(true);
+                  }}
+                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+                  style={{
+                    height: '40px',
+                    background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                    border: '2px solid #ff8500',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    letterSpacing: '0.5px',
+                    fontWeight: '900',
+                    boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                  }}
+                >
+                  <svg className="w-3 h-3 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                  </svg>
+                  <span>FILTER</span>
+                </button>
+
+                {/* Flow Tracking Button */}
+                <button
+                  onClick={() => setIsFlowTrackingOpen(!isFlowTrackingOpen)}
+                  className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none`}
+                  style={{
+                    height: '40px',
+                    background: isFlowTrackingOpen
+                      ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
+                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                    border: isFlowTrackingOpen ? '2px solid #10b981' : '2px solid #6b7280',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    letterSpacing: '0.5px',
+                    fontWeight: '900',
+                    boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                  }}
+                >
+                  <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  <span>TRACK</span>
+                </button>
+
+                {/* Clear Button - Icon Only */}
+                {onClearData && (
+                  <button
+                    onClick={onClearData}
+                    disabled={loading}
+                    className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${loading
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
+                    style={{
+                      height: '40px',
+                      width: '40px',
+                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                      border: '2px solid #ef4444',
+                      borderRadius: '4px',
+                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                    }}
+                  >
+                    <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Desktop Layout - Single Row */}
+          <div className="hidden md:block px-8 py-5 bg-black" style={{
             width: '100%',
             overflow: 'visible',
             background: 'linear-gradient(180deg, #0d0d0d 0%, #000000 100%)',
@@ -2063,7 +2872,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 </div>
 
                 {/* Scan Shortcuts */}
-                <div className="flex items-center gap-2">
+                <div className="hidden md:flex items-center gap-2">
                   {useDropdowns ? (
                     <select
                       value={selectedOptionTypes.length === 1 ? selectedOptionTypes[0] : 'both'}
@@ -2240,10 +3049,10 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 </div>
 
                 {/* Divider */}
-                <div style={{ width: '1px', height: '48px', background: '#2a2a2a' }}></div>
+                <div className="hidden md:block" style={{ width: '1px', height: '48px', background: '#2a2a2a' }}></div>
 
                 {/* Quick Filters */}
-                <div className="flex items-center gap-2">
+                <div className="hidden md:flex items-center gap-2">
                   {useDropdowns ? (
                     <select
                       value={
@@ -2416,7 +3225,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 </div>
 
                 {/* Divider */}
-                <div style={{ width: '1px', height: '48px', background: '#2a2a2a' }}></div>
+                <div className="hidden md:block" style={{ width: '1px', height: '48px', background: '#2a2a2a' }}></div>
 
                 {/* Premium SCAN Button */}
                 {!useDropdowns && (
@@ -2429,7 +3238,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       }
                     }}
                     disabled={!inputTicker.trim() || loading}
-                    className={`px-10 font-black uppercase transition-all duration-200 flex items-center gap-3 ${!inputTicker.trim() || loading ? 'opacity-40 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-[0.98]'
+                    className={`hidden md:flex px-10 font-black uppercase transition-all duration-200 items-center gap-3 ${!inputTicker.trim() || loading ? 'opacity-40 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-[0.98]'
                       }`}
                     style={{
                       height: '48px',
@@ -2468,7 +3277,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 {/* Premium EFI Highlights Toggle */}
                 <button
                   onClick={() => setEfiHighlightsActive(!efiHighlightsActive)}
-                  className="px-8 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+                  className="px-4 md:px-8 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 md:gap-3 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
                   style={{
                     height: '48px',
                     background: efiHighlightsActive
@@ -2506,7 +3315,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                   </svg>
-                  <span style={{ color: efiHighlightsActive ? '#000000' : '#ffffff' }}>EFI HIGHLIGHTS</span>
+                  <span style={{ color: efiHighlightsActive ? '#000000' : '#ffffff' }}>HIGHLIGHTS</span>
                   <div className={`px-3 py-1 font-black rounded transition-all duration-200`}
                     style={{
                       fontSize: '11px',
@@ -2542,7 +3351,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   <button
                     onClick={() => onRefresh?.()}
                     disabled={loading}
-                    className={`px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 focus:outline-none ${loading
+                    className={`hidden md:flex px-9 text-white font-black uppercase transition-all duration-200 items-center gap-3 focus:outline-none ${loading
                       ? 'cursor-not-allowed opacity-40'
                       : 'hover:scale-[1.02] active:scale-[0.98]'
                       }`}
@@ -2592,7 +3401,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     <button
                       onClick={onClearData}
                       disabled={loading}
-                      className={`px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 focus:outline-none ${loading
+                      className={`px-4 md:px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 md:gap-3 focus:outline-none ${loading
                         ? 'cursor-not-allowed opacity-40'
                         : 'hover:scale-[1.02] active:scale-[0.98]'
                         }`}
@@ -2626,10 +3435,45 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     </button>
                   )}
 
+                  {/* Flow Tracking Button - Mobile Only */}
+                  <button
+                    onClick={() => setIsFlowTrackingOpen(!isFlowTrackingOpen)}
+                    className={`md:hidden px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] focus:outline-none`}
+                    style={{
+                      height: '48px',
+                      background: isFlowTrackingOpen
+                        ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
+                        : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                      border: isFlowTrackingOpen ? '2px solid #10b981' : '2px solid #6b7280',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                      letterSpacing: '1.5px',
+                      fontWeight: '900',
+                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!loading) {
+                        e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+                        e.currentTarget.style.border = isFlowTrackingOpen ? '2px solid #34d399' : '2px solid #9ca3af';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!loading) {
+                        e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+                        e.currentTarget.style.border = isFlowTrackingOpen ? '2px solid #10b981' : '2px solid #6b7280';
+                      }
+                    }}
+                  >
+                    <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <span>TRACK</span>
+                  </button>
+
                 </div>
 
-                {/* Right Section */}
-                <div className="stats-section flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-3 w-full md:w-auto" style={{ flexShrink: 0, minWidth: 'auto' }}>
+                {/* Right Section - Desktop Only */}
+                <div className="hidden md:flex stats-section flex-col md:flex-row items-start md:items-center gap-2 md:gap-3 w-full md:w-auto" style={{ flexShrink: 0, minWidth: 'auto' }}>
 
                   {/* Filter Button */}
                   <button
@@ -2637,7 +3481,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       console.log('Filter button clicked - opening dialog');
                       setIsFilterDialogOpen(true);
                     }}
-                    className="px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-3 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+                    className="px-4 md:px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 md:gap-3 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
                     style={{
                       height: '48px',
                       background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
@@ -2764,97 +3608,87 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 <thead className="sticky top-0 bg-gradient-to-b from-yellow-900/10 via-gray-900 to-black z-10 border-b-2 border-gray-600 shadow-2xl">
                   <tr>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('trade_timestamp')}
                     >
-                      Time {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      <span className="md:hidden">Symbol</span>
+                      <span className="hidden md:inline">Time</span>
+                      {sortField === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('underlying_ticker')}
                     >
                       Symbol {sortField === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
+                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
                       onClick={() => handleSort('type')}
                     >
-                      Call/Put {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      <span className="md:hidden">Strike</span>
+                      <span className="hidden md:inline">Call/Put</span>
+                      {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('strike')}
                     >
                       Strike {sortField === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('trade_size')}
                     >
-                      Size {sortField === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      <span className="md:hidden">Size</span>
+                      <span className="hidden md:inline">Size</span>
+                      {sortField === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('total_premium')}
                     >
                       Premium {sortField === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('expiry')}
                     >
-                      Expiration {sortField === 'expiry' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      <span className="md:hidden">Expiry / Type</span>
+                      <span className="hidden md:inline">Expiration</span>
+                      {sortField === 'expiry' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                       onClick={() => handleSort('spot_price')}
                     >
                       <span className="hidden md:inline">Spot {'>>'}  Current</span>
-                      <span className="md:hidden">Price</span>
+                      <span className="md:hidden">Spot</span>
                       {sortField === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                     >
                       VOL/OI
                     </th>
                     <th
-                      className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
+                      className="hidden md:table-cell text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-gray-900/80 to-black hover:from-yellow-800/15 hover:via-gray-800/90 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 shadow-lg shadow-black/50 hover:shadow-xl hover:shadow-orange-500/20 backdrop-blur-sm"
                       onClick={() => handleSort('trade_type')}
                     >
                       Type {sortField === 'trade_type' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                     {efiHighlightsActive && (
                       <th
-                        className="text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
+                        className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                         onClick={() => {
                           console.log('🎯 Position column clicked!');
                           handleSort('positioning_grade');
                         }}
                       >
-                        Position {sortField === 'positioning_grade' && (sortDirection === 'asc' ? '↑' : '↓')}
+                        <span className="md:hidden">Grade</span>
+                        <span className="hidden md:inline">Position</span>
+                        {sortField === 'positioning_grade' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
                     )}
-                    {efiHighlightsActive && (() => {
-                      const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
-                      return uniqueTickers.length === 1 ? (
-                        <th
-                          className="text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
-                        >
-                          Stock Chart
-                        </th>
-                      ) : null;
-                    })()}
-                    {efiHighlightsActive && (() => {
-                      const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
-                      return uniqueTickers.length === 1 ? (
-                        <th
-                          className="text-left p-2 md:p-6 bg-gradient-to-b from-yellow-900/10 via-black to-black text-cyan-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
-                        >
-                          Contract Chart
-                        </th>
-                      ) : null;
-                    })()}
                   </tr>
                 </thead>
                 <tbody>
@@ -2872,60 +3706,153 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a'
                         }}
                       >
-                        <td className="p-2 md:p-6 text-white text-xs md:text-xl font-medium border-r border-gray-700/30 time-cell">{formatTime(trade.trade_timestamp)}</td>
-                        <td className="p-2 md:p-6 border-r border-gray-700/30">
-                          <button
-                            onClick={() => handleTickerClick(trade.underlying_ticker)}
-                            className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker ? 'ring-2 ring-orange-500 bg-gray-800/50' : ''
-                              }`}
-                          >
-                            {trade.underlying_ticker}
-                          </button>
+                        <td className="p-2 md:p-6 text-white text-xs md:text-xl font-medium border-r border-gray-700/30 time-cell text-center">
+                          {/* Mobile: Ticker + Time stacked */}
+                          <div className="md:hidden flex flex-col items-center space-y-1">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleTickerClick(trade.underlying_ticker)}
+                                className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${selectedTickerFilter === trade.underlying_ticker ? 'ring-2 ring-orange-500 bg-gray-800/50' : ''
+                                  }`}
+                              >
+                                {trade.underlying_ticker}
+                              </button>
+                              <button
+                                onClick={() => isInFlowTracking(trade) ? removeFromFlowTracking(trade) : addToFlowTracking(trade)}
+                                className="text-white hover:text-orange-400 transition-colors"
+                                title={isInFlowTracking(trade) ? 'Remove from Flow Tracking' : 'Add to Flow Tracking'}
+                              >
+                                {isInFlowTracking(trade) ? (
+                                  <TbStarFilled className="w-3 h-3 text-orange-400" />
+                                ) : (
+                                  <TbStar className="w-3 h-3" />
+                                )}
+                              </button>
+                            </div>
+                            <div className="text-xs text-gray-300">{formatTime(trade.trade_timestamp)}</div>
+                          </div>
+                          {/* Desktop: Time only */}
+                          <div className="hidden md:block">{formatTime(trade.trade_timestamp)}</div>
                         </td>
-                        <td className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text ${getCallPutColor(trade.type)}`}>
-                          {trade.type.toUpperCase()}
+                        <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleTickerClick(trade.underlying_ticker)}
+                              className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker ? 'ring-2 ring-orange-500 bg-gray-800/50' : ''
+                                }`}
+                            >
+                              {trade.underlying_ticker}
+                            </button>
+                            <button
+                              onClick={() => isInFlowTracking(trade) ? removeFromFlowTracking(trade) : addToFlowTracking(trade)}
+                              className="text-white hover:text-orange-400 transition-colors"
+                              title={isInFlowTracking(trade) ? 'Remove from Flow Tracking' : 'Add to Flow Tracking'}
+                            >
+                              {isInFlowTracking(trade) ? (
+                                <TbStarFilled className="w-4 h-4 text-orange-400" />
+                              ) : (
+                                <TbStar className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
                         </td>
-                        <td className="p-2 md:p-6 text-xs md:text-xl text-white font-semibold border-r border-gray-700/30 strike-cell">${trade.strike}</td>
-                        <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell">
-                          <div className="flex flex-col space-y-0.5 md:space-y-1">
-                            <div className="flex flex-wrap items-center gap-1">
-                              <span className="text-cyan-400 font-bold size-text" style={{ fontSize: '12px' }}>
-                                <span className="md:hidden">{trade.trade_size.toLocaleString()}</span>
-                                <span className="hidden md:inline" style={{ fontSize: '19px' }}>{trade.trade_size.toLocaleString()}</span>
+                        <td className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text text-center ${getCallPutColor(trade.type)}`}>
+                          {/* Mobile: Strike + Call/Put stacked */}
+                          <div className="md:hidden flex flex-col items-center space-y-1">
+                            <div className="text-white text-xs font-semibold">${trade.strike}</div>
+                            <div className={`text-xs font-bold ${getCallPutColor(trade.type)}`}>{trade.type.toUpperCase()}</div>
+                          </div>
+                          {/* Desktop: Call/Put only */}
+                          <div className="hidden md:block">{trade.type.toUpperCase()}</div>
+                        </td>
+                        <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white font-semibold border-r border-gray-700/30 strike-cell">${trade.strike}</td>
+                        <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell text-center">
+                          {/* Mobile: Size@Price+Grade + Premium stacked */}
+                          <div className="md:hidden flex flex-col items-center space-y-1">
+                            <div className="flex items-center justify-center gap-1">
+                              <span className="text-cyan-400 font-bold text-xs">
+                                {trade.trade_size.toLocaleString()}
                               </span>
-                              <span className="text-slate-400 premium-at" style={{ fontSize: '12px' }}>
-                                <span className="md:hidden"> @ </span>
-                                <span className="hidden md:inline" style={{ fontSize: '19px' }}> @ </span>
-                              </span>
-                              <span className="text-yellow-400 font-bold premium-value" style={{ fontSize: '12px' }}>
-                                <span className="md:hidden">{trade.premium_per_contract.toFixed(2)}</span>
-                                <span className="hidden md:inline" style={{ fontSize: '19px' }}>{trade.premium_per_contract.toFixed(2)}</span>
+                              <span className="text-yellow-400 font-bold text-xs">
+                                @{trade.premium_per_contract.toFixed(2)}
                               </span>
                               {(trade as any).fill_style && (
-                                <span className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${(trade as any).fill_style === 'A' ? 'text-green-400 bg-green-400/10 border border-green-400/30' :
-                                  (trade as any).fill_style === 'AA' ? 'text-green-300 bg-green-300/10 border border-green-300/30' :
-                                    (trade as any).fill_style === 'B' ? 'text-red-400 bg-red-400/10 border border-red-400/30' :
-                                      (trade as any).fill_style === 'BB' ? 'text-red-300 bg-red-300/10 border border-red-300/30' :
-                                        'text-gray-500 bg-gray-500/10 border border-gray-500/30'
-                                  }`} style={{ fontSize: '12px' }}>
-                                  <span className="md:hidden">{(trade as any).fill_style}</span>
-                                  <span className="hidden md:inline" style={{ fontSize: '15px' }}>{(trade as any).fill_style}</span>
+                                <span className={`ml-1 px-2 py-1 rounded-full font-bold text-xs shadow-lg ${(trade as any).fill_style === 'A' ? 'text-green-400 bg-green-400/20 border border-green-400/40' :
+                                  (trade as any).fill_style === 'AA' ? 'text-green-300 bg-green-300/20 border border-green-300/40' :
+                                    (trade as any).fill_style === 'B' ? 'text-red-400 bg-red-400/20 border border-red-400/40' :
+                                      (trade as any).fill_style === 'BB' ? 'text-red-300 bg-red-300/20 border border-red-300/40' :
+                                        'text-gray-500 bg-gray-500/20 border border-gray-500/40'
+                                  }`}>
+                                  {(trade as any).fill_style}
                                 </span>
                               )}
                             </div>
+                            <div className="text-green-400 font-bold text-xs">{formatCurrency(trade.total_premium)}</div>
+                          </div>
+                          {/* Desktop: Original layout */}
+                          <div className="hidden md:block">
+                            <div className="flex flex-col space-y-0.5 md:space-y-1">
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span className="text-cyan-400 font-bold size-text" style={{ fontSize: '12px' }}>
+                                  <span className="hidden md:inline" style={{ fontSize: '19px' }}>{trade.trade_size.toLocaleString()}</span>
+                                </span>
+                                <span className="text-slate-400 premium-at" style={{ fontSize: '12px' }}>
+                                  <span className="hidden md:inline" style={{ fontSize: '19px' }}> @ </span>
+                                </span>
+                                <span className="text-yellow-400 font-bold premium-value" style={{ fontSize: '12px' }}>
+                                  <span className="hidden md:inline" style={{ fontSize: '19px' }}>{trade.premium_per_contract.toFixed(2)}</span>
+                                </span>
+                                {(trade as any).fill_style && (
+                                  <span className={`fill-style-badge ml-1 px-1 md:px-2 py-0.5 rounded-md font-bold ${(trade as any).fill_style === 'A' ? 'text-green-400 bg-green-400/10 border border-green-400/30' :
+                                    (trade as any).fill_style === 'AA' ? 'text-green-300 bg-green-300/10 border border-green-300/30' :
+                                      (trade as any).fill_style === 'B' ? 'text-red-400 bg-red-400/10 border border-red-400/30' :
+                                        (trade as any).fill_style === 'BB' ? 'text-red-300 bg-red-300/10 border border-red-300/30' :
+                                          'text-gray-500 bg-gray-500/10 border border-gray-500/30'
+                                    }`} style={{ fontSize: '12px' }}>
+                                    <span className="hidden md:inline" style={{ fontSize: '15px' }}>{(trade as any).fill_style}</span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </td>
-                        <td className="p-2 md:p-6 font-bold text-xs md:text-xl text-green-400 border-r border-gray-700/30 premium-text">{formatCurrency(trade.total_premium)}</td>
-                        <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 expiry-cell">{formatDate(trade.expiry)}</td>
-                        <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display">
-                          <PriceDisplay
-                            spotPrice={trade.spot_price}
-                            currentPrice={currentPrices[trade.underlying_ticker] || trade.current_price}
-                            isLoading={priceLoadingState[trade.underlying_ticker]}
-                            ticker={trade.underlying_ticker}
-                          />
+                        <td className="hidden md:table-cell p-2 md:p-6 font-bold text-xs md:text-xl text-green-400 border-r border-gray-700/30 premium-text">{formatCurrency(trade.total_premium)}</td>
+                        <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 expiry-cell text-center">
+                          {/* Mobile: Expiry + Type stacked */}
+                          <div className="md:hidden flex flex-col items-center space-y-1">
+                            <div className="text-white text-xs font-semibold">{formatDate(trade.expiry)}</div>
+                            <span className={`trade-type-badge inline-block px-3 py-1 rounded-full text-xs font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}>
+                              {(trade.classification || trade.trade_type) === 'MULTI-LEG' ? 'ML' : (trade.classification || trade.trade_type)}
+                            </span>
+                          </div>
+                          {/* Desktop: Expiry only */}
+                          <div className="hidden md:block">{formatDate(trade.expiry)}</div>
                         </td>
-                        <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
+                        <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display text-center">
+                          {/* Mobile: Spot + Current stacked vertically */}
+                          <div className="md:hidden flex flex-col items-center space-y-1">
+                            <div className="text-xs">
+                              <span className="font-bold text-white">
+                                ${typeof trade.spot_price === 'number' ? trade.spot_price.toFixed(2) : parseFloat(trade.spot_price).toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="text-xs">
+                              <span className={`font-bold ${((currentPrices[trade.underlying_ticker] || trade.current_price) ?? 0) > trade.spot_price ? 'text-green-400' : 'text-red-400'}`}>
+                                ${((currentPrices[trade.underlying_ticker] || trade.current_price) ?? 0).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Desktop: Normal layout */}
+                          <div className="hidden md:block">
+                            <PriceDisplay
+                              spotPrice={trade.spot_price}
+                              currentPrice={currentPrices[trade.underlying_ticker] || trade.current_price}
+                              isLoading={priceLoadingState[trade.underlying_ticker]}
+                              ticker={trade.underlying_ticker}
+                            />
+                          </div>
+                        </td>
+                        <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
                           {(typeof trade.volume === 'number' && typeof trade.open_interest === 'number') ? (
                             <div className="flex items-center justify-center gap-1">
                               <span className="text-cyan-400 font-bold" style={{ fontSize: '19.2px' }}>
@@ -2944,8 +3871,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                             </span>
                           )}
                         </td>
-                        <td className="p-2 md:p-6 border-r border-gray-700/30">
-                          <span className={`trade-type-badge inline-block px-2 md:px-4 py-1 md:py-2 rounded-lg text-xs md:text-lg font-bold shadow-sm ${getTradeTypeColor(trade.classification || trade.trade_type)}`}>
+                        <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
+                          <span className={`trade-type-badge inline-block px-4 py-2 rounded-full text-xs md:text-lg font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}>
                             {(trade.classification || trade.trade_type) === 'MULTI-LEG' ? 'ML' : (trade.classification || trade.trade_type)}
                           </span>
                         </td>
@@ -3006,16 +3933,26 @@ Stock Reaction: ${scores.stockReaction}/15`;
 
                             return (
                               <td className="p-2 md:p-6 border-r border-gray-700/30">
-                                <div className="flex items-center gap-2">
-                                  <span style={{ color, fontWeight: 'bold', fontSize: '16.8px', whiteSpace: 'nowrap' }}>
-                                    ${currentPrice.toFixed(2)}
+                                {/* Mobile: Compact grade + percentage */}
+                                <div className="md:hidden flex flex-col items-center space-y-1">
+                                  <span style={{
+                                    color: scoreColor,
+                                    fontWeight: 'bold',
+                                    fontSize: '14px',
+                                    textShadow: `0 1px 2px rgba(0, 0, 0, 0.8)`,
+                                  }}>
+                                    {grade}
                                   </span>
-                                  <span style={{ color, fontSize: '14.4px', whiteSpace: 'nowrap' }}>
-                                    {formatValue(currentValue)}
-                                  </span>
-                                  <span style={{ color, fontWeight: 'bold', fontSize: '15.6px', whiteSpace: 'nowrap' }}>
+                                  <span style={{
+                                    color,
+                                    fontWeight: 'bold',
+                                    fontSize: '12px'
+                                  }}>
                                     {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
                                   </span>
+                                </div>
+                                {/* Desktop: Original large circle display */}
+                                <div className="hidden md:flex items-center gap-2">
                                   <div style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
@@ -3049,7 +3986,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                                       style={{
                                         color: scoreColor,
                                         fontWeight: 'normal',
-                                        fontSize: '31.2px',
+                                        fontSize: '20px',
                                         fontStyle: 'italic',
                                         fontFamily: 'Impact, Georgia, serif',
                                         textShadow: `
@@ -3216,6 +4153,15 @@ Stock Reaction: ${scores.stockReaction}/15`;
                                       )}
                                     </span>
                                   </div>
+                                  <span style={{ color, fontWeight: 'bold', fontSize: '16.8px', whiteSpace: 'nowrap' }}>
+                                    ${currentPrice.toFixed(2)}
+                                  </span>
+                                  <span style={{ color, fontSize: '14.4px', whiteSpace: 'nowrap' }}>
+                                    {formatValue(currentValue)}
+                                  </span>
+                                  <span style={{ color, fontWeight: 'bold', fontSize: '15.6px', whiteSpace: 'nowrap' }}>
+                                    {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
+                                  </span>
                                 </div>
                               </td>
                             );
@@ -3226,299 +4172,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               </td>
                             );
                           }
-                        })()}
-                        {/* Stock Chart Column - Only for single ticker */}
-                        {efiHighlightsActive && (() => {
-                          const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
-                          if (uniqueTickers.length !== 1) return null;
-
-                          const chartData = stockChartData[trade.underlying_ticker] || [];
-
-                          if (chartData.length === 0) {
-                            return (
-                              <td className="p-2 md:p-4 border-r border-gray-700/30">
-                                <div className="flex items-center justify-center h-16 w-32">
-                                  <span className="text-gray-600 text-xs">Loading...</span>
-                                </div>
-                              </td>
-                            );
-                          }
-
-                          // Calculate chart dimensions and points
-                          const width = 300;
-                          const height = 50;
-                          const prices = chartData.map(d => d.price);
-                          const minPrice = Math.min(...prices);
-                          const maxPrice = Math.max(...prices);
-                          const priceRange = maxPrice - minPrice || 1;
-
-                          const points = chartData.map((point, i) => {
-                            const x = (i / (chartData.length - 1)) * width;
-                            const y = height - ((point.price - minPrice) / priceRange) * height;
-                            return `${x.toFixed(2)},${y.toFixed(2)}`;
-                          }).join(' ');
-
-                          const currentPrice = prices[prices.length - 1];
-                          const prevClose = trade.spot_price;
-                          const change = currentPrice - prevClose;
-                          const changePercent = (change / prevClose) * 100;
-                          const isUp = change >= 0;
-
-                          // Find trade execution time position on chart
-                          const tradeTimestamp = new Date(trade.trade_timestamp).getTime();
-                          const firstTimestamp = chartData[0].timestamp;
-                          const lastTimestamp = chartData[chartData.length - 1].timestamp;
-                          const tradePosition = ((tradeTimestamp - firstTimestamp) / (lastTimestamp - firstTimestamp)) * width;
-                          const tradeLineColor = '#9b59b6'; // Purple
-
-                          // Check if point is during market hours (9:30 AM - 4:00 PM ET)
-                          const isMarketHours = (timestamp: number) => {
-                            const date = new Date(timestamp);
-                            const hours = date.getUTCHours() - 5; // Convert to ET
-                            const minutes = date.getUTCMinutes();
-                            const totalMinutes = hours * 60 + minutes;
-                            const marketOpen = 9 * 60 + 30; // 9:30 AM
-                            const marketClose = 16 * 60; // 4:00 PM
-                            return totalMinutes >= marketOpen && totalMinutes < marketClose;
-                          };
-
-                          // Generate shading rectangles for pre/post market (only for 1D)
-                          const shadingRects = chartTimeframe === '1D' ? chartData.map((point, i) => {
-                            const x = (i / (chartData.length - 1)) * width;
-                            const nextX = i < chartData.length - 1 ? ((i + 1) / (chartData.length - 1)) * width : width;
-                            const rectWidth = nextX - x;
-                            const isMarket = isMarketHours(point.timestamp);
-
-                            if (!isMarket) {
-                              return (
-                                <rect
-                                  key={`shade-${i}`}
-                                  x={x}
-                                  y="0"
-                                  width={rectWidth}
-                                  height={height}
-                                  fill="#555555"
-                                  opacity="0.15"
-                                />
-                              );
-                            }
-                            return null;
-                          }) : [];
-
-                          return (
-                            <td className="p-2 md:p-4 border-r border-gray-700/30">
-                              <div className="flex flex-col items-center space-y-1" style={{ width: '320px' }}>
-                                {/* Timeframe Selector */}
-                                <div className="flex gap-1 mb-1">
-                                  {(['1D', '1W', '1M'] as const).map(tf => (
-                                    <button
-                                      key={tf}
-                                      onClick={() => setChartTimeframe(tf)}
-                                      className="px-2 py-0.5 text-xs font-bold rounded transition-all"
-                                      style={{
-                                        background: chartTimeframe === tf ? '#ff8500' : '#1a1a1a',
-                                        color: chartTimeframe === tf ? '#000' : '#888',
-                                        border: chartTimeframe === tf ? '1px solid #ffaa00' : '1px solid #333'
-                                      }}
-                                    >
-                                      {tf}
-                                    </button>
-                                  ))}
-                                </div>
-
-                                {/* Chart SVG */}
-                                <svg width={width} height={height} className="overflow-visible">
-                                  {shadingRects}
-
-                                  {/* Previous close line */}
-                                  {prevClose && (() => {
-                                    const prevY = height - ((prevClose - minPrice) / priceRange) * height;
-                                    return (
-                                      <line
-                                        x1="0"
-                                        y1={prevY}
-                                        x2={width}
-                                        y2={prevY}
-                                        stroke="#444444"
-                                        strokeWidth="1"
-                                        strokeDasharray="3,2"
-                                        opacity="0.4"
-                                      />
-                                    );
-                                  })()}
-
-                                  {/* Trade execution time line */}
-                                  {tradePosition >= 0 && tradePosition <= width && (
-                                    <line
-                                      x1={tradePosition}
-                                      y1="0"
-                                      x2={tradePosition}
-                                      y2={height}
-                                      stroke={tradeLineColor}
-                                      strokeWidth="1.5"
-                                      strokeDasharray="4,3"
-                                      opacity="1"
-                                    />
-                                  )}
-
-                                  {/* Price line */}
-                                  <polyline
-                                    fill="none"
-                                    stroke={isUp ? '#00ff00' : '#ff0000'}
-                                    strokeWidth="2"
-                                    points={points}
-                                    opacity="0.25"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                  <polyline
-                                    fill="none"
-                                    stroke={isUp ? '#00ff00' : '#ff0000'}
-                                    strokeWidth="1.5"
-                                    points={points}
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                </svg>
-
-                                {/* Price info */}
-                                <div className="flex items-center justify-between w-full px-1">
-                                  <span className="text-xs font-bold text-white">
-                                    ${currentPrice.toFixed(2)}
-                                  </span>
-                                  <span className={`text-xs font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
-                                    {isUp ? '+' : ''}{changePercent.toFixed(2)}%
-                                  </span>
-                                </div>
-                              </div>
-                            </td>
-                          );
-                        })()}
-                        {/* Options Premium Chart Column - Only for single ticker */}
-                        {efiHighlightsActive && (() => {
-                          const uniqueTickers = [...new Set(filteredAndSortedData.map(t => t.underlying_ticker))];
-                          if (uniqueTickers.length !== 1) return null;
-
-                          const expiry = trade.expiry.replace(/-/g, '').slice(2);
-                          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-                          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-                          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-                          const premiumData = optionsPremiumData[optionTicker] || [];
-
-                          if (premiumData.length === 0) {
-                            return (
-                              <td className="p-2 md:p-4 border-r border-gray-700/30">
-                                <div className="flex items-center justify-center h-16 w-32">
-                                  <span className="text-gray-600 text-xs">Loading...</span>
-                                </div>
-                              </td>
-                            );
-                          }
-
-                          // Calculate chart dimensions and points
-                          const width = 300;
-                          const height = 50;
-                          const prices = premiumData.map(d => d.price);
-                          const minPrice = Math.min(...prices);
-                          const maxPrice = Math.max(...prices);
-                          const priceRange = maxPrice - minPrice || 1;
-
-                          const points = premiumData.map((point, i) => {
-                            const x = (i / (premiumData.length - 1)) * width;
-                            const y = height - ((point.price - minPrice) / priceRange) * height;
-                            return `${x.toFixed(2)},${y.toFixed(2)}`;
-                          }).join(' ');
-
-                          const currentPrice = prices[prices.length - 1];
-                          const entryPrice = trade.premium_per_contract;
-                          const change = currentPrice - entryPrice;
-                          const changePercent = (change / entryPrice) * 100;
-                          const isUp = change >= 0;
-
-                          // Find trade execution time position on chart
-                          const tradeTimestamp = new Date(trade.trade_timestamp).getTime();
-                          const firstTimestamp = premiumData[0].timestamp;
-                          const lastTimestamp = premiumData[premiumData.length - 1].timestamp;
-                          const tradePosition = ((tradeTimestamp - firstTimestamp) / (lastTimestamp - firstTimestamp)) * width;
-                          const tradeLineColor = '#9b59b6'; // Purple
-
-                          // Create area path for fill
-                          const areaPath = `M 0,${height} L ${points.split(' ').map(p => `${p}`).join(' L ')} L ${width},${height} Z`;
-
-                          return (
-                            <td className="p-2 md:p-4 border-r border-gray-700/30">
-                              <div className="flex flex-col items-center space-y-1" style={{ width: '320px' }}>
-                                {/* Chart SVG */}
-                                <svg width={width} height={height} className="overflow-visible">
-                                  {/* Area fill */}
-                                  <path
-                                    d={areaPath}
-                                    fill={isUp ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 68, 102, 0.15)'}
-                                  />
-
-                                  {/* Entry price line */}
-                                  {(() => {
-                                    const entryY = height - ((entryPrice - minPrice) / priceRange) * height;
-                                    return (
-                                      <line
-                                        x1="0"
-                                        y1={entryY}
-                                        x2={width}
-                                        y2={entryY}
-                                        stroke="#ffaa00"
-                                        strokeWidth="1"
-                                        strokeDasharray="3,2"
-                                        opacity="0.5"
-                                      />
-                                    );
-                                  })()}
-
-                                  {/* Trade execution time line */}
-                                  {tradePosition >= 0 && tradePosition <= width && (
-                                    <line
-                                      x1={tradePosition}
-                                      y1="0"
-                                      x2={tradePosition}
-                                      y2={height}
-                                      stroke={tradeLineColor}
-                                      strokeWidth="1.5"
-                                      strokeDasharray="4,3"
-                                      opacity="1"
-                                    />
-                                  )}
-
-                                  {/* Price line with glow */}
-                                  <polyline
-                                    fill="none"
-                                    stroke={isUp ? '#00ff88' : '#ff4466'}
-                                    strokeWidth="2"
-                                    points={points}
-                                    opacity="0.25"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                  <polyline
-                                    fill="none"
-                                    stroke={isUp ? '#00ff88' : '#ff4466'}
-                                    strokeWidth="1.5"
-                                    points={points}
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                </svg>
-
-                                {/* Price info */}
-                                <div className="flex items-center justify-between w-full px-1">
-                                  <span className="text-xs font-bold text-cyan-400">
-                                    ${currentPrice.toFixed(2)}
-                                  </span>
-                                  <span className={`text-xs font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
-                                    {isUp ? '+' : ''}{changePercent.toFixed(2)}%
-                                  </span>
-                                </div>
-                              </div>
-                            </td>
-                          );
                         })()}
                       </tr>
                     );
@@ -3542,7 +4195,905 @@ Stock Reaction: ${scores.stockReaction}/15`;
             </div>
           </div>
         </div>
+      </div>
 
+      {/* Flow Tracking Panel - Always Visible on Desktop, Toggleable on Mobile */}
+      <div
+        className={`fixed right-0 bg-black border-l border-gray-700 z-50 w-full md:w-[800px] ${isFlowTrackingOpen ? 'block md:block' : 'hidden md:block'
+          }`}
+        style={{
+          top: '125px',
+          height: 'calc(100vh - 125px)',
+          background: '#000000',
+          boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.8)'
+        }}
+      >
+        {/* Panel Header with 3D Title */}
+        <div className="sticky top-0 bg-black z-10 border-b border-gray-700 p-4">
+          <h2
+            className="text-3xl font-black text-center"
+            style={{
+              fontFamily: 'Impact, Arial Black, sans-serif',
+              background: 'linear-gradient(90deg, #ff0000 0%, #00ff00 33%, #ffd700 66%, #ff0000 100%)',
+              backgroundSize: '200% 100%',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              textShadow: 'none',
+              letterSpacing: '3px',
+              fontWeight: 900,
+              opacity: 1,
+              animation: 'gradientShift 3s ease infinite'
+            }}
+          >
+            LIVE FLOW TRACKING
+          </h2>
+          <style jsx>{`
+            @keyframes gradientShift {
+              0% { background-position: 0% 50%; }
+              50% { background-position: 100% 50%; }
+              100% { background-position: 0% 50%; }
+            }
+          `}</style>
+
+          {/* Filters */}
+          <div className="mt-3" style={{
+            background: '#000000',
+            borderRadius: '8px',
+            padding: '12px'
+          }}>
+            {/* All Filters in One Row */}
+            <div className="flex items-center gap-3 justify-center flex-wrap">
+              <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 'bold' }}>Flows: {trackedFlows.length}</span>
+              <div style={{ width: '2px', height: '30px', background: 'rgba(255, 133, 0, 0.3)', margin: '0 8px' }}></div>
+              <span style={{ color: '#ff8500', fontSize: '16px', fontWeight: 'bold' }}>Grade:</span>
+              <select
+                value={flowTrackingFilters.gradeFilter}
+                onChange={(e) => setFlowTrackingFilters(prev => ({ ...prev, gradeFilter: e.target.value as any }))}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '15px',
+                  fontWeight: 'bold',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: '#000000',
+                  color: '#ffffff',
+                  outline: 'none',
+                  minWidth: '100px',
+                  boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.8), inset -2px -2px 4px rgba(255,255,255,0.05)'
+                }}
+              >
+                <option value="ALL" style={{ background: '#000', color: '#ff8500' }}>ALL</option>
+                <option value="A" style={{ background: '#000', color: '#00ff00' }}>A</option>
+                <option value="B" style={{ background: '#000', color: '#ffff00' }}>B</option>
+                <option value="C" style={{ background: '#000', color: '#ff8500' }}>C</option>
+                <option value="D" style={{ background: '#000', color: '#ff0000' }}>D</option>
+                <option value="F" style={{ background: '#000', color: '#ff0000' }}>F</option>
+              </select>
+
+              <div style={{ width: '2px', height: '30px', background: 'rgba(255, 133, 0, 0.3)', margin: '0 8px' }}></div>
+
+              <button
+                onClick={() => setFlowTrackingFilters(prev => ({ ...prev, showDownSixtyPlus: !prev.showDownSixtyPlus }))}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '15px',
+                  fontWeight: 'bold',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: flowTrackingFilters.showDownSixtyPlus
+                    ? '#ff0000'
+                    : '#000000',
+                  color: flowTrackingFilters.showDownSixtyPlus
+                    ? '#ffffff'
+                    : '#ff0000',
+                  transition: 'all 0.2s',
+                  boxShadow: flowTrackingFilters.showDownSixtyPlus
+                    ? '0 2px 8px rgba(255, 0, 0, 0.4)'
+                    : 'inset 2px 2px 4px rgba(0,0,0,0.8), inset -2px -2px 4px rgba(255,255,255,0.05)'
+                }}
+              >
+                Down 60%+
+              </button>
+              <button
+                onClick={() => setFlowTrackingFilters(prev => ({ ...prev, showCharts: !prev.showCharts }))}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '15px',
+                  fontWeight: 'bold',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: flowTrackingFilters.showCharts
+                    ? '#00ffff'
+                    : '#000000',
+                  color: flowTrackingFilters.showCharts
+                    ? '#000000'
+                    : '#00ffff',
+                  transition: 'all 0.2s',
+                  boxShadow: flowTrackingFilters.showCharts
+                    ? '0 2px 8px rgba(0, 255, 255, 0.4)'
+                    : 'inset 2px 2px 4px rgba(0,0,0,0.8), inset -2px -2px 4px rgba(255,255,255,0.05)'
+                }}
+              >
+                Chart
+              </button>
+              <button
+                onClick={() => setFlowTrackingFilters(prev => ({ ...prev, showWeeklies: !prev.showWeeklies }))}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '15px',
+                  fontWeight: 'bold',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: flowTrackingFilters.showWeeklies
+                    ? '#00ff00'
+                    : '#000000',
+                  color: flowTrackingFilters.showWeeklies
+                    ? '#000000'
+                    : '#00ff00',
+                  transition: 'all 0.2s',
+                  boxShadow: flowTrackingFilters.showWeeklies
+                    ? '0 2px 8px rgba(0, 255, 0, 0.4)'
+                    : 'inset 2px 2px 4px rgba(0,0,0,0.8), inset -2px -2px 4px rgba(255,255,255,0.05)'
+                }}
+              >
+                Weeklies
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Panel Content with Scrollbar */}
+        <div className="overflow-y-auto overflow-x-hidden p-3" style={{ height: 'calc(100vh - 220px)' }}>
+          {trackedFlows.length === 0 ? (
+            <div className="text-center py-12 text-orange-400">
+              <TbStar className="w-16 h-16 text-orange-500 mb-4 mx-auto" />
+              <p className="text-lg font-semibold">No flows tracked yet</p>
+              <p className="text-sm mt-2">Click the star icon next to any flow to track it</p>
+            </div>
+          ) : (
+            trackedFlows.filter((flow) => {
+              const expiry = flow.expiry.replace(/-/g, '').slice(2);
+              const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0');
+              const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P';
+              const optionTicker = `O:${flow.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+              const currentPrice = currentOptionPrices[optionTicker];
+              const entryPrice = (flow as any).originalPrice || flow.premium_per_contract;
+
+              // Calculate grade for filtering
+              let gradeData: any = null;
+              if (currentPrice && currentPrice > 0) {
+                try {
+                  gradeData = calculatePositioningGrade(flow, filteredAndSortedData);
+                } catch (error) {
+                  // Grade calculation failed - missing data
+                  gradeData = null;
+                }
+              }
+
+              // Grade filter
+              if (flowTrackingFilters.gradeFilter !== 'ALL' && gradeData) {
+                if (gradeData.grade !== flowTrackingFilters.gradeFilter) return false;
+              }
+
+              // Down 60%+ filter
+              if (flowTrackingFilters.showDownSixtyPlus && currentPrice && currentPrice > 0) {
+                const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+                if (percentChange > -60) return false;
+              }
+
+              // Weeklies filter (0-7 days)
+              if (flowTrackingFilters.showWeeklies) {
+                const expiryDate = new Date(flow.expiry);
+                const daysToExpiry = Math.floor((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                if (daysToExpiry > 7) return false;
+              }
+
+              return true;
+            }).map((flow) => {
+              // Get current prices for grading (only these update dynamically)
+              const expiry = flow.expiry.replace(/-/g, '').slice(2);
+              const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0');
+              const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P';
+              const optionTicker = `O:${flow.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+              const currentPrice = currentOptionPrices[optionTicker];
+              // Use original stored price, not current flow data
+              const entryPrice = (flow as any).originalPrice || flow.premium_per_contract;
+
+              // Calculate grade if prices available
+              let gradeData: any = null;
+              if (currentPrice && currentPrice > 0) {
+                try {
+                  gradeData = calculatePositioningGrade(flow, filteredAndSortedData);
+                } catch (error) {
+                  // Grade calculation failed - missing data for this ticker
+                  console.warn(`Grade calculation failed for ${flow.underlying_ticker}:`, error);
+                  gradeData = null;
+                }
+              }
+
+              // Calculate P&L
+              let percentChange = 0;
+              let priceHigher = false;
+              if (currentPrice && currentPrice > 0) {
+                percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+                priceHigher = currentPrice > entryPrice;
+              }
+
+              // Determine P&L color based on fill_style
+              let plColor = '#9ca3af'; // default gray
+              const fillStyle = flow.fill_style || '';
+              if (currentPrice && currentPrice > 0) {
+                if (fillStyle === 'A' || fillStyle === 'AA') {
+                  plColor = priceHigher ? '#00ff00' : '#ff0000';
+                } else if (fillStyle === 'B' || fillStyle === 'BB') {
+                  plColor = priceHigher ? '#ff0000' : '#00ff00';
+                }
+              }
+
+              // Generate flow ID for tracking timeframes
+              const flowId = generateFlowId(flow);
+
+              // Calculate swipe offset for this flow
+              const isThisFlowSwiped = swipedFlowId === flowId;
+              const swipeOffset = isThisFlowSwiped ? Math.min(0, touchCurrent - touchStart) : 0;
+              const showDeleteButton = swipeOffset < -50;
+
+              const handleTouchStart = (e: React.TouchEvent) => {
+                setSwipedFlowId(flowId);
+                setTouchStart(e.touches[0].clientX);
+                setTouchCurrent(e.touches[0].clientX);
+              };
+
+              const handleTouchMove = (e: React.TouchEvent) => {
+                if (swipedFlowId === flowId) {
+                  setTouchCurrent(e.touches[0].clientX);
+                }
+              };
+
+              const handleTouchEnd = () => {
+                if (Math.abs(swipeOffset) < 50) {
+                  // Snap back if not swiped enough
+                  setSwipedFlowId(null);
+                  setTouchStart(0);
+                  setTouchCurrent(0);
+                }
+              };
+
+              return (
+                <div
+                  key={flowId}
+                  className="relative overflow-hidden mb-3"
+                  style={{
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.6)'
+                  }}
+                >
+                  {/* Delete Button - Revealed on Swipe Left (Mobile Only) */}
+                  <div className="md:hidden absolute right-0 top-0 bottom-0 flex items-center justify-center bg-red-600 px-6"
+                    style={{
+                      width: '100px',
+                      transition: 'opacity 0.2s'
+                    }}
+                  >
+                    <button
+                      onClick={() => {
+                        removeFromFlowTracking(flow);
+                        setSwipedFlowId(null);
+                        setTouchStart(0);
+                        setTouchCurrent(0);
+                      }}
+                      className="text-white font-bold text-lg"
+                    >
+                      DELETE
+                    </button>
+                  </div>
+
+                  {/* Main Content - Swipeable */}
+                  <div
+                    className="bg-black border border-gray-700 rounded hover:border-gray-600 transition-all duration-200 relative"
+                    style={{
+                      transform: `translateX(${swipeOffset}px)`,
+                      transition: swipedFlowId === flowId && touchCurrent !== touchStart ? 'none' : 'transform 0.3s ease-out'
+                    }}
+                    onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
+                  >
+                    {/* Desktop Delete Button - Top Right */}
+                    <button
+                      onClick={() => removeFromFlowTracking(flow)}
+                      className="hidden md:block absolute top-1 right-1 z-10 text-red-500 hover:text-red-400 transition-colors bg-black/80 rounded-full p-1"
+                      title={`Remove from tracking | Added: ${(flow as any).addedAt ? formatTime((flow as any).addedAt) : formatTime(flow.trade_timestamp)}`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+
+                    {/* Desktop: All Details in Single Row */}
+                    <div className="hidden md:flex items-center justify-between gap-2 p-3" style={{
+                      background: 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.4) 50%, rgba(255,255,255,0.02) 100%)',
+                      borderRadius: '6px',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3)'
+                    }}>
+                      <div className="flex items-center gap-2 flex-1 flex-wrap">
+                        <span className="text-white font-bold" style={{ fontSize: '17px' }}>{formatTime(flow.trade_timestamp)}</span>
+                        <span className="bg-gradient-to-b from-gray-800 to-black text-orange-500 font-bold px-2 py-1 border border-gray-500/70" style={{ fontSize: '17px' }}>
+                          {flow.underlying_ticker}
+                        </span>
+                        <span className={`font-bold ${flow.type === 'call' ? 'text-green-500' : 'text-red-500'}`} style={{ fontSize: '17px' }}>
+                          {flow.type.toUpperCase()}
+                        </span>
+                        <span className="text-white font-semibold" style={{ fontSize: '17px' }}>${flow.strike}</span>
+                        <span className="font-bold" style={{ fontSize: '17px' }}>
+                          <span className="text-cyan-400">{flow.trade_size.toLocaleString()}</span>
+                          <span className="text-yellow-400"> @${entryPrice.toFixed(2)}</span>
+                          {fillStyle && (
+                            <span className={`ml-1 ${(fillStyle === 'A' || fillStyle === 'AA') ? 'text-green-400' : (fillStyle === 'B' || fillStyle === 'BB') ? 'text-red-400' : 'text-orange-400'}`}>
+                              {fillStyle}
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-white" style={{ fontSize: '17px' }}>{formatDate(flow.expiry)}</span>
+                        <span className="font-bold" style={{ fontSize: '17px', color: '#00ff00' }}>{formatCurrency(flow.total_premium)}</span>
+
+                        {/* Trade Type (Sweep/Block) */}
+                        {flow.trade_type && (flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && (
+                          <span className="font-bold" style={{
+                            fontSize: '17px',
+                            color: flow.trade_type === 'SWEEP' ? '#FFD700' : 'rgba(0, 150, 255, 1)'
+                          }}>
+                            {flow.trade_type}
+                          </span>
+                        )}
+
+                        {/* Grade with percentage */}
+                        {gradeData && currentPrice && currentPrice > 0 ? (
+                          <div className="flex items-center gap-1">
+                            <span className="font-bold" style={{
+                              fontSize: '17px',
+                              color: gradeData.color,
+                              border: `2px solid ${gradeData.color}`,
+                              borderRadius: '4px',
+                              padding: '2px 6px',
+                              boxShadow: `0 0 6px ${gradeData.color}40`
+                            }}>
+                              {gradeData.grade}
+                            </span>
+                            <span className="font-bold" style={{
+                              fontSize: '17px',
+                              color: priceHigher ? '#00ff00' : '#ff0000'
+                            }}>
+                              {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Mobile: 5-Column Table Layout matching main flow table */}
+                    <div className="md:hidden">
+                      <table className="w-full text-center">
+                        <tbody>
+                          <tr className="border-b border-gray-700">
+                            {/* Column 1: Symbol (Ticker + Time stacked) */}
+                            <td className="p-2">
+                              <div className="flex flex-col items-center space-y-1">
+                                <span className="bg-gradient-to-b from-gray-800 to-black text-orange-500 font-bold px-2 py-1 border border-gray-500/70 text-base">
+                                  {flow.underlying_ticker}
+                                </span>
+                                <span className="text-sm text-gray-300">{formatTime(flow.trade_timestamp)}</span>
+                              </div>
+                            </td>
+
+                            {/* Column 2: Strike (Strike + Call/Put stacked) */}
+                            <td className="p-2">
+                              <div className="flex flex-col items-center space-y-1">
+                                <span className="text-white font-semibold text-base">${flow.strike}</span>
+                                <span className={`font-bold text-sm ${flow.type === 'call' ? 'text-green-500' : 'text-red-500'}`}>
+                                  {flow.type.toUpperCase()}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Column 3: Size (Size@Price+FillStyle + Total Premium stacked) */}
+                            <td className="p-2">
+                              <div className="flex flex-col items-center space-y-1">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-cyan-400 font-bold text-base">{flow.trade_size.toLocaleString()}</span>
+                                  <span className="text-yellow-400 text-base">@${entryPrice.toFixed(2)}</span>
+                                  {fillStyle && (
+                                    <span className={`text-base font-bold ${(fillStyle === 'A' || fillStyle === 'AA') ? 'text-green-400' : (fillStyle === 'B' || fillStyle === 'BB') ? 'text-red-400' : 'text-orange-400'}`}>
+                                      {fillStyle}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="font-bold text-sm text-green-400">{formatCurrency(flow.total_premium)}</span>
+                              </div>
+                            </td>
+
+                            {/* Column 4: Expiry/Type (Expiry + Trade Type stacked) */}
+                            <td className="p-2">
+                              <div className="flex flex-col items-center space-y-1">
+                                <span className="text-white text-sm">{formatDate(flow.expiry)}</span>
+                                {flow.trade_type && (flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && (
+                                  <span className="font-bold text-sm" style={{
+                                    color: flow.trade_type === 'SWEEP' ? '#FFD700' : 'rgba(0, 150, 255, 1)'
+                                  }}>
+                                    {flow.trade_type}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Column 5: Grade/P&L (Grade + Percentage stacked) */}
+                            <td className="p-2">
+                              {gradeData && currentPrice && currentPrice > 0 ? (
+                                <div className="flex flex-col items-center space-y-1">
+                                  <span className="font-bold text-sm" style={{
+                                    color: gradeData.color,
+                                    border: `2px solid ${gradeData.color}`,
+                                    borderRadius: '4px',
+                                    padding: '2px 6px',
+                                    boxShadow: `0 0 6px ${gradeData.color}40`
+                                  }}>
+                                    {gradeData.grade}
+                                  </span>
+                                  <span className="font-bold text-sm" style={{
+                                    color: priceHigher ? '#00ff00' : '#ff0000'
+                                  }}>
+                                    {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-sm text-gray-500">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Stock Chart */}
+                    {flowTrackingFilters.showCharts && (() => {
+                      const chartData = stockChartData[flowId] || [];
+
+                      if (chartData.length > 0) {
+                        const width = 648;
+                        const height = 117;
+                        const padding = { left: 45, right: 80, top: 10, bottom: 25 };
+                        const chartWidth = width - padding.left - padding.right;
+                        const chartHeight = height - padding.top - padding.bottom;
+                        const prices = chartData.map(d => d.price);
+                        const minPrice = Math.min(...prices);
+                        const maxPrice = Math.max(...prices);
+                        const priceRange = maxPrice - minPrice || 1;
+
+                        const points = chartData.map((point, i) => {
+                          const x = padding.left + (i / (chartData.length - 1)) * chartWidth;
+                          const y = padding.top + chartHeight - ((point.price - minPrice) / priceRange) * chartHeight;
+                          return `${x.toFixed(2)},${y.toFixed(2)}`;
+                        }).join(' ');
+
+                        const currentPrice = prices[prices.length - 1];
+                        const prevClose = (flow as any).originalStockPrice || flow.spot_price;
+                        const change = currentPrice - prevClose;
+                        const changePercent = (change / prevClose) * 100;
+                        const isUp = change >= 0;
+
+                        const tradeTimestamp = new Date(flow.trade_timestamp).getTime();
+                        const firstTimestamp = chartData[0].timestamp;
+                        const lastTimestamp = chartData[chartData.length - 1].timestamp;
+                        const tradePosition = padding.left + ((tradeTimestamp - firstTimestamp) / (lastTimestamp - firstTimestamp)) * chartWidth;
+                        const tradeLineColor = '#9b59b6';
+
+                        const isMarketHours = (timestamp: number) => {
+                          const date = new Date(timestamp);
+                          const hours = date.getUTCHours() - 5;
+                          const minutes = date.getUTCMinutes();
+                          const totalMinutes = hours * 60 + minutes;
+                          const marketOpen = 9 * 60 + 30;
+                          const marketClose = 16 * 60;
+                          return totalMinutes >= marketOpen && totalMinutes < marketClose;
+                        };
+
+                        const flowId = generateFlowId(flow);
+                        const stockTimeframe = flowChartTimeframes[flowId]?.stock || '1D';
+
+                        const shadingRects = stockTimeframe === '1D' ? chartData.map((point, i) => {
+                          const x = padding.left + (i / (chartData.length - 1)) * chartWidth;
+                          const nextX = i < chartData.length - 1 ? (padding.left + ((i + 1) / (chartData.length - 1)) * chartWidth) : (padding.left + chartWidth);
+                          const rectWidth = nextX - x;
+                          const isMarket = isMarketHours(point.timestamp);
+
+                          if (!isMarket) {
+                            return (
+                              <rect
+                                key={`shade-${i}`}
+                                x={x}
+                                y={padding.top}
+                                width={rectWidth}
+                                height={chartHeight}
+                                fill="#555555"
+                                opacity="0.15"
+                              />
+                            );
+                          }
+                          return null;
+                        }) : [];
+
+                        // Y-axis labels
+                        const yAxisTicks = 3;
+                        const yLabels = [];
+                        for (let i = 0; i <= yAxisTicks; i++) {
+                          const price = minPrice + (priceRange * i / yAxisTicks);
+                          const y = padding.top + chartHeight - (i * chartHeight / yAxisTicks);
+                          yLabels.push(
+                            <text key={`y-${i}`} x={padding.left - 5} y={y + 4} textAnchor="end" fill="#ffffff" fontSize="11" fontWeight="bold">
+                              ${price.toFixed(2)}
+                            </text>
+                          );
+                        }
+
+                        // X-axis labels
+                        const xAxisTicks = 3;
+                        const xLabels = [];
+                        for (let i = 0; i <= xAxisTicks; i++) {
+                          const dataIndex = Math.floor((chartData.length - 1) * i / xAxisTicks);
+                          const timestamp = chartData[dataIndex].timestamp;
+                          const date = new Date(timestamp);
+                          const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                          const x = padding.left + (i * chartWidth / xAxisTicks);
+                          xLabels.push(
+                            <text key={`x-${i}`} x={x} y={height - 5} textAnchor="middle" fill="#ffffff" fontSize="10" fontWeight="bold">
+                              {timeStr}
+                            </text>
+                          );
+                        }
+
+                        return (
+                          <div className="border-t border-gray-700 pt-3 mt-3">
+                            <div className="relative mb-2">
+                              <div className="text-center text-sm text-orange-400 font-bold" style={{ fontSize: '15px' }}>Stock</div>
+                              <div className="absolute right-0 top-0 flex gap-1">
+                                <button
+                                  onClick={() => {
+                                    setFlowChartTimeframes(prev => ({
+                                      ...prev,
+                                      [flowId]: { ...prev[flowId], stock: '1D' }
+                                    }));
+                                    fetchStockChartDataForFlow(flowId, flow.underlying_ticker, '1D');
+                                  }}
+                                  className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1D' ? 'bg-orange-500 text-black' : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                    }`}
+                                >
+                                  1D
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setFlowChartTimeframes(prev => ({
+                                      ...prev,
+                                      [flowId]: { ...prev[flowId], stock: '1W' }
+                                    }));
+                                    fetchStockChartDataForFlow(flowId, flow.underlying_ticker, '1W');
+                                  }}
+                                  className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1W' ? 'bg-orange-500 text-black' : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                    }`}
+                                >
+                                  1W
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setFlowChartTimeframes(prev => ({
+                                      ...prev,
+                                      [flowId]: { ...prev[flowId], stock: '1M' }
+                                    }));
+                                    fetchStockChartDataForFlow(flowId, flow.underlying_ticker, '1M');
+                                  }}
+                                  className={`px-2 py-1 text-xs font-bold rounded transition-colors ${stockTimeframe === '1M' ? 'bg-orange-500 text-black' : 'bg-gray-800 text-orange-400 hover:bg-gray-700'
+                                    }`}
+                                >
+                                  1M
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-center space-y-1">
+                              <svg width={width} height={height} className="overflow-visible">
+                                {/* Axis lines */}
+                                <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + chartHeight} stroke="#444" strokeWidth="1" />
+                                <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + chartWidth} y2={padding.top + chartHeight} stroke="#444" strokeWidth="1" />
+                                {/* Y-axis labels */}
+                                {yLabels}
+                                {/* X-axis labels */}
+                                {xLabels}
+                                {shadingRects}
+                                {(() => {
+                                  const prevY = padding.top + chartHeight - ((prevClose - minPrice) / priceRange) * chartHeight;
+                                  return (
+                                    <line
+                                      x1={padding.left}
+                                      y1={prevY}
+                                      x2={padding.left + chartWidth}
+                                      y2={prevY}
+                                      stroke="#444444"
+                                      strokeWidth="1"
+                                      strokeDasharray="3,2"
+                                      opacity="0.4"
+                                    />
+                                  );
+                                })()}
+                                {tradePosition >= padding.left && tradePosition <= (padding.left + chartWidth) && (
+                                  <line
+                                    x1={tradePosition}
+                                    y1={padding.top}
+                                    x2={tradePosition}
+                                    y2={padding.top + chartHeight}
+                                    stroke={tradeLineColor}
+                                    strokeWidth="1.5"
+                                    strokeDasharray="4,3"
+                                    opacity="1"
+                                  />
+                                )}
+                                <polyline
+                                  fill="none"
+                                  stroke={isUp ? '#00ff00' : '#ff0000'}
+                                  strokeWidth="2"
+                                  points={points}
+                                  opacity="0.25"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                                <polyline
+                                  fill="none"
+                                  stroke={isUp ? '#00ff00' : '#ff0000'}
+                                  strokeWidth="1.5"
+                                  points={points}
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                                {/* Current price label on right Y-axis */}
+                                <text
+                                  x={padding.left + chartWidth + 10}
+                                  y={padding.top + chartHeight - ((currentPrice - minPrice) / priceRange) * chartHeight + 4}
+                                  textAnchor="start"
+                                  fill={isUp ? '#00ff00' : '#ff0000'}
+                                  fontSize="18"
+                                  fontWeight="bold"
+                                >
+                                  ${currentPrice.toFixed(2)}
+                                </text>
+                                {/* Percentage change label on right Y-axis */}
+                                <text
+                                  x={padding.left + chartWidth + 10}
+                                  y={padding.top + chartHeight - ((currentPrice - minPrice) / priceRange) * chartHeight + 18}
+                                  textAnchor="start"
+                                  fill={isUp ? '#00ff00' : '#ff0000'}
+                                  fontSize="16.5"
+                                  fontWeight="bold"
+                                >
+                                  {isUp ? '+' : ''}{changePercent.toFixed(2)}%
+                                </text>
+                              </svg>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
+                    {/* Options Premium Chart */}
+                    {flowTrackingFilters.showCharts && (() => {
+                      const expiry = flow.expiry.replace(/-/g, '').slice(2);
+                      const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0');
+                      const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P';
+                      const optionTicker = `O:${flow.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+                      const premiumData = optionsPremiumData[flowId] || [];
+
+                      if (premiumData.length > 0) {
+                        const width = 648;
+                        const height = 117;
+                        const padding = { left: 45, right: 80, top: 10, bottom: 25 };
+                        const chartWidth = width - padding.left - padding.right;
+                        const chartHeight = height - padding.top - padding.bottom;
+                        const prices = premiumData.map(d => d.price);
+                        const minPrice = Math.min(...prices);
+                        const maxPrice = Math.max(...prices);
+                        const priceRange = maxPrice - minPrice || 1;
+
+                        const points = premiumData.map((point, i) => {
+                          const x = padding.left + (i / (premiumData.length - 1)) * chartWidth;
+                          const y = padding.top + chartHeight - ((point.price - minPrice) / priceRange) * chartHeight;
+                          return `${x.toFixed(2)},${y.toFixed(2)}`;
+                        }).join(' ');
+
+                        const currentPrice = prices[prices.length - 1];
+                        const entryPrice = (flow as any).originalPrice || flow.premium_per_contract;
+                        const change = currentPrice - entryPrice;
+                        const changePercent = (change / entryPrice) * 100;
+                        const isUp = change >= 0;
+
+                        const tradeTimestamp = new Date(flow.trade_timestamp).getTime();
+                        const firstTimestamp = premiumData[0].timestamp;
+                        const lastTimestamp = premiumData[premiumData.length - 1].timestamp;
+                        const tradePosition = padding.left + ((tradeTimestamp - firstTimestamp) / (lastTimestamp - firstTimestamp)) * chartWidth;
+                        const tradeLineColor = '#9b59b6';
+
+                        const areaPoints = `${padding.left},${padding.top + chartHeight} ${points} ${padding.left + chartWidth},${padding.top + chartHeight}`;
+                        const areaPath = `M ${areaPoints} Z`;
+
+                        // Y-axis labels
+                        const yAxisTicks = 3;
+                        const yLabels = [];
+                        for (let i = 0; i <= yAxisTicks; i++) {
+                          const price = minPrice + (priceRange * i / yAxisTicks);
+                          const y = padding.top + chartHeight - (i * chartHeight / yAxisTicks);
+                          yLabels.push(
+                            <text key={`y-${i}`} x={padding.left - 5} y={y + 4} textAnchor="end" fill="#ffffff" fontSize="11" fontWeight="bold">
+                              ${price.toFixed(2)}
+                            </text>
+                          );
+                        }
+
+                        // X-axis labels
+                        const xAxisTicks = 3;
+                        const xLabels = [];
+                        for (let i = 0; i <= xAxisTicks; i++) {
+                          const dataIndex = Math.floor((premiumData.length - 1) * i / xAxisTicks);
+                          const timestamp = premiumData[dataIndex].timestamp;
+                          const date = new Date(timestamp);
+                          const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                          const x = padding.left + (i * chartWidth / xAxisTicks);
+                          xLabels.push(
+                            <text key={`x-${i}`} x={x} y={height - 5} textAnchor="middle" fill="#ffffff" fontSize="10" fontWeight="bold">
+                              {timeStr}
+                            </text>
+                          );
+                        }
+
+                        const optionTimeframe = flowChartTimeframes[flowId]?.option || '1D';
+
+                        return (
+                          <div className="border-t border-gray-700 pt-3 mt-3">
+                            <div className="relative mb-2">
+                              <div className="text-center text-sm text-cyan-400 font-bold" style={{ fontSize: '15px' }}>Contract</div>
+                              <div className="absolute right-0 top-0 flex gap-1">
+                                <button
+                                  onClick={() => {
+                                    setFlowChartTimeframes(prev => ({
+                                      ...prev,
+                                      [flowId]: { ...prev[flowId], option: '1D' }
+                                    }));
+                                    fetchOptionPremiumDataForFlow(flowId, flow, '1D');
+                                  }}
+                                  className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1D' ? 'bg-cyan-500 text-black' : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                    }`}
+                                >
+                                  1D
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setFlowChartTimeframes(prev => ({
+                                      ...prev,
+                                      [flowId]: { ...prev[flowId], option: '1W' }
+                                    }));
+                                    fetchOptionPremiumDataForFlow(flowId, flow, '1W');
+                                  }}
+                                  className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1W' ? 'bg-cyan-500 text-black' : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                    }`}
+                                >
+                                  1W
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setFlowChartTimeframes(prev => ({
+                                      ...prev,
+                                      [flowId]: { ...prev[flowId], option: '1M' }
+                                    }));
+                                    fetchOptionPremiumDataForFlow(flowId, flow, '1M');
+                                  }}
+                                  className={`px-2 py-1 text-xs font-bold rounded transition-colors ${optionTimeframe === '1M' ? 'bg-cyan-500 text-black' : 'bg-gray-800 text-cyan-400 hover:bg-gray-700'
+                                    }`}
+                                >
+                                  1M
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-center space-y-1">
+                              <svg width={width} height={height} className="overflow-visible">
+                                {/* Axis lines */}
+                                <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + chartHeight} stroke="#444" strokeWidth="1" />
+                                <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + chartWidth} y2={padding.top + chartHeight} stroke="#444" strokeWidth="1" />
+                                {/* Y-axis labels */}
+                                {yLabels}
+                                {/* X-axis labels */}
+                                {xLabels}
+                                <path
+                                  d={areaPath}
+                                  fill={isUp ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 68, 102, 0.15)'}
+                                />
+                                {(() => {
+                                  const entryY = padding.top + chartHeight - ((entryPrice - minPrice) / priceRange) * chartHeight;
+                                  return (
+                                    <line
+                                      x1={padding.left}
+                                      y1={entryY}
+                                      x2={padding.left + chartWidth}
+                                      y2={entryY}
+                                      stroke="#ffaa00"
+                                      strokeWidth="1"
+                                      strokeDasharray="3,2"
+                                      opacity="0.5"
+                                    />
+                                  );
+                                })()}
+                                {tradePosition >= padding.left && tradePosition <= (padding.left + chartWidth) && (
+                                  <line
+                                    x1={tradePosition}
+                                    y1={padding.top}
+                                    x2={tradePosition}
+                                    y2={padding.top + chartHeight}
+                                    stroke={tradeLineColor}
+                                    strokeWidth="1.5"
+                                    strokeDasharray="4,3"
+                                    opacity="1"
+                                  />
+                                )}
+                                <polyline
+                                  fill="none"
+                                  stroke={isUp ? '#00ff88' : '#ff4466'}
+                                  strokeWidth="2"
+                                  points={points}
+                                  opacity="0.25"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                                <polyline
+                                  fill="none"
+                                  stroke={isUp ? '#00ff88' : '#ff4466'}
+                                  strokeWidth="1.5"
+                                  points={points}
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                                {/* Current price label on right Y-axis */}
+                                <text
+                                  x={padding.left + chartWidth + 10}
+                                  y={padding.top + chartHeight - ((currentPrice - minPrice) / priceRange) * chartHeight + 4}
+                                  textAnchor="start"
+                                  fill={isUp ? '#00ff88' : '#ff4466'}
+                                  fontSize="18"
+                                  fontWeight="bold"
+                                >
+                                  ${currentPrice.toFixed(2)}
+                                </text>
+                                {/* Percentage change label on right Y-axis */}
+                                <text
+                                  x={padding.left + chartWidth + 10}
+                                  y={padding.top + chartHeight - ((currentPrice - minPrice) / priceRange) * chartHeight + 18}
+                                  textAnchor="start"
+                                  fill={isUp ? '#00ff88' : '#ff4466'}
+                                  fontSize="16.5"
+                                  fontWeight="bold"
+                                >
+                                  {isUp ? '+' : ''}{changePercent.toFixed(2)}%
+                                </text>
+                              </svg>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </>
   );
