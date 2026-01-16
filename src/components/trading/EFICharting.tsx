@@ -6934,57 +6934,69 @@ export default function TradingViewChart({
   useEffect(() => {
     if (activeSidebarPanel === 'regimes' && !allRegimesLoaded && Object.keys(regimeDataCache).length === 0) {
       const fetchAllRegimes = async () => {
-        console.log('🚀 Parallel prefetch: Life + Developing + Momentum + Legacy');
+        console.log('🚀 Fetching market regimes from cache...');
         setIsLoadingRegimes(true);
-        setRegimeLoadingStage('Loading all regimes in parallel...');
+        setRegimeLoadingStage('Loading regimes from cache...');
 
-        const tabConfigs = [
-          { tab: 'life', days: 5 },
-          { tab: 'developing', days: 21 },
-          { tab: 'momentum', days: 80 },
-          { tab: 'legacy', days: 252 }
-        ];
+        try {
+          const response = await fetch('/api/market-regimes');
+          const result = await response.json();
 
-        const results = await Promise.allSettled(
-          tabConfigs.map(({ tab, days }) =>
-            IndustryAnalysisService.analyzeTimeframe(days, tab.charAt(0).toUpperCase() + tab.slice(1))
-              .then(data => ({ tab, data }))
-              .catch(err => ({ tab, data: null, error: err }))
-          )
-        );
+          if (result.success && result.data) {
+            const newCache: { [key: string]: TimeframeAnalysis } = {};
+            
+            if (result.data.life) {
+              newCache['life'] = result.data.life;
+              const bullish = result.data.life.industries?.filter((i: any) => i.trend === 'bullish').length || 0;
+              const bearish = result.data.life.industries?.filter((i: any) => i.trend === 'bearish').length || 0;
+              console.log(`✅ life: ${bullish}B/${bearish}B industries`);
+            }
+            if (result.data.developing) {
+              newCache['developing'] = result.data.developing;
+              const bullish = result.data.developing.industries?.filter((i: any) => i.trend === 'bullish').length || 0;
+              const bearish = result.data.developing.industries?.filter((i: any) => i.trend === 'bearish').length || 0;
+              console.log(`✅ developing: ${bullish}B/${bearish}B industries`);
+            }
+            if (result.data.momentum) {
+              newCache['momentum'] = result.data.momentum;
+              const bullish = result.data.momentum.industries?.filter((i: any) => i.trend === 'bullish').length || 0;
+              const bearish = result.data.momentum.industries?.filter((i: any) => i.trend === 'bearish').length || 0;
+              console.log(`✅ momentum: ${bullish}B/${bearish}B industries`);
+            }
+            if (result.data.legacy) {
+              newCache['legacy'] = result.data.legacy;
+              const bullish = result.data.legacy.industries?.filter((i: any) => i.trend === 'bullish').length || 0;
+              const bearish = result.data.legacy.industries?.filter((i: any) => i.trend === 'bearish').length || 0;
+              console.log(`✅ legacy: ${bullish}B/${bearish}B industries`);
+            }
 
-        const newCache: { [key: string]: TimeframeAnalysis } = {};
-        results.forEach((result) => {
-          if (result.status === 'fulfilled' && result.value.data) {
-            // Store TimeframeAnalysis directly
-            newCache[result.value.tab] = result.value.data;
-            const bullish = result.value.data.industries?.filter((i: any) => i.trend === 'bullish').length || 0;
-            const bearish = result.value.data.industries?.filter((i: any) => i.trend === 'bearish').length || 0;
-            console.log(`✅ ${result.value.tab}: ${bullish}B/${bearish}B industries`);
+            setRegimeDataCache(newCache);
+
+            const fullData: any = {
+              life: result.data.life || null,
+              developing: result.data.developing || null,
+              momentum: result.data.momentum || null,
+              legacy: result.data.legacy || null
+            };
+            
+            setMarketRegimeData(fullData as MarketRegimeData);
+            
+            const cacheStatus = result.cached ? '✅ CACHED' : '⚠️ FRESH';
+            console.log(`📊 Market regimes loaded: ${cacheStatus}`, {
+              life: !!fullData.life,
+              developing: !!fullData.developing,
+              momentum: !!fullData.momentum,
+              legacy: !!fullData.legacy
+            });
+
+            setAllRegimesLoaded(true);
+            setLastRegimeUpdate(Date.now());
           }
-        });
-
-        setRegimeDataCache(newCache);
-
-        // Build full MarketRegimeData with ALL timeframes
-        const fullData: any = {
-          life: newCache['life'] || null,
-          developing: newCache['developing'] || null,
-          momentum: newCache['momentum'] || null,
-          legacy: newCache['legacy'] || null
-        };
-        setMarketRegimeData(fullData as MarketRegimeData);
-        console.log('📊 Full market regime data loaded:', {
-          life: !!fullData.life,
-          developing: !!fullData.developing,
-          momentum: !!fullData.momentum,
-          legacy: !!fullData.legacy
-        });
-
-        setAllRegimesLoaded(true);
-        setIsLoadingRegimes(false);
-        setLastRegimeUpdate(Date.now());
-        console.log('🎉 All regimes cached');
+        } catch (error) {
+          console.error('❌ Error fetching market regimes:', error);
+        } finally {
+          setIsLoadingRegimes(false);
+        }
       };
 
       fetchAllRegimes();
@@ -7000,48 +7012,50 @@ export default function TradingViewChart({
     const fetchAllRegimes = async () => {
       setIsLoadingRegimes(true);
 
-      const tabConfigs = [
-        { tab: 'life', days: 5 },
-        { tab: 'developing', days: 21 },
-        { tab: 'momentum', days: 80 },
-        { tab: 'legacy', days: 252 }
-      ];
+      try {
+        // Fetch from cached API endpoint (pre-computed by cron)
+        console.log('📊 Fetching market regimes from cache...');
+        const response = await fetch('/api/market-regimes');
+        const result = await response.json();
 
-      const results = await Promise.allSettled(
-        tabConfigs.map(({ tab, days }) =>
-          IndustryAnalysisService.analyzeTimeframe(days, tab.charAt(0).toUpperCase() + tab.slice(1))
-            .then(data => ({ tab, data }))
-            .catch(err => ({ tab, data: null, error: err }))
-        )
-      );
+        if (result.success && result.data) {
+          const newCache: { [key: string]: TimeframeAnalysis } = {};
+          
+          if (result.data.life) newCache['life'] = result.data.life;
+          if (result.data.developing) newCache['developing'] = result.data.developing;
+          if (result.data.momentum) newCache['momentum'] = result.data.momentum;
+          if (result.data.legacy) newCache['legacy'] = result.data.legacy;
 
-      const newCache: { [key: string]: TimeframeAnalysis } = {};
-      results.forEach((result) => {
-        if (result.status === 'fulfilled' && result.value.data) {
-          newCache[result.value.tab] = result.value.data;
+          setRegimeDataCache(newCache);
+
+          const fullData: any = {
+            life: result.data.life || null,
+            developing: result.data.developing || null,
+            momentum: result.data.momentum || null,
+            legacy: result.data.legacy || null
+          };
+          
+          setMarketRegimeData(fullData as MarketRegimeData);
+          
+          const cacheStatus = result.cached ? '✅ CACHED' : '⚠️ FRESH';
+          const ageInfo = result.age_ms ? ` (${Math.round(result.age_ms / 1000)}s old)` : '';
+          console.log(`📊 Market regimes loaded: ${cacheStatus}${ageInfo}`, {
+            life: !!fullData.life,
+            developing: !!fullData.developing,
+            momentum: !!fullData.momentum,
+            legacy: !!fullData.legacy
+          });
+
+          setAllRegimesLoaded(true);
+          setLastRegimeUpdate(Date.now());
+        } else {
+          console.error('❌ Failed to fetch market regimes:', result.error);
         }
-      });
-
-      setRegimeDataCache(newCache);
-
-      const fullData: any = {
-        life: newCache['life'] || null,
-        developing: newCache['developing'] || null,
-        momentum: newCache['momentum'] || null,
-        legacy: newCache['legacy'] || null
-      };
-      setMarketRegimeData(fullData as MarketRegimeData);
-      console.log('📊 Full market regime data loaded:', {
-        life: !!fullData.life,
-        developing: !!fullData.developing,
-        momentum: !!fullData.momentum,
-        legacy: !!fullData.legacy
-      });
-
-      setAllRegimesLoaded(true);
-      setIsLoadingRegimes(false);
-      setLastRegimeUpdate(Date.now());
-      console.log('🎉 All regimes cached on page load');
+      } catch (error) {
+        console.error('❌ Error fetching market regimes:', error);
+      } finally {
+        setIsLoadingRegimes(false);
+      }
     };
 
     fetchAllRegimes();
