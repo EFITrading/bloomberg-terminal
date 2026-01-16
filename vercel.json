@@ -1,11 +1,6 @@
 {
   "framework": "nextjs",
-  "crons": [
-    {
-      "path": "/api/cron/refresh-market-regimes",
-      "schedule": "*/5 * * * *"
-    }
-  ],
+  "crons": [],
   "functions": {
     "src/app/api/options-flow/route.ts": {
       "maxDuration": 300
