@@ -111,6 +111,7 @@
     "@use-gesture/react": "^10.3.1",
     "@vercel/analytics": "^1.5.0",
     "@vercel/firewall": "^1.0.1",
+    "@vercel/kv": "^3.0.0",
     "@vercel/speed-insights": "^1.2.0",
     "@workos-inc/node": "^7.14.0",
     "ably": "^2.12.0",

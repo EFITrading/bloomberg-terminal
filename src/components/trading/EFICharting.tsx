@@ -3477,7 +3477,19 @@ export default function TradingViewChart({
   }>({});
   const [trackingLoading, setTrackingLoading] = useState(false);
   const trackingFetchedRef = useRef(false);
+  const trackingScrollRef = useRef<HTMLDivElement>(null);
   const [trackingTimeframe, setTrackingTimeframe] = useState<'1D' | '5D' | '1M' | '3M' | '6M' | '1Y'>('1D');
+
+  // Memoize tracking categories to prevent remounting on every render
+  const trackingCategories = useMemo(() => [
+    { title: 'Markets', symbols: ['SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT'], color: '#1a4d8f' },
+    { title: 'Large Caps', symbols: ['NVDA', 'TSM', 'AVGO', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA'], color: '#0f3d66' },
+    { title: 'Value', symbols: ['JPM', 'BA', 'FCX', 'XOM', 'NKE', 'FDX', 'CAT', 'BAC', 'MS', 'DAL', 'UNH', 'LMT', 'MCD', 'WMT', 'DHI', 'HD', 'PANW', 'NFLX'], color: '#1a5f4a' },
+    { title: 'High Beta', symbols: ['OKLO', 'CRWV', 'IONQ', 'QUBT', 'IREN', 'NBIS', 'HOOD', 'PLTR', 'HIMS', 'UPST', 'AFRM', 'TEM', 'CRCL', 'MSTR', 'COIN', 'XYZ', 'ARM', 'SHOP', 'DASH', 'UBER', 'ABNB', 'AMD', 'ROKU', 'RBLX'], color: '#661a4d' },
+    { title: 'China', symbols: ['PDD', 'FXI', 'JD', 'FUTU', 'BILI', 'BABA', 'NTES', 'KWEB', 'BIDU'], color: '#8f1a1a' },
+    { title: '11 Sectors', symbols: ['XLK', 'XLY', 'XLC', 'XLE', 'XLI', 'XLB', 'XLF', 'XLU', 'XLP', 'XLRE', 'XLV'], color: '#4d4d1a' },
+    { title: 'Industries', symbols: ['OIH', 'XME', 'GDX', 'JETS', 'PBW', 'KRE', 'KIE', 'FDN', 'IGV', 'XRT', 'SMH', 'ITB', 'XHB', 'IBB', 'XBI', 'TAN', 'XOP', 'ARKK'], color: '#1a4d4d' }
+  ], []);
 
   // Options Trades state
   const [optionsPremiumData, setOptionsPremiumData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
@@ -3486,6 +3498,8 @@ export default function TradingViewChart({
   const [stockATR, setStockATR] = useState<Record<string, number>>({});
   const [optionPeakPrices, setOptionPeakPrices] = useState<Record<string, number>>({});
   const optionsDataFetchedRef = useRef(false);
+  const [optionChartsVisible, setOptionChartsVisible] = useState<Record<string, boolean>>({});
+  const [optionsWatchlistUpdate, setOptionsWatchlistUpdate] = useState(0);
 
   // Lock state for drawing tools - when locked, tools stay active after placing a drawing
   const [isDrawingLocked, setIsDrawingLocked] = useState<boolean>(false);
@@ -14312,8 +14326,18 @@ export default function TradingViewChart({
                 }
               });
 
+              // Save scroll position before update
+              const scrollPos = trackingScrollRef.current?.scrollTop || 0;
+
               // Update state with current batch
               setTrackingData(prev => ({ ...prev, ...results }));
+
+              // Restore scroll position after React updates
+              requestAnimationFrame(() => {
+                if (trackingScrollRef.current) {
+                  trackingScrollRef.current.scrollTop = scrollPos;
+                }
+              });
 
               // Delay before next batch (except for last batch)
               if (i + BATCH_SIZE < allSymbols.length) {
@@ -14689,91 +14713,31 @@ export default function TradingViewChart({
             {/* Bloomberg-style Column Headers - 9 Columns */}
             <div className="grid grid-cols-9 gap-0 border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner">
               <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
-                <span className="drop-shadow-lg text-shadow-carved text-orange-500">Symbol</span>
+                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">Symbol</span>
               </div>
               <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="drop-shadow-lg text-shadow-carved text-orange-500">Price</span>
+                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">Price</span>
               </div>
               <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
-                <span className="drop-shadow-lg text-shadow-carved text-orange-500">Change</span>
+                <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">Change</span>
               </div>
               <div className="md:p-3 p-2 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <div className="flex flex-col">
-                  <span className="text-white font-bold text-xs mb-1">TODAY</span>
-                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('1d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                    {(() => {
-                      const regime = getMarketRegimeForHeader('1d');
-                      if (regime === 'MIXED') return 'MIXED';
-                      const score = calculateRegimeScore(regime, '1d');
-                      return `${regime} ${score}`;
-                    })()}
-                  </span>
-                </div>
+                <span className="text-white font-bold text-xs">TODAY</span>
               </div>
               <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <div className="flex flex-col">
-                  <span className="text-white font-bold text-xs mb-1">WEEK</span>
-                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('5d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                    {(() => {
-                      const regime = getMarketRegimeForHeader('5d');
-                      if (regime === 'MIXED') return 'MIXED';
-                      const score = calculateRegimeScore(regime, '5d');
-                      return `${regime} ${score}`;
-                    })()}
-                  </span>
-                </div>
+                <span className="text-white font-bold text-xs">WEEK</span>
               </div>
               <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <div className="flex flex-col">
-                  <span className="text-white font-bold text-xs mb-1">13D</span>
-                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('13d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                    {(() => {
-                      const regime = getMarketRegimeForHeader('13d');
-                      if (regime === 'MIXED') return 'MIXED';
-                      const score = calculateRegimeScore(regime, '13d');
-                      return `${regime} ${score}`;
-                    })()}
-                  </span>
-                </div>
+                <span className="text-white font-bold text-xs">13D</span>
               </div>
               <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <div className="flex flex-col">
-                  <span className="text-white font-bold text-xs mb-1">MONTH</span>
-                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('21d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                    {(() => {
-                      const regime = getMarketRegimeForHeader('21d');
-                      if (regime === 'MIXED') return 'MIXED';
-                      const score = calculateRegimeScore(regime, '21d');
-                      return `${regime} ${score}`;
-                    })()}
-                  </span>
-                </div>
+                <span className="text-white font-bold md:text-xs text-[10.8px]">MONTH</span>
               </div>
               <div className="p-3 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
-                <div className="flex flex-col">
-                  <span className="text-white font-bold text-xs mb-1">QUARTER</span>
-                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('50d') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('50d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('50d') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                    {(() => {
-                      const regime = getMarketRegimeForHeader('50d');
-                      if (regime === 'MIXED') return 'MIXED';
-                      const score = calculateRegimeScore(regime, '50d');
-                      return `${regime} ${score}`;
-                    })()}
-                  </span>
-                </div>
+                <span className="text-white font-bold md:text-xs text-[9.7px]">QUARTER</span>
               </div>
               <div className="p-3 text-center bg-black shadow-inner border-t-2 border-t-gray-600 border-r-2 border-r-gray-600">
-                <div className="flex flex-col">
-                  <span className="text-white font-bold text-xs mb-1">YTD</span>
-                  <span className={`drop-shadow-lg text-shadow-carved text-xs ${getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse drop-shadow-[0_0_10px_rgba(34,197,94,0.8)]' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : getMarketRegimeForHeader('ytd') === 'VALUE' ? 'text-blue-400 animate-pulse drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'text-yellow-400'}`}>
-                    {(() => {
-                      const regime = getMarketRegimeForHeader('ytd');
-                      if (regime === 'MIXED') return 'MIXED';
-                      const score = calculateRegimeScore(regime, 'ytd');
-                      return `${regime} ${score}`;
-                    })()}
-                  </span>
-                </div>
+                <span className="text-white font-bold text-xs">YTD</span>
               </div>
             </div>
 
@@ -14931,57 +14895,87 @@ export default function TradingViewChart({
 
                           {/* Price */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <div className="font-mono text-white font-bold md:text-lg text-[15px]">
+                            <div className="font-mono text-white font-bold md:text-base text-[12px]">
                               ${data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           </div>
 
                           {/* Change */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <div className={`font-mono font-bold md:text-lg text-[15px] ${changeColor}`}>
+                            <div className={`font-mono font-bold md:text-base text-[12px] ${changeColor}`}>
                               {changeSign}{data.change1d.toFixed(2)}%
                             </div>
                           </div>
 
                           {/* 1D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf1d.color}`}>
-                              {perf1d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('1d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf1d.color}`}>
+                              {symbol === 'SPY' ? (() => {
+                                const regime = getMarketRegimeForHeader('1d');
+                                if (regime === 'MIXED') return 'MIXED';
+                                const score = calculateRegimeScore(regime, '1d');
+                                return `${regime} ${score}`;
+                              })() : perf1d.status}
                             </span>
                           </div>
 
                           {/* 5D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf5d.color}`}>
-                              {perf5d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('5d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf5d.color}`}>
+                              {symbol === 'SPY' ? (() => {
+                                const regime = getMarketRegimeForHeader('5d');
+                                if (regime === 'MIXED') return 'MIXED';
+                                const score = calculateRegimeScore(regime, '5d');
+                                return `${regime} ${score}`;
+                              })() : perf5d.status}
                             </span>
                           </div>
 
                           {/* 13D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf13d.color}`}>
-                              {perf13d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('13d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf13d.color}`}>
+                              {symbol === 'SPY' ? (() => {
+                                const regime = getMarketRegimeForHeader('13d');
+                                if (regime === 'MIXED') return 'MIXED';
+                                const score = calculateRegimeScore(regime, '13d');
+                                return `${regime} ${score}`;
+                              })() : perf13d.status}
                             </span>
                           </div>
 
                           {/* 21D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf21d.color}`}>
-                              {perf21d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('21d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf21d.color}`}>
+                              {symbol === 'SPY' ? (() => {
+                                const regime = getMarketRegimeForHeader('21d');
+                                if (regime === 'MIXED') return 'MIXED';
+                                const score = calculateRegimeScore(regime, '21d');
+                                return `${regime} ${score}`;
+                              })() : perf21d.status}
                             </span>
                           </div>
 
                           {/* 50D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perf50d.color}`}>
-                              {perf50d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('50d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('50d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('50d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf50d.color}`}>
+                              {symbol === 'SPY' ? (() => {
+                                const regime = getMarketRegimeForHeader('50d');
+                                if (regime === 'MIXED') return 'MIXED';
+                                const score = calculateRegimeScore(regime, '50d');
+                                return `${regime} ${score}`;
+                              })() : perf50d.status}
                             </span>
                           </div>
 
                           {/* YTD Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <span className={`font-bold md:text-base text-[12px] uppercase tracking-widest ${perfYTD.color}`}>
-                              {perfYTD.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('ytd') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perfYTD.color}`}>
+                              {symbol === 'SPY' ? (() => {
+                                const regime = getMarketRegimeForHeader('ytd');
+                                if (regime === 'MIXED') return 'MIXED';
+                                const score = calculateRegimeScore(regime, 'ytd');
+                                return `${regime} ${score}`;
+                              })() : perfYTD.status}
                             </span>
                           </div>
                         </div>
@@ -15027,17 +15021,9 @@ export default function TradingViewChart({
                 </div>
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto p-6 space-y-8">
-                {[
-                  { title: 'Markets', symbols: ['SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT'], color: '#1a4d8f' },
-                  { title: 'Large Caps', symbols: ['NVDA', 'TSM', 'AVGO', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA'], color: '#0f3d66' },
-                  { title: 'Value', symbols: ['JPM', 'BA', 'FCX', 'XOM', 'NKE', 'FDX', 'CAT', 'BAC', 'MS', 'DAL', 'UNH', 'LMT', 'MCD', 'WMT', 'DHI', 'HD', 'PANW', 'NFLX'], color: '#1a5f4a' },
-                  { title: 'High Beta', symbols: ['OKLO', 'CRWV', 'IONQ', 'QUBT', 'IREN', 'NBIS', 'HOOD', 'PLTR', 'HIMS', 'UPST', 'AFRM', 'TEM', 'CRCL', 'MSTR', 'COIN', 'XYZ', 'ARM', 'SHOP', 'DASH', 'UBER', 'ABNB', 'AMD', 'ROKU', 'RBLX'], color: '#661a4d' },
-                  { title: 'China', symbols: ['PDD', 'FXI', 'JD', 'FUTU', 'BILI', 'BABA', 'NTES', 'KWEB', 'BIDU'], color: '#8f1a1a' },
-                  { title: '11 Sectors', symbols: ['XLK', 'XLY', 'XLC', 'XLE', 'XLI', 'XLB', 'XLF', 'XLU', 'XLP', 'XLRE', 'XLV'], color: '#4d4d1a' },
-                  { title: 'Industries', symbols: ['OIH', 'XME', 'GDX', 'JETS', 'PBW', 'KRE', 'KIE', 'FDN', 'IGV', 'XRT', 'SMH', 'ITB', 'XHB', 'IBB', 'XBI', 'TAN', 'XOP', 'ARKK'], color: '#1a4d4d' }
-                ].map((category, idx) => (
-                  <div key={idx} className="relative">
+              <div ref={trackingScrollRef} className="flex-1 overflow-y-auto p-6 space-y-8" style={{ overflowAnchor: 'none' }}>
+                {trackingCategories.map((category) => (
+                  <div key={category.title} className="relative">
                     {/* Category Header - Goldman Sachs Style */}
                     <div
                       className="mb-4 pb-3 border-b-2 relative overflow-hidden"
@@ -15074,7 +15060,7 @@ export default function TradingViewChart({
                     </div>
 
                     {/* Cards Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 grid-cols-2 gap-3">
                       {category.symbols.map((symbol) => {
                         const data = trackingData[symbol];
                         if (!data) return null;
@@ -15103,21 +15089,34 @@ export default function TradingViewChart({
                               }}
                             />
 
-                            <div className="relative p-6">
-                              <div className="flex items-center justify-between gap-4">
-                                {/* Left: Ticker */}
-                                <div className="flex-shrink-0 w-20">
-                                  <div className="font-black text-white text-base tracking-tight">
+                            <div className="relative md:p-6 p-3">
+                              <div className="md:flex md:items-center md:justify-between md:gap-4">
+                                {/* Left: Ticker and Price (all horizontal on mobile) */}
+                                <div className="md:flex-shrink-0 md:w-20">
+                                  {/* Desktop layout */}
+                                  <div className="hidden md:block font-black text-white text-base tracking-tight">
                                     {data.symbol}
+                                  </div>
+                                  {/* Mobile layout - all in one row */}
+                                  <div className="md:hidden flex items-center gap-2">
+                                    <div className="font-black text-white text-sm tracking-tight">
+                                      {data.symbol}
+                                    </div>
+                                    <div className="font-bold text-white text-xs">
+                                      ${data.price.toFixed(2)}
+                                    </div>
+                                    <div className={`text-[10px] font-bold ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                      {data.change >= 0 ? '+' : ''}{data.change.toFixed(2)}%
+                                    </div>
                                   </div>
                                 </div>
 
                                 {/* Center: Sparkline */}
-                                <div className="flex-1 flex flex-col">
+                                <div className="md:flex-1 flex flex-col mt-2 md:mt-0">
                                   <svg
                                     viewBox="0 0 200 50"
                                     preserveAspectRatio="none"
-                                    className="w-full h-16"
+                                    className="w-full md:h-16 h-12"
                                     style={{ shapeRendering: 'geometricPrecision' }}
                                   >
                                     {data.sparklineData.length > 1 && (() => {
@@ -15261,7 +15260,7 @@ export default function TradingViewChart({
                                       }
 
                                       return labels.map((label, i) => (
-                                        <span key={i} className="text-[10px] text-yellow-400 font-mono font-semibold">
+                                        <span key={i} className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">
                                           {label}
                                         </span>
                                       ));
@@ -15269,8 +15268,8 @@ export default function TradingViewChart({
                                   </div>
                                 </div>
 
-                                {/* Right: Price and Change */}
-                                <div className="flex-shrink-0 text-right w-20">
+                                {/* Right: Price and Change - desktop only */}
+                                <div className="hidden md:block flex-shrink-0 text-right w-20">
                                   <div className="font-bold text-white text-sm">
                                     ${data.price.toFixed(2)}
                                   </div>
@@ -15485,10 +15484,177 @@ export default function TradingViewChart({
                           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 2px 8px rgba(0,0,0,0.7)'
                         }}
                       >
+                        {/* Remove Trade Button */}
+                        <button
+                          onClick={() => {
+                            const saved = localStorage.getItem('optionsWatchlist');
+                            const optionsWatchlist: any[] = saved ? JSON.parse(saved) : [];
+                            const updated = optionsWatchlist.filter(opt => opt.id !== option.id);
+                            localStorage.setItem('optionsWatchlist', JSON.stringify(updated));
+                            setOptionsWatchlistUpdate(prev => prev + 1);
+                          }}
+                          className="absolute top-2 right-2 z-10 w-6 h-6 flex items-center justify-center rounded bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white transition-all"
+                          style={{ fontSize: '14px', fontWeight: 'bold' }}
+                        >
+                          ×
+                        </button>
                         {/* Main layout: Left content + Right charts */}
-                        <div className="flex gap-3 p-2">
-                          {/* Left side: Bloomberg-style info panel */}
-                          <div className="flex flex-col" style={{ width: '380px', background: '#000000' }}>
+                        <div className="md:flex md:gap-3 md:p-2 p-2">
+                          {/* Mobile: Info + Trade Management side by side */}
+                          <div className="md:hidden grid grid-cols-2 gap-2 mb-3">
+                            {/* Left column: Info on mobile */}
+                            <div className="flex flex-col" style={{ background: '#000000' }}>
+                              {/* Header - Ticker & Status */}
+                              <div style={{ background: '#000000', borderBottom: '1px solid #1a1a1a' }} className="px-2 py-1.5">
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="text-lg font-bold tracking-tight" style={{ color: '#fff', fontFamily: 'monospace' }}>{option.symbol}</div>
+                                      <div className={`px-1 py-0.5 text-[8px] font-bold tracking-wider ${option.type === 'call' ? 'bg-green-500 text-black' : 'bg-red-500 text-white'}`} style={{ fontFamily: 'monospace' }}>
+                                        {option.type.toUpperCase()}
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={() => setOptionChartsVisible(prev => ({ ...prev, [option.id]: !prev[option.id] }))}
+                                      className="px-1.5 py-0.5 text-[9px] font-bold tracking-wider rounded"
+                                      style={{
+                                        background: optionChartsVisible[option.id] ? '#1a4d2e' : '#1a1a1a',
+                                        color: optionChartsVisible[option.id] ? '#00ff88' : '#666',
+                                        border: `1px solid ${optionChartsVisible[option.id] ? '#00ff88' : '#333'}`,
+                                        fontFamily: 'monospace'
+                                      }}
+                                    >
+                                      {optionChartsVisible[option.id] ? '📊' : '📈'}
+                                    </button>
+                                  </div>
+                                  <div className="flex items-baseline gap-1.5">
+                                    <span className="text-[8px] tracking-wider" style={{ color: '#ff9500', fontFamily: 'monospace' }}>MARK</span>
+                                    <span className="text-sm font-bold" style={{ color: '#fff', fontFamily: 'monospace' }}>${currentPrice.toFixed(2)}</span>
+                                    <span className={`text-[10px] font-bold ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`} style={{ fontFamily: 'monospace' }}>
+                                      {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}% {pnlPercent >= 0 ? '▲' : '▼'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 text-[9px] mt-1" style={{ fontFamily: 'monospace' }}>
+                                  <span style={{ color: '#ff9500' }}>STRIKE</span>
+                                  <span style={{ color: '#fff', fontWeight: 'bold' }}>${option.strike}</span>
+                                  <span style={{ color: '#444' }}>|</span>
+                                  <span style={{ color: '#ff9500' }}>EXP</span>
+                                  <span style={{ color: '#fff', fontWeight: 'bold' }}>
+                                    {(() => {
+                                      const [year, month, day] = option.expiration.split('-').map(Number);
+                                      const date = new Date(year, month - 1, day);
+                                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+                                    })()}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Greeks Panel */}
+                              <div style={{ background: '#000000', borderBottom: '1px solid #1a1a1a' }} className="px-2 py-1.5">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <div className="text-[8px] tracking-wider" style={{ color: '#00ff88', fontFamily: 'monospace' }}>DELTA</div>
+                                    <div className="text-[10px] font-bold" style={{ color: '#fff', fontFamily: 'monospace' }}>{liveGreeks.delta?.toFixed(3) || '-'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[8px] tracking-wider" style={{ color: '#ff4444', fontFamily: 'monospace' }}>THETA</div>
+                                    <div className="text-[10px] font-bold" style={{ color: '#ff4444', fontFamily: 'monospace' }}>-{thetaDecay.toFixed(3)}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[8px] tracking-wider" style={{ color: '#bb86fc', fontFamily: 'monospace' }}>IV</div>
+                                    <div className="text-[10px] font-bold" style={{ color: '#bb86fc', fontFamily: 'monospace' }}>{impliedVolatility ? (impliedVolatility * 100).toFixed(1) + '%' : 'N/A'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[8px] tracking-wider" style={{ color: '#ff9500', fontFamily: 'monospace' }}>DTE</div>
+                                    <div className="text-[10px] font-bold" style={{ color: daysToExpiry < 7 ? '#ff4444' : daysToExpiry < 14 ? '#ffaa00' : '#00ff88', fontFamily: 'monospace' }}>{daysToExpiry}</div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Position Details */}
+                              <div style={{ background: '#000000', borderBottom: '1px solid #1a1a1a' }} className="px-2 py-1.5">
+                                <div className="text-[9px] tracking-widest mb-1 text-center font-bold" style={{ color: '#ff9500', fontFamily: 'monospace' }}>POSITION</div>
+                                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px]" style={{ fontFamily: 'monospace' }}>
+                                  <div className="flex justify-between">
+                                    <span style={{ color: '#ff9500' }}>Entry</span>
+                                    <span style={{ color: '#00ccff', fontWeight: 'bold' }}>${entryPrice.toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span style={{ color: '#ff9500' }}>P/L</span>
+                                    <span style={{ color: pnlPercent >= 0 ? '#00ff88' : '#ff4444', fontWeight: 'bold' }}>${pnlDollars >= 0 ? '+' : ''}{pnlDollars.toFixed(0)}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span style={{ color: '#ff9500' }}>Intrn</span>
+                                    <span style={{ color: '#bb86fc', fontWeight: 'bold' }}>${intrinsicValue.toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span style={{ color: '#ff9500' }}>Extrn</span>
+                                    <span style={{ color: '#fff', fontWeight: 'bold' }}>${extrinsicValue.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right column: Trade Management on mobile */}
+                            <div className="p-1.5 flex flex-col" style={{ background: '#000000' }}>
+                              <div className="text-[10px] tracking-widest mb-2 text-center font-bold pb-1.5" style={{ color: '#ff9500', borderBottom: '1px solid #ff950030', fontFamily: 'monospace' }}>TRADE MANAGEMENT</div>
+
+                              {/* Target 1 - Full width */}
+                              <div style={{ background: 'linear-gradient(135deg, rgba(13, 40, 24, 0.4) 0%, rgba(13, 40, 24, 0.2) 100%)', border: '1px solid #1a4d2e', borderRadius: '4px' }} className="p-1.5 mb-1.5 relative overflow-hidden">
+                                <div className="absolute top-1 right-1">
+                                  {currentPrice >= target80OptionValue && (
+                                    <span className="text-green-400 text-xs">✓</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <div className="text-[10px] tracking-wider mb-0.5" style={{ color: '#4ade80', fontFamily: 'monospace' }}>Profit Target 1</div>
+                                    <div className="text-lg font-black" style={{ color: '#00ff88', fontFamily: 'monospace', lineHeight: '1' }}>${target80StockPrice.toFixed(2)}</div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ color: '#4ade80', background: 'rgba(74, 222, 128, 0.15)' }}>+{((target80OptionValue - entryPrice) / entryPrice * 100).toFixed(0)}%</div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Target 2 - Full width */}
+                              <div style={{ background: 'linear-gradient(135deg, rgba(13, 40, 24, 0.4) 0%, rgba(13, 40, 24, 0.2) 100%)', border: '1px solid #1a4d2e', borderRadius: '4px' }} className="p-1.5 mb-1.5 relative overflow-hidden">
+                                <div className="absolute top-1 right-1">
+                                  {currentPrice >= target90OptionValue && (
+                                    <span className="text-green-400 text-xs">✓</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <div className="text-[10px] tracking-wider mb-0.5" style={{ color: '#4ade80', fontFamily: 'monospace' }}>Profit Target 2</div>
+                                    <div className="text-lg font-black" style={{ color: '#00ff88', fontFamily: 'monospace', lineHeight: '1' }}>${target90StockPrice.toFixed(2)}</div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ color: '#4ade80', background: 'rgba(74, 222, 128, 0.15)' }}>+{((target90OptionValue - entryPrice) / entryPrice * 100).toFixed(0)}%</div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Stop Loss and Daily Decay - Half width side by side */}
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div style={{ background: 'linear-gradient(135deg, rgba(45, 13, 13, 0.4) 0%, rgba(45, 13, 13, 0.2) 100%)', border: '1px solid #4d1a1a', borderRadius: '4px' }} className="p-1.5">
+                                  <div className="text-[8px] tracking-wider mb-0.5" style={{ color: '#f87171', fontFamily: 'monospace' }}>STOP</div>
+                                  <div className="text-sm font-black" style={{ color: '#ff4444', fontFamily: 'monospace', lineHeight: '1' }}>${stopLoss.toFixed(2)}</div>
+                                  <div className="text-[9px] mt-0.5" style={{ color: '#f87171' }}>-{((currentPrice - stopLoss) / currentPrice * 100).toFixed(0)}%</div>
+                                </div>
+
+                                <div style={{ background: 'linear-gradient(135deg, rgba(45, 31, 13, 0.4) 0%, rgba(45, 31, 13, 0.2) 100%)', border: '1px solid #4d3d1a', borderRadius: '4px' }} className="p-1.5">
+                                  <div className="text-[8px] tracking-wider mb-0.5" style={{ color: '#fbbf24', fontFamily: 'monospace' }}>DECAY</div>
+                                  <div className="text-sm font-black" style={{ color: '#ffaa00', fontFamily: 'monospace', lineHeight: '1' }}>${(thetaDecay * 100).toFixed(0)}</div>
+                                  <div className="text-[9px] mt-0.5" style={{ color: '#fbbf24' }}>{dailyDecay.toFixed(2)}%/d</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Desktop: Left side info panel */}
+                          <div className="hidden md:flex flex-col md:w-[380px]" style={{ background: '#000000' }}>
 
                             {/* Header - Ticker & Status */}
                             <div style={{ background: '#000000', borderBottom: '1px solid #1a1a1a' }} className="px-3 py-2">
@@ -15576,7 +15742,7 @@ export default function TradingViewChart({
                             </div>
 
                             {/* Trade Management */}
-                            <div className="flex-1 p-2" style={{ background: '#000000' }}>
+                            <div className="md:flex-1 md:p-2 hidden md:block" style={{ background: '#000000' }}>
                               <div className="text-base tracking-widest mb-2 text-center font-bold" style={{ color: '#ff9500', opacity: 1, fontFamily: 'monospace' }}>TRADE MANAGEMENT</div>
                               <div className="grid grid-cols-2 gap-2">
                                 <div style={{ background: 'rgba(13, 40, 24, 0.3)', border: '1px solid #1a4d2e' }} className="p-2 relative">
@@ -15611,8 +15777,364 @@ export default function TradingViewChart({
                             </div>
                           </div>
 
-                          {/* Right side: Charts spanning full height */}
-                          <div className="flex-1">
+                          {/* Mobile charts - conditional rendering (default hidden) */}
+                          {optionChartsVisible[option.id] && (
+                            <div className="md:hidden">
+                              <div className="md:flex md:gap-4 space-y-3 md:space-y-0">
+                                {(['1D', '5D', '1M'] as const).map(tf => {
+                                  const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+                                  return (
+                                    <button
+                                      key={tf}
+                                      onClick={() => setOptionsTradesTimeframes(prev => ({ ...prev, [option.id]: tf }))}
+                                      className="px-4 py-1 rounded text-xs font-bold uppercase transition-all"
+                                      style={{
+                                        background: currentTimeframe === tf ? '#ff9500' : '#1a1a1a',
+                                        color: currentTimeframe === tf ? '#000000' : '#ffffff',
+                                        border: `1px solid ${currentTimeframe === tf ? '#ff9500' : '#333'}`,
+                                        fontFamily: 'monospace'
+                                      }}
+                                    >
+                                      {tf}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="md:flex md:gap-4 space-y-3 md:space-y-0">{/* Options Premium Chart */}
+                                <div className="md:border-l border-gray-800/30 md:pl-4">
+                                  <div className="text-xs text-white font-bold uppercase mb-1 text-center" style={{ color: '#00d4ff' }}>Premium</div>
+                                  <div className="md:w-[450px] w-full md:h-[280px] h-[200px] rounded-lg" style={{
+                                    background: 'linear-gradient(to bottom, #030508 0%, #010203 100%)',
+                                    border: '1px solid rgba(0, 212, 255, 0.2)',
+                                    boxShadow: '0 0 20px rgba(0, 212, 255, 0.1)'
+                                  }}>
+                                    {optionPremiumData.length > 0 ? (
+                                      <svg width="100%" height="100%" viewBox="0 0 450 280" preserveAspectRatio="xMidYMid meet" className="overflow-visible">
+                                        {(() => {
+                                          const prices = optionPremiumData.map(d => d.price);
+                                          const minPrice = Math.min(...prices);
+                                          const maxPrice = Math.max(...prices);
+                                          const priceRange = maxPrice - minPrice || 1;
+                                          const midPrice = (minPrice + maxPrice) / 2;
+
+                                          // Add margins: 10px on left, 45px on right, 10px top, 20px bottom
+                                          const chartWidth = 450;
+                                          const chartHeight = 280;
+                                          const marginLeft = 10;
+                                          const marginRight = 45;
+                                          const marginTop = 10;
+                                          const marginBottom = 20;
+                                          const plotWidth = chartWidth - marginLeft - marginRight;
+                                          const plotHeight = chartHeight - marginTop - marginBottom;
+
+                                          const points = optionPremiumData.map((d, i) => {
+                                            const x = marginLeft + (i / (optionPremiumData.length - 1)) * plotWidth;
+                                            const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
+                                            return `${x},${y}`;
+                                          }).join(' ');
+
+                                          const isPositive = optionPremiumData[optionPremiumData.length - 1].price >= optionPremiumData[0].price;
+                                          const lineColor = isPositive ? '#00ff88' : '#ff4466';
+                                          const areaColor = isPositive ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 68, 102, 0.15)';
+
+                                          // Options only trade during market hours - create full area path
+                                          const areaPath = `M ${marginLeft},${marginTop + plotHeight} L ${points.split(' ').map(p => `${p}`).join(' L ')} L ${marginLeft + plotWidth},${marginTop + plotHeight} Z`;
+
+                                          // X-axis labels
+                                          const firstTime = new Date(optionPremiumData[0].timestamp);
+                                          const midTime = new Date(optionPremiumData[Math.floor(optionPremiumData.length / 2)].timestamp);
+                                          const lastTime = new Date(optionPremiumData[optionPremiumData.length - 1].timestamp);
+
+                                          const formatTime = (date: Date) => {
+                                            const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+                                            if (currentTimeframe === '1D') {
+                                              return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
+                                            } else if (currentTimeframe === '5D') {
+                                              return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' });
+                                            } else {
+                                              return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+                                            }
+                                          };
+
+                                          return (
+                                            <>
+                                              {/* Grid lines */}
+                                              <line x1={marginLeft} y1={marginTop} x2={marginLeft + plotWidth} y2={marginTop} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+                                              <line x1={marginLeft} y1={marginTop + plotHeight / 2} x2={marginLeft + plotWidth} y2={marginTop + plotHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+                                              <line x1={marginLeft} y1={marginTop + plotHeight} x2={marginLeft + plotWidth} y2={marginTop + plotHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+
+                                              {/* Area fill */}
+                                              <path d={areaPath} fill={areaColor} />
+
+                                              {/* Main line - crisp and bold */}
+                                              <polyline
+                                                points={points}
+                                                fill="none"
+                                                stroke={lineColor}
+                                                strokeWidth="2.5"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              />
+
+                                              {/* Data points */}
+                                              {optionPremiumData.filter((_, i) => i % Math.max(1, Math.floor(optionPremiumData.length / 20)) === 0).map((d, i) => {
+                                                const idx = i * Math.max(1, Math.floor(optionPremiumData.length / 20));
+                                                const x = marginLeft + (idx / (optionPremiumData.length - 1)) * plotWidth;
+                                                const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
+                                                return (
+                                                  <circle
+                                                    key={i}
+                                                    cx={x}
+                                                    cy={y}
+                                                    r="3"
+                                                    fill={lineColor}
+                                                    opacity="0.8"
+                                                  />
+                                                );
+                                              })}
+
+                                              {/* Y-axis labels */}
+                                              <text x={chartWidth - 2} y={marginTop + 5} fill="#00d4ff" fontSize="10" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 2} y={marginTop + plotHeight / 2 + 3} fill="white" fontSize="11" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 2} y={marginTop + plotHeight} fill="white" fontSize="11" textAnchor="end">${minPrice.toFixed(2)}</text>
+                                              {/* X-axis labels */}
+                                              <text x={marginLeft} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="start">{formatTime(firstTime)}</text>
+                                              <text x={marginLeft + plotWidth / 2} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="middle">{formatTime(midTime)}</text>
+                                              <text x={marginLeft + plotWidth} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="end">{formatTime(lastTime)}</text>
+                                            </>
+                                          );
+                                        })()}
+                                      </svg>
+                                    ) : (
+                                      <div className="flex items-center justify-center h-full text-gray-600 text-xs">
+                                        Loading...
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Stock Chart */}
+                                <div className="md:border-l border-gray-800/30 md:pl-4">
+                                  <div className="text-xs text-white font-bold uppercase mb-1 text-center" style={{ color: '#ff9500' }}>Stock Price</div>
+                                  <div className="md:w-[450px] w-full md:h-[280px] h-[200px] rounded-lg" style={{
+                                    background: 'linear-gradient(to bottom, #030508 0%, #010203 100%)',
+                                    border: '1px solid rgba(255, 149, 0, 0.2)',
+                                    boxShadow: '0 0 20px rgba(255, 149, 0, 0.1)'
+                                  }}>
+                                    {stockData.length > 0 ? (
+                                      <svg width="100%" height="100%" viewBox="0 0 450 280" preserveAspectRatio="xMidYMid meet" className="overflow-visible">
+                                        {(() => {
+                                          const prices = stockData.map(d => d.price);
+                                          const minPrice = Math.min(...prices);
+                                          const maxPrice = Math.max(...prices);
+                                          const priceRange = maxPrice - minPrice || 1;
+                                          const midPrice = (minPrice + maxPrice) / 2;
+
+                                          // Add margins: 10px on left, 45px on right, 10px top, 20px bottom
+                                          const chartWidth = 450;
+                                          const chartHeight = 280;
+                                          const marginLeft = 10;
+                                          const marginRight = 45;
+                                          const marginTop = 10;
+                                          const marginBottom = 20;
+                                          const plotWidth = chartWidth - marginLeft - marginRight;
+                                          const plotHeight = chartHeight - marginTop - marginBottom;
+
+                                          const points = stockData.map((d, i) => {
+                                            const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
+                                            const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
+                                            return `${x},${y}`;
+                                          }).join(' ');
+
+                                          const isPositive = stockData[stockData.length - 1].price >= stockData[0].price;
+                                          const lineColor = isPositive ? '#00ff88' : '#ff4466';
+                                          const areaColor = isPositive ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 68, 102, 0.15)';
+
+                                          // Session backgrounds for pre-market and after-hours (stocks trade extended hours)
+                                          const sessionBackgrounds: Array<{ x: number; width: number; color: string }> = [];
+                                          const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+                                          if (currentTimeframe === '1D') {
+                                            let lastBgColor: string | null = null;
+                                            for (let i = 0; i < stockData.length; i++) {
+                                              const time = new Date(stockData[i].timestamp);
+                                              const etTime = time.toLocaleString('en-US', { timeZone: 'America/New_York' });
+                                              const etDate = new Date(etTime);
+                                              const hour = etDate.getHours();
+                                              const minute = etDate.getMinutes();
+                                              const totalMinutes = hour * 60 + minute;
+
+                                              let bgColor: string | null = null;
+                                              if (totalMinutes >= 4 * 60 && totalMinutes < 9 * 60 + 30) { // Pre-market: 4 AM - 9:30 AM ET
+                                                bgColor = 'rgba(255, 140, 0, 0.12)'; // Orange
+                                              } else if (totalMinutes >= 16 * 60 && totalMinutes < 20 * 60) { // After-hours: 4 PM - 8 PM ET
+                                                bgColor = 'rgba(25, 50, 100, 0.15)'; // Navy blue
+                                              }
+
+                                              if (bgColor && bgColor !== lastBgColor) {
+                                                const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
+                                                const nextIndex = stockData.slice(i + 1).findIndex((d, idx) => {
+                                                  const t = new Date(d.timestamp);
+                                                  const tEt = t.toLocaleString('en-US', { timeZone: 'America/New_York' });
+                                                  const tEtDate = new Date(tEt);
+                                                  const h = tEtDate.getHours();
+                                                  const m = tEtDate.getMinutes();
+                                                  const tm = h * 60 + m;
+                                                  let nextBgColor: string | null = null;
+                                                  if (tm >= 4 * 60 && tm < 9 * 60 + 30) nextBgColor = 'rgba(255, 140, 0, 0.12)'; // Orange
+                                                  else if (tm >= 16 * 60 && tm < 20 * 60) nextBgColor = 'rgba(25, 50, 100, 0.15)'; // Navy blue
+                                                  return nextBgColor !== bgColor;
+                                                });
+
+                                                const endIndex = nextIndex === -1 ? stockData.length - 1 : nextIndex + i + 1;
+                                                const x2 = marginLeft + (endIndex / (stockData.length - 1)) * plotWidth;
+                                                const width = x2 - x;
+
+                                                sessionBackgrounds.push({
+                                                  x,
+                                                  width,
+                                                  color: bgColor
+                                                });
+                                              }
+                                              lastBgColor = bgColor;
+                                            }
+                                          }
+
+                                          // Create area path segments only for market hours
+                                          const marketHoursSegments: string[] = [];
+                                          if (currentTimeframe === '1D') {
+                                            let segmentPoints: string[] = [];
+                                            for (let i = 0; i < stockData.length; i++) {
+                                              const time = new Date(stockData[i].timestamp);
+                                              const etTime = time.toLocaleString('en-US', { timeZone: 'America/New_York' });
+                                              const etDate = new Date(etTime);
+                                              const hour = etDate.getHours();
+                                              const minute = etDate.getMinutes();
+                                              const totalMinutes = hour * 60 + minute;
+                                              const isMarketHours = totalMinutes >= 9 * 60 + 30 && totalMinutes < 16 * 60;
+
+                                              if (isMarketHours) {
+                                                const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
+                                                const y = marginTop + (plotHeight - ((stockData[i].price - minPrice) / priceRange * plotHeight));
+                                                segmentPoints.push(`${x},${y}`);
+                                              } else if (segmentPoints.length > 0) {
+                                                // End of market hours segment
+                                                const firstPoint = segmentPoints[0];
+                                                const lastPoint = segmentPoints[segmentPoints.length - 1];
+                                                const [lastX] = lastPoint.split(',');
+                                                const [firstX] = firstPoint.split(',');
+                                                const segmentPath = `M ${firstX},${marginTop + plotHeight} L ${segmentPoints.join(' L ')} L ${lastX},${marginTop + plotHeight} Z`;
+                                                marketHoursSegments.push(segmentPath);
+                                                segmentPoints = [];
+                                              }
+                                            }
+                                            // Handle last segment if it ends during market hours
+                                            if (segmentPoints.length > 0) {
+                                              const firstPoint = segmentPoints[0];
+                                              const lastPoint = segmentPoints[segmentPoints.length - 1];
+                                              const [lastX] = lastPoint.split(',');
+                                              const [firstX] = firstPoint.split(',');
+                                              const segmentPath = `M ${firstX},${marginTop + plotHeight} L ${segmentPoints.join(' L ')} L ${lastX},${marginTop + plotHeight} Z`;
+                                              marketHoursSegments.push(segmentPath);
+                                            }
+                                          } else {
+                                            // For non-1D timeframes, show full area
+                                            const areaPath = `M ${marginLeft},${marginTop + plotHeight} L ${points.split(' ').map(p => `${p}`).join(' L ')} L ${marginLeft + plotWidth},${marginTop + plotHeight} Z`;
+                                            marketHoursSegments.push(areaPath);
+                                          }
+
+                                          // X-axis labels
+                                          const firstTime = new Date(stockData[0].timestamp);
+                                          const midTime = new Date(stockData[Math.floor(stockData.length / 2)].timestamp);
+                                          const lastTime = new Date(stockData[stockData.length - 1].timestamp);
+
+                                          const formatTime = (date: Date) => {
+                                            const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+                                            if (currentTimeframe === '1D') {
+                                              return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
+                                            } else if (currentTimeframe === '5D') {
+                                              return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' });
+                                            } else {
+                                              return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+                                            }
+                                          };
+
+                                          return (
+                                            <>
+                                              {/* Session backgrounds */}
+                                              {sessionBackgrounds.map((bg, i) => (
+                                                <rect
+                                                  key={i}
+                                                  x={bg.x}
+                                                  y={marginTop}
+                                                  width={bg.width}
+                                                  height={plotHeight}
+                                                  fill={bg.color}
+                                                />
+                                              ))}
+
+                                              {/* Grid lines */}
+                                              <line x1={marginLeft} y1={marginTop} x2={marginLeft + plotWidth} y2={marginTop} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+                                              <line x1={marginLeft} y1={marginTop + plotHeight / 2} x2={marginLeft + plotWidth} y2={marginTop + plotHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+                                              <line x1={marginLeft} y1={marginTop + plotHeight} x2={marginLeft + plotWidth} y2={marginTop + plotHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+
+                                              {/* Area fill - only during market hours */}
+                                              {marketHoursSegments.map((path, i) => (
+                                                <path key={i} d={path} fill={areaColor} />
+                                              ))}
+
+                                              {/* Main line - crisp and bold */}
+                                              <polyline
+                                                points={points}
+                                                fill="none"
+                                                stroke={lineColor}
+                                                strokeWidth="2.5"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              />
+
+                                              {/* Data points - show fewer for cleaner look */}
+                                              {stockData.filter((_, i) => i % Math.max(1, Math.floor(stockData.length / 20)) === 0).map((d, i) => {
+                                                const idx = i * Math.max(1, Math.floor(stockData.length / 20));
+                                                const x = marginLeft + (idx / (stockData.length - 1)) * plotWidth;
+                                                const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
+                                                return (
+                                                  <circle
+                                                    key={i}
+                                                    cx={x}
+                                                    cy={y}
+                                                    r="3"
+                                                    fill={lineColor}
+                                                    opacity="0.8"
+                                                  />
+                                                );
+                                              })}
+
+                                              {/* Y-axis labels */}
+                                              <text x={chartWidth - 2} y={marginTop + 5} fill="#ff9500" fontSize="10" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 2} y={marginTop + plotHeight / 2 + 3} fill="white" fontSize="11" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 2} y={marginTop + plotHeight} fill="white" fontSize="11" textAnchor="end">${minPrice.toFixed(2)}</text>
+                                              {/* X-axis labels */}
+                                              <text x={marginLeft} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="start">{formatTime(firstTime)}</text>
+                                              <text x={marginLeft + plotWidth / 2} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="middle">{formatTime(midTime)}</text>
+                                              <text x={marginLeft + plotWidth} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="end">{formatTime(lastTime)}</text>
+                                            </>
+                                          );
+                                        })()}
+                                      </svg>
+                                    ) : (
+                                      <div className="flex items-center justify-center h-full text-gray-600 text-xs">
+                                        Loading...
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Desktop Right side: Charts spanning full height */}
+                          <div className="hidden md:block md:flex-1">
                             {/* Timeframe Selector */}
                             <div className="flex justify-center gap-2 mb-3">
                               {(['1D', '5D', '1M'] as const).map(tf => {
@@ -15635,16 +16157,17 @@ export default function TradingViewChart({
                               })}
                             </div>
 
-                            <div className="flex gap-4">{/* Options Premium Chart */}
-                              <div className="border-l border-gray-800/30 pl-4">
-                                <div className="text-xs text-white font-bold uppercase mb-1 text-center" style={{ color: '#00d4ff' }}>Premium</div>
-                                <div className="w-[450px] h-[280px] rounded-lg" style={{
+                            <div className="flex gap-4">
+                              {/* Premium Chart */}
+                              <div className="flex-1">
+                                <div className="text-sm text-white font-bold uppercase mb-2 text-center" style={{ color: '#00d4ff' }}>Premium</div>
+                                <div className="w-full h-[265px] rounded-lg" style={{
                                   background: 'linear-gradient(to bottom, #030508 0%, #010203 100%)',
                                   border: '1px solid rgba(0, 212, 255, 0.2)',
                                   boxShadow: '0 0 20px rgba(0, 212, 255, 0.1)'
                                 }}>
                                   {optionPremiumData.length > 0 ? (
-                                    <svg width="450" height="280" className="overflow-visible">
+                                    <svg width="100%" height="100%" style={{ display: 'block' }}>
                                       {(() => {
                                         const prices = optionPremiumData.map(d => d.price);
                                         const minPrice = Math.min(...prices);
@@ -15652,37 +16175,33 @@ export default function TradingViewChart({
                                         const priceRange = maxPrice - minPrice || 1;
                                         const midPrice = (minPrice + maxPrice) / 2;
 
-                                        // Add margins: 10px on left, 45px on right, 10px top, 20px bottom
-                                        const chartWidth = 450;
-                                        const chartHeight = 280;
-                                        const marginLeft = 10;
-                                        const marginRight = 45;
-                                        const marginTop = 10;
-                                        const marginBottom = 20;
-                                        const plotWidth = chartWidth - marginLeft - marginRight;
-                                        const plotHeight = chartHeight - marginTop - marginBottom;
+                                        const width = 800;
+                                        const height = 265;
+                                        const margin = { top: 15, right: 80, bottom: 30, left: 15 };
+                                        const chartWidth = width - margin.left - margin.right;
+                                        const chartHeight = height - margin.top - margin.bottom;
 
-                                        const points = optionPremiumData.map((d, i) => {
-                                          const x = marginLeft + (i / (optionPremiumData.length - 1)) * plotWidth;
-                                          const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
-                                          return `${x},${y}`;
-                                        }).join(' ');
+                                        const xScale = (i: number) => margin.left + (i / Math.max(1, optionPremiumData.length - 1)) * chartWidth;
+                                        const yScale = (price: number) => margin.top + chartHeight - ((price - minPrice) / priceRange * chartHeight);
+
+                                        const points = optionPremiumData.map((d, i) => `${xScale(i)},${yScale(d.price)}`).join(' ');
 
                                         const isPositive = optionPremiumData[optionPremiumData.length - 1].price >= optionPremiumData[0].price;
                                         const lineColor = isPositive ? '#00ff88' : '#ff4466';
                                         const areaColor = isPositive ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 68, 102, 0.15)';
 
-                                        // Options only trade during market hours - create full area path
-                                        const areaPath = `M ${marginLeft},${marginTop + plotHeight} L ${points.split(' ').map(p => `${p}`).join(' L ')} L ${marginLeft + plotWidth},${marginTop + plotHeight} Z`;
+                                        const areaPoints = optionPremiumData.map((d, i) => `${xScale(i)},${yScale(d.price)}`);
+                                        const areaPath = `M ${margin.left},${margin.top + chartHeight} L ${areaPoints.join(' L ')} L ${margin.left + chartWidth},${margin.top + chartHeight} Z`;
 
-                                        // X-axis labels
-                                        const firstTime = new Date(optionPremiumData[0].timestamp);
-                                        const midTime = new Date(optionPremiumData[Math.floor(optionPremiumData.length / 2)].timestamp);
-                                        const lastTime = new Date(optionPremiumData[optionPremiumData.length - 1].timestamp);
-
-                                        const formatTime = (date: Date) => {
+                                        const formatTime = (date: Date, position: 'start' | 'mid' | 'end') => {
                                           const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
                                           if (currentTimeframe === '1D') {
+                                            const etTime = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+                                            const totalMinutes = etTime.getHours() * 60 + etTime.getMinutes();
+
+                                            if (position === 'start' && totalMinutes < 570) return 'Pre-Market';
+                                            if (position === 'start' && totalMinutes >= 570) return '9:30 AM';
+                                            if (position === 'end') return '4:00 PM';
                                             return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
                                           } else if (currentTimeframe === '5D') {
                                             return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' });
@@ -15691,73 +16210,51 @@ export default function TradingViewChart({
                                           }
                                         };
 
+                                        const firstTime = new Date(optionPremiumData[0].timestamp);
+                                        const midTime = new Date(optionPremiumData[Math.floor(optionPremiumData.length / 2)].timestamp);
+                                        const lastTime = new Date(optionPremiumData[optionPremiumData.length - 1].timestamp);
+
                                         return (
-                                          <>
-                                            {/* Grid lines */}
-                                            <line x1={marginLeft} y1={marginTop} x2={marginLeft + plotWidth} y2={marginTop} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                            <line x1={marginLeft} y1={marginTop + plotHeight / 2} x2={marginLeft + plotWidth} y2={marginTop + plotHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                            <line x1={marginLeft} y1={marginTop + plotHeight} x2={marginLeft + plotWidth} y2={marginTop + plotHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                                          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" width="100%" height="100%">
+                                            <line x1={margin.left} y1={margin.top} x2={margin.left + chartWidth} y2={margin.top} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+                                            <line x1={margin.left} y1={margin.top + chartHeight / 2} x2={margin.left + chartWidth} y2={margin.top + chartHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+                                            <line x1={margin.left} y1={margin.top + chartHeight} x2={margin.left + chartWidth} y2={margin.top + chartHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
 
-                                            {/* Area fill */}
                                             <path d={areaPath} fill={areaColor} />
+                                            <polyline points={points} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
-                                            {/* Main line - crisp and bold */}
-                                            <polyline
-                                              points={points}
-                                              fill="none"
-                                              stroke={lineColor}
-                                              strokeWidth="2.5"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-
-                                            {/* Data points */}
-                                            {optionPremiumData.filter((_, i) => i % Math.max(1, Math.floor(optionPremiumData.length / 20)) === 0).map((d, i) => {
-                                              const idx = i * Math.max(1, Math.floor(optionPremiumData.length / 20));
-                                              const x = marginLeft + (idx / (optionPremiumData.length - 1)) * plotWidth;
-                                              const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
-                                              return (
-                                                <circle
-                                                  key={i}
-                                                  cx={x}
-                                                  cy={y}
-                                                  r="3"
-                                                  fill={lineColor}
-                                                  opacity="0.8"
-                                                />
-                                              );
+                                            {optionPremiumData.filter((_, i) => i % Math.max(1, Math.floor(optionPremiumData.length / 30)) === 0).map((d, i) => {
+                                              const idx = i * Math.max(1, Math.floor(optionPremiumData.length / 30));
+                                              return <circle key={i} cx={xScale(idx)} cy={yScale(d.price)} r="3" fill={lineColor} opacity="0.8" />;
                                             })}
 
-                                            {/* Y-axis labels */}
-                                            <text x={chartWidth - 2} y={marginTop + 5} fill="#00d4ff" fontSize="10" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
-                                            <text x={chartWidth - 2} y={marginTop + plotHeight / 2 + 3} fill="white" fontSize="11" textAnchor="end">${midPrice.toFixed(2)}</text>
-                                            <text x={chartWidth - 2} y={marginTop + plotHeight} fill="white" fontSize="11" textAnchor="end">${minPrice.toFixed(2)}</text>
-                                            {/* X-axis labels */}
-                                            <text x={marginLeft} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="start">{formatTime(firstTime)}</text>
-                                            <text x={marginLeft + plotWidth / 2} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="middle">{formatTime(midTime)}</text>
-                                            <text x={marginLeft + plotWidth} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="end">{formatTime(lastTime)}</text>
-                                          </>
+                                            <text x={width - 5} y={margin.top + 12} fill="#00d4ff" fontSize="18" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                            <text x={width - 5} y={margin.top + chartHeight / 2 + 5} fill="white" fontSize="18" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                            <text x={width - 5} y={margin.top + chartHeight - 5} fill="white" fontSize="18" textAnchor="end">${minPrice.toFixed(2)}</text>
+
+                                            <text x={margin.left} y={height - 8} fill="white" fontSize="16" textAnchor="start">{formatTime(firstTime, 'start')}</text>
+                                            <text x={margin.left + chartWidth / 2} y={height - 8} fill="white" fontSize="16" textAnchor="middle">{formatTime(midTime, 'mid')}</text>
+                                            <text x={margin.left + chartWidth} y={height - 8} fill="white" fontSize="16" textAnchor="end">{formatTime(lastTime, 'end')}</text>
+                                          </svg>
                                         );
                                       })()}
                                     </svg>
                                   ) : (
-                                    <div className="flex items-center justify-center h-full text-gray-600 text-xs">
-                                      Loading...
-                                    </div>
+                                    <div className="flex items-center justify-center h-full text-gray-600 text-sm">Loading...</div>
                                   )}
                                 </div>
                               </div>
 
                               {/* Stock Chart */}
-                              <div className="border-l border-gray-800/30 pl-4">
-                                <div className="text-xs text-white font-bold uppercase mb-1 text-center" style={{ color: '#ff9500' }}>Stock Price</div>
-                                <div className="w-[450px] h-[280px] rounded-lg" style={{
+                              <div className="flex-1">
+                                <div className="text-sm text-white font-bold uppercase mb-2 text-center" style={{ color: '#ff9500' }}>Stock Price</div>
+                                <div className="w-full h-[265px] rounded-lg" style={{
                                   background: 'linear-gradient(to bottom, #030508 0%, #010203 100%)',
                                   border: '1px solid rgba(255, 149, 0, 0.2)',
                                   boxShadow: '0 0 20px rgba(255, 149, 0, 0.1)'
                                 }}>
                                   {stockData.length > 0 ? (
-                                    <svg width="450" height="280" className="overflow-visible">
+                                    <svg width="100%" height="100%" style={{ display: 'block' }}>
                                       {(() => {
                                         const prices = stockData.map(d => d.price);
                                         const minPrice = Math.min(...prices);
@@ -15765,126 +16262,88 @@ export default function TradingViewChart({
                                         const priceRange = maxPrice - minPrice || 1;
                                         const midPrice = (minPrice + maxPrice) / 2;
 
-                                        // Add margins: 10px on left, 45px on right, 10px top, 20px bottom
-                                        const chartWidth = 450;
-                                        const chartHeight = 280;
-                                        const marginLeft = 10;
-                                        const marginRight = 45;
-                                        const marginTop = 10;
-                                        const marginBottom = 20;
-                                        const plotWidth = chartWidth - marginLeft - marginRight;
-                                        const plotHeight = chartHeight - marginTop - marginBottom;
+                                        const width = 800;
+                                        const height = 265;
+                                        const margin = { top: 15, right: 80, bottom: 30, left: 15 };
+                                        const chartWidth = width - margin.left - margin.right;
+                                        const chartHeight = height - margin.top - margin.bottom;
 
-                                        const points = stockData.map((d, i) => {
-                                          const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
-                                          const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
-                                          return `${x},${y}`;
-                                        }).join(' ');
+                                        const xScale = (i: number) => margin.left + (i / Math.max(1, stockData.length - 1)) * chartWidth;
+                                        const yScale = (price: number) => margin.top + chartHeight - ((price - minPrice) / priceRange * chartHeight);
+
+                                        const points = stockData.map((d, i) => `${xScale(i)},${yScale(d.price)}`).join(' ');
 
                                         const isPositive = stockData[stockData.length - 1].price >= stockData[0].price;
                                         const lineColor = isPositive ? '#00ff88' : '#ff4466';
                                         const areaColor = isPositive ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 68, 102, 0.15)';
 
-                                        // Session backgrounds for pre-market and after-hours (stocks trade extended hours)
-                                        const sessionBackgrounds: Array<{ x: number; width: number; color: string }> = [];
                                         const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+
+                                        // Session backgrounds
+                                        const sessionBgs: Array<{ x: number; width: number; color: string }> = [];
                                         if (currentTimeframe === '1D') {
-                                          let lastBgColor: string | null = null;
+                                          let lastBg: string | null = null;
+                                          let startIdx = -1;
+
                                           for (let i = 0; i < stockData.length; i++) {
                                             const time = new Date(stockData[i].timestamp);
-                                            const etTime = time.toLocaleString('en-US', { timeZone: 'America/New_York' });
-                                            const etDate = new Date(etTime);
-                                            const hour = etDate.getHours();
-                                            const minute = etDate.getMinutes();
-                                            const totalMinutes = hour * 60 + minute;
+                                            const etTime = new Date(time.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+                                            const totalMinutes = etTime.getHours() * 60 + etTime.getMinutes();
 
-                                            let bgColor: string | null = null;
-                                            if (totalMinutes >= 4 * 60 && totalMinutes < 9 * 60 + 30) { // Pre-market: 4 AM - 9:30 AM ET
-                                              bgColor = 'rgba(255, 140, 0, 0.12)'; // Orange
-                                            } else if (totalMinutes >= 16 * 60 && totalMinutes < 20 * 60) { // After-hours: 4 PM - 8 PM ET
-                                              bgColor = 'rgba(25, 50, 100, 0.15)'; // Navy blue
+                                            let bg: string | null = null;
+                                            if (totalMinutes >= 240 && totalMinutes < 570) bg = 'rgba(255, 140, 0, 0.12)';
+                                            else if (totalMinutes >= 960 && totalMinutes < 1200) bg = 'rgba(25, 50, 100, 0.15)';
+
+                                            if (bg !== lastBg) {
+                                              if (lastBg && startIdx >= 0) {
+                                                sessionBgs.push({ x: xScale(startIdx), width: xScale(i - 1) - xScale(startIdx), color: lastBg });
+                                              }
+                                              startIdx = i;
+                                              lastBg = bg;
                                             }
-
-                                            if (bgColor && bgColor !== lastBgColor) {
-                                              const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
-                                              const nextIndex = stockData.slice(i + 1).findIndex((d, idx) => {
-                                                const t = new Date(d.timestamp);
-                                                const tEt = t.toLocaleString('en-US', { timeZone: 'America/New_York' });
-                                                const tEtDate = new Date(tEt);
-                                                const h = tEtDate.getHours();
-                                                const m = tEtDate.getMinutes();
-                                                const tm = h * 60 + m;
-                                                let nextBgColor: string | null = null;
-                                                if (tm >= 4 * 60 && tm < 9 * 60 + 30) nextBgColor = 'rgba(255, 140, 0, 0.12)'; // Orange
-                                                else if (tm >= 16 * 60 && tm < 20 * 60) nextBgColor = 'rgba(25, 50, 100, 0.15)'; // Navy blue
-                                                return nextBgColor !== bgColor;
-                                              });
-
-                                              const endIndex = nextIndex === -1 ? stockData.length - 1 : nextIndex + i + 1;
-                                              const x2 = marginLeft + (endIndex / (stockData.length - 1)) * plotWidth;
-                                              const width = x2 - x;
-
-                                              sessionBackgrounds.push({
-                                                x,
-                                                width,
-                                                color: bgColor
-                                              });
-                                            }
-                                            lastBgColor = bgColor;
+                                          }
+                                          if (lastBg && startIdx >= 0) {
+                                            sessionBgs.push({ x: xScale(startIdx), width: xScale(stockData.length - 1) - xScale(startIdx), color: lastBg });
                                           }
                                         }
 
-                                        // Create area path segments only for market hours
-                                        const marketHoursSegments: string[] = [];
+                                        // Market hours area
+                                        const marketSegments: string[] = [];
                                         if (currentTimeframe === '1D') {
                                           let segmentPoints: string[] = [];
                                           for (let i = 0; i < stockData.length; i++) {
                                             const time = new Date(stockData[i].timestamp);
-                                            const etTime = time.toLocaleString('en-US', { timeZone: 'America/New_York' });
-                                            const etDate = new Date(etTime);
-                                            const hour = etDate.getHours();
-                                            const minute = etDate.getMinutes();
-                                            const totalMinutes = hour * 60 + minute;
-                                            const isMarketHours = totalMinutes >= 9 * 60 + 30 && totalMinutes < 16 * 60;
+                                            const etTime = new Date(time.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+                                            const totalMinutes = etTime.getHours() * 60 + etTime.getMinutes();
+                                            const isMarketHours = totalMinutes >= 570 && totalMinutes < 960;
 
                                             if (isMarketHours) {
-                                              const x = marginLeft + (i / (stockData.length - 1)) * plotWidth;
-                                              const y = marginTop + (plotHeight - ((stockData[i].price - minPrice) / priceRange * plotHeight));
-                                              segmentPoints.push(`${x},${y}`);
+                                              segmentPoints.push(`${xScale(i)},${yScale(stockData[i].price)}`);
                                             } else if (segmentPoints.length > 0) {
-                                              // End of market hours segment
-                                              const firstPoint = segmentPoints[0];
-                                              const lastPoint = segmentPoints[segmentPoints.length - 1];
-                                              const [lastX] = lastPoint.split(',');
-                                              const [firstX] = firstPoint.split(',');
-                                              const segmentPath = `M ${firstX},${marginTop + plotHeight} L ${segmentPoints.join(' L ')} L ${lastX},${marginTop + plotHeight} Z`;
-                                              marketHoursSegments.push(segmentPath);
+                                              const firstPoint = segmentPoints[0].split(',');
+                                              const lastPoint = segmentPoints[segmentPoints.length - 1].split(',');
+                                              marketSegments.push(`M ${firstPoint[0]},${margin.top + chartHeight} L ${segmentPoints.join(' L ')} L ${lastPoint[0]},${margin.top + chartHeight} Z`);
                                               segmentPoints = [];
                                             }
                                           }
-                                          // Handle last segment if it ends during market hours
                                           if (segmentPoints.length > 0) {
-                                            const firstPoint = segmentPoints[0];
-                                            const lastPoint = segmentPoints[segmentPoints.length - 1];
-                                            const [lastX] = lastPoint.split(',');
-                                            const [firstX] = firstPoint.split(',');
-                                            const segmentPath = `M ${firstX},${marginTop + plotHeight} L ${segmentPoints.join(' L ')} L ${lastX},${marginTop + plotHeight} Z`;
-                                            marketHoursSegments.push(segmentPath);
+                                            const firstPoint = segmentPoints[0].split(',');
+                                            const lastPoint = segmentPoints[segmentPoints.length - 1].split(',');
+                                            marketSegments.push(`M ${firstPoint[0]},${margin.top + chartHeight} L ${segmentPoints.join(' L ')} L ${lastPoint[0]},${margin.top + chartHeight} Z`);
                                           }
                                         } else {
-                                          // For non-1D timeframes, show full area
-                                          const areaPath = `M ${marginLeft},${marginTop + plotHeight} L ${points.split(' ').map(p => `${p}`).join(' L ')} L ${marginLeft + plotWidth},${marginTop + plotHeight} Z`;
-                                          marketHoursSegments.push(areaPath);
+                                          const areaPoints = stockData.map((d, i) => `${xScale(i)},${yScale(d.price)}`);
+                                          marketSegments.push(`M ${margin.left},${margin.top + chartHeight} L ${areaPoints.join(' L ')} L ${margin.left + chartWidth},${margin.top + chartHeight} Z`);
                                         }
 
-                                        // X-axis labels
-                                        const firstTime = new Date(stockData[0].timestamp);
-                                        const midTime = new Date(stockData[Math.floor(stockData.length / 2)].timestamp);
-                                        const lastTime = new Date(stockData[stockData.length - 1].timestamp);
-
-                                        const formatTime = (date: Date) => {
-                                          const currentTimeframe = optionsTradesTimeframes[option.id] || '1D';
+                                        const formatTime = (date: Date, position: 'start' | 'mid' | 'end') => {
                                           if (currentTimeframe === '1D') {
+                                            const etTime = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+                                            const totalMinutes = etTime.getHours() * 60 + etTime.getMinutes();
+
+                                            if (position === 'start' && totalMinutes < 570) return 'Pre-Market';
+                                            if (position === 'start' && totalMinutes >= 570) return '9:30 AM';
+                                            if (position === 'end') return '4:00 PM';
                                             return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
                                           } else if (currentTimeframe === '5D') {
                                             return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' });
@@ -15893,73 +16352,44 @@ export default function TradingViewChart({
                                           }
                                         };
 
+                                        const firstTime = new Date(stockData[0].timestamp);
+                                        const midTime = new Date(stockData[Math.floor(stockData.length / 2)].timestamp);
+                                        const lastTime = new Date(stockData[stockData.length - 1].timestamp);
+
                                         return (
-                                          <>
-                                            {/* Session backgrounds */}
-                                            {sessionBackgrounds.map((bg, i) => (
-                                              <rect
-                                                key={i}
-                                                x={bg.x}
-                                                y={marginTop}
-                                                width={bg.width}
-                                                height={plotHeight}
-                                                fill={bg.color}
-                                              />
+                                          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" width="100%" height="100%">
+                                            {sessionBgs.map((bg, i) => (
+                                              <rect key={i} x={bg.x} y={margin.top} width={bg.width} height={chartHeight} fill={bg.color} />
                                             ))}
 
-                                            {/* Grid lines */}
-                                            <line x1={marginLeft} y1={marginTop} x2={marginLeft + plotWidth} y2={marginTop} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                            <line x1={marginLeft} y1={marginTop + plotHeight / 2} x2={marginLeft + plotWidth} y2={marginTop + plotHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                            <line x1={marginLeft} y1={marginTop + plotHeight} x2={marginLeft + plotWidth} y2={marginTop + plotHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                                            <line x1={margin.left} y1={margin.top} x2={margin.left + chartWidth} y2={margin.top} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+                                            <line x1={margin.left} y1={margin.top + chartHeight / 2} x2={margin.left + chartWidth} y2={margin.top + chartHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+                                            <line x1={margin.left} y1={margin.top + chartHeight} x2={margin.left + chartWidth} y2={margin.top + chartHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
 
-                                            {/* Area fill - only during market hours */}
-                                            {marketHoursSegments.map((path, i) => (
+                                            {marketSegments.map((path, i) => (
                                               <path key={i} d={path} fill={areaColor} />
                                             ))}
 
-                                            {/* Main line - crisp and bold */}
-                                            <polyline
-                                              points={points}
-                                              fill="none"
-                                              stroke={lineColor}
-                                              strokeWidth="2.5"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
+                                            <polyline points={points} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
-                                            {/* Data points - show fewer for cleaner look */}
-                                            {stockData.filter((_, i) => i % Math.max(1, Math.floor(stockData.length / 20)) === 0).map((d, i) => {
-                                              const idx = i * Math.max(1, Math.floor(stockData.length / 20));
-                                              const x = marginLeft + (idx / (stockData.length - 1)) * plotWidth;
-                                              const y = marginTop + (plotHeight - ((d.price - minPrice) / priceRange * plotHeight));
-                                              return (
-                                                <circle
-                                                  key={i}
-                                                  cx={x}
-                                                  cy={y}
-                                                  r="3"
-                                                  fill={lineColor}
-                                                  opacity="0.8"
-                                                />
-                                              );
+                                            {stockData.filter((_, i) => i % Math.max(1, Math.floor(stockData.length / 30)) === 0).map((d, i) => {
+                                              const idx = i * Math.max(1, Math.floor(stockData.length / 30));
+                                              return <circle key={i} cx={xScale(idx)} cy={yScale(d.price)} r="3" fill={lineColor} opacity="0.8" />;
                                             })}
 
-                                            {/* Y-axis labels */}
-                                            <text x={chartWidth - 2} y={marginTop + 5} fill="#ff9500" fontSize="10" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
-                                            <text x={chartWidth - 2} y={marginTop + plotHeight / 2 + 3} fill="white" fontSize="11" textAnchor="end">${midPrice.toFixed(2)}</text>
-                                            <text x={chartWidth - 2} y={marginTop + plotHeight} fill="white" fontSize="11" textAnchor="end">${minPrice.toFixed(2)}</text>
-                                            {/* X-axis labels */}
-                                            <text x={marginLeft} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="start">{formatTime(firstTime)}</text>
-                                            <text x={marginLeft + plotWidth / 2} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="middle">{formatTime(midTime)}</text>
-                                            <text x={marginLeft + plotWidth} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="end">{formatTime(lastTime)}</text>
-                                          </>
+                                            <text x={width - 5} y={margin.top + 12} fill="#ff9500" fontSize="18" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                            <text x={width - 5} y={margin.top + chartHeight / 2 + 5} fill="white" fontSize="18" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                            <text x={width - 5} y={margin.top + chartHeight - 5} fill="white" fontSize="18" textAnchor="end">${minPrice.toFixed(2)}</text>
+
+                                            <text x={margin.left} y={height - 8} fill="white" fontSize="16" textAnchor="start">{formatTime(firstTime, 'start')}</text>
+                                            <text x={margin.left + chartWidth / 2} y={height - 8} fill="white" fontSize="16" textAnchor="middle">{formatTime(midTime, 'mid')}</text>
+                                            <text x={margin.left + chartWidth} y={height - 8} fill="white" fontSize="16" textAnchor="end">{formatTime(lastTime, 'end')}</text>
+                                          </svg>
                                         );
                                       })()}
                                     </svg>
                                   ) : (
-                                    <div className="flex items-center justify-center h-full text-gray-600 text-xs">
-                                      Loading...
-                                    </div>
+                                    <div className="flex items-center justify-center h-full text-gray-600 text-sm">Loading...</div>
                                   )}
                                 </div>
                               </div>
@@ -21060,7 +21490,7 @@ export default function TradingViewChart({
           {/* Sidebar Panels */}
           {activeSidebarPanel && (
             <div
-              className={`fixed top-32 md:top-45 bottom-4 left-0 md:left-[100px] w-full md:w-[1200px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
+              className={`fixed top-38 md:top-45 bottom-4 left-0 md:left-[100px] w-full md:w-[1200px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
               data-sidebar-panel={activeSidebarPanel}
             >
               {/* Sidebar panel debugging */}
