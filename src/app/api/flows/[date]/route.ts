@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { gunzip } from 'zlib';
+import { promisify } from 'util';
+
+const gunzipAsync = promisify(gunzip);
 
 export const runtime = 'nodejs';
 
@@ -17,8 +21,11 @@ export async function GET(
       );
     }
 
+    // Normalize to midnight UTC to match saved dates
+    dateObj.setUTCHours(0, 0, 0, 0);
+
     const flow = await prisma.flow.findUnique({
-      where: { date: dateObj.toISOString() },
+      where: { date: dateObj },
     });
 
     if (!flow) {
@@ -28,9 +35,14 @@ export async function GET(
       );
     }
 
+    // Decompress the data
+    const compressedBuffer = Buffer.from(flow.data, 'base64');
+    const decompressed = await gunzipAsync(compressedBuffer);
+    const dataString = decompressed.toString('utf8');
+
     return NextResponse.json({
       date: flow.date,
-      data: JSON.parse(flow.data),
+      data: JSON.parse(dataString),
       size: flow.size,
       createdAt: flow.createdAt,
     });
@@ -57,8 +69,11 @@ export async function DELETE(
       );
     }
 
+    // Normalize to midnight UTC to match saved dates
+    dateObj.setUTCHours(0, 0, 0, 0);
+
     await prisma.flow.delete({
-      where: { date: dateObj.toISOString() },
+      where: { date: dateObj },
     });
 
     return NextResponse.json({ success: true });

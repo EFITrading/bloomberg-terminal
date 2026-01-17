@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { gzip, gunzip } from 'zlib';
+import { promisify } from 'util';
+
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
     const { date, data } = await request.json();
-    
+
     if (!date || !data) {
       return NextResponse.json(
         { error: 'Date and data are required' },
@@ -22,26 +27,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Normalize to midnight UTC to ensure consistent querying
+    dateObj.setUTCHours(0, 0, 0, 0);
+
     const dataString = JSON.stringify(data);
-    const size = Buffer.byteLength(dataString, 'utf8');
+    const originalSize = Buffer.byteLength(dataString, 'utf8');
 
-    // Upsert the flow data
+    // Compress data using gzip to reduce size
+    const compressed = await gzipAsync(dataString);
+    const compressedSize = compressed.length;
+    const compressedBase64 = compressed.toString('base64');
+
+    console.log(`💾 Compressing flow: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressedSize / 1024 / 1024).toFixed(2)}MB (${((compressedSize / originalSize) * 100).toFixed(1)}% of original)`);
+
+    // Upsert the flow data (store compressed)
     const flow = await prisma.flow.upsert({
-      where: { date: dateObj.toISOString() },
-      update: { data: dataString, size },
-      create: { date: dateObj.toISOString(), data: dataString, size },
-    });
-
-    // Clean up flows older than 5 days
-    const fiveDaysAgo = new Date();
-    fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-    
-    await prisma.flow.deleteMany({
-      where: {
-        createdAt: {
-          lt: fiveDaysAgo,
-        },
-      },
+      where: { date: dateObj },
+      update: { data: compressedBase64, size: originalSize },
+      create: { date: dateObj, data: compressedBase64, size: originalSize },
+      select: { id: true, date: true, size: true } // Only return minimal data
     });
 
     return NextResponse.json({ success: true, flow });

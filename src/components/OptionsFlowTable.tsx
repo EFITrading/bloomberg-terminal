@@ -480,6 +480,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [savedFlowDates, setSavedFlowDates] = useState<Array<{ date: string; size: number; createdAt: string }>>([]);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [savingFlow, setSavingFlow] = useState<boolean>(false);
+  const [loadingFlowDate, setLoadingFlowDate] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage] = useState<number>(250);
   const [quickFilters, setQuickFilters] = useState<{
@@ -1311,7 +1312,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
     try {
       setSavingFlow(true);
       const today = new Date().toISOString().split('T')[0];
-      
+
       const response = await fetch('/api/flows/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1335,7 +1336,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
     try {
       setLoadingHistory(true);
       const response = await fetch('/api/flows/dates');
-      
+
       if (!response.ok) {
         throw new Error('Failed to load history');
       }
@@ -1353,8 +1354,9 @@ Stock Reaction: ${scores.stockReaction}/15`;
   // Load specific flow by date
   const handleLoadFlow = async (date: string) => {
     try {
+      setLoadingFlowDate(date);
       const response = await fetch(`/api/flows/${date}`);
-      
+
       if (!response.ok) {
         throw new Error('Failed to load flow');
       }
@@ -1365,6 +1367,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
       console.log(`✅ Loaded flow from ${date}`);
     } catch (error) {
       console.error('Error loading flow:', error);
+    } finally {
+      setLoadingFlowDate(null);
     }
   };
 
@@ -1374,7 +1378,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
 
     try {
       const response = await fetch(`/api/flows/${date}`, { method: 'DELETE' });
-      
+
       if (!response.ok) {
         throw new Error('Failed to delete flow');
       }
@@ -2795,11 +2799,11 @@ Stock Reaction: ${scores.stockReaction}/15`;
                         <p className="text-xl font-bold mb-1"
                           style={{ color: '#ffffff' }}
                         >
-                          {new Date(flow.date).toLocaleDateString('en-US', { 
-                            weekday: 'short', 
-                            year: 'numeric', 
-                            month: 'short', 
-                            day: 'numeric' 
+                          {new Date(flow.date).toLocaleDateString('en-US', {
+                            weekday: 'short',
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric'
                           })}
                         </p>
                         <p className="text-sm" style={{ color: '#ff9447' }}>
@@ -2809,13 +2813,24 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleLoadFlow(flow.date)}
-                          className="px-4 py-2 rounded font-semibold transition-all hover:brightness-110"
+                          disabled={loadingFlowDate === flow.date}
+                          className="px-4 py-2 rounded font-semibold transition-all hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                           style={{
                             background: '#ff9447',
                             color: '#000000',
                           }}
                         >
-                          Load
+                          {loadingFlowDate === flow.date ? (
+                            <>
+                              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Loading...
+                            </>
+                          ) : (
+                            'Load'
+                          )}
                         </button>
                         <button
                           onClick={() => handleDeleteFlow(flow.date)}
@@ -3017,10 +3032,17 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
                   }}
                 >
-                  <svg className="w-3 h-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                  </svg>
-                  <span>SAVE</span>
+                  {savingFlow ? (
+                    <svg className="w-3 h-3 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                  )}
+                  <span>{savingFlow ? 'SAVING...' : 'SAVE'}</span>
                 </button>
 
                 {/* History Button */}
@@ -3042,10 +3064,17 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
                   }}
                 >
-                  <svg className="w-3 h-3 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>HISTORY</span>
+                  {loadingHistory ? (
+                    <svg className="w-3 h-3 text-purple-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                  <span>{loadingHistory ? 'LOADING...' : 'HISTORY'}</span>
                 </button>
               </div>
             </div>
@@ -3694,10 +3723,17 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
                     }}
                   >
-                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                    </svg>
-                    <span>SAVE</span>
+                    {savingFlow ? (
+                      <svg className="w-5 h-5 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                      </svg>
+                    )}
+                    <span>{savingFlow ? 'SAVING...' : 'SAVE'}</span>
                   </button>
 
                   {/* History Button */}
@@ -3719,10 +3755,17 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
                     }}
                   >
-                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span>HISTORY</span>
+                    {loadingHistory ? (
+                      <svg className="w-5 h-5 text-purple-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    )}
+                    <span>{loadingHistory ? 'LOADING...' : 'HISTORY'}</span>
                   </button>
 
                   {/* Flow Tracking Button - Mobile Only */}
