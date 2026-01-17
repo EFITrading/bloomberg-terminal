@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   try {
     const { date, data } = await request.json();
@@ -12,14 +14,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) {
+      return NextResponse.json(
+        { error: 'Invalid date format' },
+        { status: 400 }
+      );
+    }
+
     const dataString = JSON.stringify(data);
-    const size = new Blob([dataString]).size;
+    const size = Buffer.byteLength(dataString, 'utf8');
 
     // Upsert the flow data
     const flow = await prisma.flow.upsert({
-      where: { date },
+      where: { date: dateObj },
       update: { data: dataString, size },
-      create: { date, data: dataString, size },
+      create: { date: dateObj, data: dataString, size },
     });
 
     // Clean up flows older than 5 days

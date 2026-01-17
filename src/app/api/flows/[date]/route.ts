@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
+export const runtime = 'nodejs';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { date: string } }
 ) {
   try {
+    const dateObj = new Date(params.date);
+    if (isNaN(dateObj.getTime())) {
+      return NextResponse.json(
+        { error: 'Invalid date format' },
+        { status: 400 }
+      );
+    }
+
     const flow = await prisma.flow.findUnique({
-      where: { date: params.date },
+      where: { date: dateObj },
     });
 
     if (!flow) {
@@ -37,8 +47,16 @@ export async function DELETE(
   { params }: { params: { date: string } }
 ) {
   try {
+    const dateObj = new Date(params.date);
+    if (isNaN(dateObj.getTime())) {
+      return NextResponse.json(
+        { error: 'Invalid date format' },
+        { status: 400 }
+      );
+    }
+
     await prisma.flow.delete({
-      where: { date: params.date },
+      where: { date: dateObj },
     });
 
     return NextResponse.json({ success: true });
