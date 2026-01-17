@@ -3,14 +3,18 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Use PostgreSQL for production (Vercel compatible)
 datasource db {
   provider = "postgresql" 
   url      = env("DATABASE_URL")
 }
 
-// Alternative: SQLite for local development only
-// datasource db {
-//   provider = "sqlite"
-//   url      = env("DATABASE_URL")
-// }
+model Flow {
+  id        String   @id @default(cuid())
+  date      String   @unique
+  data      String   // JSON stringified flow data
+  size      Int      // Size in bytes
+  createdAt DateTime @default(now())
+  
+  @@index([date])
+  @@index([createdAt])
+}

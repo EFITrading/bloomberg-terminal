@@ -518,9 +518,110 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [touchStart, setTouchStart] = useState<number>(0);
   const [touchCurrent, setTouchCurrent] = useState<number>(0);
 
+  // Historical Flow Archive state
+  const [historicalFlowOpen, setHistoricalFlowOpen] = useState<boolean>(false);
+  const [savedFlowDates, setSavedFlowDates] = useState<Array<{ date: string; size: number; createdAt: string }>>([]);
+  const [selectedHistoricalDate, setSelectedHistoricalDate] = useState<string>('');
+  const [historicalFlowData, setHistoricalFlowData] = useState<OptionsFlowData[]>([]);
+  const [historicalLoading, setHistoricalLoading] = useState<boolean>(false);
+  const [saveStatus, setSaveStatus] = useState<string>('');
+
+  // API Functions for Historical Flow Database
+  const saveFlowToDatabase = async () => {
+    try {
+      setSaveStatus('Saving...');
+      const dateStr = new Date().toISOString().split('T')[0];
+      
+      const response = await fetch('/api/flows/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: dateStr,
+          data: data
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to save');
+      
+      const result = await response.json();
+      setSaveStatus(`✓ Saved (${formatBytes(result.size)})`);
+      setTimeout(() => setSaveStatus(''), 3000);
+      
+      // Refresh dates list
+      await loadSavedFlowDates();
+    } catch (error) {
+      console.error('Error saving flow:', error);
+      setSaveStatus('✗ Save failed');
+      setTimeout(() => setSaveStatus(''), 3000);
+    }
+  };
+
+  const loadSavedFlowDates = async () => {
+    try {
+      const response = await fetch('/api/flows/dates');
+      if (!response.ok) throw new Error('Failed to load dates');
+      
+      const { flows } = await response.json();
+      setSavedFlowDates(flows);
+    } catch (error) {
+      console.error('Error loading flow dates:', error);
+    }
+  };
+
+  const loadHistoricalFlow = async (date: string) => {
+    try {
+      setHistoricalLoading(true);
+      const response = await fetch(`/api/flows/${date}`);
+      
+      if (!response.ok) throw new Error('Flow not found');
+      
+      const { data: flowData } = await response.json();
+      setHistoricalFlowData(flowData);
+      setSelectedHistoricalDate(date);
+    } catch (error) {
+      console.error('Error loading flow:', error);
+      alert('Failed to load flow data');
+    } finally {
+      setHistoricalLoading(false);
+    }
+  };
+
+  const deleteHistoricalFlow = async (date: string) => {
+    if (!confirm(`Delete flow from ${date}?`)) return;
+    
+    try {
+      const response = await fetch(`/api/flows/${date}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) throw new Error('Failed to delete');
+      
+      // Refresh dates list
+      await loadSavedFlowDates();
+      
+      // Clear viewed data if deleted
+      if (selectedHistoricalDate === date) {
+        setSelectedHistoricalDate('');
+        setHistoricalFlowData([]);
+      }
+    } catch (error) {
+      console.error('Error deleting flow:', error);
+      alert('Failed to delete flow');
+    }
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
   // Ensure component is mounted on client side to avoid hydration issues
   useEffect(() => {
     setIsMounted(true);
+
+    // Load saved flow dates on mount
+    loadSavedFlowDates();
 
     // Load tracked flows from localStorage
     const savedFlows = localStorage.getItem('flowTrackingWatchlist');
@@ -1316,13 +1417,16 @@ Stock Reaction: ${scores.stockReaction}/15`;
 
 
   const filteredAndSortedData = useMemo(() => {
+    // Use historical data if viewing a saved flow, otherwise use live data
+    const baseData = selectedHistoricalDate ? historicalFlowData : data;
+    
     // OPTIMIZED: Only merge if we have enriched data, otherwise just use raw
     let sourceData: OptionsFlowData[];
 
     if (tradesWithFillStyles.length === 0) {
       // No enriched data yet - use raw data directly (fast path)
-      sourceData = data;
-    } else if (tradesWithFillStyles.length === data.length) {
+      sourceData = baseData;
+    } else if (tradesWithFillStyles.length === baseData.length) {
       // All data enriched - use enriched directly (fast path)
       sourceData = tradesWithFillStyles;
     } else {
@@ -1333,7 +1437,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
         enrichedMap.set(key, trade);
       });
 
-      sourceData = data.map(trade => {
+      sourceData = baseData.map(trade => {
         const key = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`;
         return enrichedMap.get(key) || trade;
       });
@@ -1603,7 +1707,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
     });
 
     return filtered;
-  }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive, quickFilters, aGradeFilterActive]);
+  }, [data, historicalFlowData, selectedHistoricalDate, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive, quickFilters, aGradeFilterActive]);
 
   // Automatically enrich trades with Vol/OI AND Fill Style in ONE combined call - IMMEDIATELY as part of scan
   useEffect(() => {
@@ -3348,6 +3452,75 @@ Stock Reaction: ${scores.stockReaction}/15`;
 
                 {/* Premium Action Buttons */}
                 <div className="flex items-center gap-3">
+                  {/* Save Flow Button */}
+                  <button
+                    onClick={saveFlowToDatabase}
+                    disabled={loading || !data || data.length === 0}
+                    className={`hidden md:flex px-6 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${
+                      loading || !data || data.length === 0
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
+                    style={{
+                      height: '48px',
+                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                      border: '2px solid #10b981',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      letterSpacing: '1.5px',
+                      fontWeight: '900',
+                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!loading && data && data.length > 0) {
+                        e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+                        e.currentTarget.style.border = '2px solid #34d399';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!loading && data && data.length > 0) {
+                        e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+                        e.currentTarget.style.border = '2px solid #10b981';
+                      }
+                    }}
+                  >
+                    <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                    <span>{saveStatus || 'SAVE'}</span>
+                  </button>
+
+                  {/* History Button */}
+                  <button
+                    onClick={() => setHistoricalFlowOpen(!historicalFlowOpen)}
+                    className={`hidden md:flex px-6 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none hover:scale-[1.02] active:scale-[0.98]`}
+                    style={{
+                      height: '48px',
+                      background: historicalFlowOpen
+                        ? 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)'
+                        : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                      border: historicalFlowOpen ? '2px solid #fbbf24' : '2px solid #f59e0b',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      letterSpacing: '1.5px',
+                      fontWeight: '900',
+                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+                      e.currentTarget.style.border = '2px solid #fbbf24';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.boxShadow = 'inset 0 2px 8px rgba(0, 0, 0, 0.9)';
+                      e.currentTarget.style.border = historicalFlowOpen ? '2px solid #fbbf24' : '2px solid #f59e0b';
+                    }}
+                  >
+                    <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>{historicalFlowOpen ? 'HIDE' : 'HISTORY'}</span>
+                  </button>
+
                   <button
                     onClick={() => onRefresh?.()}
                     disabled={loading}
@@ -3471,6 +3644,37 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   </button>
 
                 </div>
+
+                {/* Historical Data Indicator */}
+                {selectedHistoricalDate && (
+                  <div 
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg animate-pulse"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.3) 0%, rgba(217, 119, 6, 0.3) 100%)',
+                      border: '2px solid #f59e0b'
+                    }}
+                  >
+                    <svg className="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                      <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+                    </svg>
+                    <span className="text-amber-400 font-black text-sm uppercase tracking-wider">
+                      VIEWING: {new Date(selectedHistoricalDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setSelectedHistoricalDate('');
+                        setHistoricalFlowData([]);
+                      }}
+                      className="ml-2 w-6 h-6 rounded-full flex items-center justify-center text-amber-400 hover:bg-amber-500 hover:text-black transition-all"
+                      style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
 
                 {/* Right Section - Desktop Only */}
                 <div className="hidden md:flex stats-section flex-col md:flex-row items-start md:items-center gap-2 md:gap-3 w-full md:w-auto" style={{ flexShrink: 0, minWidth: 'auto' }}>
@@ -3694,15 +3898,118 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 <tbody>
                   {paginatedData.map((trade, index) => {
                     const isEfiHighlight = efiHighlightsActive && meetsEfiCriteria(trade);
+
+                    // Determine if EFI highlight is bullish or bearish
+                    let isBullishEfi = false;
+                    let isBearishEfi = false;
+                    if (isEfiHighlight) {
+                      const fillStyle = (trade as any).fill_style || '';
+                      const isCall = trade.type.toLowerCase() === 'call';
+
+                      if (fillStyle === 'A' || fillStyle === 'AA') {
+                        // Ask side - buying
+                        isBullishEfi = isCall;  // Buying calls = bullish
+                        isBearishEfi = !isCall; // Buying puts = bearish
+                      } else if (fillStyle === 'B' || fillStyle === 'BB') {
+                        // Bid side - selling
+                        isBullishEfi = !isCall; // Selling puts = bullish
+                        isBearishEfi = isCall;  // Selling calls = bearish
+                      }
+                    }
+
                     return (
                       <tr
                         key={`${trade.ticker}-${trade.strike}-${trade.trade_timestamp}-${trade.trade_size}-${index}`}
                         className="border-b border-slate-700/50 hover:bg-slate-800/40 transition-all duration-300 hover:shadow-lg"
-                        style={isEfiHighlight ? {
-                          border: '2px solid #ffd700',
-                          backgroundColor: '#000000',
-                          boxShadow: '0 0 8px rgba(255, 215, 0, 0.8)'
-                        } : {
+                        style={isEfiHighlight ? (
+                          isBullishEfi ? {
+                            background: `
+                              radial-gradient(ellipse at top left, rgba(0, 255, 0, 0.06) 0%, transparent 50%),
+                              radial-gradient(ellipse at bottom right, rgba(0, 255, 0, 0.03) 0%, transparent 50%),
+                              linear-gradient(to bottom, 
+                                rgba(0, 255, 0, 0.04) 0%, 
+                                rgba(0, 255, 0, 0.02) 5%,
+                                transparent 15%, 
+                                transparent 85%, 
+                                rgba(0, 0, 0, 0.7) 95%,
+                                rgba(0, 0, 0, 0.9) 100%
+                              ),
+                              linear-gradient(135deg, 
+                                #000803 0%, 
+                                #000f08 15%, 
+                                #000602 30%,
+                                #000a06 45%,
+                                #000703 60%, 
+                                #000804 75%,
+                                #000a06 90%,
+                                #000602 100%
+                              )
+                            `,
+                            borderLeft: '5px solid #00ff00',
+                            borderRight: '5px solid #00ff00',
+                            borderTop: '2px solid rgba(0, 255, 0, 0.2)',
+                            borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                            boxShadow: `
+                              inset 0 4px 16px rgba(0, 255, 0, 0.2),
+                              inset 0 -4px 16px rgba(0, 0, 0, 0.8),
+                              inset 5px 0 12px rgba(0, 255, 0, 0.15),
+                              inset -5px 0 12px rgba(0, 255, 0, 0.15),
+                              inset 0 1px 2px rgba(0, 255, 0, 0.05),
+                              0 0 20px rgba(0, 255, 0, 0.3),
+                              0 0 10px rgba(0, 255, 0, 0.2),
+                              0 6px 20px rgba(0, 0, 0, 0.95),
+                              0 2px 8px rgba(0, 255, 0, 0.25)
+                            `,
+                            position: 'relative' as const,
+                            transform: 'translateZ(0)',
+                            backdropFilter: 'blur(0.5px)',
+                            WebkitBackdropFilter: 'blur(0.5px)',
+                            isolation: 'isolate' as const,
+                          } : {
+                            background: `
+                              radial-gradient(ellipse at top left, rgba(255, 0, 0, 0.06) 0%, transparent 50%),
+                              radial-gradient(ellipse at bottom right, rgba(255, 0, 0, 0.03) 0%, transparent 50%),
+                              linear-gradient(to bottom, 
+                                rgba(255, 0, 0, 0.04) 0%, 
+                                rgba(255, 0, 0, 0.02) 5%,
+                                transparent 15%, 
+                                transparent 85%, 
+                                rgba(0, 0, 0, 0.7) 95%,
+                                rgba(0, 0, 0, 0.9) 100%
+                              ),
+                              linear-gradient(135deg, 
+                                #080300 0%, 
+                                #0f0400 15%, 
+                                #060200 30%,
+                                #0a0300 45%,
+                                #070200 60%, 
+                                #080300 75%,
+                                #0a0300 90%,
+                                #060200 100%
+                              )
+                            `,
+                            borderLeft: '5px solid #ff0000',
+                            borderRight: '5px solid #ff0000',
+                            borderTop: '2px solid rgba(255, 0, 0, 0.2)',
+                            borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                            boxShadow: `
+                              inset 0 4px 16px rgba(255, 0, 0, 0.2),
+                              inset 0 -4px 16px rgba(0, 0, 0, 0.8),
+                              inset 5px 0 12px rgba(255, 0, 0, 0.15),
+                              inset -5px 0 12px rgba(255, 0, 0, 0.15),
+                              inset 0 1px 2px rgba(255, 0, 0, 0.05),
+                              0 0 20px rgba(255, 0, 0, 0.3),
+                              0 0 10px rgba(255, 0, 0, 0.2),
+                              0 6px 20px rgba(0, 0, 0, 0.95),
+                              0 2px 8px rgba(255, 0, 0, 0.25)
+                            `,
+                            position: 'relative' as const,
+                            transform: 'translateZ(0)',
+                            backdropFilter: 'blur(0.5px)',
+                            WebkitBackdropFilter: 'blur(0.5px)',
+                            isolation: 'isolate' as const,
+                          }
+                        ) : {
                           backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a'
                         }}
                       >
@@ -5095,6 +5402,193 @@ Stock Reaction: ${scores.stockReaction}/15`;
           )}
         </div>
       </div>
+
+      {/* Historical Flow Archive Modal */}
+      {historicalFlowOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(4px)'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setHistoricalFlowOpen(false);
+          }}
+        >
+          <div 
+            className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl"
+            style={{
+              backgroundColor: '#000000',
+              border: '2px solid #333',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)'
+            }}
+          >
+            {/* Header */}
+            <div className="text-center mb-6 sticky top-0 pt-6 pb-4" style={{ backgroundColor: '#000000' }}>
+              <h2 
+                className="text-3xl font-black tracking-wider mb-2"
+                style={{
+                  background: 'linear-gradient(90deg, #d4af37 0%, #f4e5a8 50%, #d4af37 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  letterSpacing: '3px'
+                }}
+              >
+                FLOW ARCHIVE
+              </h2>
+              <p className="text-white text-sm font-medium">
+                Historical options flow database
+              </p>
+              
+              {/* Stats Bar */}
+              <div className="flex items-center justify-center gap-6 mt-4 text-xs text-white font-medium">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span>{savedFlowDates.length} SAVED SESSIONS</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+                  <span>5-DAY RETENTION</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
+                  <span>DATABASE STORAGE</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Flow Cards Grid */}
+            {historicalLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="text-white text-xl font-bold">Loading...</div>
+              </div>
+            ) : savedFlowDates.length === 0 ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="text-white/70 text-xl">No saved flows yet</div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-6 pb-6">
+                {savedFlowDates.map((flowItem) => {
+                  const isViewing = selectedHistoricalDate === flowItem.date;
+                  
+                  return (
+                    <div
+                      key={flowItem.date}
+                      className="relative group"
+                      style={{
+                        background: isViewing 
+                          ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(0, 0, 0, 0.95) 100%)'
+                          : 'linear-gradient(145deg, rgba(10, 25, 47, 0.95) 0%, rgba(5, 15, 30, 0.98) 50%, rgba(0, 5, 15, 1) 100%)',
+                        border: isViewing ? '2px solid #f59e0b' : '2px solid rgba(30, 58, 138, 0.6)',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        boxShadow: isViewing 
+                          ? '0 8px 32px rgba(245, 158, 11, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+                          : '0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(59, 130, 246, 0.2)'
+                      }}
+                      onClick={() => !isViewing && loadHistoricalFlow(flowItem.date)}
+                      onMouseEnter={(e) => {
+                        if (!isViewing) {
+                          e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.8)';
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.boxShadow = '0 12px 40px rgba(59, 130, 246, 0.3), inset 0 1px 0 rgba(59, 130, 246, 0.3)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isViewing) {
+                          e.currentTarget.style.borderColor = 'rgba(30, 58, 138, 0.6)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(59, 130, 246, 0.2)';
+                        }
+                      }}
+                    >
+                      {/* Delete Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteHistoricalFlow(flowItem.date);
+                        }}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity w-8 h-8 rounded-full flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white"
+                        style={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', border: '1px solid #ef4444' }}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+
+                      {/* Date Header */}
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', border: '2px solid #f59e0b' }}>
+                          <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <div className="text-white text-xl font-black tracking-wide">
+                            {new Date(flowItem.date).toLocaleDateString('en-US', { 
+                              weekday: 'short',
+                              month: 'short', 
+                              day: 'numeric'
+                            })}
+                          </div>
+                          <div className="text-white/70 text-sm font-medium">
+                            {new Date(flowItem.createdAt).toLocaleTimeString('en-US', { 
+                              hour: '2-digit', 
+                              minute: '2-digit'
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Metadata */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm">
+                          <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                          </svg>
+                          <span className="text-white font-medium">{formatBytes(flowItem.size)}</span>
+                        </div>
+                      </div>
+
+                      {/* View Indicator */}
+                      {isViewing && (
+                        <div className="mt-4 pt-3 border-t border-amber-500/30">
+                          <div className="flex items-center gap-2 text-amber-400 text-sm font-bold">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                              <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+                            </svg>
+                            VIEWING
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Close Button */}
+            <div className="text-center pb-6 px-6">
+              <button
+                onClick={() => setHistoricalFlowOpen(false)}
+                className="px-6 py-2 text-white font-black uppercase tracking-wider transition-all hover:scale-105"
+                style={{
+                  background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+                  border: '2px solid #666',
+                  borderRadius: '8px',
+                  fontSize: '14px'
+                }}
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
