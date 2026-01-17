@@ -20,7 +20,7 @@
     "security:monitor": "npx snyk monitor",
     "deps:check": "npx depcheck",
     "deps:update": "npx npm-check-updates",
-    "postinstall": "prisma generate"
+    "postinstall": "npx prisma generate"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.56",
