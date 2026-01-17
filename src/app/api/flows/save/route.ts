@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import prisma from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,30 +7,22 @@ export async function POST(request: NextRequest) {
     
     if (!date || !data) {
       return NextResponse.json(
-        { error: 'Missing required fields: date, data' },
+        { error: 'Date and data are required' },
         { status: 400 }
       );
     }
 
-    // Calculate size
     const dataString = JSON.stringify(data);
     const size = new Blob([dataString]).size;
 
-    // Upsert: create if doesn't exist, update if it does
+    // Upsert the flow data
     const flow = await prisma.flow.upsert({
       where: { date },
-      update: {
-        data: dataString,
-        size,
-      },
-      create: {
-        date,
-        data: dataString,
-        size,
-      },
+      update: { data: dataString, size },
+      create: { date, data: dataString, size },
     });
 
-    // Delete flows older than 5 days
+    // Clean up flows older than 5 days
     const fiveDaysAgo = new Date();
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
     
@@ -42,11 +34,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ 
-      success: true, 
-      date: flow.date,
-      size: flow.size 
-    });
+    return NextResponse.json({ success: true, flow });
   } catch (error) {
     console.error('Error saving flow:', error);
     return NextResponse.json(

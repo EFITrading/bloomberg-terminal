@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import prisma from '@/lib/prisma';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { date: string } }
 ) {
   try {
-    const { date } = params;
-
     const flow = await prisma.flow.findUnique({
-      where: { date },
+      where: { date: params.date },
     });
 
     if (!flow) {
@@ -39,10 +37,8 @@ export async function DELETE(
   { params }: { params: { date: string } }
 ) {
   try {
-    const { date } = params;
-
     await prisma.flow.delete({
-      where: { date },
+      where: { date: params.date },
     });
 
     return NextResponse.json({ success: true });

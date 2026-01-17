@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import prisma from '@/lib/prisma';
 
 export async function GET() {
   try {
@@ -14,7 +14,7 @@ export async function GET() {
       },
     });
 
-    return NextResponse.json({ flows });
+    return NextResponse.json(flows);
   } catch (error) {
     console.error('Error fetching flow dates:', error);
     return NextResponse.json(
