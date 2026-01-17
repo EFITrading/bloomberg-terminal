@@ -6,7 +6,7 @@
     "dev": "next dev",
     "dev:turbo": "next dev --turbopack",
     "dev:safe": "cd /d \"%~dp0\" && npm run dev",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "npx --yes prisma@5.22.0 generate",
     "build": "npm run prisma:generate && next build",
     "vercel-build": "npm run prisma:generate && next build",
     "start": "next start",
