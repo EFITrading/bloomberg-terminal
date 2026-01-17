@@ -6,7 +6,7 @@
     "dev": "next dev",
     "dev:turbo": "next dev --turbopack",
     "dev:safe": "cd /d \"%~dp0\" && npm run dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "vercel-build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -19,8 +19,7 @@
     "security:check": "npx snyk test",
     "security:monitor": "npx snyk monitor",
     "deps:check": "npx depcheck",
-    "deps:update": "npx npm-check-updates",
-    "postinstall": "npx prisma generate"
+    "deps:update": "npx npm-check-updates"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.56",
