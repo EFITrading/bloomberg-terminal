@@ -1322,10 +1322,9 @@ Stock Reaction: ${scores.stockReaction}/15`;
         throw new Error('Failed to save flow');
       }
 
-      alert(`✅ Flow saved successfully for ${today}`);
+      console.log(`✅ Flow saved successfully for ${today}`);
     } catch (error) {
       console.error('Error saving flow:', error);
-      alert('❌ Failed to save flow');
     } finally {
       setSavingFlow(false);
     }
@@ -1346,7 +1345,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
       setIsHistoryDialogOpen(true);
     } catch (error) {
       console.error('Error loading history:', error);
-      alert('❌ Failed to load history');
     } finally {
       setLoadingHistory(false);
     }
@@ -1364,10 +1362,9 @@ Stock Reaction: ${scores.stockReaction}/15`;
       const flowData = await response.json();
       onDataUpdate && onDataUpdate(flowData.data);
       setIsHistoryDialogOpen(false);
-      alert(`✅ Loaded flow from ${date}`);
+      console.log(`✅ Loaded flow from ${date}`);
     } catch (error) {
       console.error('Error loading flow:', error);
-      alert('❌ Failed to load flow');
     }
   };
 
@@ -1384,10 +1381,9 @@ Stock Reaction: ${scores.stockReaction}/15`;
 
       // Reload history
       setSavedFlowDates(prev => prev.filter(f => f.date !== date));
-      alert(`✅ Deleted flow from ${date}`);
+      console.log(`✅ Deleted flow from ${date}`);
     } catch (error) {
       console.error('Error deleting flow:', error);
-      alert('❌ Failed to delete flow');
     }
   };
 
@@ -2748,18 +2744,19 @@ Stock Reaction: ${scores.stockReaction}/15`;
             onClick={() => setIsHistoryDialogOpen(false)}
           />
           {/* Modal Content */}
-          <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[9999] w-[90%] max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg border-2 p-6"
+          <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[9999] w-[90%] max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg border p-6"
             style={{
-              background: 'linear-gradient(145deg, #001a33 0%, #000d1a 100%)',
-              borderColor: '#1e40af',
-              boxShadow: '0 8px 32px rgba(30, 64, 175, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
+              background: '#000000',
+              borderColor: '#ff9447',
+              borderWidth: '2px',
             }}
           >
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl font-bold text-blue-300"
+              <h2 className="text-3xl font-bold"
                 style={{
-                  textShadow: '0 0 10px rgba(96, 165, 250, 0.5), 0 2px 4px rgba(0, 0, 0, 0.8)',
-                  fontFamily: 'Georgia, serif'
+                  color: '#ffffff',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                  letterSpacing: '0.5px'
                 }}
               >
                 Flow History
@@ -2773,8 +2770,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
             </div>
 
             {savedFlowDates.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
-                <svg className="w-16 h-16 mx-auto mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="text-center py-12" style={{ color: '#ff9447' }}>
+                <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
                 <p className="text-xl">No saved flows</p>
@@ -2784,18 +2781,19 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 {savedFlowDates.map((flow) => (
                   <div
                     key={flow.date}
-                    className="rounded-lg p-4 border transition-all hover:scale-[1.01] relative overflow-hidden"
+                    className="rounded-lg p-4 border transition-all hover:border-opacity-100"
                     style={{
-                      background: 'linear-gradient(145deg, #001428 0%, #000a14 100%)',
-                      borderColor: '#1e3a8a',
-                      boxShadow: 'inset 0 1px 2px rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.6)',
+                      background: '#0a0a0a',
+                      borderColor: '#ff9447',
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      opacity: 0.9
                     }}
                   >
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent pointer-events-none"></div>
-                    <div className="flex justify-between items-center relative z-10">
+                    <div className="flex justify-between items-center">
                       <div>
-                        <p className="text-xl font-bold text-blue-200 mb-1"
-                          style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}
+                        <p className="text-xl font-bold mb-1"
+                          style={{ color: '#ffffff' }}
                         >
                           {new Date(flow.date).toLocaleDateString('en-US', { 
                             weekday: 'short', 
@@ -2804,29 +2802,28 @@ Stock Reaction: ${scores.stockReaction}/15`;
                             day: 'numeric' 
                           })}
                         </p>
-                        <p className="text-sm text-gray-400">
+                        <p className="text-sm" style={{ color: '#ff9447' }}>
                           Size: {(flow.size / 1024).toFixed(2)} KB | Saved: {new Date(flow.createdAt).toLocaleTimeString()}
                         </p>
                       </div>
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleLoadFlow(flow.date)}
-                          className="px-4 py-2 rounded font-bold text-white transition-all hover:scale-105 active:scale-95"
+                          className="px-4 py-2 rounded font-semibold transition-all hover:brightness-110"
                           style={{
-                            background: 'linear-gradient(145deg, #2563eb 0%, #1d4ed8 100%)',
-                            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(0, 0, 0, 0.4)',
-                            textShadow: '0 1px 2px rgba(0, 0, 0, 0.5)'
+                            background: '#ff9447',
+                            color: '#000000',
                           }}
                         >
                           Load
                         </button>
                         <button
                           onClick={() => handleDeleteFlow(flow.date)}
-                          className="px-4 py-2 rounded font-bold text-white transition-all hover:scale-105 active:scale-95"
+                          className="px-4 py-2 rounded font-semibold transition-all hover:brightness-90"
                           style={{
-                            background: 'linear-gradient(145deg, #dc2626 0%, #b91c1c 100%)',
-                            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(0, 0, 0, 0.4)',
-                            textShadow: '0 1px 2px rgba(0, 0, 0, 0.5)'
+                            background: '#1a1a1a',
+                            color: '#ffffff',
+                            border: '1px solid #ff9447'
                           }}
                         >
                           Delete
@@ -3677,6 +3674,56 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       <span>CLEAR</span>
                     </button>
                   )}
+
+                  {/* Save Button */}
+                  <button
+                    onClick={handleSaveFlow}
+                    disabled={savingFlow || !data || data.length === 0}
+                    className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${savingFlow || !data || data.length === 0
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
+                    style={{
+                      height: '48px',
+                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                      border: '2px solid #3b82f6',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                      letterSpacing: '1.5px',
+                      fontWeight: '900',
+                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                    }}
+                  >
+                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                    <span>SAVE</span>
+                  </button>
+
+                  {/* History Button */}
+                  <button
+                    onClick={loadFlowHistory}
+                    disabled={loadingHistory}
+                    className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${loadingHistory
+                      ? 'cursor-not-allowed opacity-40'
+                      : 'hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
+                    style={{
+                      height: '48px',
+                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                      border: '2px solid #8b5cf6',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                      letterSpacing: '1.5px',
+                      fontWeight: '900',
+                      boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                    }}
+                  >
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>HISTORY</span>
+                  </button>
 
                   {/* Flow Tracking Button - Mobile Only */}
                   <button

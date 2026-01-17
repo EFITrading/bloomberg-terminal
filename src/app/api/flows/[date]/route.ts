@@ -5,10 +5,11 @@ export const runtime = 'nodejs';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { date: string } }
+  { params }: { params: Promise<{ date: string }> }
 ) {
   try {
-    const dateObj = new Date(params.date);
+    const { date } = await params;
+    const dateObj = new Date(date);
     if (isNaN(dateObj.getTime())) {
       return NextResponse.json(
         { error: 'Invalid date format' },
@@ -17,7 +18,7 @@ export async function GET(
     }
 
     const flow = await prisma.flow.findUnique({
-      where: { date: dateObj },
+      where: { date: dateObj.toISOString() },
     });
 
     if (!flow) {
@@ -44,10 +45,11 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { date: string } }
+  { params }: { params: Promise<{ date: string }> }
 ) {
   try {
-    const dateObj = new Date(params.date);
+    const { date } = await params;
+    const dateObj = new Date(date);
     if (isNaN(dateObj.getTime())) {
       return NextResponse.json(
         { error: 'Invalid date format' },
@@ -56,7 +58,7 @@ export async function DELETE(
     }
 
     await prisma.flow.delete({
-      where: { date: dateObj },
+      where: { date: dateObj.toISOString() },
     });
 
     return NextResponse.json({ success: true });

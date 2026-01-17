@@ -376,6 +376,8 @@ export default function OptionsFlowPage() {
     setLoading(true);
     setStreamError('');
 
+    let connectionTimeout: NodeJS.Timeout | null = null;
+
     try {
       console.log(` Fetching live streaming options flow data...`);
       // Keep existing trades and add new ones as they stream in
@@ -719,6 +721,7 @@ export default function OptionsFlowPage() {
           loading={loading}
           onRefresh={handleRefresh}
           onClearData={handleClearData}
+          onDataUpdate={setData}
           selectedTicker={selectedTicker}
           onTickerChange={setSelectedTicker}
           streamingStatus={streamingStatus}

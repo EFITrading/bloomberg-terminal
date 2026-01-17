@@ -27,9 +27,9 @@ export async function POST(request: NextRequest) {
 
     // Upsert the flow data
     const flow = await prisma.flow.upsert({
-      where: { date: dateObj },
+      where: { date: dateObj.toISOString() },
       update: { data: dataString, size },
-      create: { date: dateObj, data: dataString, size },
+      create: { date: dateObj.toISOString(), data: dataString, size },
     });
 
     // Clean up flows older than 5 days
