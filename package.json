@@ -396,7 +396,6 @@
     "prettier": "^3.6.2",
     "prettier-plugin-prisma": "^5.0.0",
     "prettier-plugin-sql": "^0.19.2",
-    "renovate": "^42.39.1",
     "semantic-release": "^25.0.2",
     "tailwindcss": "^4",
     "typescript": "^5",
