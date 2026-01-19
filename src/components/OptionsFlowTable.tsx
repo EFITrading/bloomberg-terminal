@@ -385,7 +385,7 @@ interface OptionsFlowData {
   total_premium: number;
   spot_price: number;
   exchange_name: string;
-  trade_type: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
+  trade_type: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG';
   trade_timestamp: string;
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
@@ -492,6 +492,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   }>({ otm: false, weekly: false, premium100k: false, sweep: false, block: false });
   const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false);
   const [isFlowTrackingOpen, setIsFlowTrackingOpen] = useState<boolean>(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({});
@@ -1587,14 +1588,14 @@ Stock Reaction: ${scores.stockReaction}/15`;
               return trade.trade_type === 'SWEEP';
             case 'BLOCK_ONLY':
               return trade.trade_type === 'BLOCK';
+            case 'MULTI_LEG_ONLY':
+              return trade.trade_type === 'MULTI-LEG';
             case 'WEEKLY_ONLY':
               // Check if expiration is within 7 days
               const expiryDate = new Date(trade.expiry);
               const today = new Date();
               const daysToExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
               return daysToExpiry <= 7;
-            case 'MULTI_LEG_ONLY':
-              return trade.trade_type === 'MULTI-LEG';
             case 'MINI_ONLY':
               return trade.trade_type === 'MINI';
             default:
@@ -1800,6 +1801,18 @@ Stock Reaction: ${scores.stockReaction}/15`;
       hour: 'numeric', // No leading zero (9 AM instead of 09 AM)
       minute: '2-digit', // Always show minutes with leading zero
       timeZone: 'America/New_York' // Ensure ET timezone
+    });
+  };
+
+  const formatTimeWithSeconds = (timestamp: string) => {
+    // Show execution time with seconds for desktop view
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', {
+      hour12: true,
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'America/New_York'
     });
   };
 
@@ -2159,21 +2172,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
                         />
                         <span className="ml-2 text-lg text-white font-semibold">Weekly</span>
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedUniqueFilters.includes('MULTI_LEG_ONLY')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedUniqueFilters(prev => [...prev, 'MULTI_LEG_ONLY']);
-                            } else {
-                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'MULTI_LEG_ONLY'));
-                            }
-                          }}
-                          className="w-4 h-4 text-cyan-600 bg-black border-orange-500 rounded"
-                        />
-                        <span className="ml-2 text-lg text-white font-semibold">Multi Leg</span>
                       </label>
                       <label className="flex items-center">
                         <input
@@ -2598,6 +2596,24 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           : 'text-gray-300'
                           }`}>Block Only</span>
                       </label>
+                      <label className="hidden md:flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
+                        <input
+                          type="checkbox"
+                          checked={selectedUniqueFilters.includes('MULTI_LEG_ONLY')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedUniqueFilters(prev => [...prev, 'MULTI_LEG_ONLY']);
+                            } else {
+                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'MULTI_LEG_ONLY'));
+                            }
+                          }}
+                          className="w-5 h-5 text-purple-600 bg-black border-purple-500 rounded focus:ring-purple-500"
+                        />
+                        <span className={`ml-3 text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('MULTI_LEG_ONLY')
+                          ? 'text-purple-400 font-bold drop-shadow-lg'
+                          : 'text-gray-300'
+                          }`}>Multi-Leg Only</span>
+                      </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
                         <input
                           type="checkbox"
@@ -2615,24 +2631,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           ? 'text-yellow-400 font-bold drop-shadow-lg'
                           : 'text-gray-300'
                           }`}>Weekly Only</span>
-                      </label>
-                      <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
-                        <input
-                          type="checkbox"
-                          checked={selectedUniqueFilters.includes('MULTI_LEG_ONLY')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedUniqueFilters(prev => [...prev, 'MULTI_LEG_ONLY']);
-                            } else {
-                              setSelectedUniqueFilters(prev => prev.filter(filter => filter !== 'MULTI_LEG_ONLY'));
-                            }
-                          }}
-                          className="w-5 h-5 text-yellow-600 bg-black border-orange-500 rounded focus:ring-yellow-500"
-                        />
-                        <span className={`ml-3 text-2xl md:text-lg font-medium transition-all duration-200 ${selectedUniqueFilters.includes('MULTI_LEG_ONLY')
-                          ? 'text-yellow-400 font-bold drop-shadow-lg'
-                          : 'text-gray-300'
-                          }`}>Multi Leg Only</span>
                       </label>
                       <label className="flex items-center cursor-pointer hover:bg-gray-800 p-2 rounded transition-all">
                         <input
@@ -2989,10 +2987,10 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   <span>TRACK</span>
                 </button>
 
-                {/* Clear Button - Icon Only */}
-                {onClearData && (
+                {/* Mobile Dropdown Menu - Replace trash icon */}
+                <div className="relative">
                   <button
-                    onClick={onClearData}
+                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                     disabled={loading}
                     className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none ${loading
                       ? 'cursor-not-allowed opacity-40'
@@ -3002,16 +3000,69 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       height: '40px',
                       width: '40px',
                       background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-                      border: '2px solid #ef4444',
+                      border: '2px solid #6b7280',
                       borderRadius: '4px',
                       boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
                     }}
                   >
-                    <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                     </svg>
                   </button>
-                )}
+
+                  {/* Dropdown Menu */}
+                  {mobileMenuOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-[9998]"
+                        onClick={() => setMobileMenuOpen(false)}
+                      />
+                      <div className="absolute right-0 mt-2 w-48 bg-black border border-orange-500 rounded shadow-lg z-[9999]">
+                        <button
+                          onClick={() => {
+                            handleSaveFlow();
+                            setMobileMenuOpen(false);
+                          }}
+                          disabled={savingFlow || !data || data.length === 0}
+                          className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                          </svg>
+                          <span className="font-bold">Save</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsHistoryDialogOpen(true);
+                            setMobileMenuOpen(false);
+                          }}
+                          disabled={loadingHistory}
+                          className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="font-bold">History</span>
+                        </button>
+                        {onClearData && (
+                          <button
+                            onClick={() => {
+                              onClearData();
+                              setMobileMenuOpen(false);
+                            }}
+                            disabled={loading}
+                            className="w-full text-left px-4 py-3 text-red-400 hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed border-t border-gray-700"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            <span className="font-bold">Clear</span>
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Save Button */}
                 <button
@@ -3665,12 +3716,12 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     )}
                   </button>
 
-                  {/* Clear Data Button */}
+                  {/* Clear Data Button - Desktop Only */}
                   {onClearData && (
                     <button
                       onClick={onClearData}
                       disabled={loading}
-                      className={`px-4 md:px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 md:gap-3 focus:outline-none ${loading
+                      className={`hidden md:flex px-4 md:px-9 text-white font-black uppercase transition-all duration-200 items-center gap-2 md:gap-3 focus:outline-none ${loading
                         ? 'cursor-not-allowed opacity-40'
                         : 'hover:scale-[1.02] active:scale-[0.98]'
                         }`}
@@ -3704,11 +3755,90 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     </button>
                   )}
 
-                  {/* Save Button */}
+                  {/* Mobile Dropdown Menu Button */}
+                  <div className="md:hidden relative">
+                    <button
+                      onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                      disabled={loading}
+                      className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${loading
+                        ? 'cursor-not-allowed opacity-40'
+                        : 'hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
+                      style={{
+                        height: '48px',
+                        background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
+                        border: '2px solid #6b7280',
+                        borderRadius: '4px',
+                        fontSize: '14px',
+                        letterSpacing: '1.5px',
+                        fontWeight: '900',
+                        boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)'
+                      }}
+                    >
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                      </svg>
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {mobileMenuOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setMobileMenuOpen(false)}
+                        />
+                        <div className="absolute right-0 mt-2 w-48 bg-black border border-orange-500 rounded shadow-lg z-50">
+                          <button
+                            onClick={() => {
+                              handleSaveFlow();
+                              setMobileMenuOpen(false);
+                            }}
+                            disabled={savingFlow || !data || data.length === 0}
+                            className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                            </svg>
+                            <span className="font-bold">Save</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsHistoryDialogOpen(true);
+                              setMobileMenuOpen(false);
+                            }}
+                            disabled={loadingHistory}
+                            className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="font-bold">History</span>
+                          </button>
+                          {onClearData && (
+                            <button
+                              onClick={() => {
+                                onClearData();
+                                setMobileMenuOpen(false);
+                              }}
+                              disabled={loading}
+                              className="w-full text-left px-4 py-3 text-red-400 hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed border-t border-gray-700"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              <span className="font-bold">Clear</span>
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Save Button - Desktop Only */}
                   <button
                     onClick={handleSaveFlow}
                     disabled={savingFlow || !data || data.length === 0}
-                    className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${savingFlow || !data || data.length === 0
+                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${savingFlow || !data || data.length === 0
                       ? 'cursor-not-allowed opacity-40'
                       : 'hover:scale-[1.02] active:scale-[0.98]'
                       }`}
@@ -3736,11 +3866,11 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     <span>{savingFlow ? 'SAVING...' : 'SAVE'}</span>
                   </button>
 
-                  {/* History Button */}
+                  {/* History Button - Desktop Only */}
                   <button
                     onClick={loadFlowHistory}
                     disabled={loadingHistory}
-                    className={`px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 focus:outline-none ${loadingHistory
+                    className={`hidden md:flex px-4 text-white font-black uppercase transition-all duration-200 items-center gap-2 focus:outline-none ${loadingHistory
                       ? 'cursor-not-allowed opacity-40'
                       : 'hover:scale-[1.02] active:scale-[0.98]'
                       }`}
@@ -3938,7 +4068,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
           <div className="p-0">
             <div className="table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto" style={{ height: 'calc(100vh - 140px)', paddingBottom: '100px', scrollBehavior: 'smooth' }}>
               <table className="w-full options-flow-table" style={{ marginBottom: '80px' }}>
-                <thead className="sticky top-0 bg-gradient-to-b from-yellow-900/10 via-gray-900 to-black z-10 border-b-2 border-gray-600 shadow-2xl">
+                <thead className="sticky top-0 bg-gradient-to-b from-yellow-900/10 via-gray-900 to-black z-[5] border-b-2 border-gray-600 shadow-2xl">
                   <tr>
                     <th
                       className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
@@ -4168,7 +4298,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                             <div className="text-xs text-gray-300">{formatTime(trade.trade_timestamp)}</div>
                           </div>
                           {/* Desktop: Time only */}
-                          <div className="hidden md:block">{formatTime(trade.trade_timestamp)}</div>
+                          <div className="hidden md:block">{formatTimeWithSeconds(trade.trade_timestamp)}</div>
                         </td>
                         <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
                           <div className="flex items-center gap-2">
@@ -4258,7 +4388,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           <div className="md:hidden flex flex-col items-center space-y-1">
                             <div className="text-white text-xs font-semibold">{formatDate(trade.expiry)}</div>
                             <span className={`trade-type-badge inline-block px-3 py-1 rounded-full text-xs font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}>
-                              {(trade.classification || trade.trade_type) === 'MULTI-LEG' ? 'ML' : (trade.classification || trade.trade_type)}
+                              {trade.classification || trade.trade_type}
                             </span>
                           </div>
                           {/* Desktop: Expiry only */}

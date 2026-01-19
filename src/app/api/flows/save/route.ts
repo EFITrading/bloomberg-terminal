@@ -42,9 +42,9 @@ export async function POST(request: NextRequest) {
 
     // Upsert the flow data (store compressed)
     const flow = await prisma.flow.upsert({
-      where: { date: dateObj },
+      where: { date: dateObj.toISOString() },
       update: { data: compressedBase64, size: originalSize },
-      create: { date: dateObj, data: compressedBase64, size: originalSize },
+      create: { date: dateObj.toISOString(), data: compressedBase64, size: originalSize },
       select: { id: true, date: true, size: true } // Only return minimal data
     });
 

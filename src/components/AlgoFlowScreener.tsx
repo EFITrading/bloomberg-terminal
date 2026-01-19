@@ -412,7 +412,7 @@ interface OptionsFlowData {
   total_premium: number;
   spot_price: number;
   exchange_name: string;
-  trade_type: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
+  trade_type: 'SWEEP' | 'BLOCK' | 'MINI';
   trade_timestamp: string;
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
@@ -2399,7 +2399,7 @@ export default function AlgoFlowScreener() {
                             'SWEEP': 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold',
                             'BLOCK': 'bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold',
                             'MINI': 'bg-gradient-to-r from-gray-500 to-gray-600 text-white font-bold',
-                            'MULTI-LEG': 'bg-gradient-to-r from-purple-500 to-purple-600 text-white font-bold'
+
                           };
 
                           // Fill style colors

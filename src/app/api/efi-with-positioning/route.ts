@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import { OptionsFlowService, getSmartDateRange } from '@/lib/optionsFlowService';
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
@@ -395,18 +396,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Ticker required' }, { status: 400 });
     }
     
-    // Fetch raw trades from the options flow API
-    const flowResponse = await fetch(`${request.headers.get('origin') || 'http://localhost:3000'}/api/stream-options-flow?ticker=${ticker}`);
+    // Call the service directly instead of making HTTP request
+    const optionsFlowService = new OptionsFlowService();
+    const { startDate, endDate } = getSmartDateRange('1D');
     
-    if (!flowResponse.ok) {
-      return NextResponse.json({ error: 'Failed to fetch options flow' }, { status: 500 });
-    }
+    console.log(`🔍 Fetching flow data for ${ticker} from ${startDate} to ${endDate}`);
     
-    // Parse the streaming response
-    const reader = flowResponse.body!.getReader();
+    let allTrades: any[] = [];
+    
+    // Stream trades from the service
+    const stream = await optionsFlowService.streamOptionsFlow(ticker, startDate, endDate);
+    const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let allTrades: any[] = [];
     
     while (true) {
       const { done, value } = await reader.read();

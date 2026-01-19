@@ -201,7 +201,7 @@ interface ProcessedTrade {
   sequence_number?: number;
   conditions: number[];
   trade_timestamp: Date;
-  trade_type?: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
+  trade_type?: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG';
   window_group?: string;
   related_trades?: string[];
   moneyness: 'ATM' | 'ITM' | 'OTM';
@@ -1015,12 +1015,18 @@ export class OptionsFlowService {
 
     // Skip classification if trades are already classified (have trade_type)
     const alreadyClassified = filtered.every(t => t.trade_type !== undefined);
-    if (!alreadyClassified) {
-      // SWEEP DETECTION
-      filtered = this.detectSweeps(filtered);
+    console.log(`🔍 Classification check: ${filtered.length} trades, alreadyClassified=${alreadyClassified}`);
 
-      // MULTI-LEG DETECTION
+    if (!alreadyClassified) {
+      console.log(`🚀 Starting multi-leg detection on ${filtered.length} unclassified trades...`);
+      // MULTI-LEG DETECTION MUST RUN FIRST (before sweeps bundle trades together)
       filtered = this.detectMultiLegTrades(filtered);
+
+      console.log(`🚀 Starting sweep detection on ${filtered.length} trades...`);
+      // SWEEP DETECTION (runs after multi-leg to avoid bundling multi-leg strategies)
+      filtered = this.detectSweeps(filtered);
+    } else {
+      console.log(`⏭️ Skipping classification - trades already classified`);
     }
 
     // YOUR ACTUAL CRITERIA - Use existing institutional tiers system
@@ -1076,13 +1082,19 @@ export class OptionsFlowService {
     console.log(`🔍 3-SECOND WINDOW SWEEP DETECTION: Processing ${trades.length} trades...`);
     console.log(`🔍 DEBUG detectSweeps: Sample input trade:`, trades[0]);
 
+    // CRITICAL: Preserve MULTI-LEG classifications - don't reprocess them
+    const multiLegTrades = trades.filter(t => t.trade_type === 'MULTI-LEG');
+    const unclassifiedTrades = trades.filter(t => t.trade_type !== 'MULTI-LEG');
+
+    console.log(`🔍 Preserving ${multiLegTrades.length} MULTI-LEG trades, processing ${unclassifiedTrades.length} remaining trades`);
+
     // Sort trades by timestamp
-    trades.sort((a, b) => a.sip_timestamp - b.sip_timestamp);
+    unclassifiedTrades.sort((a, b) => a.sip_timestamp - b.sip_timestamp);
 
     // Group trades by exact timestamp AND contract
     const exactTimeGroups = new Map<string, ProcessedTrade[]>();
 
-    for (const trade of trades) {
+    for (const trade of unclassifiedTrades) {
       // YOUR SPECIFICATION: 3-second window grouping + contract as key for grouping
       const contractKey = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
       const timeInMs = Math.floor(trade.sip_timestamp / 1000000); // Convert nanoseconds to milliseconds
@@ -1168,27 +1180,47 @@ export class OptionsFlowService {
     });
 
     const miniCount = categorizedTrades.filter(t => t.trade_type === 'MINI').length;
-    console.log(`✅ 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps, ${blockCount} blocks, and ${miniCount} minis from ${trades.length} individual trades`);
-    return categorizedTrades;
+    console.log(`✅ 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps, ${blockCount} blocks, and ${miniCount} minis from ${unclassifiedTrades.length} individual trades`);
+
+    // Return multi-leg trades + newly classified trades
+    return [...multiLegTrades, ...categorizedTrades];
   }
 
   // MULTI-LEG DETECTION: Identify complex options strategies (spreads, straddles, etc.)
   private detectMultiLegTrades(trades: ProcessedTrade[]): ProcessedTrade[] {
     console.log(`🔍 MULTI-LEG DETECTION: Processing ${trades.length} trades...`);
 
-    // Group trades by underlying ticker and EXACT timestamp (multi-leg trades execute simultaneously)
+    // Group trades by underlying ticker and 2-second time window (multi-leg trades execute within seconds)
     const exactTimeGroups = new Map<string, ProcessedTrade[]>();
 
     for (const trade of trades) {
-      // Use exact timestamp - multi-leg fills happen at identical time
-      const exactTimestamp = trade.trade_timestamp.getTime();
-      const groupKey = `${trade.underlying_ticker}_${exactTimestamp}`;
+      // Use 2-second window - multi-leg fills can be 100ms-2000ms apart across exchanges
+      const timeInMs = trade.trade_timestamp.getTime();
+      const timeWindow = Math.floor(timeInMs / 2000) * 2000; // 2-second buckets
+      const groupKey = `${trade.underlying_ticker}_${timeWindow}`;
 
       if (!exactTimeGroups.has(groupKey)) {
         exactTimeGroups.set(groupKey, []);
       }
       exactTimeGroups.get(groupKey)!.push(trade);
     }
+
+    console.log(`🔍 Created ${exactTimeGroups.size} time-based groups`);
+
+    // Log groups with multiple trades
+    let groupsWithMultiple = 0;
+    exactTimeGroups.forEach((groupTrades, groupKey) => {
+      if (groupTrades.length >= 2) {
+        groupsWithMultiple++;
+        const totalPremium = groupTrades.reduce((sum, t) => sum + t.total_premium, 0);
+        console.log(`🔍 Group [${groupKey}]: ${groupTrades.length} trades, $${totalPremium.toFixed(0)} total`);
+        groupTrades.forEach((t, i) => {
+          console.log(`    ${i + 1}. ${t.ticker} ${t.trade_size} contracts @$${t.premium_per_contract.toFixed(2)}`);
+        });
+      }
+    });
+
+    console.log(`🔍 Found ${groupsWithMultiple} groups with 2+ trades`);
 
     let multiLegCount = 0;
     const processedTrades: ProcessedTrade[] = [];
@@ -1201,13 +1233,22 @@ export class OptionsFlowService {
         continue;
       }
 
-      // All trades have same timestamp, no need to sort
+      // DEBUG: Log all candidate groups with 2+ trades
+      if (groupTrades.length >= 2) {
+        const totalPremium = groupTrades.reduce((sum, t) => sum + t.total_premium, 0);
+        if (totalPremium >= 25000) {
+          console.log(`🔍 Multi-leg candidate: ${groupTrades[0].underlying_ticker} - ${groupTrades.length} legs, $${totalPremium.toFixed(0)} premium`);
+          groupTrades.forEach((t, i) => {
+            console.log(`   Leg ${i + 1}: ${t.ticker} ${t.trade_size} contracts @$${t.premium_per_contract.toFixed(2)} = $${t.total_premium.toFixed(0)}`);
+          });
+        }
+      }
 
       // Check for multi-leg patterns
       const isMultiLeg = this.analyzeMultiLegPattern(groupTrades);
 
       if (isMultiLeg) {
-        console.log(`🦵 MULTI-LEG FOUND: ${groupTrades.length} legs for ${groupTrades[0].underlying_ticker}`);
+        console.log(`✅ MULTI-LEG CONFIRMED: ${groupTrades.length} legs for ${groupTrades[0].underlying_ticker}`);
         multiLegCount++;
 
         // Mark all trades in this group as multi-leg
@@ -1234,7 +1275,10 @@ export class OptionsFlowService {
     if (trades.length < 2) return false;
 
     // YOUR SPECIFICATION: Max 4 legs limit
-    if (trades.length > 4) return false;
+    if (trades.length > 4) {
+      console.log(`   ❌ Rejected: Too many legs (${trades.length} > 4)`);
+      return false;
+    }
 
     // Since these trades have identical timestamps, they are simultaneous executions
     // Multi-leg criteria for simultaneous trades:
@@ -1243,9 +1287,13 @@ export class OptionsFlowService {
     const uniqueTypes = new Set(trades.map(t => t.type));
     const totalPremium = trades.reduce((sum, t) => sum + t.total_premium, 0);
 
-    // YOUR SPECIFICATION: 500+ contracts each requirement
-    const allLegsHave500Plus = trades.every(trade => trade.trade_size >= 500);
-    if (!allLegsHave500Plus) return false;
+    // Relaxed requirement: 100+ contracts per leg (industry standard)
+    const allLegsHave100Plus = trades.every(trade => trade.trade_size >= 100);
+    if (!allLegsHave100Plus) {
+      const smallLegs = trades.filter(t => t.trade_size < 100);
+      console.log(`   ❌ Rejected: Legs with <100 contracts: ${smallLegs.map(t => `${t.ticker}:${t.trade_size}`).join(', ')}`);
+      return false;
+    }
 
     // Multi-leg patterns (any of these indicate a multi-leg strategy):
     // 1. Different strikes (spreads)
@@ -1258,15 +1306,24 @@ export class OptionsFlowService {
     const hasMultipleExpirations = uniqueExpirations.size >= 2;
 
     // 4. Must have substantial combined premium (institutional level)
-    const substantialPremium = totalPremium >= 50000; // $50k+ combined
+    const substantialPremium = totalPremium >= 25000; // $25k+ combined (lowered from $50k)
+
+    if (!substantialPremium) {
+      console.log(`   ❌ Rejected: Premium too low ($${totalPremium.toFixed(0)} < $25,000)`);
+      return false;
+    }
+
+    if (!hasMultipleStrikes && !hasMultipleTypes && !hasMultipleExpirations) {
+      console.log(`   ❌ Rejected: All same strike (${uniqueStrikes.size}), type (${uniqueTypes.size}), expiry (${uniqueExpirations.size})`);
+      return false;
+    }
 
     const isMultiLeg = substantialPremium && (hasMultipleStrikes || hasMultipleTypes || hasMultipleExpirations);
 
     if (isMultiLeg) {
-      console.log(`🦵 Multi-leg detected: ${trades.length} legs (≤4), ` +
+      console.log(`   ✅ Multi-leg PASSED: ${trades.length} legs (≤4), ` +
         `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
-        `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium, ` +
-        `all legs 500+ contracts: ${allLegsHave500Plus}`);
+        `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`);
     }
 
     return isMultiLeg;
@@ -2286,23 +2343,30 @@ export class OptionsFlowService {
       } as ProcessedTrade;
     });
 
-    // Step 1: Detect sweeps (must be done first to identify cross-exchange patterns)
-    console.log(`🔍 Step 1: Detecting sweeps across exchanges...`);
-    const sweeps = this.detectSweeps(convertedTrades);
-    console.log(`📊 Found ${sweeps.length} SWEEP trades`);
+    // Step 1: Detect multi-leg trades (must be done FIRST before sweeps bundle them)
+    console.log(`🔍 Step 1: Detecting multi-leg strategies...`);
+    const withMultiLeg = this.detectMultiLegTrades(convertedTrades);
+    console.log(`📊 Found ${withMultiLeg.filter(t => t.trade_type === 'MULTI-LEG').length} MULTI-LEG trades`);
 
-    // Step 2: Create set of sweep trade keys to avoid double-classification
-    const sweepKeys = new Set<string>();
-    sweeps.forEach(sweep => {
-      const key = `${sweep.ticker}_${sweep.strike}_${sweep.type}_${sweep.expiry}_${sweep.trade_timestamp?.getTime()}`;
-      sweepKeys.add(key);
+    // Step 2: Detect sweeps (cross-exchange patterns) on remaining trades
+    console.log(`🔍 Step 2: Detecting sweeps across exchanges...`);
+    const sweeps = this.detectSweeps(withMultiLeg);
+    console.log(`📊 Found ${sweeps.filter(t => t.trade_type === 'SWEEP').length} SWEEP trades`);
+
+    // Step 3: Create set of already-classified trade keys to avoid double-classification
+    const classifiedKeys = new Set<string>();
+    sweeps.forEach(trade => {
+      if (trade.trade_type) {
+        const key = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp?.getTime()}`;
+        classifiedKeys.add(key);
+      }
     });
 
-    // Step 3: Classify remaining trades as BLOCK or MINI
-    console.log(`🔍 Step 2: Classifying remaining trades as BLOCK/MINI...`);
-    const remainingTrades = convertedTrades.filter(trade => {
+    // Step 4: Classify remaining trades as BLOCK or MINI
+    console.log(`🔍 Step 3: Classifying remaining trades as BLOCK/MINI...`);
+    const remainingTrades = sweeps.filter(trade => {
       const key = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp?.getTime()}`;
-      return !sweepKeys.has(key);
+      return !classifiedKeys.has(key);
     });
 
     const classifiedRemaining = remainingTrades.map(trade => {

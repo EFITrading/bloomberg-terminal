@@ -3319,7 +3319,7 @@ const FlowPanel = React.memo(({
       total_trades: 0,
       total_premium: 0,
       unique_symbols: 0,
-      trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, MINI: 0 },
+      trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0, 'MULTI-LEG': 0 },
       call_put_ratio: { calls: 0, puts: 0 },
       processing_time_ms: 0
     });
@@ -3514,6 +3514,12 @@ export default function TradingViewChart({
     return [];
   });
   const [currentDrawingTool, setCurrentDrawingTool] = useState<'select' | 'trendline' | 'horizontal' | 'vertical' | 'ray' | 'rectangle' | 'text' | 'parallelChannel' | 'buyZone' | 'sellZone' | 'priceRange' | 'brush'>('select');
+  const [isDrawingToolLocked, setIsDrawingToolLocked] = useState(false);
+
+  // Undo/Redo history state
+  const [drawingHistory, setDrawingHistory] = useState<any[][]>([[]]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [isBackgroundVisible, setIsBackgroundVisible] = useState(true);
 
   // Save drawings to localStorage whenever they change
   useEffect(() => {
@@ -3521,6 +3527,22 @@ export default function TradingViewChart({
       localStorage.setItem('lwChartDrawings', JSON.stringify(lwChartDrawings));
     }
   }, [lwChartDrawings]);
+
+  // Function to update drawings with history tracking
+  const updateDrawingsWithHistory = (newDrawings: any[]) => {
+    // Remove any future history if we're not at the end
+    const newHistory = drawingHistory.slice(0, historyIndex + 1);
+    // Add the new state
+    newHistory.push(newDrawings);
+    // Limit history to last 50 states to prevent memory issues
+    if (newHistory.length > 50) {
+      newHistory.shift();
+    } else {
+      setHistoryIndex(historyIndex + 1);
+    }
+    setDrawingHistory(newHistory);
+    setLwChartDrawings(newDrawings);
+  };
 
   const [isTechnalysisDropdownOpen, setIsTechnalysisDropdownOpen] = useState<boolean>(false);
 
@@ -4499,22 +4521,24 @@ export default function TradingViewChart({
       const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
       let fromDate: Date;
-      let toDate: Date = today;
+      let toDate: Date = new Date(today);
+      toDate.setDate(toDate.getDate() - 1); // Use yesterday as end date to ensure data availability
       let multiplier: number;
       let timespan: string;
 
       if (timeframe === '1D') {
-        fromDate = new Date(today);
+        fromDate = new Date(toDate);
+        fromDate.setDate(fromDate.getDate() - 1); // Get data from 2 days ago to yesterday
         multiplier = 5;
         timespan = 'minute';
       } else if (timeframe === '5D') {
-        fromDate = new Date(today);
-        fromDate.setDate(fromDate.getDate() - 5);
+        fromDate = new Date(toDate);
+        fromDate.setDate(fromDate.getDate() - 7); // Get 7 days of data
         multiplier = 30;
         timespan = 'minute';
       } else {
-        fromDate = new Date(today);
-        fromDate.setDate(fromDate.getDate() - 30);
+        fromDate = new Date(toDate);
+        fromDate.setDate(fromDate.getDate() - 30); // Get 30 days of data
         multiplier = 1;
         timespan = 'day';
       }
@@ -4533,6 +4557,8 @@ export default function TradingViewChart({
           timestamp: bar.t
         }));
         setOptionsPremiumData(prev => ({ ...prev, [option.id]: chartData }));
+      } else {
+        console.warn(`No premium data for ${optionTicker}:`, optionData.status, optionData);
       }
 
       // Fetch underlying stock data
@@ -4546,6 +4572,8 @@ export default function TradingViewChart({
           timestamp: bar.t
         }));
         setStockChartData(prev => ({ ...prev, [option.id]: stockChartData }));
+      } else {
+        console.warn(`No stock data for ${option.symbol}:`, stockData.status, stockData);
       }
     } catch (error) {
       console.error('Error fetching option data:', error);
@@ -4743,7 +4771,7 @@ export default function TradingViewChart({
     total_trades: 0,
     total_premium: 0,
     unique_symbols: 0,
-    trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, MINI: 0 },
+    trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0 },
     call_put_ratio: { calls: 0, puts: 0 },
     processing_time_ms: 0
   });
@@ -6921,12 +6949,6 @@ export default function TradingViewChart({
     // Only update if we have at least one timeframe loaded
     if (fullData.life || fullData.developing || fullData.momentum || fullData.legacy) {
       setMarketRegimeData(fullData as MarketRegimeData);
-      console.log(`⚡ Market regime data updated:`, {
-        life: !!fullData.life,
-        developing: !!fullData.developing,
-        momentum: !!fullData.momentum,
-        legacy: !!fullData.legacy
-      });
     }
   }, [regimeDataCache]);
 
@@ -6974,17 +6996,10 @@ export default function TradingViewChart({
           legacy: newCache['legacy'] || null
         };
         setMarketRegimeData(fullData as MarketRegimeData);
-        console.log('📊 Full market regime data loaded:', {
-          life: !!fullData.life,
-          developing: !!fullData.developing,
-          momentum: !!fullData.momentum,
-          legacy: !!fullData.legacy
-        });
 
         setAllRegimesLoaded(true);
         setIsLoadingRegimes(false);
         setLastRegimeUpdate(Date.now());
-        console.log('🎉 All regimes cached');
       };
 
       fetchAllRegimes();
@@ -7031,17 +7046,10 @@ export default function TradingViewChart({
         legacy: newCache['legacy'] || null
       };
       setMarketRegimeData(fullData as MarketRegimeData);
-      console.log('📊 Full market regime data loaded:', {
-        life: !!fullData.life,
-        developing: !!fullData.developing,
-        momentum: !!fullData.momentum,
-        legacy: !!fullData.legacy
-      });
 
       setAllRegimesLoaded(true);
       setIsLoadingRegimes(false);
       setLastRegimeUpdate(Date.now());
-      console.log('🎉 All regimes cached on page load');
     };
 
     fetchAllRegimes();
@@ -7131,18 +7139,6 @@ export default function TradingViewChart({
             const firstMondaySep = (1 - sep1.getDay() + 7) % 7 + 1;
             dates.push(new Date(year, 8, firstMondaySep));
             break;
-          case 'fomc-march':
-            dates.push(new Date(year, 2, 20));
-            break;
-          case 'fomc-june':
-            dates.push(new Date(year, 5, 15));
-            break;
-          case 'fomc-september':
-            dates.push(new Date(year, 8, 20));
-            break;
-          case 'fomc-december':
-            dates.push(new Date(year, 11, 15));
-            break;
           case 'quad-witching-mar':
             const mar1 = new Date(year, 2, 1);
             const firstFridayMar = (5 - mar1.getDay() + 7) % 7 + 1;
@@ -7227,11 +7223,21 @@ export default function TradingViewChart({
     try {
       const eventDates = getEventDates(eventType);
       console.log('📅 Event dates found:', eventDates.length, eventDates);
-      const allReturns: number[][] = Array(13).fill(0).map(() => []); // 5 before + event + 7 after = 13
+
+      // Earnings events use 10 days before and 10 after, others use 5 before and 7 after
+      const isEarnings = eventType.includes('earnings');
+      const daysBefore = isEarnings ? 10 : 5;
+      const daysAfter = isEarnings ? 10 : 7;
+      const totalPoints = daysBefore + 1 + daysAfter; // before + event + after
+      const eventIndex = daysBefore; // Event is at index equal to days before
+
+      console.log(`📊 Event type: ${eventType}, Days: ${daysBefore} before + event + ${daysAfter} after = ${totalPoints} total`);
+
+      const allReturns: number[][] = Array(totalPoints).fill(0).map(() => []);
 
       for (const eventDate of eventDates) {
-        const before = getTradingDays(eventDate, 5, false);
-        const after = getTradingDays(eventDate, 7, true);
+        const before = getTradingDays(eventDate, daysBefore, false);
+        const after = getTradingDays(eventDate, daysAfter, true);
         const allDays = [...before, eventDate, ...after];
 
         const from = allDays[0].toISOString().split('T')[0];
@@ -7255,12 +7261,22 @@ export default function TradingViewChart({
         console.log('✅ Got', data.results.length, 'data points');
         const prices = data.results.map((r: any) => r.c);
 
-        // Event should be at index 5 (after 5 days before)
-        const eventIndex = 5;
+        // Need at least eventIndex+1 data points to calculate returns
+        const minRequired = eventIndex + 1;
+        if (prices.length < minRequired) {
+          console.warn(`⚠️ Skipping year - insufficient data. Need ${minRequired}+ points, got`, prices.length);
+          continue;
+        }
+
         const eventPrice = prices[eventIndex];
 
+        if (!eventPrice) {
+          console.warn('⚠️ Skipping year - no event price at index', eventIndex);
+          continue;
+        }
+
         // Calculate returns for all points relative to event price
-        for (let i = 0; i < prices.length && i < 13; i++) {
+        for (let i = 0; i < prices.length && i < totalPoints; i++) {
           const returnPct = ((prices[i] - eventPrice) / eventPrice) * 100;
           allReturns[i].push(returnPct);
         }
@@ -7270,10 +7286,15 @@ export default function TradingViewChart({
         returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
       );
 
-      console.log('📊 Average returns (5 before, event, 7 after):', avgReturns);
+      console.log(`📊 Average returns (${daysBefore} before, event, ${daysAfter} after):`, avgReturns);
+      console.log('📊 All returns data for each point:');
+      allReturns.forEach((returns, idx) => {
+        console.log(`   Point ${idx + 1}: ${returns.length} samples, avg=${avgReturns[idx].toFixed(4)}%`);
+      });
 
       const lastPrice = chartData.length > 0 ? chartData[chartData.length - 1]?.close : 0;
       console.log('💰 Last price:', lastPrice, 'from data with', chartData.length, 'points');
+      console.log('💰 Chart data sample:', chartData.slice(-3).map(d => ({ date: d.timestamp, close: d.close })));
 
       // Find closest event date to today (prefer recent past or near future, not a year away)
       const allEventDates = getEventDates(eventType);
@@ -7302,20 +7323,27 @@ export default function TradingViewChart({
         }
       }
 
-      console.log('📆 Selected event date:', closestEvent, '(days from today:', Math.round(daysDiff), ')');
+      console.log('📆 Selected event date:', closestEvent.toISOString().split('T')[0], '(days from today:', Math.round(daysDiff), ')');
 
-      // Create projection starting from 5 trading days before event to 7 trading days after
+      // Create projection starting from daysBefore trading days before event to daysAfter trading days after
       const projectionData: Array<{ date: Date, price: number }> = [];
-      const beforeDays = getTradingDays(closestEvent, 5, false);
-      const afterDays = getTradingDays(closestEvent, 7, true);
+      const beforeDays = getTradingDays(closestEvent, daysBefore, false);
+      const afterDays = getTradingDays(closestEvent, daysAfter, true);
       const projectionDates = [...beforeDays, closestEvent, ...afterDays];
 
+      console.log('🔢 PROJECTION DATES - Total:', projectionDates.length);
+      console.log(`  📅 ${daysBefore} Days Before:`, beforeDays.map(d => d.toISOString().split('T')[0]));
+      console.log('  📅 Event Date:', closestEvent.toISOString().split('T')[0]);
+      console.log(`  📅 ${daysAfter} Days After:`, afterDays.map(d => d.toISOString().split('T')[0]));
+
       for (let i = 0; i < avgReturns.length && i < projectionDates.length; i++) {
-        const projectedPrice = lastPrice * (1 + avgReturns[i] / 100);
+        const returnPct = avgReturns[i];
+        const projectedPrice = lastPrice * (1 + returnPct / 100);
+        console.log(`  🔍 Point ${i + 1}: avgReturn=${returnPct.toFixed(4)}%, lastPrice=${lastPrice}, calc=${lastPrice} * (1 + ${returnPct}/100) = ${projectedPrice.toFixed(2)}`);
         projectionData.push({ date: projectionDates[i], price: projectedPrice });
       }
 
-      console.log('🎯 Projection data created:', projectionData.length, 'points from', projectionDates[0], 'to', projectionDates[projectionDates.length - 1]);
+      console.log('🎯 Projection data created:', projectionData.length, 'points from', projectionDates[0].toISOString().split('T')[0], 'to', projectionDates[projectionDates.length - 1].toISOString().split('T')[0]);
       setSeasonalEventData(projectionData);
       setIsSeasonalEventActive(true);
       setIsSeasonalActive(true);
@@ -7754,7 +7782,6 @@ export default function TradingViewChart({
       if (isInitialLoad) {
         setWatchlistLoading(true);
       }
-      console.log('?? Loading data with worker-based batching...');
 
       // Prioritized symbols for efficient loading
       const coreSymbols = ['SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLY', 'XLC', 'XLRE', 'XLV'];
@@ -7778,9 +7805,6 @@ export default function TradingViewChart({
       } = {};
 
       try {
-        console.log('?? Fetching watchlist data in parallel for symbols:', symbols);
-        console.log(`?? Processing ${symbols.length} symbols simultaneously`);
-
         // Fetch ALL symbols in parallel - no artificial delays or batching
         const allPromises = symbols.map(async (symbol) => {
           try {
@@ -7879,8 +7903,6 @@ export default function TradingViewChart({
           }
         });
 
-        console.log(`? Successfully fetched ${Object.keys(processedData).length} out of ${symbols.length} symbols`);
-
         // After collecting all data, calculate relative performance to SPY
         if (Object.keys(processedData).length > 0 && processedData['SPY']) {
           const spyData = processedData['SPY'];
@@ -7929,20 +7951,16 @@ export default function TradingViewChart({
               // Update the symbol's performance
               processedData[symbol].performance = performance;
               processedData[symbol].performanceColor = performanceColor;
-
-              console.log(`? ${symbol}: $${symbolData.price?.toFixed(2)} vs SPY: 21d(${relative21d?.toFixed(2)}%) 13d(${relative13d?.toFixed(2)}%) 5d(${relative5d?.toFixed(2)}%) 1d(${relative1d?.toFixed(2)}%) - ${performance}`);
             } else {
               // SPY gets neutral since it's the benchmark
               processedData[symbol].performance = 'Benchmark';
               processedData[symbol].performanceColor = 'text-blue-300';
-              console.log(`? SPY (Benchmark): $${processedData[symbol].price?.toFixed(2)} - Base comparison`);
             }
           });
         }
 
         // Update state only if we have some data
         if (Object.keys(processedData).length > 0) {
-          console.log(`? Successfully processed ${Object.keys(processedData).length} symbols for watchlist`);
           setWatchlistData(processedData);
 
           // Update market regimes for Navigation (calculate inline with processedData)
@@ -8087,7 +8105,6 @@ export default function TradingViewChart({
   useEffect(() => {
     if (highlightedTradesCache[regimesTab]) {
       setHighlightedTrades(highlightedTradesCache[regimesTab]);
-      console.log(`⚡ Using cached highlights for ${regimesTab}:`, Object.keys(highlightedTradesCache[regimesTab]).length, 'trades');
     }
   }, [regimesTab, highlightedTradesCache]);
 
@@ -8096,7 +8113,6 @@ export default function TradingViewChart({
     const calculateHighlightedTrades = async () => {
       // Skip if already calculating
       if (isCalculatingTrades) {
-        console.log(`⏭️ Skipping highlight calc: already calculating`);
         return;
       }
 
@@ -8145,7 +8161,6 @@ export default function TradingViewChart({
                 return null;
               }
               const currentPrice = prices[prices.length - 1].close;
-              console.log(`  ✓ Got price: $${currentPrice}`);
 
               // Fetch options chain
               const optionsResponse = await fetch(`/api/options-chain?symbol=${symbol}`);
@@ -8160,18 +8175,8 @@ export default function TradingViewChart({
               // Handle both API response formats: {results: {...}} or {success: true, data: {...}}
               const resultsData = optionsData.results || optionsData.data;
 
-              // DEBUG: Log full response structure
-              console.log(`  📦 Options API response for ${symbol}:`, {
-                hasResults: !!resultsData,
-                resultsType: typeof resultsData,
-                resultsKeys: resultsData ? Object.keys(resultsData).slice(0, 5) : [],
-                currentPrice: optionsData.currentPrice,
-                fullStructure: Object.keys(optionsData)
-              });
-
               // Convert results object to array of [expirationDate, data] tuples
               const expirationEntries = Object.entries(resultsData || {});
-              console.log(`  ✓ Got options data, ${expirationEntries.length} expirations`);
 
               if (expirationEntries.length === 0) {
                 console.log(`  ❌ No options available for ${symbol}`, optionsData);
@@ -8280,9 +8285,6 @@ export default function TradingViewChart({
               const expDate = new Date(bestExpiration);
               const daysToExpiration = Math.floor((expDate.getTime() - now) / (1000 * 60 * 60 * 24));
 
-              // Log what we found
-              console.log(`  ✅ Selected ${optionType} $${bestOption.strike_price} exp ${bestExpiration} (${daysToExpiration}d)`);
-
               // Calculate targets and stop loss using Black-Scholes
               const T = daysToExpiration / 365;
               const r = 0.0387;
@@ -8343,16 +8345,6 @@ export default function TradingViewChart({
               const currentOptionPrice = bestOption.last_price || ((bestOption.bid || 0) + (bestOption.ask || 0)) / 2;
               const stopLoss = currentOptionPrice > 0 ? currentOptionPrice * (1 - adjustedStopPercent) : 0;
 
-              // Debug logging
-              console.log(`  💰 Price calculation for ${symbol}:`, {
-                last_price: bestOption.last_price,
-                bid: bestOption.bid,
-                ask: bestOption.ask,
-                calculated: currentOptionPrice,
-                stopLoss: stopLoss,
-                stopPercent: adjustedStopPercent
-              });
-
               // Theta decay per day
               const thetaDecay = Math.abs(bestOption.greeks?.theta || 0);
 
@@ -8401,8 +8393,6 @@ export default function TradingViewChart({
               const results: any[][] = [];
               let completedWorkers = 0;
 
-              console.log(`🔧 Spawning ${workerCount} workers for ${candidates.length} candidates`);
-
               // Convert Map to plain object for worker transfer
               const pricesObj: Record<string, any[]> = {};
               pricesMap.forEach((value, key) => {
@@ -8426,12 +8416,10 @@ export default function TradingViewChart({
                   if (e.data.success) {
                     results[i] = e.data.scoredCandidates;
                     completedWorkers++;
-                    console.log(`✅ Worker ${i + 1}/${workerCount} completed: ${e.data.scoredCandidates.length} scored`);
 
                     if (completedWorkers === workerCount) {
                       // All workers done, combine results
                       const allScored = results.flat();
-                      console.log(`🎉 All ${workerCount} workers complete: ${allScored.length} total scored`);
                       workers.forEach(w => w.terminate());
                       resolve(allScored);
                     }
@@ -8462,8 +8450,6 @@ export default function TradingViewChart({
           // Collect all visible stocks from all industries
           const bullishIndustries = currentData.industries.filter(ind => ind.trend === 'bullish').slice(0, 20);
           const bearishIndustries = currentData.industries.filter(ind => ind.trend === 'bearish').slice(0, 20);
-
-          console.log(`📈 Found ${bullishIndustries.length} bullish and ${bearishIndustries.length} bearish industries`);
 
           const allCandidates: any[] = [];
 
@@ -8642,7 +8628,6 @@ export default function TradingViewChart({
           // Update state and cache for this tab
           const goldCount = Object.values(tradesMap).filter(t => t.highlightType === 'gold').length;
           const purpleCount = Object.values(tradesMap).filter(t => t.highlightType === 'purple').length;
-          console.log(`✨ Highlighting complete for ${regimeTab}: ${goldCount} gold, ${purpleCount} purple (${Object.keys(tradesMap).length} total tradeable)`);
 
           // Update cache for this specific tab
           setHighlightedTradesCache(prev => ({ ...prev, [regimeTab]: tradesMap }));
@@ -8969,6 +8954,17 @@ export default function TradingViewChart({
     console.log('🔍 Y-axis zoom reset to auto-fit');
   }, []);
 
+  // Reset Y-axis zoom when symbol changes
+  useEffect(() => {
+    resetYAxisZoom();
+    setScrollOffset(9999999); // Reset to end of chart for new symbol
+    setData([]); // Clear old data to prevent showing wrong price range
+    setManualPriceRange(null); // Clear manual price range
+    setIsAutoScale(true); // Re-enable auto-scale
+    manualPriceRangeRef.current = null; // Clear manual price range ref
+    lastRenderedPriceRangeRef.current = { min: 0, max: 100 }; // Reset rendered range ref
+  }, [config.symbol, resetYAxisZoom]);
+
   const isInYAxisArea = useCallback((x: number, canvasWidth: number) => {
     return x > canvasWidth - 80; // Y-axis area is rightmost 80px
   }, []);
@@ -9065,14 +9061,10 @@ export default function TradingViewChart({
   // Fetch real-time price for current price display
   const fetchRealTimePrice = useCallback(async (sym: string) => {
     try {
-      console.log(`?? LIVE: Fetching real-time price for ${sym}`);
-
       // Use Polygon API directly for real-time price instead of custom endpoint
       const polygonUrl = `https://api.polygon.io/v2/last/trade/${sym}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
       const response = await fetch(polygonUrl);
       const result = await response.json();
-
-      console.log(`?? LIVE: Polygon API response for ${sym}:`, result);
 
       if (response.ok && result.status === 'OK' && result.results?.p) {
         const livePrice = result.results.p; // Polygon's last trade price
@@ -9183,13 +9175,11 @@ export default function TradingViewChart({
       const cache = ChartDataCache.getInstance();
 
       // Clear cache for this symbol to force fresh data with volume
-      console.log('?? FORCING FRESH DATA: Clearing cache for volume support');
       if (cache.clear) {
         cache.clear();
       }
 
       // Skip cache check - always fetch fresh data for volume
-      console.log('? BYPASSING CACHE: Fetching fresh data with volume support');
 
       // Check if we're in benchmark mode
       if (isBenchmarkMode && benchmarkSymbol1 && benchmarkSymbol2) {
@@ -9273,8 +9263,6 @@ export default function TradingViewChart({
 
       // Not in cache - use optimized API fetch with smart batching
       const data = await cache.getOrFetch(sym, timeframe, async () => {
-        console.log(`?? API FETCH: ${sym} ${timeframe}`);
-
         const now = new Date();
         const endDate = now.toISOString().split('T')[0];
 
@@ -9283,8 +9271,6 @@ export default function TradingViewChart({
         const daysBack = timeframeConfig?.lookback || 365; // Default to 1 year if not found
         const startDate = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000))
           .toISOString().split('T')[0];
-
-        console.log(`?? FULL HISTORICAL RANGE: ${sym} ${timeframe} - ${daysBack} days (${startDate} to ${endDate})`);
 
         const response = await fetch(
           `/api/historical-data?symbol=${sym}&startDate=${startDate}&endDate=${endDate}&timeframe=${timeframe}&ultrafast=true&forceRefresh=true&_t=${Date.now()}`
@@ -10152,7 +10138,6 @@ export default function TradingViewChart({
       return;
     }
 
-    console.log(`? renderChart proceeding with rendering...`);
     const { width } = dimensions;
     const height = chartHeight;
 
@@ -10169,8 +10154,6 @@ export default function TradingViewChart({
     (ctx as any).webkitImageSmoothingEnabled = false;
     (ctx as any).mozImageSmoothingEnabled = false;
     (ctx as any).msImageSmoothingEnabled = false;
-
-    console.log(`?? Rendering integrated chart: ${width}x${height}, theme: ${config.theme}, background: ${colors.background}`);
 
     // Clear canvas with theme-appropriate background
     ctx.fillStyle = colors.background;
@@ -10281,6 +10264,12 @@ export default function TradingViewChart({
     const candleWidth = Math.max(2, chartWidth / visibleCandleCount * 0.8);
     const candleSpacing = chartWidth / visibleCandleCount;
 
+    // Save context and apply clipping to prevent overflow into volume/x-axis areas
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, width, priceChartHeight);
+    ctx.clip();
+
     if (config.chartType === 'line') {
       // Draw line chart connecting close prices
       if (visibleData.length > 1) {
@@ -10327,6 +10316,9 @@ export default function TradingViewChart({
         const futureWidth = width - futureStartX - 80; // Leave space for Y-axis
       }
     }
+
+    // Restore context after clipping
+    ctx.restore();
 
     // Draw price scale on the right for price chart area
     drawPriceScale(ctx, width, priceChartHeight, adjustedMin, adjustedMax);
@@ -10453,8 +10445,10 @@ export default function TradingViewChart({
           }
           pointsDrawn++;
 
-          // Track event position (index 5)
-          if (index === 5) {
+          // Track event position - for earnings it's at index 10, others at index 5
+          const isEarningsEvent = eventLabel && eventLabel.toLowerCase().includes('earnings');
+          const expectedEventIndex = isEarningsEvent ? 10 : 5;
+          if (index === expectedEventIndex) {
             eventX = x;
           }
         });
@@ -10525,7 +10519,13 @@ export default function TradingViewChart({
       if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#4169E1', false); // Solid blue
       if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true); // Purple dashed
       if (isSeasonalEventActive) {
-        console.log('🎨 Drawing event seasonal line, data:', seasonalEventData, 'event:', selectedSeasonalEvent);
+        console.log('🎨 Drawing event seasonal line, event:', selectedSeasonalEvent);
+        console.log('   📊 Data points:', seasonalEventData?.length || 0);
+        if (seasonalEventData) {
+          seasonalEventData.forEach((pt, idx) => {
+            console.log(`   Point ${idx + 1}: ${pt.date.toISOString().split('T')[0]} = $${pt.price.toFixed(2)}`);
+          });
+        }
         drawSeasonalLine(seasonalEventData, '#00FF00', true, selectedSeasonalEvent || undefined); // Green dashed
       }
     }
@@ -10788,14 +10788,9 @@ export default function TradingViewChart({
     if (overlayCanvas) {
       const overlayCtx = overlayCanvas.getContext('2d');
       if (overlayCtx) {
-        console.log('?? [OVERLAY] Drawing on overlay canvas');
         drawStoredDrawings(overlayCtx);
       }
     }
-
-
-
-    console.log(`? Integrated chart rendered successfully with ${config.theme} theme`);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.length, dimensions.width, dimensions.height, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData, flowChartViewMode, flowChartHeight, isAnyIVHVActive, ivData, ivData.length, isIVLoading, showIVPanel, showIVIndicator, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivPanelHeight, hvWindow, activeIVPanelCount]); // Draw volume bars above the x-axis (TradingView style)
@@ -10822,21 +10817,6 @@ export default function TradingViewChart({
 
     // Find max volume for scaling
     const volumes = visibleData.map(d => d.volume || 0).filter(v => v > 0);
-
-    // ALWAYS log volume data check for debugging
-    console.log('?? VOLUME DATA CHECK:', {
-      totalCandles: visibleData.length,
-      volumesFound: volumes.length,
-      firstCandleFullData: visibleData[0],
-      dataKeys: visibleData[0] ? Object.keys(visibleData[0]) : 'NO_DATA',
-      maxVolume: volumes.length > 0 ? Math.max(...volumes) : 'NO_VOLUMES',
-      firstFewCandlesWithVolume: visibleData.slice(0, 3).map(d => ({
-        timestamp: new Date(d.timestamp).toISOString().slice(11, 19),
-        volume: d.volume,
-        hasVolume: d.hasOwnProperty('volume'),
-        volumeType: typeof d.volume
-      }))
-    });
 
     // Require real volume data - no fallback
     if (volumes.length === 0) {
@@ -12361,24 +12341,15 @@ export default function TradingViewChart({
   const screenToPrice = useCallback((y: number): number => {
     const priceChartHeight = actualPriceChartHeight;
 
-    // Get current price range - EXACT same logic as crosshair
-    const startIndex = Math.max(0, Math.floor(scrollOffset));
-    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-    const visibleData = data.slice(startIndex, endIndex);
+    // Use the ACTUAL rendered price range (same as Expected Range uses)
+    const adjustedMin = lastRenderedPriceRangeRef.current.min;
+    const adjustedMax = lastRenderedPriceRangeRef.current.max;
 
-    if (visibleData.length === 0) return 0;
+    if (adjustedMax === adjustedMin) return 0;
 
-    // EXACT same price calculation as crosshair
-    const prices = visibleData.flatMap(d => [d.high, d.low]);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const padding = (maxPrice - minPrice) * 0.1;
-    const adjustedMin = minPrice - padding;
-    const adjustedMax = maxPrice + padding;
-
-    // Use EXACT same formula as crosshair: adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin))
+    // Use EXACT same formula as Expected Range and chart rendering
     return adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin));
-  }, [actualPriceChartHeight, scrollOffset, visibleCandleCount, data]);
+  }, [actualPriceChartHeight]);
 
   // Helper function to get STABLE chart price range (for drawings - doesn't change with scrolling)
   const getStablePriceRange = (): { min: number; max: number } => {
@@ -12397,25 +12368,16 @@ export default function TradingViewChart({
   const priceToScreen = useCallback((price: number): number => {
     const priceChartHeight = actualPriceChartHeight;
 
-    // Get current price range - EXACT same logic as crosshair
-    const startIndex = Math.max(0, Math.floor(scrollOffset));
-    const endIndex = Math.min(data.length, startIndex + visibleCandleCount);
-    const visibleData = data.slice(startIndex, endIndex);
+    // Use the ACTUAL rendered price range (same as Expected Range uses)
+    const adjustedMin = lastRenderedPriceRangeRef.current.min;
+    const adjustedMax = lastRenderedPriceRangeRef.current.max;
 
-    if (visibleData.length === 0) return priceChartHeight / 2;
+    if (adjustedMax === adjustedMin) return priceChartHeight / 2;
 
-    // EXACT same price calculation as crosshair
-    const prices = visibleData.flatMap(d => [d.high, d.low]);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const padding = (maxPrice - minPrice) * 0.1;
-    const adjustedMin = minPrice - padding;
-    const adjustedMax = maxPrice + padding;
-
-    // Inverse of crosshair formula: adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin))
-    // Solving for y: y = ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight
+    // Use EXACT same formula as Expected Range: chartHeight - ((price - minPrice) / priceRange) * chartHeight
+    // This is mathematically equivalent to: ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight
     return ((adjustedMax - price) / (adjustedMax - adjustedMin)) * priceChartHeight;
-  }, [actualPriceChartHeight, scrollOffset, visibleCandleCount, data]);
+  }, [actualPriceChartHeight]);
 
   const timeToScreen = useCallback((timestamp: number): number => {
     const candleWidth = (dimensions.width - 100) / visibleCandleCount;
@@ -12514,13 +12476,10 @@ export default function TradingViewChart({
 
     if (visibleData.length === 0) return { timestamp, price: 0 };
 
-    // Use EXACT same price calculation as crosshair (from handleMouseMove)
-    const prices = visibleData.flatMap(d => [d.high, d.low]);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const padding = (maxPrice - minPrice) * 0.1;
-    const adjustedMin = minPrice - padding;
-    const adjustedMax = maxPrice + padding;
+    // Use current price range (manual or auto) - CRITICAL for correct Y-axis values
+    const currentRange = manualPriceRange || getCurrentPriceRange(visibleData);
+    const adjustedMin = currentRange.min;
+    const adjustedMax = currentRange.max;
 
     // Use EXACT same formula as crosshair: adjustedMax - ((y / priceChartHeight) * (adjustedMax - adjustedMin))
     // Only consider mouse position within the price chart area (match crosshair behavior)
@@ -12529,7 +12488,7 @@ export default function TradingViewChart({
       adjustedMax - ((screenY / priceChartHeight) * (adjustedMax - adjustedMin));
 
     return { timestamp, price };
-  }, [actualPriceChartHeight, dimensions.width, visibleCandleCount, scrollOffset, data, seasonalProjectionData]);
+  }, [actualPriceChartHeight, dimensions.width, visibleCandleCount, scrollOffset, data, seasonalProjectionData, manualPriceRange, getCurrentPriceRange]);
 
   // Unified mouse handler that prioritizes drawing interaction over chart panning
   const handleUnifiedMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -13313,7 +13272,6 @@ export default function TradingViewChart({
 
   // Simple drawing rendering effect - COMPLETELY DISABLED to prevent conflicts with main TradingView drawing system
   useEffect(() => {
-    console.log('?? [CONFLICT] Simple drawing effect triggered - COMPLETELY DISABLED to avoid conflicts');
     // This system is completely disabled because it conflicts with the main comprehensive drawing system
     // The main drawing system is in the drawStoredDrawings function
     return;
@@ -13416,37 +13374,6 @@ export default function TradingViewChart({
     // Single chart mode
     setConfig(prev => ({ ...prev, symbol: newSymbol }));
     onSymbolChange?.(newSymbol);
-
-    // Trigger instant preload for new symbol to speed up loading
-    if (newSymbol && newSymbol.trim().length > 0) {
-      triggerInstantPreload(newSymbol.trim().toUpperCase());
-    }
-  };
-
-  // Trigger instant preload for symbol (non-blocking)
-  const triggerInstantPreload = async (symbol: string) => {
-    try {
-      console.log(`?? Triggering instant preload for ${symbol}...`);
-
-      const response = await fetch('/api/instant-preload', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ symbol })
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        console.log(`? Instant preload response for ${symbol}:`, result.message);
-      } else {
-        console.warn(`?? Instant preload failed for ${symbol}:`, result.error);
-      }
-    } catch (error) {
-      console.warn(`?? Instant preload request failed for ${symbol}:`, error);
-      // Don't throw - this is a background optimization
-    }
   };
 
   // Drawing Tools Functions
@@ -13919,18 +13846,47 @@ export default function TradingViewChart({
     const timeToScreenX = (timestamp: number): number => {
       if (!data || data.length === 0) return 0;
 
-      // Find the candle index for this timestamp
-      const candleIndex = data.findIndex((candle: any) => candle.timestamp >= timestamp);
-      if (candleIndex === -1) return ctx.canvas.width; // Future timestamp, draw at right edge
-
-      // CRITICAL INSIGHT: The drawing should stay at the SAME TIMESTAMP position
-      // When we scroll, we see different timestamps, so the drawing should move accordingly
       const canvas = overlayCanvasRef.current;
       if (!canvas) return 0;
 
       const rect = canvas.getBoundingClientRect();
       const chartWidth = rect.width - 80; // Account for margins
       const candleWidth = chartWidth / visibleCandleCount;
+
+      // Find the candle index for this timestamp
+      let candleIndex = data.findIndex((candle: any) => candle.timestamp >= timestamp);
+
+      // Handle future timestamps beyond the last data candle
+      if (candleIndex === -1) {
+        const lastCandle = data[data.length - 1];
+        if (timestamp > lastCandle.timestamp) {
+          // Calculate future candle index based on timeframe
+          const timeframe = config.timeframe;
+          let millisecondsPerPeriod = 0;
+
+          switch (timeframe) {
+            case '1m': millisecondsPerPeriod = 60 * 1000; break;
+            case '5m': millisecondsPerPeriod = 5 * 60 * 1000; break;
+            case '15m': millisecondsPerPeriod = 15 * 60 * 1000; break;
+            case '30m': millisecondsPerPeriod = 30 * 60 * 1000; break;
+            case '1h': millisecondsPerPeriod = 60 * 60 * 1000; break;
+            case '4h': millisecondsPerPeriod = 4 * 60 * 60 * 1000; break;
+            case '1d': millisecondsPerPeriod = 24 * 60 * 60 * 1000; break;
+            case '1w': millisecondsPerPeriod = 7 * 24 * 60 * 60 * 1000; break;
+            case '1mo': millisecondsPerPeriod = 30 * 24 * 60 * 60 * 1000; break;
+            case '1y': millisecondsPerPeriod = 365 * 24 * 60 * 60 * 1000; break;
+            default: millisecondsPerPeriod = 24 * 60 * 60 * 1000; break;
+          }
+
+          const periodsIntoFuture = Math.round((timestamp - lastCandle.timestamp) / millisecondsPerPeriod);
+          candleIndex = data.length - 1 + periodsIntoFuture;
+        } else {
+          return ctx.canvas.width; // Timestamp before all data
+        }
+      }
+
+      // CRITICAL INSIGHT: The drawing should stay at the SAME TIMESTAMP position
+      // When we scroll, we see different timestamps, so the drawing should move accordingly
 
       // Calculate where this timestamp appears on the current screen
       // If the timestamp is outside the visible range, it should be off-screen
@@ -13946,15 +13902,6 @@ export default function TradingViewChart({
       // Drawing is in visible range - position it correctly
       const positionInVisibleRange = candleIndex - visibleStartIndex;
       const x = positionInVisibleRange * candleWidth + candleWidth / 2 + 40;
-
-      console.log('?? FINAL FIX timeToScreenX:', {
-        timestamp,
-        candleIndex,
-        scrollOffset,
-        visibleRange: `${visibleStartIndex} to ${visibleEndIndex}`,
-        positionInVisibleRange,
-        x
-      });
 
       return x;
     };
@@ -14193,26 +14140,28 @@ export default function TradingViewChart({
             // Helper to fetch single symbol
             const fetchSymbol = async (symbol: string) => {
               try {
-                // 1D - Keep as is (1-minute intraday data)
+                // 1D - Fetch last trading day's intraday data
                 if (trackingTimeframe === '1D') {
-                  const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=2&apiKey=${POLYGON_API_KEY}`;
-                  const intradayUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${todayStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
-
-                  const [dailyResponse, intradayResponse] = await Promise.all([
-                    fetch(dailyUrl),
-                    fetch(intradayUrl)
-                  ]);
-
+                  // First get the last 3 daily bars to find the most recent trading day
+                  const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=3&apiKey=${POLYGON_API_KEY}`;
+                  const dailyResponse = await fetch(dailyUrl);
                   const dailyData = await dailyResponse.json();
-                  const intradayData = await intradayResponse.json();
 
-                  if (!intradayData.results || intradayData.results.length === 0) {
-                    // Silently skip - likely market closed or no data available
+                  if (!dailyData.results || dailyData.results.length < 2) {
                     return null;
                   }
 
-                  if (!dailyData.results || dailyData.results.length < 2) {
-                    // Silently skip - insufficient historical data
+                  // Most recent trading day is results[0], previous day is results[1]
+                  const lastTradingDayTimestamp = dailyData.results[0].t;
+                  const lastTradingDay = new Date(lastTradingDayTimestamp);
+                  const lastTradingDayStr = `${lastTradingDay.getFullYear()}-${String(lastTradingDay.getMonth() + 1).padStart(2, '0')}-${String(lastTradingDay.getDate()).padStart(2, '0')}`;
+
+                  // Fetch intraday data for the last trading day
+                  const intradayUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${lastTradingDayStr}/${lastTradingDayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
+                  const intradayResponse = await fetch(intradayUrl);
+                  const intradayData = await intradayResponse.json();
+
+                  if (!intradayData.results || intradayData.results.length === 0) {
                     return null;
                   }
 
@@ -15021,7 +14970,15 @@ export default function TradingViewChart({
                 </div>
               </div>
             ) : (
-              <div ref={trackingScrollRef} className="flex-1 overflow-y-auto p-6 space-y-8" style={{ overflowAnchor: 'none' }}>
+              <div
+                ref={trackingScrollRef}
+                className="flex-1 overflow-y-scroll p-6 space-y-8"
+                style={{
+                  overflowAnchor: 'none',
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: '#FF6600 #1a1a1a'
+                }}
+              >
                 {trackingCategories.map((category) => (
                   <div key={category.title} className="relative">
                     {/* Category Header - Goldman Sachs Style */}
@@ -15117,7 +15074,6 @@ export default function TradingViewChart({
                                     viewBox="0 0 200 50"
                                     preserveAspectRatio="none"
                                     className="w-full md:h-16 h-12"
-                                    style={{ shapeRendering: 'geometricPrecision' }}
                                   >
                                     {data.sparklineData.length > 1 && (() => {
                                       const prices = data.sparklineData.map(p => p.price);
@@ -15130,79 +15086,31 @@ export default function TradingViewChart({
                                       const points = data.sparklineData.map((point, i) => {
                                         const x = (i / (data.sparklineData.length - 1)) * 200;
                                         const y = padding + ((maxPrice - point.price) / priceRange) * chartHeight;
-                                        return `${x.toFixed(2)},${y.toFixed(2)}`;
+                                        return `${x.toFixed(1)},${y.toFixed(1)}`;
                                       }).join(' ');
 
                                       const prevDayY = data.previousDayClose
                                         ? padding + ((maxPrice - data.previousDayClose) / priceRange) * chartHeight
                                         : null;
 
-                                      // Helper function to check if timestamp is during market hours
-                                      const isMarketHours = (timestamp: number): boolean => {
-                                        const date = new Date(timestamp);
-                                        const etString = date.toLocaleString("en-US", { timeZone: "America/New_York" });
-                                        const etDate = new Date(etString);
-                                        const hour = etDate.getHours();
-                                        const minute = etDate.getMinutes();
-                                        const totalMinutes = hour * 60 + minute;
-                                        const marketOpen = 9 * 60 + 30; // 9:30 AM ET
-                                        const marketClose = 16 * 60; // 4:00 PM ET
-                                        return totalMinutes >= marketOpen && totalMinutes < marketClose;
-                                      };
-
-                                      // Generate pre-market/after-hours shading rectangles (only for 1D timeframe)
-                                      const shadingRects = trackingTimeframe === '1D' ? data.sparklineData.map((point, i) => {
-                                        const x = (i / (data.sparklineData.length - 1)) * 200;
-                                        const width = i < data.sparklineData.length - 1
-                                          ? ((i + 1) / (data.sparklineData.length - 1)) * 200 - x
-                                          : 200 - x;
-                                        const isMarket = isMarketHours(point.time);
-
-                                        if (!isMarket) {
-                                          return (
-                                            <rect
-                                              key={`shade-${i}`}
-                                              x={x}
-                                              y="0"
-                                              width={width}
-                                              height="50"
-                                              fill="#555555"
-                                              opacity="0.15"
-                                            />
-                                          );
-                                        }
-                                        return null;
-                                      }) : [];
-
                                       return (
                                         <>
-                                          {/* Pre-market/After-hours shading */}
-                                          {shadingRects}
-
                                           {/* Previous day close line */}
                                           {prevDayY !== null && (
                                             <line
                                               x1="0"
-                                              y1={prevDayY.toFixed(2)}
+                                              y1={prevDayY.toFixed(1)}
                                               x2="200"
-                                              y2={prevDayY.toFixed(2)}
+                                              y2={prevDayY.toFixed(1)}
                                               stroke="#444444"
                                               strokeWidth="1"
                                               strokeDasharray="3,2"
                                               opacity="0.4"
+                                              vectorEffect="non-scaling-stroke"
                                             />
                                           )}
 
-                                          {/* Price line with glow */}
-                                          <polyline
-                                            fill="none"
-                                            stroke={data.change >= 0 ? '#00ff00' : '#ff0000'}
-                                            strokeWidth="2"
-                                            points={points}
-                                            opacity="0.25"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                          />
+                                          {/* Price line */}
                                           <polyline
                                             fill="none"
                                             stroke={data.change >= 0 ? '#00ff00' : '#ff0000'}
@@ -15210,6 +15118,7 @@ export default function TradingViewChart({
                                             points={points}
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
+                                            vectorEffect="non-scaling-stroke"
                                           />
                                         </>
                                       );
@@ -15218,17 +15127,11 @@ export default function TradingViewChart({
 
                                   {/* X-Axis Time Labels */}
                                   <div className="flex justify-between mt-2 px-1">
-                                    {(() => {
-                                      if (data.sparklineData.length === 0) return null;
-
+                                    {data.sparklineData.length > 0 && (() => {
                                       const firstPoint = data.sparklineData[0];
-                                      const midPoint = data.sparklineData[Math.floor(data.sparklineData.length / 2)];
                                       const lastPoint = data.sparklineData[data.sparklineData.length - 1];
 
-                                      let labels = ['', '', ''];
-
                                       if (trackingTimeframe === '1D') {
-                                        // Format times in ET timezone
                                         const formatTime = (timestamp: number) => {
                                           const date = new Date(timestamp);
                                           return date.toLocaleTimeString('en-US', {
@@ -15239,31 +15142,25 @@ export default function TradingViewChart({
                                           });
                                         };
 
-                                        labels = [
-                                          formatTime(firstPoint.time),
-                                          formatTime(midPoint.time),
-                                          formatTime(lastPoint.time)
-                                        ];
+                                        return (
+                                          <>
+                                            <span className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatTime(firstPoint.time)}</span>
+                                            <span className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatTime(lastPoint.time)}</span>
+                                          </>
+                                        );
                                       } else {
-                                        // Show dates for longer timeframes in ET timezone
                                         const formatDate = (timestamp: number) => {
                                           const date = new Date(timestamp);
-                                          const parts = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' }).split('/');
-                                          return `${parts[0]}/${parts[1]}`;
+                                          return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' });
                                         };
 
-                                        labels = [
-                                          formatDate(firstPoint.time),
-                                          formatDate(midPoint.time),
-                                          formatDate(lastPoint.time)
-                                        ];
+                                        return (
+                                          <>
+                                            <span className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatDate(firstPoint.time)}</span>
+                                            <span className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatDate(lastPoint.time)}</span>
+                                          </>
+                                        );
                                       }
-
-                                      return labels.map((label, i) => (
-                                        <span key={i} className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">
-                                          {label}
-                                        </span>
-                                      ));
                                     })()}
                                   </div>
                                 </div>
@@ -15810,7 +15707,7 @@ export default function TradingViewChart({
                                     boxShadow: '0 0 20px rgba(0, 212, 255, 0.1)'
                                   }}>
                                     {optionPremiumData.length > 0 ? (
-                                      <svg width="100%" height="100%" viewBox="0 0 450 280" preserveAspectRatio="xMidYMid meet" className="overflow-visible">
+                                      <svg width="100%" height="100%" viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet" className="overflow-visible" style={{ shapeRendering: 'geometricPrecision' }}>
                                         {(() => {
                                           const prices = optionPremiumData.map(d => d.price);
                                           const minPrice = Math.min(...prices);
@@ -15818,13 +15715,13 @@ export default function TradingViewChart({
                                           const priceRange = maxPrice - minPrice || 1;
                                           const midPrice = (minPrice + maxPrice) / 2;
 
-                                          // Add margins: 10px on left, 45px on right, 10px top, 20px bottom
-                                          const chartWidth = 450;
-                                          const chartHeight = 280;
-                                          const marginLeft = 10;
-                                          const marginRight = 45;
-                                          const marginTop = 10;
-                                          const marginBottom = 20;
+                                          // Add margins: 20px on left, 90px on right, 20px top, 40px bottom (doubled for 2x resolution)
+                                          const chartWidth = 900;
+                                          const chartHeight = 560;
+                                          const marginLeft = 20;
+                                          const marginRight = 80;
+                                          const marginTop = 20;
+                                          const marginBottom = 50;
                                           const plotWidth = chartWidth - marginLeft - marginRight;
                                           const plotHeight = chartHeight - marginTop - marginBottom;
 
@@ -15860,9 +15757,9 @@ export default function TradingViewChart({
                                           return (
                                             <>
                                               {/* Grid lines */}
-                                              <line x1={marginLeft} y1={marginTop} x2={marginLeft + plotWidth} y2={marginTop} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                              <line x1={marginLeft} y1={marginTop + plotHeight / 2} x2={marginLeft + plotWidth} y2={marginTop + plotHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                              <line x1={marginLeft} y1={marginTop + plotHeight} x2={marginLeft + plotWidth} y2={marginTop + plotHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                                              <line x1={marginLeft} y1={marginTop} x2={marginLeft + plotWidth} y2={marginTop} stroke="rgba(255,255,255,0.05)" strokeWidth="2" />
+                                              <line x1={marginLeft} y1={marginTop + plotHeight / 2} x2={marginLeft + plotWidth} y2={marginTop + plotHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="2" />
+                                              <line x1={marginLeft} y1={marginTop + plotHeight} x2={marginLeft + plotWidth} y2={marginTop + plotHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="2" />
 
                                               {/* Area fill */}
                                               <path d={areaPath} fill={areaColor} />
@@ -15872,7 +15769,7 @@ export default function TradingViewChart({
                                                 points={points}
                                                 fill="none"
                                                 stroke={lineColor}
-                                                strokeWidth="2.5"
+                                                strokeWidth="5"
                                                 strokeLinecap="round"
                                                 strokeLinejoin="round"
                                               />
@@ -15887,7 +15784,7 @@ export default function TradingViewChart({
                                                     key={i}
                                                     cx={x}
                                                     cy={y}
-                                                    r="3"
+                                                    r="6"
                                                     fill={lineColor}
                                                     opacity="0.8"
                                                   />
@@ -15895,13 +15792,13 @@ export default function TradingViewChart({
                                               })}
 
                                               {/* Y-axis labels */}
-                                              <text x={chartWidth - 2} y={marginTop + 5} fill="#00d4ff" fontSize="10" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
-                                              <text x={chartWidth - 2} y={marginTop + plotHeight / 2 + 3} fill="white" fontSize="11" textAnchor="end">${midPrice.toFixed(2)}</text>
-                                              <text x={chartWidth - 2} y={marginTop + plotHeight} fill="white" fontSize="11" textAnchor="end">${minPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 5} y={marginTop + 15} fill="#00d4ff" fontSize="18" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 5} y={marginTop + plotHeight / 2 + 7} fill="white" fontSize="18" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 5} y={marginTop + plotHeight - 8} fill="white" fontSize="18" textAnchor="end">${minPrice.toFixed(2)}</text>
                                               {/* X-axis labels */}
-                                              <text x={marginLeft} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="start">{formatTime(firstTime)}</text>
-                                              <text x={marginLeft + plotWidth / 2} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="middle">{formatTime(midTime)}</text>
-                                              <text x={marginLeft + plotWidth} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="end">{formatTime(lastTime)}</text>
+                                              <text x={marginLeft} y={chartHeight - 15} fill="white" fontSize="18" textAnchor="start">{formatTime(firstTime)}</text>
+                                              <text x={marginLeft + plotWidth / 2} y={chartHeight - 15} fill="white" fontSize="18" textAnchor="middle">{formatTime(midTime)}</text>
+                                              <text x={marginLeft + plotWidth} y={chartHeight - 15} fill="white" fontSize="18" textAnchor="end">{formatTime(lastTime)}</text>
                                             </>
                                           );
                                         })()}
@@ -15923,7 +15820,7 @@ export default function TradingViewChart({
                                     boxShadow: '0 0 20px rgba(255, 149, 0, 0.1)'
                                   }}>
                                     {stockData.length > 0 ? (
-                                      <svg width="100%" height="100%" viewBox="0 0 450 280" preserveAspectRatio="xMidYMid meet" className="overflow-visible">
+                                      <svg width="100%" height="100%" viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet" className="overflow-visible" style={{ shapeRendering: 'geometricPrecision' }}>
                                         {(() => {
                                           const prices = stockData.map(d => d.price);
                                           const minPrice = Math.min(...prices);
@@ -15931,13 +15828,13 @@ export default function TradingViewChart({
                                           const priceRange = maxPrice - minPrice || 1;
                                           const midPrice = (minPrice + maxPrice) / 2;
 
-                                          // Add margins: 10px on left, 45px on right, 10px top, 20px bottom
-                                          const chartWidth = 450;
-                                          const chartHeight = 280;
-                                          const marginLeft = 10;
-                                          const marginRight = 45;
-                                          const marginTop = 10;
-                                          const marginBottom = 20;
+                                          // Add margins: 20px on left, 90px on right, 20px top, 40px bottom (doubled for 2x resolution)
+                                          const chartWidth = 900;
+                                          const chartHeight = 560;
+                                          const marginLeft = 20;
+                                          const marginRight = 80;
+                                          const marginTop = 20;
+                                          const marginBottom = 50;
                                           const plotWidth = chartWidth - marginLeft - marginRight;
                                           const plotHeight = chartHeight - marginTop - marginBottom;
 
@@ -16074,9 +15971,9 @@ export default function TradingViewChart({
                                               ))}
 
                                               {/* Grid lines */}
-                                              <line x1={marginLeft} y1={marginTop} x2={marginLeft + plotWidth} y2={marginTop} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                              <line x1={marginLeft} y1={marginTop + plotHeight / 2} x2={marginLeft + plotWidth} y2={marginTop + plotHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                              <line x1={marginLeft} y1={marginTop + plotHeight} x2={marginLeft + plotWidth} y2={marginTop + plotHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                                              <line x1={marginLeft} y1={marginTop} x2={marginLeft + plotWidth} y2={marginTop} stroke="rgba(255,255,255,0.05)" strokeWidth="2" />
+                                              <line x1={marginLeft} y1={marginTop + plotHeight / 2} x2={marginLeft + plotWidth} y2={marginTop + plotHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="2" />
+                                              <line x1={marginLeft} y1={marginTop + plotHeight} x2={marginLeft + plotWidth} y2={marginTop + plotHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="2" />
 
                                               {/* Area fill - only during market hours */}
                                               {marketHoursSegments.map((path, i) => (
@@ -16088,7 +15985,7 @@ export default function TradingViewChart({
                                                 points={points}
                                                 fill="none"
                                                 stroke={lineColor}
-                                                strokeWidth="2.5"
+                                                strokeWidth="5"
                                                 strokeLinecap="round"
                                                 strokeLinejoin="round"
                                               />
@@ -16103,7 +16000,7 @@ export default function TradingViewChart({
                                                     key={i}
                                                     cx={x}
                                                     cy={y}
-                                                    r="3"
+                                                    r="6"
                                                     fill={lineColor}
                                                     opacity="0.8"
                                                   />
@@ -16111,13 +16008,13 @@ export default function TradingViewChart({
                                               })}
 
                                               {/* Y-axis labels */}
-                                              <text x={chartWidth - 2} y={marginTop + 5} fill="#ff9500" fontSize="10" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
-                                              <text x={chartWidth - 2} y={marginTop + plotHeight / 2 + 3} fill="white" fontSize="11" textAnchor="end">${midPrice.toFixed(2)}</text>
-                                              <text x={chartWidth - 2} y={marginTop + plotHeight} fill="white" fontSize="11" textAnchor="end">${minPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 5} y={marginTop + 15} fill="#ff9500" fontSize="18" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 5} y={marginTop + plotHeight / 2 + 7} fill="white" fontSize="18" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                              <text x={chartWidth - 5} y={marginTop + plotHeight - 8} fill="white" fontSize="18" textAnchor="end">${minPrice.toFixed(2)}</text>
                                               {/* X-axis labels */}
-                                              <text x={marginLeft} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="start">{formatTime(firstTime)}</text>
-                                              <text x={marginLeft + plotWidth / 2} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="middle">{formatTime(midTime)}</text>
-                                              <text x={marginLeft + plotWidth} y={chartHeight - 5} fill="white" fontSize="11" textAnchor="end">{formatTime(lastTime)}</text>
+                                              <text x={marginLeft} y={chartHeight - 15} fill="white" fontSize="18" textAnchor="start">{formatTime(firstTime)}</text>
+                                              <text x={marginLeft + plotWidth / 2} y={chartHeight - 15} fill="white" fontSize="18" textAnchor="middle">{formatTime(midTime)}</text>
+                                              <text x={marginLeft + plotWidth} y={chartHeight - 15} fill="white" fontSize="18" textAnchor="end">{formatTime(lastTime)}</text>
                                             </>
                                           );
                                         })()}
@@ -16167,7 +16064,7 @@ export default function TradingViewChart({
                                   boxShadow: '0 0 20px rgba(0, 212, 255, 0.1)'
                                 }}>
                                   {optionPremiumData.length > 0 ? (
-                                    <svg width="100%" height="100%" style={{ display: 'block' }}>
+                                    <svg width="100%" height="100%" viewBox="0 0 450 265" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
                                       {(() => {
                                         const prices = optionPremiumData.map(d => d.price);
                                         const minPrice = Math.min(...prices);
@@ -16175,9 +16072,9 @@ export default function TradingViewChart({
                                         const priceRange = maxPrice - minPrice || 1;
                                         const midPrice = (minPrice + maxPrice) / 2;
 
-                                        const width = 800;
+                                        const width = 450;
                                         const height = 265;
-                                        const margin = { top: 15, right: 80, bottom: 30, left: 15 };
+                                        const margin = { top: 15, right: 60, bottom: 25, left: 10 };
                                         const chartWidth = width - margin.left - margin.right;
                                         const chartHeight = height - margin.top - margin.bottom;
 
@@ -16215,27 +16112,27 @@ export default function TradingViewChart({
                                         const lastTime = new Date(optionPremiumData[optionPremiumData.length - 1].timestamp);
 
                                         return (
-                                          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" width="100%" height="100%">
-                                            <line x1={margin.left} y1={margin.top} x2={margin.left + chartWidth} y2={margin.top} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                            <line x1={margin.left} y1={margin.top + chartHeight / 2} x2={margin.left + chartWidth} y2={margin.top + chartHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                            <line x1={margin.left} y1={margin.top + chartHeight} x2={margin.left + chartWidth} y2={margin.top + chartHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                                          <g>
+                                            <line x1={margin.left} y1={margin.top} x2={margin.left + chartWidth} y2={margin.top} stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
+                                            <line x1={margin.left} y1={margin.top + chartHeight / 2} x2={margin.left + chartWidth} y2={margin.top + chartHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
+                                            <line x1={margin.left} y1={margin.top + chartHeight} x2={margin.left + chartWidth} y2={margin.top + chartHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
 
-                                            <path d={areaPath} fill={areaColor} />
-                                            <polyline points={points} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                            <path d={areaPath} fill={areaColor} vectorEffect="non-scaling-stroke" />
+                                            <polyline points={points} fill="none" stroke={lineColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
 
                                             {optionPremiumData.filter((_, i) => i % Math.max(1, Math.floor(optionPremiumData.length / 30)) === 0).map((d, i) => {
                                               const idx = i * Math.max(1, Math.floor(optionPremiumData.length / 30));
-                                              return <circle key={i} cx={xScale(idx)} cy={yScale(d.price)} r="3" fill={lineColor} opacity="0.8" />;
+                                              return <circle key={i} cx={xScale(idx)} cy={yScale(d.price)} r="2" fill={lineColor} opacity="0.8" vectorEffect="non-scaling-stroke" />;
                                             })}
 
-                                            <text x={width - 5} y={margin.top + 12} fill="#00d4ff" fontSize="18" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
-                                            <text x={width - 5} y={margin.top + chartHeight / 2 + 5} fill="white" fontSize="18" textAnchor="end">${midPrice.toFixed(2)}</text>
-                                            <text x={width - 5} y={margin.top + chartHeight - 5} fill="white" fontSize="18" textAnchor="end">${minPrice.toFixed(2)}</text>
+                                            <text x={width - 3} y={margin.top + 10} fill="#00d4ff" fontSize="13" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                            <text x={width - 3} y={margin.top + chartHeight / 2 + 3} fill="white" fontSize="12" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                            <text x={width - 3} y={margin.top + chartHeight - 3} fill="white" fontSize="12" textAnchor="end">${minPrice.toFixed(2)}</text>
 
-                                            <text x={margin.left} y={height - 8} fill="white" fontSize="16" textAnchor="start">{formatTime(firstTime, 'start')}</text>
-                                            <text x={margin.left + chartWidth / 2} y={height - 8} fill="white" fontSize="16" textAnchor="middle">{formatTime(midTime, 'mid')}</text>
-                                            <text x={margin.left + chartWidth} y={height - 8} fill="white" fontSize="16" textAnchor="end">{formatTime(lastTime, 'end')}</text>
-                                          </svg>
+                                            <text x={margin.left} y={height - 5} fill="white" fontSize="13" textAnchor="start">{formatTime(firstTime, 'start')}</text>
+                                            <text x={margin.left + chartWidth / 2} y={height - 5} fill="white" fontSize="13" textAnchor="middle">{formatTime(midTime, 'mid')}</text>
+                                            <text x={margin.left + chartWidth} y={height - 5} fill="white" fontSize="13" textAnchor="end">{formatTime(lastTime, 'end')}</text>
+                                          </g>
                                         );
                                       })()}
                                     </svg>
@@ -16254,7 +16151,7 @@ export default function TradingViewChart({
                                   boxShadow: '0 0 20px rgba(255, 149, 0, 0.1)'
                                 }}>
                                   {stockData.length > 0 ? (
-                                    <svg width="100%" height="100%" style={{ display: 'block' }}>
+                                    <svg width="100%" height="100%" viewBox="0 0 450 265" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
                                       {(() => {
                                         const prices = stockData.map(d => d.price);
                                         const minPrice = Math.min(...prices);
@@ -16262,9 +16159,9 @@ export default function TradingViewChart({
                                         const priceRange = maxPrice - minPrice || 1;
                                         const midPrice = (minPrice + maxPrice) / 2;
 
-                                        const width = 800;
+                                        const width = 450;
                                         const height = 265;
-                                        const margin = { top: 15, right: 80, bottom: 30, left: 15 };
+                                        const margin = { top: 15, right: 60, bottom: 25, left: 10 };
                                         const chartWidth = width - margin.left - margin.right;
                                         const chartHeight = height - margin.top - margin.bottom;
 
@@ -16357,34 +16254,34 @@ export default function TradingViewChart({
                                         const lastTime = new Date(stockData[stockData.length - 1].timestamp);
 
                                         return (
-                                          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" width="100%" height="100%">
+                                          <g>
                                             {sessionBgs.map((bg, i) => (
                                               <rect key={i} x={bg.x} y={margin.top} width={bg.width} height={chartHeight} fill={bg.color} />
                                             ))}
 
-                                            <line x1={margin.left} y1={margin.top} x2={margin.left + chartWidth} y2={margin.top} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                            <line x1={margin.left} y1={margin.top + chartHeight / 2} x2={margin.left + chartWidth} y2={margin.top + chartHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                                            <line x1={margin.left} y1={margin.top + chartHeight} x2={margin.left + chartWidth} y2={margin.top + chartHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                                            <line x1={margin.left} y1={margin.top} x2={margin.left + chartWidth} y2={margin.top} stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
+                                            <line x1={margin.left} y1={margin.top + chartHeight / 2} x2={margin.left + chartWidth} y2={margin.top + chartHeight / 2} stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
+                                            <line x1={margin.left} y1={margin.top + chartHeight} x2={margin.left + chartWidth} y2={margin.top + chartHeight} stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
 
                                             {marketSegments.map((path, i) => (
-                                              <path key={i} d={path} fill={areaColor} />
+                                              <path key={i} d={path} fill={areaColor} vectorEffect="non-scaling-stroke" />
                                             ))}
 
-                                            <polyline points={points} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                            <polyline points={points} fill="none" stroke={lineColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
 
                                             {stockData.filter((_, i) => i % Math.max(1, Math.floor(stockData.length / 30)) === 0).map((d, i) => {
                                               const idx = i * Math.max(1, Math.floor(stockData.length / 30));
-                                              return <circle key={i} cx={xScale(idx)} cy={yScale(d.price)} r="3" fill={lineColor} opacity="0.8" />;
+                                              return <circle key={i} cx={xScale(idx)} cy={yScale(d.price)} r="2" fill={lineColor} opacity="0.8" vectorEffect="non-scaling-stroke" />;
                                             })}
 
-                                            <text x={width - 5} y={margin.top + 12} fill="#ff9500" fontSize="18" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
-                                            <text x={width - 5} y={margin.top + chartHeight / 2 + 5} fill="white" fontSize="18" textAnchor="end">${midPrice.toFixed(2)}</text>
-                                            <text x={width - 5} y={margin.top + chartHeight - 5} fill="white" fontSize="18" textAnchor="end">${minPrice.toFixed(2)}</text>
+                                            <text x={width - 3} y={margin.top + 10} fill="#ff9500" fontSize="13" fontWeight="600" textAnchor="end">${maxPrice.toFixed(2)}</text>
+                                            <text x={width - 3} y={margin.top + chartHeight / 2 + 3} fill="white" fontSize="12" textAnchor="end">${midPrice.toFixed(2)}</text>
+                                            <text x={width - 3} y={margin.top + chartHeight - 3} fill="white" fontSize="12" textAnchor="end">${minPrice.toFixed(2)}</text>
 
-                                            <text x={margin.left} y={height - 8} fill="white" fontSize="16" textAnchor="start">{formatTime(firstTime, 'start')}</text>
-                                            <text x={margin.left + chartWidth / 2} y={height - 8} fill="white" fontSize="16" textAnchor="middle">{formatTime(midTime, 'mid')}</text>
-                                            <text x={margin.left + chartWidth} y={height - 8} fill="white" fontSize="16" textAnchor="end">{formatTime(lastTime, 'end')}</text>
-                                          </svg>
+                                            <text x={margin.left} y={height - 5} fill="white" fontSize="13" textAnchor="start">{formatTime(firstTime, 'start')}</text>
+                                            <text x={margin.left + chartWidth / 2} y={height - 5} fill="white" fontSize="13" textAnchor="middle">{formatTime(midTime, 'mid')}</text>
+                                            <text x={margin.left + chartWidth} y={height - 5} fill="white" fontSize="13" textAnchor="end">{formatTime(lastTime, 'end')}</text>
+                                          </g>
                                         );
                                       })()}
                                     </svg>
@@ -19059,23 +18956,6 @@ export default function TradingViewChart({
                           </button>
                         ))}
 
-                        <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: 'bold', margin: '8px 0 4px', textTransform: 'uppercase' }}>Fed Events</div>
-                        {['FOMC March', 'FOMC June', 'FOMC September', 'FOMC December'].map(event => (
-                          <button
-                            key={event}
-                            onClick={() => {
-                              const eventKey = event.toLowerCase().replace(/\s+/g, '-');
-                              setSelectedSeasonalEvent(eventKey);
-                              calculateEventSeasonal(eventKey, data);
-                              setIsEventDropdownOpen(false);
-                            }}
-                            className="btn-3d-carved"
-                            style={{ padding: '8px 12px', fontSize: '12px', textAlign: 'left', borderRadius: '4px', width: '100%' }}
-                          >
-                            {event}
-                          </button>
-                        ))}
-
                         <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: 'bold', margin: '8px 0 4px', textTransform: 'uppercase' }}>Options</div>
                         {['Quad Witching Mar', 'Quad Witching Jun', 'Quad Witching Sep', 'Quad Witching Dec', 'Monthly OpEx'].map(event => (
                           <button
@@ -20001,10 +19881,7 @@ export default function TradingViewChart({
 
               {/* Drawing Tools - Individual Buttons */}
               <div className="ml-4 flex items-center space-x-2" style={{
-                border: '2px solid #FF8500',
-                borderRadius: '6px',
-                padding: '6px 10px',
-                background: 'rgba(255, 133, 0, 0.05)'
+                padding: '6px 10px'
               }}>
                 <button
                   onClick={() => {
@@ -20012,7 +19889,7 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20022,13 +19899,11 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Trendline"
                 >
-                  <TbLine className="w-4 h-4" />
-                  <span>Line</span>
+                  <TbLine className="w-5 h-5" />
                 </button>
 
                 <button
@@ -20037,7 +19912,7 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20047,13 +19922,11 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Horizontal Line"
                 >
-                  <TbMinus className="w-4 h-4" />
-                  <span>Ray</span>
+                  <TbMinus className="w-5 h-5" />
                 </button>
 
                 <button
@@ -20062,7 +19935,7 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20072,13 +19945,11 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Vertical Line"
                 >
-                  <TbArrowsVertical className="w-4 h-4" />
-                  <span>Vertical</span>
+                  <TbArrowsVertical className="w-5 h-5" />
                 </button>
 
                 <button
@@ -20087,7 +19958,7 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20097,13 +19968,14 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Parallel Channel"
                 >
-                  <TbSlash className="w-4 h-4" />
-                  <span>Channel</span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </svg>
                 </button>
 
                 <button
@@ -20112,7 +19984,7 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20122,13 +19994,13 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Rectangle"
                 >
-                  <TbSquare className="w-4 h-4" />
-                  <span>Box</span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="4" y="6" width="16" height="12" />
+                  </svg>
                 </button>
 
                 <button
@@ -20137,7 +20009,7 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20147,13 +20019,13 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Buy Zone"
                 >
-                  <TbSquare className="w-4 h-4" />
-                  <span>Buy</span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="#22c55e" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="4" y="6" width="16" height="12" />
+                  </svg>
                 </button>
 
                 <button
@@ -20162,7 +20034,7 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20172,13 +20044,13 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Sell Zone"
                 >
-                  <TbSquare className="w-4 h-4" />
-                  <span>Sell</span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="#ef4444" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="4" y="6" width="16" height="12" />
+                  </svg>
                 </button>
 
                 <button
@@ -20187,7 +20059,7 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20197,24 +20069,22 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Price Range"
                 >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="2" y1="3" x2="14" y2="3" />
-                    <line x1="8" y1="3" x2="8" y2="13" />
-                    <line x1="2" y1="13" x2="14" y2="13" />
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="4" y1="6" x2="20" y2="6" />
+                    <line x1="12" y1="6" x2="12" y2="18" />
+                    <line x1="4" y1="18" x2="20" y2="18" />
                   </svg>
-                  <span>Range</span>
                 </button>
 
                 <button
                   onClick={() => setCurrentDrawingTool(currentDrawingTool === 'brush' ? 'select' : 'brush')}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px 12px',
+                    padding: '8px',
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
@@ -20224,21 +20094,173 @@ export default function TradingViewChart({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     justifyContent: 'center'
                   }}
                   title="Brush Tool"
                 >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M2 14 Q 4 10, 6 8 T 10 4 L 12 2" strokeLinecap="round" />
-                    <circle cx="12" cy="2" r="1.5" fill="currentColor" />
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9.06 11.9l8.07-8.06a1.5 1.5 0 1 1 2.12 2.12l-8.06 8.08" />
+                    <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
                   </svg>
-                  <span>Brush</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentDrawingTool(currentDrawingTool === 'text' ? 'select' : 'text')}
+                  className="btn-3d-carved"
+                  style={{
+                    padding: '8px',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    borderRadius: '4px',
+                    background: currentDrawingTool === 'text' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
+                    border: currentDrawingTool === 'text' ? '2px solid #FF8500' : '1px solid #444',
+                    color: 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  title="Text Note Tool"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="4 7 4 4 20 4 20 7" />
+                    <line x1="9" y1="20" x2="15" y2="20" />
+                    <line x1="12" y1="4" x2="12" y2="20" />
+                  </svg>
+                </button>
+
+                <div style={{ width: '1px', height: '32px', background: '#444', margin: '0 6px' }} />
+
+                <button
+                  onClick={() => setIsDrawingToolLocked(!isDrawingToolLocked)}
+                  style={{
+                    padding: '8px',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    borderRadius: '4px',
+                    background: isDrawingToolLocked ? '#FFD700' : 'transparent',
+                    border: isDrawingToolLocked ? '2px solid #FFD700' : '1px solid #444',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    justifyContent: 'center',
+                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4)'
+                  }}
+                  title={isDrawingToolLocked ? 'Drawing Lock: ON (Infinite Use)' : 'Drawing Lock: OFF (Single Use)'}
+                >
+                  {isDrawingToolLocked ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                    </svg>
+                  )}
+                </button>
+
+                {/* Undo Button */}
+                <button
+                  onClick={() => {
+                    if (historyIndex > 0) {
+                      const newIndex = historyIndex - 1;
+                      setHistoryIndex(newIndex);
+                      setLwChartDrawings(drawingHistory[newIndex]);
+                    }
+                  }}
+                  disabled={historyIndex <= 0}
+                  className="btn-3d-carved"
+                  style={{
+                    padding: '8px',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    borderRadius: '4px',
+                    background: historyIndex <= 0 ? '#1e293b' : 'transparent',
+                    cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: historyIndex <= 0 ? 0.5 : 1
+                  }}
+                  title="Undo"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M9 14L4 9L9 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                {/* Redo Button */}
+                <button
+                  onClick={() => {
+                    if (historyIndex < drawingHistory.length - 1) {
+                      const newIndex = historyIndex + 1;
+                      setHistoryIndex(newIndex);
+                      setLwChartDrawings(drawingHistory[newIndex]);
+                    }
+                  }}
+                  disabled={historyIndex >= drawingHistory.length - 1}
+                  className="btn-3d-carved"
+                  style={{
+                    padding: '8px',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    borderRadius: '4px',
+                    background: historyIndex >= drawingHistory.length - 1 ? '#1e293b' : 'transparent',
+                    cursor: historyIndex >= drawingHistory.length - 1 ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: historyIndex >= drawingHistory.length - 1 ? 0.5 : 1
+                  }}
+                  title="Redo"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M15 14L20 9L15 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M20 9H8C5.79086 9 4 10.7909 4 13C4 15.2091 5.79086 17 8 17H11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                {/* Background Toggle Button */}
+                <button
+                  onClick={() => setIsBackgroundVisible(!isBackgroundVisible)}
+                  className="btn-3d-carved"
+                  style={{
+                    padding: '8px',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    borderRadius: '4px',
+                    background: isBackgroundVisible ? '#22c55e' : 'transparent',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  title={isBackgroundVisible ? "Hide Drawings" : "Show Drawings"}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    {isBackgroundVisible ? (
+                      <>
+                        <path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M3 3L21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M10.5 10.5C10.1872 10.8128 10 11.2448 10 11.7C10 12.7046 10.8954 13.5 12 13.5C12.5552 13.5 12.9872 13.3128 13.3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M7.36 7.36C5.68 8.68 4.5 10.5 4.5 12C4.5 12 7 17 12 17C13.5 17 14.82 16.64 15.64 16.36" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M12 7C17 7 19.5 12 19.5 12C19.5 12 19 13.18 17.88 14.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </>
+                    )}
+                  </svg>
                 </button>
 
                 <button
                   onClick={() => {
-                    setLwChartDrawings([]);
+                    updateDrawingsWithHistory([]);
                     setCurrentDrawingTool('select');
                     if (typeof window !== 'undefined') {
                       localStorage.removeItem('lwChartDrawings');
@@ -20250,9 +20272,8 @@ export default function TradingViewChart({
                     fontWeight: '600',
                     fontSize: '14px',
                     borderRadius: '4px',
-                    border: '1px solid #ef4444',
+                    border: '1px solid #DC143C',
                     background: 'transparent',
-                    color: '#ef4444',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -20261,8 +20282,8 @@ export default function TradingViewChart({
                   }}
                   title="Clear All Drawings"
                 >
-                  <TbX className="w-4 h-4" />
-                  <span>Clear</span>
+                  <TbX className="w-4 h-4" style={{ color: '#DC143C' }} />
+                  <span style={{ color: '#DC143C' }}>Clear</span>
                 </button>
               </div>
 
@@ -20667,7 +20688,6 @@ export default function TradingViewChart({
                   { id: 'chain', icon: TbLink, label: 'CHAIN', accent: 'cyan' },
                   { id: 'plan', icon: TbChartLine, label: 'PLAN', accent: 'purple' },
                   { id: 'trades', icon: TbActivity, label: 'TRADES', accent: 'green' },
-                  { id: 'research', icon: TbChartBar, label: 'RESEARCH', accent: 'indigo' },
                   { id: 'calendar', icon: TbCalendar, label: 'SEASONALITY', accent: 'pink' },
                   { id: 'flow', icon: TbArrowsShuffle, label: 'FLOW', accent: 'lime' },
                   { id: 'screeners', icon: TbFilter, label: 'SCREENERS', accent: 'teal' },
@@ -20696,7 +20716,7 @@ export default function TradingViewChart({
                   return (
                     <div key={item.id} className="flex flex-col items-center w-full px-2 mb-2">
                       <button
-                        className="group relative w-full py-8 flex flex-col items-center justify-center gap-2.5
+                        className="group relative w-full md:py-8 py-4 flex flex-col items-center justify-center md:gap-2.5 gap-1
  transition-all duration-500 ease-out active:scale-95 rounded-lg overflow-hidden backdrop-blur-xl"
                         style={{
                           background: isActive
@@ -20769,6 +20789,10 @@ export default function TradingViewChart({
                         onClick={() => handleSidebarClick(item.id)}
                         title={item.label}
                       >
+                        {/* Mobile label above icon */}
+                        <span className="md:hidden text-[8px] font-bold uppercase tracking-tight relative z-10" style={{ color: isActive ? accentColors[item.accent] : '#FFFFFF' }}>
+                          {item.label}
+                        </span>
                         {/* Premium glass overlay with color tint */}
                         <div
                           className="absolute inset-0 pointer-events-none rounded-lg"
@@ -20806,7 +20830,7 @@ export default function TradingViewChart({
 
                         {/* Icon with dynamic color and glow */}
                         <span
-                          className="relative text-4xl transition-all duration-500 group-hover:scale-115 group-hover:rotate-6"
+                          className="relative md:text-4xl text-2xl transition-all duration-500 group-hover:scale-115 group-hover:rotate-6"
                           style={{
                             color: isActive ? accentColors[item.accent] : `${accentColors[item.accent]}B3`,
                             filter: isActive
@@ -20995,7 +21019,7 @@ export default function TradingViewChart({
                         isDragging ? 'grabbing' : 'crosshair',
                       transition: 'cursor 0.1s ease',
                       outline: 'none',
-                      touchAction: 'pan-x pan-y pinch-zoom'
+                      touchAction: 'none'
                     }}
                     onMouseDown={handleUnifiedMouseDown}
                     onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -21107,31 +21131,35 @@ export default function TradingViewChart({
                   />
 
                   {/* Lightweight Charts Drawing Tools Overlay */}
-                  <LWChartDrawingTools
-                    width={dimensions.width}
-                    height={dimensions.height}
-                    isActive={true}
-                    onClose={() => setCurrentDrawingTool('select')}
-                    drawings={lwChartDrawings}
-                    setDrawings={setLwChartDrawings}
-                    currentTool={currentDrawingTool}
-                    setCurrentTool={setCurrentDrawingTool}
-                    priceToScreen={priceToScreen}
-                    screenToPrice={screenToPrice}
-                    timeToScreen={(index) => {
-                      const candleWidth = (dimensions.width - 100) / visibleCandleCount;
-                      const startIndex = Math.max(0, Math.floor(scrollOffset));
-                      const relativeIndex = index - startIndex;
-                      return 40 + (relativeIndex * candleWidth);
-                    }}
-                    screenToTime={(x) => {
-                      const candleWidth = (dimensions.width - 100) / visibleCandleCount;
-                      const startIndex = Math.max(0, Math.floor(scrollOffset));
-                      const relativeX = x - 40;
-                      const relativeIndex = Math.floor(relativeX / candleWidth);
-                      return Math.max(0, Math.min(data.length - 1, startIndex + relativeIndex));
-                    }}
-                  />
+                  {isBackgroundVisible && (
+                    <LWChartDrawingTools
+                      width={dimensions.width}
+                      height={dimensions.height}
+                      isActive={true}
+                      onClose={() => setCurrentDrawingTool('select')}
+                      drawings={lwChartDrawings}
+                      setDrawings={updateDrawingsWithHistory}
+                      currentTool={currentDrawingTool}
+                      setCurrentTool={setCurrentDrawingTool}
+                      isToolLocked={isDrawingToolLocked}
+                      priceToScreen={priceToScreen}
+                      screenToPrice={screenToPrice}
+                      timeToScreen={(index) => {
+                        const candleWidth = (dimensions.width - 100) / visibleCandleCount;
+                        const startIndex = Math.max(0, Math.floor(scrollOffset));
+                        const relativeIndex = index - startIndex;
+                        return 40 + (relativeIndex * candleWidth);
+                      }}
+                      screenToTime={(x) => {
+                        const candleWidth = (dimensions.width - 100) / visibleCandleCount;
+                        const startIndex = Math.max(0, Math.floor(scrollOffset));
+                        const relativeX = x - 40;
+                        const relativeIndex = Math.floor(relativeX / candleWidth);
+                        // Allow future indices beyond data.length for drawing tools
+                        return Math.max(0, startIndex + relativeIndex);
+                      }}
+                    />
+                  )}
 
                   {/* Flow Chart Resize Handle */}
                   {isFlowChartActive && (

@@ -13,7 +13,7 @@ import {
     TbX,
 } from 'react-icons/tb'
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 interface LWChartDrawingToolsProps {
     width: number
@@ -24,6 +24,7 @@ interface LWChartDrawingToolsProps {
     setDrawings: (drawings: Drawing[]) => void
     currentTool?: DrawingTool
     setCurrentTool?: (tool: DrawingTool) => void
+    isToolLocked?: boolean
     priceToScreen?: (price: number) => number
     screenToPrice?: (y: number) => number
     timeToScreen?: (index: number) => number
@@ -75,6 +76,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     setDrawings,
     currentTool: externalCurrentTool,
     setCurrentTool: externalSetCurrentTool,
+    isToolLocked = false,
     priceToScreen,
     screenToPrice,
     timeToScreen,
@@ -100,6 +102,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     const [textInputValue, setTextInputValue] = useState('')
     const [draggedDrawing, setDraggedDrawing] = useState<string | null>(null)
     const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+    const [dragStartDataPoint, setDragStartDataPoint] = useState<{ time: number; price: number } | null>(null)
+    const [originalDrawingPoints, setOriginalDrawingPoints] = useState<DrawingPoint[] | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [editingDrawing, setEditingDrawing] = useState<string | null>(null)
     const [draggedControlPoint, setDraggedControlPoint] = useState<number | null>(null)
@@ -109,6 +113,26 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     const [tempColor, setTempColor] = useState<string>('#22c55e')
     const [tempBgColor, setTempBgColor] = useState<string>('#22c55e')
     const [isBrushing, setIsBrushing] = useState(false)
+    const dragAnimationFrameRef = useRef<number | null>(null)
+    const [justCompletedDrawing, setJustCompletedDrawing] = useState(false)
+    const pendingUpdateRef = useRef<(() => void) | null>(null)
+    const isAnimatingRef = useRef(false)
+    const lastDrawingsRef = useRef<Drawing[]>(drawings)
+    const pendingMousePositionRef = useRef<{ x: number; y: number } | null>(null)
+    const isProcessingDragRef = useRef(false)
+
+    // Batch drawing updates to reduce re-renders
+    useEffect(() => {
+        lastDrawingsRef.current = drawings
+    }, [drawings])
+
+    // Helper function to enable editing a drawing (with completion check)
+    const enableDrawingEdit = (drawingId: string) => {
+        if (!justCompletedDrawing) {
+            setEditingDrawing(drawingId)
+            setSelectedDrawing(drawingId)
+        }
+    }
 
     // Initialize canvas
     useEffect(() => {
@@ -137,9 +161,17 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     useEffect(() => {
         const handleGlobalMouseUp = () => {
             if (isDragging) {
+                if (dragAnimationFrameRef.current) {
+                    cancelAnimationFrame(dragAnimationFrameRef.current)
+                    dragAnimationFrameRef.current = null
+                }
+                isProcessingDragRef.current = false
+                pendingMousePositionRef.current = null
                 setIsDragging(false)
                 setDraggedDrawing(null)
                 setDraggedControlPoint(null)
+                setDragStartDataPoint(null)
+                setOriginalDrawingPoints(null)
             }
         }
 
@@ -235,8 +267,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             } else if (drawing.type === 'horizontal' && drawing.points.length === 1) {
                 const p = drawing.points[0]
                 const screenY = priceToScreen ? priceToScreen(p.price) : 0
+                const startPoint = toScreenCoords(p)
                 ctx.beginPath()
-                ctx.moveTo(0, screenY)
+                ctx.moveTo(startPoint.x, screenY)
                 ctx.lineTo(canvas.width, screenY)
                 ctx.stroke()
 
@@ -711,7 +744,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             setDrawings([...drawings, newDrawing])
             setCurrentPoints([])
             setPreviewPoint(null)
-            setCurrentTool('select')
+            setEditingDrawing(null)
+            setJustCompletedDrawing(true)
+            setTimeout(() => setJustCompletedDrawing(false), 100)
+            if (!isToolLocked) setCurrentTool('select')
         } else if (currentTool === 'vertical') {
             // Complete immediately for vertical lines
             const newDrawing: Drawing = {
@@ -723,7 +759,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             setDrawings([...drawings, newDrawing])
             setCurrentPoints([])
             setPreviewPoint(null)
-            setCurrentTool('select')
+            setEditingDrawing(null)
+            setJustCompletedDrawing(true)
+            setTimeout(() => setJustCompletedDrawing(false), 100)
+            if (!isToolLocked) setCurrentTool('select')
         } else if (currentTool === 'text') {
             // Show text input at clicked position (use screen coords for input position)
             setTextInputPosition({ x, y })
@@ -745,7 +784,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             setDrawings([...drawings, newDrawing])
             setCurrentPoints([])
             setPreviewPoint(null)
-            setCurrentTool('select')
+            setEditingDrawing(null)
+            setJustCompletedDrawing(true)
+            setTimeout(() => setJustCompletedDrawing(false), 100)
+            if (!isToolLocked) setCurrentTool('select')
         } else if (currentTool === 'buyZone' || currentTool === 'sellZone') {
             const newPoints = [...currentPoints, point]
 
@@ -762,7 +804,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 setDrawings([...drawings, newDrawing])
                 setCurrentPoints([])
                 setPreviewPoint(null)
-                setCurrentTool('select')
+                setEditingDrawing(null)
+                setJustCompletedDrawing(true)
+                setTimeout(() => setJustCompletedDrawing(false), 100)
+                if (!isToolLocked) setCurrentTool('select')
             } else {
                 setCurrentPoints(newPoints)
                 setPreviewPoint(null)
@@ -782,7 +827,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 setDrawings([...drawings, newDrawing])
                 setCurrentPoints([])
                 setPreviewPoint(null)
-                setCurrentTool('select')
+                setEditingDrawing(null)
+                setJustCompletedDrawing(true)
+                setTimeout(() => setJustCompletedDrawing(false), 100)
+                if (!isToolLocked) setCurrentTool('select')
             } else {
                 setCurrentPoints(newPoints)
                 setPreviewPoint(null)
@@ -801,7 +849,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 setDrawings([...drawings, newDrawing])
                 setCurrentPoints([])
                 setPreviewPoint(null)
-                setCurrentTool('select')
+                setEditingDrawing(null)
+                setJustCompletedDrawing(true)
+                setTimeout(() => setJustCompletedDrawing(false), 100)
+                if (!isToolLocked) setCurrentTool('select')
             } else {
                 setCurrentPoints(newPoints)
                 setPreviewPoint(null)
@@ -820,7 +871,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 setDrawings([...drawings, newDrawing])
                 setCurrentPoints([])
                 setPreviewPoint(null)
-                setCurrentTool('select')
+                setEditingDrawing(null)
+                setJustCompletedDrawing(true)
+                setTimeout(() => setJustCompletedDrawing(false), 100)
+                if (!isToolLocked) setCurrentTool('select')
             } else {
                 // First or second click - continue building
                 setCurrentPoints(newPoints)
@@ -852,241 +906,258 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         // Only handle if actively dragging something or using a drawing tool
         if (!isDragging && currentTool === 'select') return
 
-        // Handle dragging control point to reshape drawing
-        if (isDragging && draggedControlPoint !== null && editingDrawing) {
-            e.stopPropagation()
-            e.preventDefault()
+        // Store the latest mouse position for batched processing
+        pendingMousePositionRef.current = { x, y }
 
-            const newDataPoint = {
-                time: screenToTime(x),
-                price: screenToPrice(y),
-            }
+        // If already processing, skip and let RAF handle it
+        if (isProcessingDragRef.current) return
 
-            const updatedDrawings = drawings.map((drawing) => {
-                if (drawing.id === editingDrawing) {
-                    if (drawing.type === 'trendline' || drawing.type === 'rectangle') {
-                        const newPoints = [...drawing.points]
-                        newPoints[draggedControlPoint] = newDataPoint
-                        return { ...drawing, points: newPoints }
-                    } else if (drawing.type === 'ray') {
-                        return {
-                            ...drawing,
-                            points: [{ time: drawing.points[0].time, price: newDataPoint.price }],
-                        }
-                    } else if (drawing.type === 'parallelChannel' && drawing.points.length === 3) {
-                        const newPoints = [...drawing.points]
-                        const [p1, p2, p3] = drawing.points
+        isProcessingDragRef.current = true
 
-                        if (draggedControlPoint === 0) {
-                            // Dragging corner point 1 (first line start)
-                            newPoints[0] = newDataPoint
-                        } else if (draggedControlPoint === 1) {
-                            // Dragging corner point 2 (first line end)
-                            newPoints[1] = newDataPoint
-                        } else if (draggedControlPoint === 2) {
-                            // Dragging corner point 3 (second line start)
-                            newPoints[2] = newDataPoint
-                        } else if (draggedControlPoint === 3) {
-                            // Dragging corner point 4 (second line end)
-                            // Calculate the offset needed so that p2 + offset = newDataPoint
-                            const offsetX = p3.time - p1.time
-                            const offsetY = p3.price - p1.price
-                            // We need new p3 such that p2 + (newP3 - p1) = newDataPoint
-                            // So: newP3 = newDataPoint - p2 + p1
-                            newPoints[2] = {
-                                time: newDataPoint.time - p2.time + p1.time,
-                                price: newDataPoint.price - p2.price + p1.price,
+        // Use requestAnimationFrame to batch drag updates
+        if (dragAnimationFrameRef.current) {
+            cancelAnimationFrame(dragAnimationFrameRef.current)
+        }
+
+        dragAnimationFrameRef.current = requestAnimationFrame(() => {
+            isProcessingDragRef.current = false
+            const position = pendingMousePositionRef.current
+            if (!position) return
+
+            const { x: currentX, y: currentY } = position
+
+            // Handle dragging control point to reshape drawing
+            if (isDragging && draggedControlPoint !== null && editingDrawing) {
+                const newDataPoint = {
+                    time: screenToTime(currentX),
+                    price: screenToPrice(currentY),
+                }
+
+                const updatedDrawings = drawings.map((drawing) => {
+                    if (drawing.id === editingDrawing) {
+                        if (drawing.type === 'trendline') {
+                            const newPoints = [...drawing.points]
+                            newPoints[draggedControlPoint] = newDataPoint
+                            return { ...drawing, points: newPoints }
+                        } else if (drawing.type === 'rectangle') {
+                            const p1 = drawing.points[0]
+                            const p2 = drawing.points[1]
+
+                            let newP1 = { ...p1 }
+                            let newP2 = { ...p2 }
+
+                            // Current bounds
+                            const minX = Math.min(p1.time, p2.time)
+                            const maxX = Math.max(p1.time, p2.time)
+                            const minY = Math.min(p1.price, p2.price)
+                            const maxY = Math.max(p1.price, p2.price)
+
+                            // Determine which corner is which based on current bounds
+                            const p1IsMinX = p1.time === minX
+                            const p1IsMinY = p1.price === minY
+
+                            // Map control points to actual corners
+                            // 0=top-left, 1=top-right, 2=bottom-right, 3=bottom-left
+                            if (draggedControlPoint === 0) { // Top-left
+                                newP1 = { time: newDataPoint.time, price: newDataPoint.price }
+                                newP2 = { time: maxX, price: maxY }
+                            } else if (draggedControlPoint === 1) { // Top-right
+                                newP1 = { time: minX, price: newDataPoint.price }
+                                newP2 = { time: newDataPoint.time, price: maxY }
+                            } else if (draggedControlPoint === 2) { // Bottom-right
+                                newP1 = { time: minX, price: minY }
+                                newP2 = { time: newDataPoint.time, price: newDataPoint.price }
+                            } else if (draggedControlPoint === 3) { // Bottom-left
+                                newP1 = { time: newDataPoint.time, price: minY }
+                                newP2 = { time: maxX, price: newDataPoint.price }
+                            } else if (draggedControlPoint === 4) { // Top edge
+                                newP1 = { time: minX, price: newDataPoint.price }
+                                newP2 = { time: maxX, price: maxY }
+                            } else if (draggedControlPoint === 5) { // Right edge
+                                newP1 = { time: minX, price: minY }
+                                newP2 = { time: newDataPoint.time, price: maxY }
+                            } else if (draggedControlPoint === 6) { // Bottom edge
+                                newP1 = { time: minX, price: minY }
+                                newP2 = { time: maxX, price: newDataPoint.price }
+                            } else if (draggedControlPoint === 7) { // Left edge
+                                newP1 = { time: newDataPoint.time, price: minY }
+                                newP2 = { time: maxX, price: maxY }
                             }
-                        } else if (draggedControlPoint === 4 || draggedControlPoint === 5) {
-                            // Dragging orange middle points - adjust perpendicular distance
-                            const lineAngle = Math.atan2(p2.price - p1.price, p2.time - p1.time)
-                            const perpAngle = lineAngle + Math.PI / 2
 
-                            const dTime = newDataPoint.time - p1.time
-                            const dPrice = newDataPoint.price - p1.price
+                            return {
+                                ...drawing,
+                                points: [newP1, newP2]
+                            }
+                        } else if (drawing.type === 'ray') {
+                            return {
+                                ...drawing,
+                                points: [{ time: drawing.points[0].time, price: newDataPoint.price }],
+                            }
+                        } else if (drawing.type === 'parallelChannel' && drawing.points.length === 3) {
+                            const newPoints = [...drawing.points]
+                            const [p1, p2, p3] = drawing.points
 
-                            const distanceAlong = dTime * Math.cos(perpAngle) + dPrice * Math.sin(perpAngle)
+                            if (draggedControlPoint === 0) {
+                                // Dragging corner point 1 (first line start)
+                                newPoints[0] = newDataPoint
+                            } else if (draggedControlPoint === 1) {
+                                // Dragging corner point 2 (first line end)
+                                newPoints[1] = newDataPoint
+                            } else if (draggedControlPoint === 2) {
+                                // Dragging corner point 3 (second line start)
+                                newPoints[2] = newDataPoint
+                            } else if (draggedControlPoint === 3) {
+                                // Dragging corner point 4 (second line end)
+                                // Calculate the offset needed so that p2 + offset = newDataPoint
+                                const offsetX = p3.time - p1.time
+                                const offsetY = p3.price - p1.price
+                                // We need new p3 such that p2 + (newP3 - p1) = newDataPoint
+                                // So: newP3 = newDataPoint - p2 + p1
+                                newPoints[2] = {
+                                    time: newDataPoint.time - p2.time + p1.time,
+                                    price: newDataPoint.price - p2.price + p1.price,
+                                }
+                            } else if (draggedControlPoint === 4 || draggedControlPoint === 5) {
+                                // Dragging orange middle points - adjust perpendicular distance
+                                const lineAngle = Math.atan2(p2.price - p1.price, p2.time - p1.time)
+                                const perpAngle = lineAngle + Math.PI / 2
 
-                            newPoints[2] = {
-                                time: p1.time + distanceAlong * Math.cos(perpAngle),
-                                price: p1.price + distanceAlong * Math.sin(perpAngle),
+                                const dTime = newDataPoint.time - p1.time
+                                const dPrice = newDataPoint.price - p1.price
+
+                                const distanceAlong = dTime * Math.cos(perpAngle) + dPrice * Math.sin(perpAngle)
+
+                                newPoints[2] = {
+                                    time: p1.time + distanceAlong * Math.cos(perpAngle),
+                                    price: p1.price + distanceAlong * Math.sin(perpAngle),
+                                }
+                            }
+
+                            return { ...drawing, points: newPoints }
+                        } else if (
+                            (drawing.type === 'buyZone' || drawing.type === 'sellZone') &&
+                            drawing.points.length === 2
+                        ) {
+                            const p1 = drawing.points[0]
+                            const p2 = drawing.points[1]
+
+                            let newP1 = { ...p1 }
+                            let newP2 = { ...p2 }
+
+                            if (draggedControlPoint === 0) {
+                                // Dragging left edge - move the left side freely
+                                newP1 = { time: newDataPoint.time, price: p1.price }
+                                newP2 = { time: p2.time, price: p2.price }
+                            } else if (draggedControlPoint === 1) {
+                                // Dragging right edge - move the right side freely
+                                newP1 = { time: p1.time, price: p1.price }
+                                newP2 = { time: newDataPoint.time, price: p2.price }
+                            }
+
+                            return { ...drawing, points: [newP1, newP2] }
+                        } else if (drawing.type === 'priceRange' && drawing.points.length === 2) {
+                            const newPoints = [...drawing.points]
+
+                            if (draggedControlPoint === 0) {
+                                // Dragging first point - adjust price only
+                                newPoints[0] = { time: newPoints[0].time, price: newDataPoint.price }
+                            } else if (draggedControlPoint === 1) {
+                                // Dragging second point - adjust price only
+                                newPoints[1] = { time: newPoints[1].time, price: newDataPoint.price }
+                            }
+
+                            return { ...drawing, points: newPoints }
+                        } else if (drawing.type === 'horizontal') {
+                            return {
+                                ...drawing,
+                                points: [{ time: drawing.points[0].time, price: newDataPoint.price }],
+                            }
+                        } else if (drawing.type === 'vertical') {
+                            return {
+                                ...drawing,
+                                points: [{ time: newDataPoint.time, price: drawing.points[0].price }],
+                            }
+                        } else if (drawing.type === 'text') {
+                            return {
+                                ...drawing,
+                                points: [newDataPoint],
                             }
                         }
-
-                        return { ...drawing, points: newPoints }
-                    } else if (
-                        (drawing.type === 'buyZone' || drawing.type === 'sellZone') &&
-                        drawing.points.length === 2
-                    ) {
-                        const newPoints = [...drawing.points]
-
-                        if (draggedControlPoint === 0) {
-                            // Dragging left edge - adjust start time only
-                            newPoints[0] = { time: newDataPoint.time, price: newPoints[0].price }
-                        } else if (draggedControlPoint === 1) {
-                            // Dragging right edge - adjust end time only
-                            newPoints[1] = { time: newDataPoint.time, price: newPoints[1].price }
-                        }
-
-                        return { ...drawing, points: newPoints }
-                    } else if (drawing.type === 'priceRange' && drawing.points.length === 2) {
-                        const newPoints = [...drawing.points]
-
-                        if (draggedControlPoint === 0) {
-                            // Dragging first point - adjust price only
-                            newPoints[0] = { time: newPoints[0].time, price: newDataPoint.price }
-                        } else if (draggedControlPoint === 1) {
-                            // Dragging second point - adjust price only
-                            newPoints[1] = { time: newPoints[1].time, price: newDataPoint.price }
-                        }
-
-                        return { ...drawing, points: newPoints }
-                    } else if (drawing.type === 'horizontal') {
-                        return {
-                            ...drawing,
-                            points: [{ time: drawing.points[0].time, price: newDataPoint.price }],
-                        }
-                    } else if (drawing.type === 'vertical') {
-                        return {
-                            ...drawing,
-                            points: [{ time: newDataPoint.time, price: drawing.points[0].price }],
-                        }
-                    } else if (drawing.type === 'text') {
-                        return {
-                            ...drawing,
-                            points: [newDataPoint],
-                        }
                     }
-                }
-                return drawing
-            })
+                    return drawing
+                })
 
-            setDrawings(updatedDrawings)
-            return
-        }
-
-        // Handle dragging entire drawing
-        if (isDragging && draggedDrawing) {
-            const currentDataPoint = {
-                time: screenToTime(x),
-                price: screenToPrice(y),
+                setDrawings(updatedDrawings)
+                return
             }
-            const offsetDataPoint = {
-                time: screenToTime(dragOffset.x),
-                price: screenToPrice(dragOffset.y),
+
+            // Handle dragging entire drawing
+            if (isDragging && draggedDrawing && dragStartDataPoint && originalDrawingPoints) {
+                // Current mouse position in data coordinates
+                const currentDataPoint = {
+                    time: screenToTime(currentX),
+                    price: screenToPrice(currentY),
+                }
+
+                // Calculate the delta from where we started dragging
+                const dTime = currentDataPoint.time - dragStartDataPoint.time
+                const dPrice = currentDataPoint.price - dragStartDataPoint.price
+
+                const updatedDrawings = drawings.map((drawing) => {
+                    if (drawing.id === draggedDrawing) {
+                        if (
+                            drawing.type === 'trendline' ||
+                            drawing.type === 'rectangle' ||
+                            drawing.type === 'text' ||
+                            drawing.type === 'ray' ||
+                            drawing.type === 'parallelChannel' ||
+                            drawing.type === 'buyZone' ||
+                            drawing.type === 'sellZone' ||
+                            drawing.type === 'priceRange' ||
+                            drawing.type === 'brush'
+                        ) {
+                            return {
+                                ...drawing,
+                                points: originalDrawingPoints.map((p) => ({
+                                    time: p.time + dTime,
+                                    price: p.price + dPrice,
+                                })),
+                            }
+                        } else if (drawing.type === 'horizontal') {
+                            return {
+                                ...drawing,
+                                points: [{ time: drawing.points[0].time, price: drawing.points[0].price + dPrice }],
+                            }
+                        } else if (drawing.type === 'vertical') {
+                            return {
+                                ...drawing,
+                                points: [{ time: drawing.points[0].time + dTime, price: drawing.points[0].price }],
+                            }
+                        }
+                    }
+                    return drawing
+                })
+
+                setDrawings(updatedDrawings)
+                return
             }
-            const dTime = currentDataPoint.time - offsetDataPoint.time
-            const dPrice = currentDataPoint.price - offsetDataPoint.price
 
-            const updatedDrawings = drawings.map((drawing) => {
-                if (drawing.id === draggedDrawing) {
-                    if (
-                        drawing.type === 'trendline' ||
-                        drawing.type === 'rectangle' ||
-                        drawing.type === 'text' ||
-                        drawing.type === 'ray' ||
-                        drawing.type === 'parallelChannel' ||
-                        drawing.type === 'buyZone' ||
-                        drawing.type === 'sellZone' ||
-                        drawing.type === 'priceRange' ||
-                        drawing.type === 'brush'
-                    ) {
-                        return {
-                            ...drawing,
-                            points: drawing.points.map((p) => ({
-                                time: p.time + dTime,
-                                price: p.price + dPrice,
-                            })),
-                        }
-                    } else if (drawing.type === 'horizontal') {
-                        return {
-                            ...drawing,
-                            points: [{ time: drawing.points[0].time, price: drawing.points[0].price + dPrice }],
-                        }
-                    } else if (drawing.type === 'vertical') {
-                        return {
-                            ...drawing,
-                            points: [{ time: drawing.points[0].time + dTime, price: drawing.points[0].price }],
-                        }
-                    }
-                }
-                return drawing
+            // Handle drawing preview
+            if (currentPoints.length === 0 || currentTool === 'select') return
+
+            // For parallel channel, allow preview with 1 or 2 points
+            if (currentTool === 'parallelChannel') {
+                if (currentPoints.length !== 1 && currentPoints.length !== 2) return
+            } else {
+                // For other tools, only show preview with 1 point
+                if (currentPoints.length !== 1) return
+            }
+
+            // Update preview point for visual feedback
+            setPreviewPoint({
+                time: screenToTime(currentX),
+                price: screenToPrice(currentY),
             })
-
-            setDrawings(updatedDrawings)
-            return
-        }
-
-        // Handle dragging entire drawing
-        if (isDragging && draggedDrawing && !draggedControlPoint) {
-            e.stopPropagation()
-            e.preventDefault()
-
-            const dTime = screenToTime(x) - screenToTime(dragOffset.x)
-            const dPrice = screenToPrice(y) - screenToPrice(dragOffset.y)
-
-            const updatedDrawings = drawings.map((drawing) => {
-                if (drawing.id === draggedDrawing) {
-                    if (
-                        drawing.type === 'trendline' ||
-                        drawing.type === 'rectangle' ||
-                        drawing.type === 'text' ||
-                        drawing.type === 'parallelChannel'
-                    ) {
-                        return {
-                            ...drawing,
-                            points: drawing.points.map((p) => ({
-                                time: p.time + dTime,
-                                price: p.price + dPrice,
-                            })),
-                        }
-                    } else if (drawing.type === 'buyZone' || drawing.type === 'sellZone') {
-                        // Only allow vertical dragging (price adjustment)
-                        return {
-                            ...drawing,
-                            points: drawing.points.map((p) => ({
-                                time: p.time,
-                                price: p.price + dPrice,
-                            })),
-                        }
-                    } else if (drawing.type === 'ray' || drawing.type === 'horizontal') {
-                        return {
-                            ...drawing,
-                            points: [{ time: drawing.points[0].time, price: drawing.points[0].price + dPrice }],
-                        }
-                    } else if (drawing.type === 'vertical') {
-                        return {
-                            ...drawing,
-                            points: [{ time: drawing.points[0].time + dTime, price: drawing.points[0].price }],
-                        }
-                    }
-                }
-                return drawing
-            })
-
-            setDrawings(updatedDrawings)
-            setDragOffset({ x, y })
-            return
-        }
-
-        // Handle drawing preview
-        if (currentPoints.length === 0 || currentTool === 'select') return
-
-        e.stopPropagation()
-        e.preventDefault()
-
-        // For parallel channel, allow preview with 1 or 2 points
-        if (currentTool === 'parallelChannel') {
-            if (currentPoints.length !== 1 && currentPoints.length !== 2) return
-        } else {
-            // For other tools, only show preview with 1 point
-            if (currentPoints.length !== 1) return
-        }
-
-        // Update preview point for visual feedback
-        setPreviewPoint({
-            time: screenToTime(x),
-            price: screenToPrice(y),
         })
     }
 
@@ -1209,7 +1280,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             return Math.abs(y - screenY) < threshold && x >= screenX
         } else if (drawing.type === 'horizontal' && drawing.points.length === 1) {
             const screenY = priceToScreen ? priceToScreen(drawing.points[0].price) : 0
-            return Math.abs(y - screenY) < threshold
+            const screenX = timeToScreen ? timeToScreen(drawing.points[0].time) : 0
+            // Check if point is near the horizontal line (from click point to right)
+            return Math.abs(y - screenY) < threshold && x >= screenX
         } else if (drawing.type === 'rectangle' && drawing.points.length === 2) {
             const [p1, p2] = drawing.points
             const screen1 = toScreenCoords(p1)
@@ -1362,10 +1435,16 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             if (isPointNearDrawing(x, y, drawings[i])) {
                 e.stopPropagation()
                 e.preventDefault()
-                // Clicked on drawing body, enter editing mode
+                // Clicked on drawing body, enter editing mode and store initial data coordinates
                 setEditingDrawing(drawings[i].id)
                 setDraggedDrawing(drawings[i].id)
                 setDragOffset({ x, y })
+                setDragStartDataPoint({
+                    time: screenToTime ? screenToTime(x) : 0,
+                    price: screenToPrice ? screenToPrice(y) : 0
+                })
+                // Store the original drawing points so we can apply delta to them
+                setOriginalDrawingPoints([...drawings[i].points])
                 setIsDragging(true)
                 setSelectedDrawing(drawings[i].id)
                 clickedOnDrawing = true
@@ -1394,14 +1473,26 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             setDrawings([...drawings, newDrawing])
             setCurrentPoints([])
             setIsBrushing(false)
-            setCurrentTool('select')
+            setEditingDrawing(null)
+            setJustCompletedDrawing(true)
+            setTimeout(() => setJustCompletedDrawing(false), 100)
+            if (!isToolLocked) setCurrentTool('select')
             return
         }
 
         if (isDragging) {
+            if (dragAnimationFrameRef.current) {
+                cancelAnimationFrame(dragAnimationFrameRef.current)
+                dragAnimationFrameRef.current = null
+            }
+            isProcessingDragRef.current = false
+            pendingMousePositionRef.current = null
             setIsDragging(false)
             setDraggedDrawing(null)
             setDraggedControlPoint(null)
+            setDragStartDataPoint(null)
+            setOriginalDrawingPoints(null)
+            setEditingDrawing(null)
         }
     }
 
@@ -1481,7 +1572,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         setTextInputValue('')
         setCurrentPoints([])
         setPreviewPoint(null)
-        setCurrentTool('select')
+        setEditingDrawing(null)
+        setJustCompletedDrawing(true)
+        setTimeout(() => setJustCompletedDrawing(false), 100)
+        if (!isToolLocked) setCurrentTool('select')
     }
 
     const handleTextInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1492,7 +1586,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             setTextInputValue('')
             setCurrentPoints([])
             setEditingTextId(null)
-            setCurrentTool('select')
+            setEditingDrawing(null)
+            if (!isToolLocked) setCurrentTool('select')
         }
     }
 
@@ -1842,14 +1937,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     setEditingDrawing(drawing.id)
                                                     setSelectedDrawing(drawing.id)
                                                     setDraggedDrawing(drawing.id)
@@ -1888,14 +1982,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     setEditingDrawing(drawing.id)
                                                     setSelectedDrawing(drawing.id)
                                                     setDraggedDrawing(drawing.id)
@@ -1920,10 +2013,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                     )
                                 } else if (drawing.type === 'horizontal' && drawing.points.length === 1) {
                                     const y = priceToScreen ? priceToScreen(drawing.points[0].price) : 0
+                                    const x = timeToScreen ? timeToScreen(drawing.points[0].time) : 0
                                     return (
                                         <line
                                             key={drawing.id}
-                                            x1={0}
+                                            x1={x}
                                             y1={y}
                                             x2={width}
                                             y2={y}
@@ -1932,14 +2026,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     setEditingDrawing(drawing.id)
                                                     setSelectedDrawing(drawing.id)
                                                     setDraggedDrawing(drawing.id)
@@ -1976,14 +2069,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     setEditingDrawing(drawing.id)
                                                     setSelectedDrawing(drawing.id)
                                                     setDraggedDrawing(drawing.id)
@@ -2026,14 +2118,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'all', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     setEditingDrawing(drawing.id)
                                                     setSelectedDrawing(drawing.id)
                                                     setDraggedDrawing(drawing.id)
@@ -2079,14 +2170,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'all', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     if (editingDrawing === drawing.id) {
                                                         setDraggedDrawing(drawing.id)
                                                         setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
@@ -2131,14 +2221,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'all', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     if (editingDrawing === drawing.id) {
                                                         setDraggedDrawing(drawing.id)
                                                         setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
@@ -2184,14 +2273,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                                 style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                                                 onClick={(e) => {
                                                     e.stopPropagation()
-                                                    setEditingDrawing(drawing.id)
-                                                    setSelectedDrawing(drawing.id)
+                                                    enableDrawingEdit(drawing.id)
                                                 }}
                                                 onMouseDown={(e) => {
                                                     e.stopPropagation()
                                                     e.preventDefault()
                                                     const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                    if (rect) {
+                                                    if (rect && !justCompletedDrawing) {
                                                         setEditingDrawing(drawing.id)
                                                         setSelectedDrawing(drawing.id)
                                                         setDraggedDrawing(drawing.id)
@@ -2229,7 +2317,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                                     e.stopPropagation()
                                                     e.preventDefault()
                                                     const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                    if (rect) {
+                                                    if (rect && !justCompletedDrawing) {
                                                         setEditingDrawing(drawing.id)
                                                         setSelectedDrawing(drawing.id)
                                                         setDraggedDrawing(drawing.id)
@@ -2265,14 +2353,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'all', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     setEditingDrawing(drawing.id)
                                                     setSelectedDrawing(drawing.id)
                                                     setDraggedDrawing(drawing.id)
@@ -2329,14 +2416,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                             style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                setEditingDrawing(drawing.id)
-                                                setSelectedDrawing(drawing.id)
+                                                enableDrawingEdit(drawing.id)
                                             }}
                                             onMouseDown={(e) => {
                                                 e.stopPropagation()
                                                 e.preventDefault()
                                                 const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                if (rect) {
+                                                if (rect && !justCompletedDrawing) {
                                                     setEditingDrawing(drawing.id)
                                                     setSelectedDrawing(drawing.id)
                                                     setDraggedDrawing(drawing.id)
@@ -2372,48 +2458,131 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                     ) {
                                         const p1 = toScreenCoords(drawing.points[0])
                                         const p2 = toScreenCoords(drawing.points[1])
-                                        return (
-                                            <g key={`control-${drawing.id}`}>
-                                                <circle
-                                                    cx={p1.x}
-                                                    cy={p1.y}
-                                                    r="8"
-                                                    fill="#3b82f6"
-                                                    stroke="#fff"
-                                                    strokeWidth="2"
-                                                    style={{ pointerEvents: 'all', cursor: 'move' }}
-                                                    onMouseDown={(e) => {
-                                                        e.stopPropagation()
-                                                        e.preventDefault()
-                                                        setDraggedControlPoint(0)
-                                                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                        if (rect) {
-                                                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+
+                                        // For rectangles, add 4 corner handles + 4 edge handles for full control
+                                        if (drawing.type === 'rectangle') {
+                                            const minX = Math.min(p1.x, p2.x)
+                                            const maxX = Math.max(p1.x, p2.x)
+                                            const minY = Math.min(p1.y, p2.y)
+                                            const maxY = Math.max(p1.y, p2.y)
+                                            const midX = (minX + maxX) / 2
+                                            const midY = (minY + maxY) / 2
+
+                                            return (
+                                                <g key={`control-${drawing.id}`}>
+                                                    {/* Corner handles */}
+                                                    <circle cx={minX} cy={minY} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'nwse-resize' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(0)
                                                             setIsDragging(true)
-                                                        }
-                                                    }}
-                                                />
-                                                <circle
-                                                    cx={p2.x}
-                                                    cy={p2.y}
-                                                    r="8"
-                                                    fill="#3b82f6"
-                                                    stroke="#fff"
-                                                    strokeWidth="2"
-                                                    style={{ pointerEvents: 'all', cursor: 'move' }}
-                                                    onMouseDown={(e) => {
-                                                        e.stopPropagation()
-                                                        e.preventDefault()
-                                                        setDraggedControlPoint(1)
-                                                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                        if (rect) {
-                                                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                                                        }}
+                                                    />
+                                                    <circle cx={maxX} cy={minY} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'nesw-resize' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(1)
                                                             setIsDragging(true)
-                                                        }
-                                                    }}
-                                                />
-                                            </g>
-                                        )
+                                                        }}
+                                                    />
+                                                    <circle cx={maxX} cy={maxY} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'nwse-resize' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(2)
+                                                            setIsDragging(true)
+                                                        }}
+                                                    />
+                                                    <circle cx={minX} cy={maxY} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'nesw-resize' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(3)
+                                                            setIsDragging(true)
+                                                        }}
+                                                    />
+                                                    {/* Edge handles */}
+                                                    <rect x={midX - 6} y={minY - 6} width="12" height="12" fill="#22c55e" stroke="#fff" strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(4)
+                                                            setIsDragging(true)
+                                                        }}
+                                                    />
+                                                    <rect x={maxX - 6} y={midY - 6} width="12" height="12" fill="#22c55e" stroke="#fff" strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(5)
+                                                            setIsDragging(true)
+                                                        }}
+                                                    />
+                                                    <rect x={midX - 6} y={maxY - 6} width="12" height="12" fill="#22c55e" stroke="#fff" strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(6)
+                                                            setIsDragging(true)
+                                                        }}
+                                                    />
+                                                    <rect x={minX - 6} y={midY - 6} width="12" height="12" fill="#22c55e" stroke="#fff" strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(7)
+                                                            setIsDragging(true)
+                                                        }}
+                                                    />
+                                                </g>
+                                            )
+                                        } else {
+                                            // Trendline - just 2 endpoint handles
+                                            return (
+                                                <g key={`control-${drawing.id}`}>
+                                                    <circle
+                                                        cx={p1.x}
+                                                        cy={p1.y}
+                                                        r="8"
+                                                        fill="#3b82f6"
+                                                        stroke="#fff"
+                                                        strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'move' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(0)
+                                                            setIsDragging(true)
+                                                        }}
+                                                    />
+                                                    <circle
+                                                        cx={p2.x}
+                                                        cy={p2.y}
+                                                        r="8"
+                                                        fill="#3b82f6"
+                                                        stroke="#fff"
+                                                        strokeWidth="2"
+                                                        style={{ pointerEvents: 'all', cursor: 'move' }}
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation()
+                                                            e.preventDefault()
+                                                            setDraggedControlPoint(1)
+                                                            setIsDragging(true)
+                                                        }}
+                                                    />
+                                                </g>
+                                            )
+                                        }
                                     } else if (drawing.type === 'ray' && drawing.points.length === 1) {
                                         const p = drawing.points[0]
                                         const screenY = priceToScreen ? priceToScreen(p.price) : 0
@@ -2519,15 +2688,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                     ) {
                                         const screen1 = toScreenCoords(drawing.points[0])
                                         const screen2 = toScreenCoords(drawing.points[1])
-                                        const x1 = Math.min(screen1.x, screen2.x)
-                                        const x2 = Math.max(screen1.x, screen2.x)
                                         const defaultHeight = 40
                                         const y = screen1.y
                                         return (
                                             <g key={`control-${drawing.id}`}>
                                                 {/* Left edge control point */}
                                                 <circle
-                                                    cx={x1}
+                                                    cx={screen1.x}
                                                     cy={y}
                                                     r="8"
                                                     fill="#3b82f6"
@@ -2538,16 +2705,12 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                                         e.stopPropagation()
                                                         e.preventDefault()
                                                         setDraggedControlPoint(0)
-                                                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                        if (rect) {
-                                                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                                                            setIsDragging(true)
-                                                        }
+                                                        setIsDragging(true)
                                                     }}
                                                 />
                                                 {/* Right edge control point */}
                                                 <circle
-                                                    cx={x2}
+                                                    cx={screen2.x}
                                                     cy={y}
                                                     r="8"
                                                     fill="#3b82f6"
@@ -2558,11 +2721,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                                         e.stopPropagation()
                                                         e.preventDefault()
                                                         setDraggedControlPoint(1)
-                                                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                                                        if (rect) {
-                                                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                                                            setIsDragging(true)
-                                                        }
+                                                        setIsDragging(true)
                                                     }}
                                                 />
                                             </g>

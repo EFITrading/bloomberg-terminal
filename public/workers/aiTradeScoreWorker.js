@@ -1,41 +1,37 @@
 // AI Trade Scoring Worker - Advanced 9-factor model for all market regime timeframes
 // Handles Life (80d), Developing (21d), and Momentum (5d) regime tabs
-self.onmessage = function(e) {
+self.onmessage = function (e) {
   const { candidates, pricesMap } = e.data;
-  
-  console.log('🔧 Worker received:', { candidateCount: candidates?.length, pricesMapKeys: Object.keys(pricesMap || {}).length });
-  
+
   if (!candidates || !Array.isArray(candidates)) {
     console.error('Worker: Invalid candidates array');
     self.postMessage({ success: false, error: 'Invalid candidates array' });
     return;
   }
-  
+
   if (!pricesMap || typeof pricesMap !== 'object') {
     console.error('Worker: Invalid pricesMap object');
     self.postMessage({ success: false, error: 'Invalid pricesMap object' });
     return;
   }
-  
+
   try {
-    console.log('🔧 Worker: Starting to score candidates...');
     const scoredCandidates = candidates.map((candidate, idx) => {
       if (!candidate || !candidate.symbol || !candidate.trend) {
         return { ...candidate, score: 0, details: { error: 'Invalid candidate' } };
       }
-      
+
       const prices = pricesMap[candidate.symbol];
       // Flexible minimum: 3 points for Momentum (5d), more is better but work with what we have
       if (!prices || !Array.isArray(prices) || prices.length < 2) {
-        console.log(`⚠️ Worker: ${candidate.symbol} - insufficient data (${prices?.length || 0} points)`);
         return { ...candidate, score: 0, details: { error: 'Insufficient data', dataPoints: prices?.length || 0 } };
       }
-      
+
       const closes = prices.map(p => {
         const close = typeof p === 'object' ? p.close : p;
         return typeof close === 'number' && !isNaN(close) && close > 0 ? close : null;
       }).filter(c => c !== null);
-      
+
       const volumes = prices.map(p => {
         if (typeof p === 'object' && p.volume) {
           const vol = parseFloat(p.volume);
@@ -43,39 +39,37 @@ self.onmessage = function(e) {
         }
         return 0;
       });
-      
+
       if (closes.length < 3) {
-        console.log(`⚠️ Worker: ${candidate.symbol} - no valid closes after filtering (had ${prices.length} raw)`);
         return { ...candidate, score: 0, details: { error: 'No valid closes', rawCount: prices.length } };
       }
-      
+
       const scores = {};
       let totalScore = 0;
-      
+
       const returns = [];
       for (let i = 1; i < closes.length; i++) {
-        const ret = (closes[i] - closes[i-1]) / closes[i-1];
+        const ret = (closes[i] - closes[i - 1]) / closes[i - 1];
         if (!isNaN(ret) && isFinite(ret) && Math.abs(ret) < 1.0) {
           returns.push(ret);
         }
       }
-      
+
       if (returns.length === 0) {
-        console.log(`⚠️ Worker: ${candidate.symbol} - no valid returns calculated`);
         return { ...candidate, score: 0, details: { error: 'No valid returns', closes: closes.length } };
       }
-      
+
       const meanReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
       const variance = returns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / returns.length;
       const stdDev = Math.sqrt(variance);
       const totalReturn = (closes[closes.length - 1] / closes[0]) - 1;
-      
+
       // 1. Persistence Score (20 points)
       const positiveReturns = returns.filter(r => candidate.trend === 'bullish' ? r > 0 : r < 0).length;
       const persistenceRatio = positiveReturns / returns.length;
       scores.persistence = Math.floor(persistenceRatio * 20);
       totalScore += scores.persistence;
-      
+
       // 2. Regression Score (15 points)
       try {
         const xValues = Array.from({ length: closes.length }, (_, i) => i);
@@ -94,7 +88,7 @@ self.onmessage = function(e) {
       } catch (err) {
         scores.regression = 0;
       }
-      
+
       // 3. Efficiency Score (15 points)
       try {
         const absoluteMoves = returns.map(r => Math.abs(r));
@@ -107,7 +101,7 @@ self.onmessage = function(e) {
       } catch (err) {
         scores.efficiency = 0;
       }
-      
+
       // 4. Fractal/Hurst Score (10 points)
       try {
         const absoluteMoves = returns.map(r => Math.abs(r));
@@ -140,7 +134,7 @@ self.onmessage = function(e) {
         scores.fractal = 5;
         totalScore += scores.fractal;
       }
-      
+
       // 5. Volatility-Adjusted Return (10 points)
       try {
         const sharpeRatio = stdDev > 0 ? totalReturn / stdDev : 0;
@@ -150,7 +144,7 @@ self.onmessage = function(e) {
       } catch (err) {
         scores.volAdjusted = 0;
       }
-      
+
       // 6. Drawdown Score (10 points)
       try {
         let maxPrice = closes[0];
@@ -171,7 +165,7 @@ self.onmessage = function(e) {
         scores.drawdown = 5;
         totalScore += scores.drawdown;
       }
-      
+
       // 7. Skewness Score (10 points)
       try {
         if (stdDev > 0 && returns.length >= 5) {
@@ -193,7 +187,7 @@ self.onmessage = function(e) {
         scores.skewness = 5;
         totalScore += scores.skewness;
       }
-      
+
       // 8. Regime Consistency Score (10 points)
       try {
         const minSegmentSize = Math.max(2, Math.floor(closes.length / 5));
@@ -228,7 +222,7 @@ self.onmessage = function(e) {
         scores.regime = 5;
         totalScore += scores.regime;
       }
-      
+
       // 9. Breadth Score (10 points)
       try {
         const relPerf = candidate.relativePerformance || 0;
@@ -238,7 +232,7 @@ self.onmessage = function(e) {
       } catch (err) {
         scores.breadth = 0;
       }
-      
+
       // BONUS: Volume Confirmation (up to +5 points)
       try {
         if (volumes.length >= 5) {
@@ -263,11 +257,11 @@ self.onmessage = function(e) {
       } catch (err) {
         scores.volumeConfirmation = 0;
       }
-      
+
       totalScore = Math.max(0, Math.min(totalScore, 105));
-      
-      return { 
-        ...candidate, 
+
+      return {
+        ...candidate,
         score: Math.round(totalScore),
         details: {
           persistence: Math.round((scores.persistence || 0) * 10) / 10,
@@ -290,13 +284,12 @@ self.onmessage = function(e) {
         }
       };
     });
-    
+
     const validScores = scoredCandidates.filter(c => c.score > 0);
     const avgScore = validScores.length > 0 ? validScores.reduce((sum, c) => sum + c.score, 0) / validScores.length : 0;
-    console.log(`✅ Worker complete: ${validScores.length}/${candidates.length} scored, avg: ${avgScore.toFixed(1)}`);
-    
-    self.postMessage({ 
-      success: true, 
+
+    self.postMessage({
+      success: true,
       scoredCandidates,
       stats: {
         total: candidates.length,
@@ -307,10 +300,10 @@ self.onmessage = function(e) {
     });
   } catch (error) {
     console.error('❌ Worker fatal error:', error);
-    self.postMessage({ 
-      success: false, 
+    self.postMessage({
+      success: false,
       error: error.message,
-      stack: error.stack 
+      stack: error.stack
     });
   }
 };

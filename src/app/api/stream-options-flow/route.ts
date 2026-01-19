@@ -34,7 +34,7 @@ interface ProcessedTrade {
   sequence_number?: number;
   conditions: number[];
   trade_timestamp: Date;
-  trade_type?: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
+  trade_type?: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG';
   window_group?: string;
   related_trades?: string[];
   moneyness: 'ATM' | 'ITM' | 'OTM';

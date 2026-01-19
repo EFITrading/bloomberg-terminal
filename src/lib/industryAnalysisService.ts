@@ -781,7 +781,6 @@ export class IndustryAnalysisService {
       if (response.ok) {
         const bulkResult = await response.json();
         if (bulkResult.success) {
-          console.log(` BULK FETCH SUCCESS: ${bulkResult.stats.successful}/${bulkResult.stats.requested} symbols loaded`);
           const dataMap = new Map<string, any>();
           for (const [symbol, data] of Object.entries(bulkResult.data)) {
             dataMap.set(symbol, data);
@@ -1031,8 +1030,6 @@ export class IndustryAnalysisService {
 
   // Analyze industry performance for a specific timeframe using bulk data
   static async analyzeTimeframe(days: number, timeframeName: string): Promise<TimeframeAnalysis> {
-    console.log(` DETAILED ANALYSIS: Starting ${timeframeName} timeframe (${days} days)...`);
-
     // Add timeout to prevent infinite hanging - increased for full dataset
     const timeoutPromise = new Promise<TimeframeAnalysis>((_, reject) => {
       setTimeout(() => {

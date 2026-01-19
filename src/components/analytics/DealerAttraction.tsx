@@ -3858,29 +3858,20 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   React.useEffect(() => {
     // Find the parent sidebar panel and update its width ONLY if it's the dealer attraction panel
     const sidebarPanel = document.querySelector('[data-sidebar-panel="liquid"]') as HTMLElement;
-    console.log('🔍 Panel expansion debug:', {
-      showOI,
-      activeTableCount,
-      panelFound: !!sidebarPanel
-    });
     if (sidebarPanel) {
       // Count total items: OI chart (if enabled) + tables
       const oiCount = showOI ? 1 : 0;
       const totalItems = oiCount + activeTableCount;
-      console.log('📐 Setting panel width:', { totalItems, oiCount, activeTableCount });
 
       if (totalItems === 0 || totalItems === 1) {
         // 0 items OR 1 item (OI only OR 1 table only) - 1200px
-        console.log('✅ Panel width: 1200px (single item)');
         sidebarPanel.style.width = '1200px';
       } else if (totalItems === 2) {
         if (showOI && activeTableCount === 1) {
           // OI + 1 table: 1200px + 900px = 2100px
-          console.log('✅ Panel width: 2100px (OI + 1 table)');
           sidebarPanel.style.width = '2100px';
         } else {
           // 2 tables (no OI) - 1775px
-          console.log('✅ Panel width: 1775px (2 tables)');
           sidebarPanel.style.width = '1775px';
         }
       } else if (totalItems === 3) {
@@ -4721,9 +4712,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     const gexData = gexByStrikeByExpiration;
     const willUseLiveData = liveMode && liveOIData.size > 0;
 
-    console.log(`🔄 RECALCULATING allGEXCalculatedData - LIVE: ${liveMode}, liveOIData.size: ${liveOIData.size}`);
-    console.log(`  ${willUseLiveData ? '✅ WILL USE LIVE OI DATA' : '❌ WILL USE BASE DATA ONLY'}`);
-
     if (!gexData || Object.keys(gexData).length === 0) {
       return [];
     }
@@ -4777,9 +4765,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const allDealerCalculatedData = useMemo(() => {
     const dealerData = dealerByStrikeByExpiration;
     const willUseLiveData = liveMode && liveOIData.size > 0;
-
-    console.log(`🔄 RECALCULATING allDealerCalculatedData - LIVE: ${liveMode}, liveOIData.size: ${liveOIData.size}`);
-    console.log(`  ${willUseLiveData ? '✅ WILL USE LIVE OI DATA' : '❌ WILL USE BASE DATA ONLY'}`);
 
     if (!dealerData || Object.keys(dealerData).length === 0) {
       return [];
@@ -4856,11 +4841,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     const baseDataSource = (gexMode === 'Net Dealer') ? dealerData : gexData;
 
     const willUseLiveData = liveMode && liveOIData.size > 0;
-    console.log(`🔄 RECALCULATING allCalculatedData - MODE: ${gexMode}, LIVE: ${liveMode}, liveOIData.size: ${liveOIData.size}`);
-    console.log(`  ${willUseLiveData ? '✅ WILL USE LIVE OI DATA' : '❌ WILL USE BASE DATA ONLY'}`);
 
     if (!baseDataSource || Object.keys(baseDataSource).length === 0) {
-      console.log(`⚠️ WARNING: baseDataSource is empty!`);
       return [];
     }
 
@@ -5167,12 +5149,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     let topVals;
     if (isLive) {
       topVals = calculateTopValues(allGEXCalculatedData, 'gex', 'Net GEX');
-      console.log('🎯 GEX TOP VALUES (LIVE MODE):', topVals);
     } else {
       topVals = calculateTopValuesFromMap(gexByStrikeByExpiration);
-      console.log('🎯 GEX TOP VALUES (NORMAL MODE):', topVals);
     }
-    console.log(`  Mode: ${isLive ? 'LIVE' : 'NORMAL'}, liveMode=${liveMode}, liveOIData.size=${liveOIData.size}`);
     return topVals;
   }, [gexByStrikeByExpiration, allGEXCalculatedData, liveMode, liveOIData]);
 
@@ -5181,12 +5160,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     let topVals;
     if (isLive) {
       topVals = calculateTopValues(allDealerCalculatedData, 'dealer', 'Net Dealer');
-      console.log('🎯 DEALER TOP VALUES (LIVE MODE):', topVals);
     } else {
       topVals = calculateTopValuesFromMap(dealerByStrikeByExpiration);
-      console.log('🎯 DEALER TOP VALUES (NORMAL MODE):', topVals);
     }
-    console.log(`  Mode: ${isLive ? 'LIVE' : 'NORMAL'}, liveMode=${liveMode}, liveOIData.size=${liveOIData.size}`);
     return topVals;
   }, [dealerByStrikeByExpiration, allDealerCalculatedData, liveMode, liveOIData]);
 

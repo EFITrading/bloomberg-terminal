@@ -34,6 +34,10 @@ export default function TradingLensPage() {
     const [rsSignals, setRsSignals] = useState<{ breakout: boolean; rareLow: boolean; breakdown: boolean; classification: string | null; percentile: number; currentPrice: number; priceChange: number; priceChangePercent: number }>({ breakout: false, rareLow: false, breakdown: false, classification: null, percentile: 0, currentPrice: 0, priceChange: 0, priceChangePercent: 0 });
     const [leadershipSignal, setLeadershipSignal] = useState<{ isLeader: boolean; breakoutType: string | null; classification: string | null; leadershipScore: number; currentPrice: number; priceChange: number; priceChangePercent: number; volumeRatio: number; daysSinceLastHigh: number; highDistance: number; trend?: string; currentVolume?: number; avgVolume?: number } | null>(null);
 
+    // Expected Range state
+    const [expectedRangeLevels, setExpectedRangeLevels] = useState<any>(null);
+    const [isLoadingExpectedRange, setIsLoadingExpectedRange] = useState(false);
+
     const fetchIVData = async (ticker: string, period: '1Y' | '2Y' | '5Y') => {
         const days = period === '1Y' ? 365 : period === '2Y' ? 730 : 1825;
 
@@ -358,6 +362,189 @@ export default function TradingLensPage() {
             setLeadershipSignal(null);
         }
     };
+
+    // EXACT SAME LOGIC FROM EFI CHARTING - Expected Range Calculations
+    const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+    const riskFreeRate = 0.0387;
+
+    // Normal CDF for Black-Scholes
+    const normalCDF = (x: number): number => {
+        const erf = (x: number): number => {
+            const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+            const sign = x >= 0 ? 1 : -1;
+            x = Math.abs(x);
+            const t = 1.0 / (1.0 + p * x);
+            const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+            return sign * y;
+        };
+        return 0.5 * (1 + erf(x / Math.sqrt(2)));
+    };
+
+    const calculateD2 = (currentPrice: number, strikePrice: number, riskFreeRate: number, volatility: number, timeToExpiry: number): number => {
+        const d1 = (Math.log(currentPrice / strikePrice) + (riskFreeRate + 0.5 * volatility * volatility) * timeToExpiry) / (volatility * Math.sqrt(timeToExpiry));
+        return d1 - volatility * Math.sqrt(timeToExpiry);
+    };
+
+    const chanceOfProfitSellCall = (currentPrice: number, strikePrice: number, riskFreeRate: number, volatility: number, timeToExpiry: number): number => {
+        const d2 = calculateD2(currentPrice, strikePrice, riskFreeRate, volatility, timeToExpiry);
+        return (1 - normalCDF(d2)) * 100;
+    };
+
+    const chanceOfProfitSellPut = (currentPrice: number, strikePrice: number, riskFreeRate: number, volatility: number, timeToExpiry: number): number => {
+        const d2 = calculateD2(currentPrice, strikePrice, riskFreeRate, volatility, timeToExpiry);
+        return normalCDF(d2) * 100;
+    };
+
+    const findStrikeForProbability = (S: number, r: number, sigma: number, T: number, targetProb: number, isCall: boolean): number => {
+        if (isCall) {
+            let low = S + 0.01, high = S * 1.50;
+            for (let i = 0; i < 50; i++) {
+                const mid = (low + high) / 2;
+                const prob = chanceOfProfitSellCall(S, mid, r, sigma, T);
+                if (Math.abs(prob - targetProb) < 0.1) return mid;
+                if (prob < targetProb) low = mid;
+                else high = mid;
+            }
+            return (low + high) / 2;
+        } else {
+            let low = S * 0.50, high = S - 0.01;
+            for (let i = 0; i < 50; i++) {
+                const mid = (low + high) / 2;
+                const prob = chanceOfProfitSellPut(S, mid, r, sigma, T);
+                if (Math.abs(prob - targetProb) < 0.1) return mid;
+                if (prob < targetProb) high = mid;
+                else low = mid;
+            }
+            return (low + high) / 2;
+        }
+    };
+
+    // Calculate Expected Range for ticker
+    const calculateExpectedRange = async (ticker: string) => {
+        try {
+            setIsLoadingExpectedRange(true);
+            
+            // Import expiration utils dynamically
+            const { getExpirationDatesFromAPI, getDaysUntilExpiration } = await import('@/lib/optionsExpirationUtils');
+            
+            // Get current stock price
+            const stockResponse = await fetch(`https://api.polygon.io/v2/last/trade/${ticker}?apikey=${POLYGON_API_KEY}`);
+            if (!stockResponse.ok) throw new Error('Failed to fetch stock data');
+            const stockData = await stockResponse.json();
+            const currentPrice = stockData.results.p;
+
+            const lowerBound = currentPrice * 0.80;
+            const upperBound = currentPrice * 1.20;
+
+            // Get expiration dates
+            const { weeklyExpiry, monthlyExpiry, weeklyDate, monthlyDate } = await getExpirationDatesFromAPI(ticker);
+            const weeklyDTE = Math.max(1, getDaysUntilExpiration(weeklyDate));
+            const monthlyDTE = Math.max(1, getDaysUntilExpiration(monthlyDate));
+            const weeklyTimeToExpiry = weeklyDTE / 365;
+            const monthlyTimeToExpiry = monthlyDTE / 365;
+
+            console.log(`📅 Expected Range for ${ticker}: Weekly ${weeklyExpiry} (${weeklyDTE}D), Monthly ${monthlyExpiry} (${monthlyDTE}D)`);
+
+            // Fetch options chains
+            const [weeklyOptionsResponse, monthlyOptionsResponse] = await Promise.all([
+                fetch(`https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${weeklyExpiry}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`),
+                fetch(`https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${monthlyExpiry}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`)
+            ]);
+
+            const weeklyOptionsData = await weeklyOptionsResponse.json();
+            const monthlyOptionsData = await monthlyOptionsResponse.json();
+
+            const getIVFromPolygonSnapshot = async (optionTicker: string, underlyingTicker: string): Promise<number | null> => {
+                try {
+                    const response = await fetch(`https://api.polygon.io/v3/snapshot/options/${underlyingTicker}/${optionTicker}?apiKey=${POLYGON_API_KEY}`);
+                    const data = await response.json();
+                    if (data.results && data.results.implied_volatility) {
+                        return data.results.implied_volatility;
+                    }
+                    return null;
+                } catch (error) {
+                    console.error(`Failed to fetch IV for ${optionTicker}:`, error);
+                    return null;
+                }
+            };
+
+            const calculateIVFromOptionsChain = async (optionsResults: any[], ticker: string, label: string): Promise<number> => {
+                console.log(`${label} - Fetching IV from ${optionsResults.length} options`);
+                if (optionsResults.length === 0) throw new Error(`No options found for ${label}`);
+                
+                // Take first 5 ATM/OTM options
+                const options = optionsResults.slice(0, 5);
+                const ivPromises = options.map(opt => getIVFromPolygonSnapshot(opt.ticker, ticker));
+                const ivResults = await Promise.all(ivPromises);
+                
+                const validIVs = ivResults.filter((iv): iv is number => iv !== null && iv > 0 && iv < 3);
+                
+                if (validIVs.length > 0) {
+                    const avgIV = validIVs.reduce((a, b) => a + b) / validIVs.length;
+                    console.log(`✅ ${label} IV: ${(avgIV * 100).toFixed(2)}% (from ${validIVs.length} strikes)`);
+                    return avgIV;
+                } else {
+                    throw new Error(`No valid IV found for ${label}`);
+                }
+            };
+
+            // Calculate IVs in parallel using Polygon's IV data
+            const [weeklyCallIV, weeklyPutIV, monthlyCallIV, monthlyPutIV] = await Promise.all([
+                calculateIVFromOptionsChain(
+                    weeklyOptionsData.results.filter((opt: any) => opt.contract_type === 'call'),
+                    ticker, 'Weekly Call'
+                ),
+                calculateIVFromOptionsChain(
+                    weeklyOptionsData.results.filter((opt: any) => opt.contract_type === 'put'),
+                    ticker, 'Weekly Put'
+                ),
+                calculateIVFromOptionsChain(
+                    monthlyOptionsData.results.filter((opt: any) => opt.contract_type === 'call'),
+                    ticker, 'Monthly Call'
+                ),
+                calculateIVFromOptionsChain(
+                    monthlyOptionsData.results.filter((opt: any) => opt.contract_type === 'put'),
+                    ticker, 'Monthly Put'
+                )
+            ]);
+
+            const weeklyIV = (weeklyCallIV + weeklyPutIV) / 2;
+            const monthlyIV = (monthlyCallIV + monthlyPutIV) / 2;
+
+            console.log(`📊 Final IVs: Weekly ${(weeklyIV * 100).toFixed(2)}%, Monthly ${(monthlyIV * 100).toFixed(2)}%`);
+
+            // Calculate levels using EXACT same logic
+            const levels = {
+                weekly80Call: findStrikeForProbability(currentPrice, riskFreeRate, weeklyIV, weeklyTimeToExpiry, 80, true),
+                weekly90Call: findStrikeForProbability(currentPrice, riskFreeRate, weeklyIV, weeklyTimeToExpiry, 90, true),
+                weekly80Put: findStrikeForProbability(currentPrice, riskFreeRate, weeklyIV, weeklyTimeToExpiry, 80, false),
+                weekly90Put: findStrikeForProbability(currentPrice, riskFreeRate, weeklyIV, weeklyTimeToExpiry, 90, false),
+                monthly80Call: findStrikeForProbability(currentPrice, riskFreeRate, monthlyIV, monthlyTimeToExpiry, 80, true),
+                monthly90Call: findStrikeForProbability(currentPrice, riskFreeRate, monthlyIV, monthlyTimeToExpiry, 90, true),
+                monthly80Put: findStrikeForProbability(currentPrice, riskFreeRate, monthlyIV, monthlyTimeToExpiry, 80, false),
+                monthly90Put: findStrikeForProbability(currentPrice, riskFreeRate, monthlyIV, monthlyTimeToExpiry, 90, false),
+                currentPrice,
+                weeklyIV,
+                monthlyIV,
+                weeklyDTE,
+                monthlyDTE
+            };
+
+            setExpectedRangeLevels(levels);
+            setIsLoadingExpectedRange(false);
+        } catch (error) {
+            console.error('Expected Range calculation failed:', error);
+            setExpectedRangeLevels(null);
+            setIsLoadingExpectedRange(false);
+        }
+    };
+
+    // Fetch Expected Range when ticker changes
+    useEffect(() => {
+        if (currentTicker) {
+            calculateExpectedRange(currentTicker);
+        }
+    }, [currentTicker]);
 
     return (
         <div style={{
@@ -1097,6 +1284,128 @@ export default function TradingLensPage() {
                         ) : (
                             currentTicker ? 'No Notable Flow' : 'No trades'
                         )}
+                    </div>
+                )}
+            </div>
+
+            {/* Expected Range Panel - Right Side */}
+            <div style={{
+                position: 'absolute',
+                top: '10px',
+                right: '20px',
+                width: '380px',
+                background: 'linear-gradient(145deg, #020B14, #000508)',
+                border: '1px solid rgba(30, 58, 138, 0.2)',
+                borderRadius: '8px',
+                padding: '15px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                zIndex: 5
+            }}>
+                <div style={{
+                    fontSize: '19px',
+                    fontWeight: '800',
+                    fontFamily: 'monospace',
+                    color: '#FFFFFF',
+                    marginBottom: '12px',
+                    letterSpacing: '2px',
+                    textAlign: 'center',
+                    textShadow: '0 2px 4px rgba(0, 0, 0, 0.8)',
+                    background: 'linear-gradient(90deg, #00d4ff, #0099cc, #00d4ff)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    filter: 'contrast(1.2) brightness(1.1)'
+                }}>
+                    EXPECTED RANGE
+                </div>
+
+                {isLoadingExpectedRange ? (
+                    <div style={{ textAlign: 'center', color: '#666', padding: '40px', fontSize: '13px' }}>
+                        <div style={{ width: '20px', height: '20px', border: '2px solid #333', borderTop: '2px solid #00d4ff', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 10px' }} />
+                        Calculating Range...
+                    </div>
+                ) : expectedRangeLevels ? (
+                    <>
+                        {/* Current Price */}
+                        <div style={{
+                            background: 'rgba(0, 212, 255, 0.1)',
+                            border: '1px solid rgba(0, 212, 255, 0.3)',
+                            borderRadius: '6px',
+                            padding: '10px',
+                            marginBottom: '12px',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{ color: '#888', fontSize: '11px', marginBottom: '4px' }}>CURRENT PRICE</div>
+                            <div style={{ color: '#00d4ff', fontSize: '24px', fontWeight: '800' }}>${expectedRangeLevels.currentPrice.toFixed(2)}</div>
+                        </div>
+
+                        {/* Weekly Range */}
+                        <div style={{ marginBottom: '12px' }}>
+                            <div style={{
+                                fontSize: '14px',
+                                fontWeight: '700',
+                                color: '#00FF00',
+                                marginBottom: '8px',
+                                borderBottom: '1px solid rgba(0, 255, 0, 0.2)',
+                                paddingBottom: '4px'
+                            }}>
+                                WEEKLY ({expectedRangeLevels.weeklyDTE}D) - IV: {(expectedRangeLevels.weeklyIV * 100).toFixed(1)}%
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px' }}>
+                                <div>
+                                    <div style={{ color: '#888', marginBottom: '2px' }}>90% Call</div>
+                                    <div style={{ color: '#32CD32', fontWeight: '700' }}>${expectedRangeLevels.weekly90Call.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div style={{ color: '#888', marginBottom: '2px' }}>80% Call</div>
+                                    <div style={{ color: '#00FF00', fontWeight: '700' }}>${expectedRangeLevels.weekly80Call.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div style={{ color: '#888', marginBottom: '2px' }}>80% Put</div>
+                                    <div style={{ color: '#FF0000', fontWeight: '700' }}>${expectedRangeLevels.weekly80Put.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div style={{ color: '#888', marginBottom: '2px' }}>90% Put</div>
+                                    <div style={{ color: '#FF6347', fontWeight: '700' }}>${expectedRangeLevels.weekly90Put.toFixed(2)}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Monthly Range */}
+                        <div>
+                            <div style={{
+                                fontSize: '14px',
+                                fontWeight: '700',
+                                color: '#0000FF',
+                                marginBottom: '8px',
+                                borderBottom: '1px solid rgba(0, 0, 255, 0.2)',
+                                paddingBottom: '4px'
+                            }}>
+                                MONTHLY ({expectedRangeLevels.monthlyDTE}D) - IV: {(expectedRangeLevels.monthlyIV * 100).toFixed(1)}%
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px' }}>
+                                <div>
+                                    <div style={{ color: '#888', marginBottom: '2px' }}>90% Call</div>
+                                    <div style={{ color: '#4169E1', fontWeight: '700' }}>${expectedRangeLevels.monthly90Call.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div style={{ color: '#888', marginBottom: '2px' }}>80% Call</div>
+                                    <div style={{ color: '#0000FF', fontWeight: '700' }}>${expectedRangeLevels.monthly80Call.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div style={{ color: '#888', marginBottom: '2px' }}>80% Put</div>
+                                    <div style={{ color: '#800080', fontWeight: '700' }}>${expectedRangeLevels.monthly80Put.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div style={{ color: '#888', marginBottom: '2px' }}>90% Put</div>
+                                    <div style={{ color: '#9370DB', fontWeight: '700' }}>${expectedRangeLevels.monthly90Put.toFixed(2)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <div style={{ textAlign: 'center', color: '#666', padding: '40px', fontSize: '13px' }}>
+                        {currentTicker ? 'No Expected Range Data' : 'Search a ticker to see range'}
                     </div>
                 )}
             </div>

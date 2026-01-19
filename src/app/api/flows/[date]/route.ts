@@ -25,7 +25,7 @@ export async function GET(
     dateObj.setUTCHours(0, 0, 0, 0);
 
     const flow = await prisma.flow.findUnique({
-      where: { date: dateObj },
+      where: { date: dateObj.toISOString() },
     });
 
     if (!flow) {
@@ -73,7 +73,7 @@ export async function DELETE(
     dateObj.setUTCHours(0, 0, 0, 0);
 
     await prisma.flow.delete({
-      where: { date: dateObj },
+      where: { date: dateObj.toISOString() },
     });
 
     return NextResponse.json({ success: true });

@@ -303,7 +303,7 @@ interface OptionsFlowData {
   total_premium: number;
   spot_price: number;
   exchange_name: string;
-  trade_type: 'SWEEP' | 'BLOCK' | 'MULTI-LEG' | 'MINI';
+  trade_type: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG';
   trade_timestamp: string;
   moneyness: 'ATM' | 'ITM' | 'OTM';
   days_to_expiry: number;
@@ -352,7 +352,7 @@ export default function OptionsFlowPage() {
     total_trades: 0,
     total_premium: 0,
     unique_symbols: 0,
-    trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, MINI: 0 },
+    trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0, 'MULTI-LEG': 0 },
     call_put_ratio: { calls: 0, puts: 0 },
     processing_time_ms: 0
   });
@@ -657,7 +657,7 @@ export default function OptionsFlowPage() {
           total_trades: 0,
           total_premium: 0,
           unique_symbols: 0,
-          trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, MINI: 0 },
+          trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0 },
           call_put_ratio: { calls: 0, puts: 0 },
           processing_time_ms: 0
         });
@@ -670,7 +670,7 @@ export default function OptionsFlowPage() {
         total_trades: 0,
         total_premium: 0,
         unique_symbols: 0,
-        trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, MINI: 0 },
+        trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0 },
         call_put_ratio: { calls: 0, puts: 0 },
         processing_time_ms: 0
       });
@@ -698,7 +698,7 @@ export default function OptionsFlowPage() {
       total_trades: 0,
       total_premium: 0,
       unique_symbols: 0,
-      trade_types: { BLOCK: 0, SWEEP: 0, 'MULTI-LEG': 0, MINI: 0 },
+      trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0 },
       call_put_ratio: { calls: 0, puts: 0 },
       processing_time_ms: 0
     });
