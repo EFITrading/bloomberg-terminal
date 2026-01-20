@@ -29,10 +29,6 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = (page - 1) * limit;
 
-    // Get smart date range for market hours handling
-    const { currentDate, isLive } = getSmartDateRange();
-    const marketStatus = isLive ? 'LIVE' : 'LAST_TRADING_DAY';
-
     const polygonApiKey = process.env.POLYGON_API_KEY;
 
     if (!polygonApiKey) {
@@ -53,6 +49,7 @@ export async function GET(request: NextRequest) {
     // Get smart date range for proper holiday handling
     const { OptionsFlowService: _, getSmartDateRange } = require('../../../lib/optionsFlowService');
     const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange();
+    const marketStatus = isLive ? 'LIVE' : 'LAST_TRADING_DAY';
 
     // Add timeout protection to prevent hanging
     const fetchPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(ticker || undefined, undefined, { startTimestamp, endTimestamp, currentDate, isLive });
