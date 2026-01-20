@@ -50,8 +50,12 @@ export async function GET(request: NextRequest) {
     // Initialize the options flow service
     const optionsFlowService = new OptionsFlowService(polygonApiKey);
 
+    // Get smart date range for proper holiday handling
+    const { OptionsFlowService: _, getSmartDateRange } = require('../../../lib/optionsFlowService');
+    const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange();
+
     // Add timeout protection to prevent hanging
-    const fetchPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(ticker || undefined);
+    const fetchPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(ticker || undefined, undefined, { startTimestamp, endTimestamp, currentDate, isLive });
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Request timeout after 4 minutes')), 240000)
     );

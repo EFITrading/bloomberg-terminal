@@ -62,7 +62,7 @@ export default function Navigation() {
     { name: 'Data Driven', path: '/data-driven' },
     { name: 'Analytics', path: '/analytics' },
     { name: 'AI Suite', path: '/ai-suite' },
-    { name: 'Trading Lens', path: '/trading-lens' },
+    // { name: 'Trading Lens', path: '/trading-lens' },
     { name: 'OptionsFlow', path: '/options-flow' }
   ];
 

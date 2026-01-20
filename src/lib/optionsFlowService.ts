@@ -1,6 +1,22 @@
 import { TOP_1800_SYMBOLS } from './Top1000Symbols';
 import { withCircuitBreaker } from './circuitBreaker';
 
+// Check if market is actually open (includes holiday check via Polygon API)
+async function isMarketActuallyOpen(): Promise<boolean> {
+  try {
+    const apiKey = process.env.POLYGON_API_KEY;
+    if (!apiKey) return false;
+
+    const response = await fetch(`https://api.polygon.io/v1/marketstatus/now?apikey=${apiKey}`);
+    const data = await response.json();
+
+    return data.market === 'open';
+  } catch (error) {
+    console.error('Error checking market status:', error);
+    return false;
+  }
+}
+
 // Market hours utility functions
 export function isMarketOpen(): boolean {
   const now = new Date();
@@ -22,20 +38,55 @@ export function isMarketOpen(): boolean {
   return currentTime >= marketOpen && currentTime < marketClose;
 }
 
-export function getLastTradingDay(): string {
-  const today = new Date();
-  let tradingDay = new Date(today);
+export async function getLastTradingDay(): Promise<string> {
+  const now = new Date();
+  const easternString = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+  const easternDate = new Date(easternString);
+  let tradingDay = new Date(easternDate);
 
-  // If today is a weekday and market is closed, use today's date
-  // If today is weekend, go back to Friday
-  if (tradingDay.getDay() === 0) { // Sunday
-    tradingDay.setDate(tradingDay.getDate() - 2); // Friday
-  } else if (tradingDay.getDay() === 6) { // Saturday
-    tradingDay.setDate(tradingDay.getDate() - 1); // Friday
+  // Go back up to 10 days to find last trading day
+  for (let i = 0; i < 10; i++) {
+    const year = tradingDay.getFullYear();
+    const month = String(tradingDay.getMonth() + 1).padStart(2, '0');
+    const day = String(tradingDay.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+    const dayOfWeek = tradingDay.getDay();
+
+    // Skip weekends
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      tradingDay.setDate(tradingDay.getDate() - 1);
+      continue;
+    }
+
+    // For weekdays, check if market was open using SPY ticker
+    const apiKey = process.env.POLYGON_API_KEY;
+    if (apiKey) {
+      try {
+        // Check if this was a trading day by requesting SPY data
+        const response = await fetch(`https://api.polygon.io/v1/open-close/SPY/${dateStr}?adjusted=true&apikey=${apiKey}`);
+
+        // If 404 or error, it's a holiday
+        if (!response.ok) {
+          tradingDay.setDate(tradingDay.getDate() - 1);
+          continue;
+        }
+      } catch (error) {
+        console.error(`Error checking if ${dateStr} was a trading day:`, error);
+        // On error, skip to previous day to be safe
+        tradingDay.setDate(tradingDay.getDate() - 1);
+        continue;
+      }
+    }
+
+    // This is a valid trading day
+    return dateStr;
   }
-  // For weekdays, use the current day (even if market is closed)
 
-  return tradingDay.toISOString().split('T')[0];
+  // Fallback
+  const year = tradingDay.getFullYear();
+  const month = String(tradingDay.getMonth() + 1).padStart(2, '0');
+  const day = String(tradingDay.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function getTodaysMarketOpenTimestamp(): number {
@@ -85,11 +136,7 @@ export function getTodaysMarketOpenTimestamp(): number {
     const oneDayFuture = now_ms + (24 * 60 * 60 * 1000);
 
     if (finalTimestamp < oneWeekAgo || finalTimestamp > oneDayFuture) {
-      console.warn(`⚠️ Market open timestamp seems invalid: ${new Date(finalTimestamp).toISOString()}`);
-      // Fallback to start of today
-      const startOfToday = new Date();
-      startOfToday.setHours(9, 30, 0, 0);
-      return startOfToday.getTime();
+      throw new Error(`Market open timestamp seems invalid: ${new Date(finalTimestamp).toISOString()}`);
     }
 
     console.log(`📅 Market Open Timestamp: ${new Date(finalTimestamp).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
@@ -97,15 +144,12 @@ export function getTodaysMarketOpenTimestamp(): number {
 
   } catch (error) {
     console.error(`❌ Error calculating market open timestamp:`, error);
-    // Fallback to start of today at 9:30 AM
-    const fallback = new Date();
-    fallback.setHours(9, 30, 0, 0);
-    return fallback.getTime();
+    throw error;
   }
 }
 
-export function getSmartDateRange(): { currentDate: string; isLive: boolean; startTimestamp: number; endTimestamp: number } {
-  const marketOpen = isMarketOpen();
+export async function getSmartDateRange(): Promise<{ currentDate: string; isLive: boolean; startTimestamp: number; endTimestamp: number }> {
+  const marketOpen = await isMarketActuallyOpen();
   const now = new Date();
   const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
 
@@ -126,15 +170,13 @@ export function getSmartDateRange(): { currentDate: string; isLive: boolean; sta
     };
   } else {
     // HISTORICAL MODE: Market is closed, scan the most recent full trading day
-    const lastTradingDay = getLastTradingDay();
-    const historicalDate = new Date(lastTradingDay);
+    const lastTradingDay = await getLastTradingDay();
 
     // Create market open (9:30 AM ET) and close (4:00 PM ET) for the last trading day
-    const marketOpenTime = new Date(historicalDate);
-    marketOpenTime.setHours(9, 30, 0, 0);
-
-    const marketCloseTime = new Date(historicalDate);
-    marketCloseTime.setHours(16, 0, 0, 0);
+    // Parse date parts and construct in Eastern timezone to avoid UTC conversion
+    const [year, month, day] = lastTradingDay.split('-').map(Number);
+    const marketOpenTime = new Date(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T09:30:00-05:00`);
+    const marketCloseTime = new Date(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T16:00:00-05:00`);
 
     // If today is a trading day but market is closed (after 4 PM), scan today's session
     const today = now.toISOString().split('T')[0];
@@ -294,7 +336,8 @@ export class OptionsFlowService {
   // PARALLEL VERSION - Uses all CPU cores for maximum speed
   async fetchLiveOptionsFlowUltraFast(
     ticker?: string,
-    onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
+    onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void,
+    dateRange?: { startTimestamp: number; endTimestamp: number; currentDate: string; isLive: boolean }
   ): Promise<ProcessedTrade[]> {
     let tickersToScan: string[];
 
@@ -329,7 +372,8 @@ export class OptionsFlowService {
       const allTrades = await parallelProcessor.processTickersInParallel(
         tickersToScan,
         this,
-        onProgress
+        onProgress,
+        dateRange
       );
 
       console.log(`✅ SCAN COMPLETE: Found ${allTrades.length} total trades`);
@@ -357,43 +401,7 @@ export class OptionsFlowService {
     } catch (error) {
       console.error(`❌ PARALLEL PROCESSING ERROR:`, error);
       console.error(`❌ ERROR DETAILS:`, error instanceof Error ? error.message : String(error));
-
-      // Fallback to single-threaded scanning if parallel fails
-      console.log(`🔄 FALLBACK: Using single-threaded scanning due to:`, error instanceof Error ? error.message : String(error));
-
-      const fallbackTrades: ProcessedTrade[] = [];
-      const maxTickers = Math.min(tickersToScan.length, 50); // Limit fallback to prevent timeouts
-
-      for (let i = 0; i < maxTickers; i++) {
-        const ticker = tickersToScan[i];
-        try {
-          onProgress?.([], `Fallback scan: ${ticker} (${i + 1}/${maxTickers})`);
-
-          const tickerTrades = await this.fetchOptionsSnapshotRobust(ticker);
-          if (tickerTrades.length > 0) {
-            fallbackTrades.push(...tickerTrades);
-            console.log(`📈 Fallback: Found ${tickerTrades.length} trades for ${ticker}`);
-          }
-        } catch (tickerError) {
-          console.error(`⚠️ Fallback error for ${ticker}:`, tickerError);
-        }
-      }
-
-      // Also classify fallback trades
-      if (fallbackTrades.length > 0) {
-        console.log(`🔍 CLASSIFYING FALLBACK TRADES: Analyzing ${fallbackTrades.length} trades...`);
-        const classifiedFallback = this.classifyAllTrades(fallbackTrades);
-        console.log(`✅ FALLBACK CLASSIFICATION COMPLETE: Classified ${classifiedFallback.length} trades`);
-
-        // Send fallback trades immediately and enhance in background
-        if (onProgress) {
-          onProgress(classifiedFallback, `✅ Fallback scan complete - ${classifiedFallback.length} trades`);
-        }
-
-        return classifiedFallback;
-      }
-
-      return fallbackTrades;
+      throw error;
     }
   }
 
@@ -415,7 +423,8 @@ export class OptionsFlowService {
     console.log(`📊 Day 1 (${day1Date}): Using snapshot endpoint`);
     onProgress?.([], `Fetching most recent day (${day1Date})...`);
 
-    const day1Trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress);
+    const dateRange = await getSmartDateRange();
+    const day1Trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress, dateRange);
 
     // Add trading_date to Day 1 trades
     day1Trades.forEach(trade => {
@@ -714,7 +723,7 @@ export class OptionsFlowService {
 
   async fetchLiveOptionsFlow(ticker?: string): Promise<ProcessedTrade[]> {
     // Smart market hours detection
-    const { currentDate, isLive } = getSmartDateRange();
+    const { currentDate, isLive } = await getSmartDateRange();
     const marketStatus = isLive ? 'LIVE' : 'LAST TRADING DAY';
     const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
     const marketOpenTime = new Date(marketOpenTimestamp).toLocaleString('en-US', { timeZone: 'America/New_York' });
@@ -1658,7 +1667,7 @@ export class OptionsFlowService {
 
     try {
       // Get smart date range for proper historical data
-      const { currentDate, isLive } = getSmartDateRange();
+      const { currentDate, isLive } = await getSmartDateRange();
       const targetDate = new Date(currentDate);
 
       // Get current spot price
@@ -3280,7 +3289,7 @@ export class OptionsFlowService {
                   ...trade,
                   volume,
                   open_interest: openInterest,
-                  vol_oi_ratio: openInterest > 0 ? volume / openInterest : undefined,
+                  vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
                   fill_style: fillStyle,
                   bid,
                   ask,
@@ -3386,7 +3395,7 @@ export class OptionsFlowService {
                   ...trade,
                   volume,
                   open_interest: openInterest,
-                  vol_oi_ratio: openInterest > 0 ? volume / openInterest : undefined,
+                  vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
                   fill_style: fillStyle,
                   bid,
                   ask,

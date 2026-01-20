@@ -1,6 +1,5 @@
 {
   "framework": "nextjs",
-  "installCommand": "npm ci --legacy-peer-deps",
   "crons": [],
   "functions": {
     "src/app/api/options-flow/route.ts": {

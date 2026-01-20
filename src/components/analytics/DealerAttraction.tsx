@@ -3822,7 +3822,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
   const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } }>({});
   const [flowGexByStrikeByExpiration, setFlowGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number } } }>({});
-  const [showGEX, setShowGEX] = useState(false);
+  const [showGEX, setShowGEX] = useState(typeof window !== 'undefined' && window.innerWidth < 768 ? true : false);
   const [showDealer, setShowDealer] = useState(false);
   const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX');
   const [showFlowGEX, setShowFlowGEX] = useState(false);
@@ -5330,7 +5330,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         
         @media (max-width: 768px) {
           .dealer-attraction-container {
-            padding-top: 30px !important;
+            padding-top: 5px !important;
           }
           
           /* Hide scrollbars on mobile while keeping functionality */
@@ -5366,15 +5366,15 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           box-shadow: 0 0 8px rgba(255, 255, 255, 0.1);
         }
       `}</style>
-      <div className="p-6 pt-24 md:pt-6 dealer-attraction-container">
+      <div className="dealer-attraction-container">
         <div className={`${activeTableCount === 3 ? 'w-full' : 'max-w-[99vw] md:max-w-[95vw]'} px-4 mx-auto`}>
           {/* Bloomberg Terminal Header */}
           <div className="mb-6 bg-black border border-gray-600/40">
             {/* Control Panel */}
             <div className="bg-black border-y border-gray-800">
-              <div className="px-4 md:px-8 py-3 md:py-6">
+              <div className="px-4 md:px-8 pt-1 pb-3 md:py-6">
                 {/* Main Tabs */}
-                <div className="flex gap-0 w-full mb-4 relative">
+                <div className="flex gap-0 w-full mb-2 md:mb-4 relative">
                   <button
                     onClick={() => setActiveTab('WORKBENCH')}
                     className={`flex-1 font-black uppercase tracking-[0.15em] transition-all ${activeTab === 'WORKBENCH'
@@ -6135,7 +6135,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
                     // Mobile expiration splitting: show fewer expirations per table to fit on screen
                     const mobileStrikeWidth = isMobile ? 45 : workbenchStrikeWidth;
-                    const mobileExpWidth = isMobile ? 60 : 90;
+                    const mobileExpWidth = isMobile ? 82 : 90;
                     let table1Expirations = expirations;
                     let table2Expirations = expirations;
                     let table3Expirations = expirations;
@@ -6238,25 +6238,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
                                           const cellStyle = getCellStyle(displayValue, false, row.strike, exp, gexTopValues);
 
-                                          // DEBUG: Log first few cells for NORMAL mode
-                                          if (idx < 2 && table1Expirations.indexOf(exp) < 2) {
-                                            console.log(`🔍 NORMAL Cell [${row.strike}, ${exp}]:`, {
-                                              displayValue,
-                                              callValue: gexValue?.call,
-                                              putValue: gexValue?.put,
-                                              highest: gexTopValues.highest,
-                                              isHighest: Math.abs(displayValue - gexTopValues.highest) < 0.01,
-                                              cellStyle,
-                                              liveMode,
-                                              liveOIDataSize: liveOIData.size
-                                            });
-                                          }
-
                                           return (
                                             <td
                                               key={exp}
                                               className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                              style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                              style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                             >
                                               <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
                                                 {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
@@ -6370,7 +6356,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                             <td
                                               key={exp}
                                               className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                              style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                              style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                             >
                                               <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
                                                 {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
@@ -6471,7 +6457,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                             <td
                                               key={exp}
                                               className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                              style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                              style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                             >
                                               <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
                                                 {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}

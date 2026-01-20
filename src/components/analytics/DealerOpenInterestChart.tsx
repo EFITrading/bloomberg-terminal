@@ -1843,8 +1843,8 @@ export default function DealerOpenInterestChart({
             <button
               onClick={() => setViewMode('contracts')}
               className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${viewMode === 'contracts'
-                  ? 'bg-orange-600 text-white border-2 border-orange-500'
-                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                ? 'bg-orange-600 text-white border-2 border-orange-500'
+                : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
                 }`}
             >
               Contracts
@@ -1852,8 +1852,8 @@ export default function DealerOpenInterestChart({
             <button
               onClick={() => setViewMode('premium')}
               className={`px-4 py-2 font-bold text-sm uppercase tracking-wider rounded-lg transition-all ${viewMode === 'premium'
-                  ? 'bg-orange-600 text-white border-2 border-orange-500'
-                  : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
+                ? 'bg-orange-600 text-white border-2 border-orange-500'
+                : 'bg-gray-900 text-orange-400 border-2 border-gray-700 hover:border-orange-500'
                 }`}
             >
               Premium ($)

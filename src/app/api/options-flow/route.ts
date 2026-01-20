@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // Get smart date range for market hours handling
-    const { currentDate, isLive, startTimestamp, endTimestamp } = getSmartDateRange();
+    const { currentDate, isLive, startTimestamp, endTimestamp } = await getSmartDateRange();
     const marketStatus = isLive ? 'LIVE_MARKET' : 'HISTORICAL_SESSION';
 
     const polygonApiKey = process.env.POLYGON_API_KEY;
@@ -53,7 +53,11 @@ export async function GET(request: NextRequest) {
     const optionsFlowService = new OptionsFlowService(polygonApiKey);
 
     // Process the options flow with ultra-fast parallel scanning - will scan market-wide if no ticker specified
-    const processedTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(ticker || undefined);
+    const processedTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
+      ticker || undefined,
+      undefined,
+      { startTimestamp, endTimestamp, currentDate, isLive }
+    );
 
     const processingTime = Date.now() - startTime;
 

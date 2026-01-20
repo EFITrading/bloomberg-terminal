@@ -634,14 +634,18 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
             const data = await response.json();
 
             if (data.status === 'OK' && data.ticker) {
-              // ONLY use last trade price - no fallbacks
+              // Get last available price - lastTrade if markets open, else previous trading day close
               const lastTradePrice = data.ticker.lastTrade?.p;
+              const prevDayClose = data.ticker.prevDay?.c;
 
-              if (lastTradePrice && lastTradePrice > 0) {
-                pricesUpdate[ticker] = lastTradePrice;
-                console.log(` ${ticker}: LIVE $${lastTradePrice} (lastTrade)`);
+              const price = lastTradePrice || prevDayClose;
+
+              if (price && price > 0) {
+                pricesUpdate[ticker] = price;
+                const source = lastTradePrice ? 'lastTrade' : 'prevDay close';
+                console.log(` ${ticker}: $${price} (${source})`);
               } else {
-                console.warn(` No last trade price for ${ticker}`);
+                console.warn(` No price data available for ${ticker}`);
               }
             } else {
               console.log(` No snapshot data for ${ticker}`);

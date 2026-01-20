@@ -180,9 +180,13 @@ export async function GET(request: NextRequest) {
 
         if (timeframe === '1D') {
           // Single day: Use existing fast path
+          const { getSmartDateRange } = require('../../../lib/optionsFlowService');
+          const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange();
+
           const scanPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(
             ticker || undefined,
-            streamingCallback
+            streamingCallback,
+            { startTimestamp, endTimestamp, currentDate, isLive }
           );
 
           // Add timeout to prevent hanging (10 minutes max - enrichment needs time)
