@@ -53,6 +53,27 @@ import ElectionCycleService from '../../lib/electionCycleService';
 import ETFHoldingsModal from '../ETFHoldingsModal';
 import { useMarketRegime } from '../../contexts/MarketRegimeContext';
 import { OptionsFlowTable } from '../OptionsFlowTable';
+import EnhancedRegimeDisplay from '../terminal/EnhancedRegimeDisplay';
+
+// Enhanced Market Regime Types
+interface SectorAnalysis {
+  sector: string;
+  change: number;
+  relativeToSPY: number;
+}
+
+interface RegimeAnalysis {
+  defensiveAvg: number;
+  growthAvg: number;
+  valueAvg: number;
+  defensiveGrowthSpread: number;
+  spreadStrength: 'STRONG' | 'MODERATE' | 'WEAK';
+  regime: 'STRONG DEFENSIVE' | 'MODERATE DEFENSIVE' | 'DEFENSIVE + VALUE' | 'RISK ON' | 'STRONG RISK ON' | 'GROWTH + RISK ON' | 'VALUE' | 'MIXED' | 'RISK OFF';
+  confidence: number;
+  defensiveSectors: SectorAnalysis[];
+  growthSectors: SectorAnalysis[];
+  valueSectors: SectorAnalysis[];
+}
 
 // Global type declarations
 declare global {
@@ -3395,7 +3416,7 @@ export default function TradingViewChart({
   onSymbolChange,
   onTimeframeChange
 }: TradingViewChartProps) {
-  const { setRegimes } = useMarketRegime();
+  const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime();
 
   // Canvas refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -3520,6 +3541,10 @@ export default function TradingViewChart({
   const [drawingHistory, setDrawingHistory] = useState<any[][]>([[]]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [isBackgroundVisible, setIsBackgroundVisible] = useState(true);
+
+  // Enhanced Market Regime Analysis state
+  const [regimeAnalysis, setRegimeAnalysis] = useState<Record<string, RegimeAnalysis>>({});
+  const [regimeHistory, setRegimeHistory] = useState<Record<string, Array<{ timestamp: number; analysis: RegimeAnalysis }>>>({});
 
   // Save drawings to localStorage whenever they change
   useEffect(() => {
@@ -7964,10 +7989,13 @@ export default function TradingViewChart({
           setWatchlistData(processedData);
 
           // Update market regimes for Navigation (calculate inline with processedData)
-          const calculateRegime = (period: string) => {
+          const calculateEnhancedRegime = (period: string): RegimeAnalysis => {
+            // Core sectors
             const growthSectors = ['XLY', 'XLK', 'XLC'];
             const defensiveSectors = ['XLP', 'XLU', 'XLRE', 'XLV'];
-            const valueSectors = ['XLB', 'XLI', 'XLF', 'XLE'];
+            // Sub-sectors for combined regimes
+            const valueSectors = ['XLE', 'XLB']; // Value rotation
+            const riskOnSectors = ['XLI', 'XLF']; // Risk-on rotation
 
             const getChange = (symbol: string) => {
               const data = processedData[symbol];
@@ -7976,25 +8004,140 @@ export default function TradingViewChart({
               if (period === '5d') return data.change5d;
               if (period === '13d') return data.change13d;
               if (period === '21d') return data.change21d;
+              if (period === '50d') return data.change50d;
               if (period === 'ytd') return data.changeYTD;
               return 0;
             };
 
             const spyChange = getChange('SPY');
 
-            const growthRising = growthSectors.filter(s => (getChange(s) - spyChange) > 0).length;
-            const defensiveFalling = defensiveSectors.filter(s => (getChange(s) - spyChange) <= 0).length;
-            const defensiveRising = defensiveSectors.filter(s => (getChange(s) - spyChange) > 0).length;
-            const growthFalling = growthSectors.filter(s => (getChange(s) - spyChange) <= 0).length;
-            const valueRising = valueSectors.filter(s => (getChange(s) - spyChange) > 0).length;
+            // Calculate average changes for each category
+            const defensiveChanges = defensiveSectors.map(s => getChange(s));
+            const growthChanges = growthSectors.map(s => getChange(s));
+            const valueChanges = valueSectors.map(s => getChange(s));
+            const riskOnChanges = riskOnSectors.map(s => getChange(s));
 
-            if (growthRising === 3 && defensiveFalling >= 3) return 'RISK ON';
-            if (growthFalling === 3 && defensiveRising >= 3) return 'DEFENSIVE';
-            if (valueRising === 4) return 'VALUE';
-            return 'MIXED';
+            const defensiveAvg = defensiveChanges.reduce((a, b) => a + b, 0) / defensiveChanges.length;
+            const growthAvg = growthChanges.reduce((a, b) => a + b, 0) / growthChanges.length;
+            const valueAvg = valueChanges.reduce((a, b) => a + b, 0) / valueChanges.length;
+            const riskOnAvg = riskOnChanges.reduce((a, b) => a + b, 0) / riskOnChanges.length;
+
+            // Calculate the spread (KEY METRIC!)
+            const defensiveGrowthSpread = defensiveAvg - growthAvg;
+
+            // Determine spread strength
+            let spreadStrength: 'STRONG' | 'MODERATE' | 'WEAK';
+            if (Math.abs(defensiveGrowthSpread) >= 2.0) spreadStrength = 'STRONG';
+            else if (Math.abs(defensiveGrowthSpread) >= 0.5) spreadStrength = 'MODERATE';
+            else spreadStrength = 'WEAK';
+
+            // Determine regime with NEW LOGIC for combined regimes
+            let regime: 'STRONG DEFENSIVE' | 'MODERATE DEFENSIVE' | 'DEFENSIVE + VALUE' | 'RISK ON' | 'STRONG RISK ON' | 'GROWTH + RISK ON' | 'VALUE' | 'MIXED' | 'RISK OFF';
+            let confidence: number;
+
+            // Check for combined regimes
+            const valueStrong = valueAvg > defensiveAvg && valueAvg > 0;
+            const riskOnStrong = riskOnAvg > growthAvg && riskOnAvg > 0;
+
+            if (defensiveGrowthSpread >= 2.0) {
+              if (valueStrong) {
+                regime = 'DEFENSIVE + VALUE';
+                confidence = Math.min(95, 65 + Math.abs(defensiveGrowthSpread) * 10);
+              } else {
+                regime = 'STRONG DEFENSIVE';
+                confidence = Math.min(95, 60 + Math.abs(defensiveGrowthSpread) * 10);
+              }
+            } else if (defensiveGrowthSpread >= 0.5) {
+              if (valueStrong) {
+                regime = 'DEFENSIVE + VALUE';
+                confidence = 55 + Math.abs(defensiveGrowthSpread) * 20;
+              } else {
+                regime = 'MODERATE DEFENSIVE';
+                confidence = 50 + Math.abs(defensiveGrowthSpread) * 20;
+              }
+            } else if (defensiveGrowthSpread <= -2.0) {
+              if (riskOnStrong) {
+                regime = 'GROWTH + RISK ON';
+                confidence = Math.min(95, 65 + Math.abs(defensiveGrowthSpread) * 10);
+              } else {
+                regime = 'STRONG RISK ON';
+                confidence = Math.min(95, 60 + Math.abs(defensiveGrowthSpread) * 10);
+              }
+            } else if (defensiveGrowthSpread <= -0.5) {
+              if (riskOnStrong) {
+                regime = 'GROWTH + RISK ON';
+                confidence = 55 + Math.abs(defensiveGrowthSpread) * 20;
+              } else {
+                regime = 'RISK ON';
+                confidence = 50 + Math.abs(defensiveGrowthSpread) * 20;
+              }
+            } else if (valueAvg > defensiveAvg && valueAvg > growthAvg && valueAvg > riskOnAvg && valueAvg > 0) {
+              regime = 'VALUE';
+              confidence = 60;
+            } else if (defensiveAvg < 0 && growthAvg < 0 && valueAvg < 0 && riskOnAvg < 0) {
+              regime = 'RISK OFF';
+              confidence = 70;
+            } else {
+              regime = 'MIXED';
+              confidence = 30;
+            }
+
+            // Build detailed sector analysis - now includes all sectors
+            const defensiveSectorsAnalysis: SectorAnalysis[] = defensiveSectors.map(s => ({
+              sector: s,
+              change: getChange(s),
+              relativeToSPY: getChange(s) - spyChange
+            }));
+
+            const growthSectorsAnalysis: SectorAnalysis[] = growthSectors.map(s => ({
+              sector: s,
+              change: getChange(s),
+              relativeToSPY: getChange(s) - spyChange
+            }));
+
+            const valueSectorsAnalysis: SectorAnalysis[] = [...valueSectors, ...riskOnSectors].map(s => ({
+              sector: s,
+              change: getChange(s),
+              relativeToSPY: getChange(s) - spyChange
+            }));
+
+            confidence = Math.max(0, Math.min(100, confidence));
+
+            return {
+              defensiveAvg,
+              growthAvg,
+              valueAvg,
+              defensiveGrowthSpread,
+              spreadStrength,
+              regime,
+              confidence,
+              defensiveSectors: defensiveSectorsAnalysis,
+              growthSectors: growthSectorsAnalysis,
+              valueSectors: valueSectorsAnalysis
+            };
           };
 
-          const periods = ['1d', '5d', '13d', '21d', 'ytd'];
+          // Legacy compatibility function for existing UI
+          const calculateRegime = (period: string): string => {
+            const analysis = calculateEnhancedRegime(period);
+            // Map new regime names to old names for backward compatibility
+            if (analysis.regime === 'STRONG DEFENSIVE' || analysis.regime === 'MODERATE DEFENSIVE') return 'DEFENSIVE';
+            if (analysis.regime === 'STRONG RISK ON') return 'RISK ON';
+            if (analysis.regime === 'RISK ON') return 'RISK ON';
+            return analysis.regime; // VALUE, MIXED, RISK OFF stay the same
+          };
+
+          const periods = ['1d', '5d', '13d', '21d', '50d', 'ytd'];
+
+          // Calculate enhanced regime for all periods and store
+          const enhancedRegimeData: Record<string, RegimeAnalysis> = {};
+          periods.forEach(period => {
+            enhancedRegimeData[period] = calculateEnhancedRegime(period);
+          });
+          setRegimeAnalysis(enhancedRegimeData); // Update local state
+          setContextRegimeAnalysis(enhancedRegimeData); // Update context for Navigation access
+
+          // Use legacy function for existing regime system
           const activeRegimes = periods.map(period => {
             const regime = calculateRegime(period);
             return regime !== 'MIXED' ? { period: period.toUpperCase(), regime } : null;
@@ -14659,15 +14802,32 @@ export default function TradingViewChart({
         {/* Watchlist Tab Content */}
         {activeTab === 'Watchlist' && (
           <>
+            {/* Enhanced Market Regime Display */}
+            {Object.keys(regimeAnalysis).length > 0 && (
+              <div style={{
+                padding: '12px 16px',
+                background: 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 100%)',
+                borderBottom: '2px solid rgba(255, 102, 0, 0.3)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                position: 'relative',
+                zIndex: 100,
+                overflow: 'visible'
+              }}>
+                <EnhancedRegimeDisplay regimeAnalysis={regimeAnalysis} selectedPeriod="1d" />
+              </div>
+            )}
+
             {/* Bloomberg-style Column Headers - 9 Columns */}
-            <div className="grid grid-cols-9 gap-0 border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner">
-              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600">
+            <div className="grid gap-0 border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner" style={{ gridTemplateColumns: '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr' }}>
+              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-l-2 border-l-gray-600 border-t-2 border-t-gray-600 text-center">
                 <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">Symbol</span>
               </div>
-              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
+              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600 text-center">
                 <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">Price</span>
               </div>
-              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600">
+              <div className="md:p-3 p-2 border-r border-gray-700 bg-black shadow-inner border-t-2 border-t-gray-600 text-center">
                 <span className="drop-shadow-lg text-shadow-carved text-orange-500 md:text-sm text-[10px]">Change</span>
               </div>
               <div className="md:p-3 p-2 border-r border-gray-700 text-center bg-black shadow-inner border-t-2 border-t-gray-600">
@@ -14807,7 +14967,8 @@ export default function TradingViewChart({
                       <div key={uniqueId}>
                         {separatorRows}
                         <div
-                          className="grid grid-cols-9 gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900 hover:bg-[#FF6600]/5 transition-all duration-200 cursor-pointer group"
+                          className="grid gap-px bg-gradient-to-r from-gray-900 via-black to-gray-900 hover:bg-[#FF6600]/5 transition-all duration-200 cursor-pointer group"
+                          style={{ gridTemplateColumns: '1fr 1fr 0.8fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr 1.2fr' }}
                           title={(() => {
                             const excludedSymbols = ['SPY', 'IWM', 'QQQ', 'DIA'];
                             const isClickableETF = !excludedSymbols.includes(symbol);
@@ -14836,28 +14997,28 @@ export default function TradingViewChart({
                         >
                           {/* Symbol */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
-                            <div className="flex flex-col">
+                            <div className="flex flex-col items-center">
                               <span className="font-mono font-bold text-[#FF6600] md:text-base text-[14px] tracking-wide">{symbol}</span>
                               <span className="font-sans text-white md:text-xs text-[10px] mt-0.5 md:block hidden">{tickerNames[symbol] || symbol}</span>
                             </div>
                           </div>
 
                           {/* Price */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all text-center">
                             <div className="font-mono text-white font-bold md:text-base text-[12px]">
                               ${data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           </div>
 
                           {/* Change */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-2 md:p-3 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all text-center">
                             <div className={`font-mono font-bold md:text-base text-[12px] ${changeColor}`}>
                               {changeSign}{data.change1d.toFixed(2)}%
                             </div>
                           </div>
 
                           {/* 1D Performance */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
                             <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('1d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf1d.color}`}>
                               {symbol === 'SPY' ? (() => {
                                 const regime = getMarketRegimeForHeader('1d');
@@ -14869,7 +15030,7 @@ export default function TradingViewChart({
                           </div>
 
                           {/* 5D Performance */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
                             <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('5d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf5d.color}`}>
                               {symbol === 'SPY' ? (() => {
                                 const regime = getMarketRegimeForHeader('5d');
@@ -14881,7 +15042,7 @@ export default function TradingViewChart({
                           </div>
 
                           {/* 13D Performance */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
                             <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('13d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf13d.color}`}>
                               {symbol === 'SPY' ? (() => {
                                 const regime = getMarketRegimeForHeader('13d');
@@ -14893,7 +15054,7 @@ export default function TradingViewChart({
                           </div>
 
                           {/* 21D Performance */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
                             <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('21d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf21d.color}`}>
                               {symbol === 'SPY' ? (() => {
                                 const regime = getMarketRegimeForHeader('21d');
@@ -14905,7 +15066,7 @@ export default function TradingViewChart({
                           </div>
 
                           {/* 50D Performance */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
                             <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('50d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('50d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('50d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf50d.color}`}>
                               {symbol === 'SPY' ? (() => {
                                 const regime = getMarketRegimeForHeader('50d');
@@ -14917,7 +15078,7 @@ export default function TradingViewChart({
                           </div>
 
                           {/* YTD Performance */}
-                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 text-center border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all">
+                          <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
                             <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('ytd') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perfYTD.color}`}>
                               {symbol === 'SPY' ? (() => {
                                 const regime = getMarketRegimeForHeader('ytd');

@@ -12,6 +12,12 @@ import { polygonService } from '@/lib/polygonService';
 // Polygon API key for bid/ask analysis
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
+// Helper function to normalize ticker for options contracts
+// Polygon removes periods from tickers in option symbols (e.g., BRK.B → BRKB)
+const normalizeTickerForOptions = (ticker: string): string => {
+  return ticker.replace(/\./g, '');
+};
+
 // BID/ASK EXECUTION ANALYSIS - OPTIMIZED FOR HIGH VOLUME
 // COMBINED ENRICHMENT - Fetch Vol/OI AND Fill Style in ONE API call per trade
 const enrichTradeDataCombined = async (
@@ -21,7 +27,7 @@ const enrichTradeDataCombined = async (
   if (trades.length === 0) return trades;
 
   const BATCH_SIZE = 50; // Process 50 trades per batch
-  const BATCH_DELAY = 100; // 100ms delay between batches
+  const BATCH_DELAY = 200; // 200ms delay between batches (5 req/sec limit)
   const REQUEST_DELAY = 20; // 20ms stagger between requests
   const batches = [];
 
@@ -29,18 +35,12 @@ const enrichTradeDataCombined = async (
     batches.push(trades.slice(i, i + BATCH_SIZE));
   }
 
-  console.log(`🚀 COMBINED ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
-
   const allResults = [];
   let successCount = 0;
   let failCount = 0;
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
-
-    if (batchIndex % 10 === 0) {
-      console.log(`📦 Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex / batches.length) * 100)}%)`);
-    }
 
     const batchResults = await Promise.all(
       batch.map(async (trade, tradeIndex) => {
@@ -50,7 +50,7 @@ const enrichTradeDataCombined = async (
           const expiry = trade.expiry.replace(/-/g, '').slice(2);
           const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
           const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+          const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`;
 
           // Use snapshot endpoint - gets EVERYTHING in one call (quotes, greeks, Vol/OI)
           const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
@@ -72,7 +72,6 @@ const enrichTradeDataCombined = async (
             const volume = result.day?.volume || null;
             const openInterest = result.open_interest || null;
 
-            console.log(`✅ ${trade.underlying_ticker}: Vol=${volume}, OI=${openInterest}`);
             successCount++;
 
             // Extract fill style from last quote
@@ -133,14 +132,12 @@ const analyzeBidAskExecutionLightning = async (
   if (trades.length === 0) return trades;
 
   const BATCH_SIZE = 50; // Increased from 10 to 50 for speed
-  const BATCH_DELAY = 50; // Reduced delay to 50ms
+  const BATCH_DELAY = 200; // 200ms delay for rate limit compliance
   const batches = [];
 
   for (let i = 0; i < trades.length; i += BATCH_SIZE) {
     batches.push(trades.slice(i, i + BATCH_SIZE));
   }
-
-  console.log(`🚀 Processing ${trades.length} trades in ${batches.length} batches of ${BATCH_SIZE}`);
 
   const allResults = [];
 
@@ -161,7 +158,7 @@ const analyzeBidAskExecutionLightning = async (
           const expiry = trade.expiry.replace(/-/g, '').slice(2);
           const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
           const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+          const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`;
 
           const tradeTime = new Date(trade.trade_timestamp);
           const checkTimestamp = tradeTime.getTime() * 1000000;
@@ -220,10 +217,7 @@ const analyzeBidAskExecutionLightning = async (
     if (batchIndex < batches.length - 1) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
     }
-  }
-
-  console.log(`✅ Fill style analysis complete: ${allResults.length} trades processed`);
-  return allResults;
+  } return allResults;
 };
 
 // VOLUME & OPEN INTEREST FETCHING - ULTRA-FAST PARALLEL PROCESSING
@@ -234,17 +228,13 @@ const fetchVolumeAndOpenInterest = async (
   if (trades.length === 0) return trades;
 
   const BATCH_SIZE = 10; // Process only 10 trades per batch (very conservative)
-  const BATCH_DELAY = 500; // 500ms delay between batches (half second)
+  const BATCH_DELAY = 200; // 200ms delay between batches (5 req/sec limit)
   const REQUEST_DELAY = 100; // 100ms stagger between requests within batch
   const batches = [];
 
   for (let i = 0; i < trades.length; i += BATCH_SIZE) {
     batches.push(trades.slice(i, i + BATCH_SIZE));
-  }
-
-  console.log(`� ULTRA-FAST Vol/OI fetch: ${trades.length} trades in ${batches.length} batches of ${BATCH_SIZE}`);
-
-  const allResults = [];
+  } const allResults = [];
 
   // Process batches sequentially with massive parallel requests within each batch
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -313,10 +303,7 @@ const fetchVolumeAndOpenInterest = async (
     if (batchIndex < batches.length - 1) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
     }
-  }
-
-  console.log(`✅ Vol/OI complete: ${allResults.length} trades processed`);
-  return allResults;
+  } return allResults;
 };
 
 // Memoized price display component to prevent flickering
@@ -324,12 +311,14 @@ const PriceDisplay = React.memo(function PriceDisplay({
   spotPrice,
   currentPrice,
   isLoading,
-  ticker
+  ticker,
+  isNotablePick
 }: {
   spotPrice: number;
   currentPrice?: number;
   isLoading?: boolean;
   ticker: string;
+  isNotablePick?: boolean;
 }) {
   // Don't show anything if spot price is missing or invalid
   if (!spotPrice || spotPrice <= 0) {
@@ -339,7 +328,7 @@ const PriceDisplay = React.memo(function PriceDisplay({
   if (isLoading) {
     return (
       <div className="flex items-center gap-2">
-        <span className="text-white">${spotPrice.toFixed(2)}</span>
+        <span style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>${spotPrice.toFixed(2)}</span>
         <span className="text-gray-400">{'>>'} </span>
         <span className="text-gray-400 animate-pulse">fetching...</span>
       </div>
@@ -350,7 +339,7 @@ const PriceDisplay = React.memo(function PriceDisplay({
     // Show just spot price if current price not available
     return (
       <div className="flex items-center gap-2">
-        <span className="text-white">${spotPrice.toFixed(2)}</span>
+        <span style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>${spotPrice.toFixed(2)}</span>
         <span className="text-gray-600">{'>>'} </span>
         <span className="text-gray-500">--</span>
       </div>
@@ -365,7 +354,7 @@ const PriceDisplay = React.memo(function PriceDisplay({
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-white">${spotPrice.toFixed(2)}</span>
+      <span style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>${spotPrice.toFixed(2)}</span>
       <span className="text-gray-400">{'>>'} </span>
       <span className={colorClass}>
         ${currentPrice.toFixed(2)}
@@ -497,6 +486,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({});
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({});
   const [optionPricesFetching, setOptionPricesFetching] = useState<boolean>(false);
+  const [gradingProgress, setGradingProgress] = useState<{ current: number; total: number } | null>(null);
   const [tradesWithFillStyles, setTradesWithFillStyles] = useState<OptionsFlowData[]>([]);
   const [stockChartData, setStockChartData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
   const [optionsPremiumData, setOptionsPremiumData] = useState<Record<string, { price: number; timestamp: number }[]>>({});
@@ -504,11 +494,18 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [flowChartTimeframes, setFlowChartTimeframes] = useState<Record<string, { stock: '1D' | '1W' | '1M', option: '1D' | '1W' | '1M' }>>({});
   const [isMounted, setIsMounted] = useState(false);
 
-  // State for historical price data and standard deviations
-  const [historicalStdDevs, setHistoricalStdDevs] = useState<Map<string, number>>(new Map());
+  // State for historical price data - storing last 3 days of high/low ranges
+  const [historicalRanges, setHistoricalRanges] = useState<Map<string, { high: number, low: number }[]>>(new Map());
   const [historicalDataLoading, setHistoricalDataLoading] = useState<Set<string>>(new Set());
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null);
-  const [aGradeFilterActive, setAGradeFilterActive] = useState<boolean>(false);
+  const [notableFilterActive, setNotableFilterActive] = useState<boolean>(false);
+
+  // State for option price checkpoints for Stock Reaction Score
+  const [optionPriceCheckpoints, setOptionPriceCheckpoints] = useState<Map<string, {
+    optionPrice1Hr: number | null;
+    optionPrice3Hr: number | null;
+    stockPrice2Hr: number | null;
+  }>>(new Map());
 
   // Flow Tracking (Watchlist) state - panel always visible
   const [trackedFlows, setTrackedFlows] = useState<OptionsFlowData[]>([]);
@@ -537,17 +534,16 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         const flows = JSON.parse(savedFlows);
         setTrackedFlows(flows);
 
-        // Fetch stdDev data for all loaded flows
+        // Fetch range data for all loaded flows
         const uniqueTickers: string[] = [...new Set(flows.map((f: OptionsFlowData) => f.underlying_ticker))] as string[];
         Promise.all(uniqueTickers.map(async (ticker: string) => {
-          if (!historicalStdDevs.has(ticker) && !historicalDataLoading.has(ticker)) {
+          if (!historicalRanges.has(ticker) && !historicalDataLoading.has(ticker)) {
             setHistoricalDataLoading(prev => new Set(prev).add(ticker));
             try {
-              const stdDev = await fetchHistoricalStdDev(ticker);
-              setHistoricalStdDevs(prev => new Map(prev).set(ticker, stdDev));
-              console.log(`✅ Loaded stdDev for ${ticker} from localStorage: ${stdDev}`);
+              const ranges = await fetchHistoricalRanges(ticker);
+              setHistoricalRanges(prev => new Map(prev).set(ticker, ranges));
             } catch (error) {
-              console.error(`Failed to fetch stdDev for ${ticker}:`, error);
+              console.error(`Failed to fetch ranges for ${ticker}:`, error);
             } finally {
               setHistoricalDataLoading(prev => {
                 const newSet = new Set(prev);
@@ -584,10 +580,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   // Fetch current prices using the direct API call that works (anti-flicker)
   const fetchCurrentPrices = async (tickers: string[]) => {
-    const uniqueTickers = [...new Set(tickers)];
-    console.log(` Fetching LIVE current prices for ${uniqueTickers.length} tickers:`, uniqueTickers);
-
-    const pricesUpdate: Record<string, number> = {};
+    const uniqueTickers = [...new Set(tickers)]; const pricesUpdate: Record<string, number> = {};
     const loadingUpdate: Record<string, boolean> = {};
 
     // Set loading state for all tickers at once
@@ -596,90 +589,77 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     });
     setPriceLoadingState(prev => ({ ...prev, ...loadingUpdate }));
 
-    // BATCHED API calls to prevent connection reset errors
-    const BATCH_SIZE = 3; // Small batches to avoid overwhelming API
-    const BATCH_DELAY = 1000; // 1 second between batches
+    // OPTIMIZED PARALLEL BATCH PROCESSING with rate limit respect
+    const BATCH_SIZE = 15; // Process 15 tickers per batch (increased from 3)
+    const BATCH_DELAY = 200; // 200ms between batches (5 req/sec limit)
+    const MAX_CONCURRENT_BATCHES = 3; // Process 3 batches in parallel
 
-    // Split tickers into small batches
+    // Split tickers into batches
     const batches = [];
     for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
       batches.push(uniqueTickers.slice(i, i + BATCH_SIZE));
     }
 
-    console.log(` Processing ${uniqueTickers.length} tickers in ${batches.length} batches of ${BATCH_SIZE}`);
+    console.log(`🚀 Processing ${uniqueTickers.length} tickers in ${batches.length} batches (${BATCH_SIZE} per batch, ${MAX_CONCURRENT_BATCHES} parallel)`);
 
-    // Process batches sequentially with delays
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
+    // Process batches with sliding window concurrency
+    const processBatch = async (batch: string[], batchIndex: number) => {
+      console.log(`📦 Batch ${batchIndex + 1}/${batches.length}: [${batch.join(', ')}]`);
 
-      console.log(` Batch ${batchIndex + 1}/${batches.length}: [${batch.join(', ')}]`);
-
-      // Process tickers in current batch with Promise.all
       const batchPromises = batch.map(async (ticker, tickerIndex) => {
-        // Stagger requests within batch
-        await new Promise(resolve => setTimeout(resolve, tickerIndex * 200));
+        // Stagger requests within batch to avoid burst
+        await new Promise(resolve => setTimeout(resolve, tickerIndex * 50));
 
         try {
-          console.log(` Fetching LIVE price for ${ticker}...`);
           const response = await fetch(
             `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`,
             {
               method: 'GET',
               headers: { 'Accept': 'application/json' },
-              signal: AbortSignal.timeout(8000) // 8 second timeout
+              signal: AbortSignal.timeout(8000)
             }
           );
 
           if (response.ok) {
             const data = await response.json();
-
             if (data.status === 'OK' && data.ticker) {
-              // Get last available price - lastTrade if markets open, else previous trading day close
               const lastTradePrice = data.ticker.lastTrade?.p;
               const prevDayClose = data.ticker.prevDay?.c;
-
               const price = lastTradePrice || prevDayClose;
 
               if (price && price > 0) {
                 pricesUpdate[ticker] = price;
-                const source = lastTradePrice ? 'lastTrade' : 'prevDay close';
-                console.log(` ${ticker}: $${price} (${source})`);
-              } else {
-                console.warn(` No price data available for ${ticker}`);
               }
-            } else {
-              console.log(` No snapshot data for ${ticker}`);
             }
-          } else if (response.status === 429) {
-            console.log(` Rate limited for ${ticker}, will retry...`);
-            // Don't throw, just log and continue
-          } else {
-            console.error(` HTTP error for ${ticker}:`, response.status);
           }
         } catch (error) {
-          console.error(` Failed to fetch ${ticker}:`, error);
+          // Silent fail - don't spam console
         }
 
-        // Mark as not loading
         loadingUpdate[ticker] = false;
       });
 
-      // Wait for all tickers in batch to complete
       await Promise.allSettled(batchPromises);
 
-      // Update UI after each batch
+      // Update UI after each batch completes
       setPriceLoadingState(prev => ({ ...prev, ...loadingUpdate }));
       setCurrentPrices(prev => ({ ...prev, ...pricesUpdate }));
+    };
 
-      // Delay between batches (except last one)
-      if (batchIndex < batches.length - 1) {
-        console.log(` Waiting ${BATCH_DELAY}ms before next batch...`);
+    // Process batches with controlled concurrency
+    for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
+      const concurrentBatches = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
+      const batchPromises = concurrentBatches.map((batch, idx) => processBatch(batch, i + idx));
+
+      await Promise.allSettled(batchPromises);
+
+      // Delay before next round of concurrent batches
+      if (i + MAX_CONCURRENT_BATCHES < batches.length) {
         await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
       }
     }
 
-    // Final state update
-    console.log(` All batches complete. Updated ${Object.keys(pricesUpdate).length} prices.`);
+    console.log(`✅ All batches complete. Updated ${Object.keys(pricesUpdate).length}/${uniqueTickers.length} prices.`);
   };
 
   // Fetch current prices when data changes (debounced)
@@ -688,10 +668,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     // Debounce API calls to prevent excessive requests
     const debounceTimer = setTimeout(() => {
-      const tickers = [...new Set(data.map(trade => trade.underlying_ticker))]; // Unique tickers only
-      console.log(` Starting API calls for ${tickers.length} unique tickers from ${data.length} trades`);
-
-      fetchCurrentPrices(tickers);
+      const tickers = [...new Set(data.map(trade => trade.underlying_ticker))]; // Unique tickers only      fetchCurrentPrices(tickers);
     }, 500); // 500ms debounce
 
     return () => clearTimeout(debounceTimer);
@@ -699,50 +676,78 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   // Auto-refresh prices every 5 minutes (optimized)
   useEffect(() => {
-    if (!data || data.length === 0) return;
-
-    console.log(' Setting up 5-minute price auto-refresh...');
-    const interval = setInterval(() => {
-      console.log(' 5-minute timer: Refreshing stock prices...');
+    if (!data || data.length === 0) return; const interval = setInterval(() => {
       const uniqueTickers = [...new Set(data.map(trade => trade.underlying_ticker))];
       // Only refresh prices
       fetchCurrentPrices(uniqueTickers);
     }, 5 * 60 * 1000); // 5 minutes
 
     return () => {
-      console.log(' Clearing price auto-refresh interval');
       clearInterval(interval);
     };
   }, [data.length]); // Only re-setup when data length changes, not content
 
-  // Fetch historical standard deviations when EFI Highlights is active
+  // Fetch historical ranges when EFI Highlights is active
   useEffect(() => {
     if (!efiHighlightsActive || !data || data.length === 0) return;
 
     const uniqueTickers = [...new Set(data.map(trade => trade.underlying_ticker))];
-    console.log(`📊 Fetching historical std dev for ${uniqueTickers.length} tickers...`);
 
-    const fetchAllStdDevs = async () => {
-      const stdDevsMap = new Map<string, number>();
+    const fetchAllRanges = async () => {
+      const rangesMap = new Map<string, { high: number, low: number }[]>();
+      const toFetch = uniqueTickers.filter(ticker =>
+        !historicalRanges.has(ticker) && !historicalDataLoading.has(ticker)
+      );
 
-      for (const ticker of uniqueTickers) {
-        if (!historicalStdDevs.has(ticker) && !historicalDataLoading.has(ticker)) {
-          setHistoricalDataLoading(prev => new Set(prev).add(ticker));
-          const stdDev = await fetchHistoricalStdDev(ticker);
-          stdDevsMap.set(ticker, stdDev);
-          console.log(`📊 ${ticker} std dev: ${stdDev.toFixed(2)}%`);
+      if (toFetch.length === 0) return;
 
-          // Small delay to avoid rate limits
-          await new Promise(resolve => setTimeout(resolve, 100));
+      // Mark all as loading
+      setHistoricalDataLoading(prev => {
+        const newSet = new Set(prev);
+        toFetch.forEach(ticker => newSet.add(ticker));
+        return newSet;
+      });
+
+      // Parallel batch processing with concurrency control
+      const RANGE_BATCH_SIZE = 12; // 12 tickers per batch
+      const MAX_CONCURRENT_BATCHES = 3; // 3 batches in parallel
+      const batches = [];
+      for (let i = 0; i < toFetch.length; i += RANGE_BATCH_SIZE) {
+        batches.push(toFetch.slice(i, i + RANGE_BATCH_SIZE));
+      }
+
+      const processBatch = async (batch: string[], batchIndex: number) => {
+        const rangePromises = batch.map(async (ticker, tickerIndex) => {
+          // Stagger within batch
+          await new Promise(resolve => setTimeout(resolve, tickerIndex * 25));
+
+          try {
+            const ranges = await fetchHistoricalRanges(ticker);
+            rangesMap.set(ticker, ranges);
+          } catch (error) {
+            // Silent fail
+          }
+        });
+
+        await Promise.allSettled(rangePromises);
+      };
+
+      // Process batches with sliding window concurrency
+      for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
+        const concurrentBatches = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
+        await Promise.allSettled(concurrentBatches.map((batch, idx) => processBatch(batch, i + idx)));
+
+        if (i + MAX_CONCURRENT_BATCHES < batches.length) {
+          await new Promise(resolve => setTimeout(resolve, 150));
         }
       }
 
-      if (stdDevsMap.size > 0) {
-        setHistoricalStdDevs(prev => new Map([...prev, ...stdDevsMap]));
+      if (rangesMap.size > 0) {
+        setHistoricalRanges(prev => new Map([...prev, ...rangesMap]));
       }
     };
 
-    fetchAllStdDevs();
+    fetchAllRanges();
   }, [efiHighlightsActive, data.length]);
 
   // Fetch current option prices for position tracking (only when EFI Highlights is ON)
@@ -751,54 +756,75 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const pricesUpdate: Record<string, number> = {};
     const failed: string[] = [];
 
+    console.log('🔍 fetchCurrentOptionPrices: Starting fetch for', trades.length, 'trades');
     setOptionPricesFetching(true);
-    console.log(`📊 Fetching current option prices for ${trades.length} EFI trades...`);
+    setGradingProgress({ current: 0, total: trades.length });    // Parallel batch processing for faster fetching
+    const BATCH_SIZE = 15; // 15 contracts per batch
+    const MAX_CONCURRENT_BATCHES = 3; // Process 3 batches in parallel
+    const batches = [];
 
-    for (const trade of trades) {
-      try {
-        const expiry = trade.expiry.replace(/-/g, '').slice(2);
-        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-        const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+    for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+      batches.push(trades.slice(i, i + BATCH_SIZE));
+    }
 
-        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+    let processedCount = 0;
 
-        const response = await fetch(snapshotUrl, {
-          signal: AbortSignal.timeout(5000)
-        });
+    // Process batches with controlled concurrency
+    const processBatch = async (batch: OptionsFlowData[], batchIndex: number) => {
+      const batchResults = await Promise.allSettled(batch.map(async (trade, tradeIndex) => {
+        // Stagger within batch to avoid burst
+        await new Promise(resolve => setTimeout(resolve, tradeIndex * 30));
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.results && data.results.last_quote) {
-            const bid = data.results.last_quote.bid || 0;
-            const ask = data.results.last_quote.ask || 0;
-            const currentPrice = (bid + ask) / 2;
+        try {
+          const expiry = trade.expiry.replace(/-/g, '').slice(2);
+          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+          const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker);
+          const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`;
 
-            if (currentPrice > 0) {
-              pricesUpdate[optionTicker] = currentPrice;
-            } else {
-              failed.push(`${trade.underlying_ticker} ${trade.type} $${trade.strike} (zero bid/ask)`);
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+
+          const response = await fetch(snapshotUrl, {
+            signal: AbortSignal.timeout(5000)
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.results && data.results.last_quote) {
+              const bid = data.results.last_quote.bid || 0;
+              const ask = data.results.last_quote.ask || 0;
+              const currentPrice = (bid + ask) / 2;
+
+              if (currentPrice > 0) {
+                pricesUpdate[optionTicker] = currentPrice;
+              }
             }
-          } else {
-            failed.push(`${trade.underlying_ticker} ${trade.type} $${trade.strike} (no quote data)`);
           }
-        } else {
-          failed.push(`${trade.underlying_ticker} ${trade.type} $${trade.strike} (HTTP ${response.status})`);
+        } catch (error) {
+          // Silent fail - don't spam console
         }
-      } catch (error) {
-        failed.push(`${trade.underlying_ticker} ${trade.type} $${trade.strike} (${error instanceof Error ? error.message : 'unknown error'})`);
+      }));
+
+      // Update progress and UI after each batch
+      processedCount += batch.length;
+      setGradingProgress({ current: processedCount, total: trades.length });
+      setCurrentOptionPrices(prev => ({ ...prev, ...pricesUpdate }));
+    };
+
+    // Process batches with sliding window concurrency
+    for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
+      const concurrentBatches = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
+      await Promise.allSettled(concurrentBatches.map((batch, idx) => processBatch(batch, i + idx)));
+
+      // Small delay before next round
+      if (i + MAX_CONCURRENT_BATCHES < batches.length) {
+        await new Promise(resolve => setTimeout(resolve, 150));
       }
-
-      // Add small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 50));
     }
 
-    setCurrentOptionPrices(prev => ({ ...prev, ...pricesUpdate }));
+    console.log('🏁 fetchCurrentOptionPrices: Complete. Total prices:', Object.keys(pricesUpdate).length);
     setOptionPricesFetching(false);
-    console.log(`✅ Fetched ${Object.keys(pricesUpdate).length}/${trades.length} option prices`);
-    if (failed.length > 0) {
-      console.warn(`⚠️ Failed to fetch ${failed.length} prices:`, failed);
-    }
+    setGradingProgress(null);
   };
 
   // Fetch stock chart data for a single flow with specific timeframe
@@ -846,7 +872,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       const expiry = trade.expiry.replace(/-/g, '').slice(2);
       const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
       const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-      const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+      const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker);
+      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`;
 
       let multiplier = 5;
       let timespan = 'minute';
@@ -885,11 +912,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Fetch stock chart data for mini charts
   const fetchStockChartData = async (tickers: string[]) => {
     const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
-    const chartData: Record<string, { price: number; timestamp: number }[]> = {};
-
-    console.log(`📈 Fetching stock chart data for ${tickers.length} tickers...`);
-
-    for (const ticker of tickers) {
+    const chartData: Record<string, { price: number; timestamp: number }[]> = {}; for (const ticker of tickers) {
       try {
         let multiplier = 5;
         let timespan = 'minute';
@@ -933,16 +956,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Fetch options premium data for mini charts
   const fetchOptionsPremiumData = async (trades: OptionsFlowData[]) => {
     const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
-    const premiumData: Record<string, { price: number; timestamp: number }[]> = {};
-
-    console.log(`📊 Fetching options premium data for ${trades.length} options...`);
-
-    for (const trade of trades) {
+    const premiumData: Record<string, { price: number; timestamp: number }[]> = {}; for (const trade of trades) {
       try {
         const expiry = trade.expiry.replace(/-/g, '').slice(2);
         const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
         const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-        const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+        const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker);
+        const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`;
 
         let multiplier = 5;
         let timespan = 'minute';
@@ -980,60 +1000,48 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     setOptionsPremiumData(prev => ({ ...prev, ...premiumData }));
-    console.log(`✅ Fetched premium data for ${Object.keys(premiumData).length} options`);
   };
 
   // Function to fetch historical prices and calculate standard deviation
-  const fetchHistoricalStdDev = async (ticker: string): Promise<number> => {
+  const fetchHistoricalRanges = async (ticker: string): Promise<{ high: number, low: number }[]> => {
     try {
-      // Get 30 days of historical data
+      // Get last 3 trading days (7 calendar days to ensure we get at least 3)
       const endDate = new Date().toISOString().split('T')[0];
-      const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
 
-      const response = await fetch(url);
-      const data = await response.json();
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(8000) // 8 second timeout
+      });
 
-      if (data.results && data.results.length > 1) {
-        const closes = data.results.map((r: any) => r.c);
-
-        // Step 1: Calculate daily returns
-        const returns: number[] = [];
-        for (let i = 1; i < closes.length; i++) {
-          const dailyReturn = ((closes[i] - closes[i - 1]) / closes[i - 1]) * 100;
-          returns.push(dailyReturn);
-        }
-
-        if (returns.length === 0) return 2.0; // Default fallback
-
-        // Step 2: Calculate mean return
-        const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-
-        // Step 3: Calculate deviations from mean
-        const deviations = returns.map(r => r - meanReturn);
-
-        // Step 4: Square the deviations
-        const squaredDeviations = deviations.map(d => d * d);
-
-        // Step 5: Calculate variance (using n-1 for sample data)
-        const variance = squaredDeviations.reduce((sum, d) => sum + d, 0) / (returns.length - 1);
-
-        // Step 6: Standard deviation is square root of variance
-        const stdDev = Math.sqrt(variance);
-
-        return stdDev;
+      if (!response.ok) {
+        return []; // Silent fail on HTTP errors
       }
 
-      return 2.0; // Default fallback
+      const data = await response.json();
+
+      if (data.results && data.results.length >= 3) {
+        // Get last 3 days
+        const last3Days = data.results.slice(-3);
+        const ranges = last3Days.map((r: any) => ({
+          high: r.h,
+          low: r.l,
+          date: new Date(r.t).toISOString().split('T')[0]
+        }));
+
+        return ranges;
+      }
+
+      return [];
     } catch (error) {
-      console.error(`Error fetching historical data for ${ticker}:`, error);
-      return 2.0; // Default fallback
+      // Silent fail - connection resets are common with parallel fetching
+      return [];
     }
   };
 
   // Calculate positioning grade for EFI trades - COMPLETE 100-POINT SYSTEM
-  const calculatePositioningGrade = (trade: OptionsFlowData, allTrades: OptionsFlowData[]): {
+  const calculatePositioningGrade = (trade: OptionsFlowData, comboMap: Map<string, boolean>): {
     grade: string;
     score: number;
     color: string;
@@ -1050,7 +1058,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const expiry = trade.expiry.replace(/-/g, '').slice(2);
     const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
     const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-    const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+    const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker);
+    const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`;
     const currentPrice = currentOptionPrices[optionTicker];
     const entryPrice = trade.premium_per_contract;
 
@@ -1074,13 +1083,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     // 2. Contract Price Score (25 points max) - based on position P&L
     if (!currentPrice || currentPrice <= 0) {
-      // Return early with a neutral grade if price is unavailable
-      console.warn(`⚠️ Missing price for ${trade.underlying_ticker} ${trade.type} $${trade.strike}`);
+      // Return early with a neutral grade if price is unavailable (prices loading)
       return {
         grade: 'N/A',
         score: confidenceScore,
         color: '#9ca3af',
-        breakdown: `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: 0/25\nCombo Trade: 0/10\nPrice Action: 0/25\nStock Reaction: 0/15`,
+        breakdown: `Score: ${confidenceScore}/110\nExpiration: ${scores.expiration}/25\nContract P&L: 0/25\nCombo Trade: 0/10\nPrice Action: 0/25\nStock Reaction: 0/25`,
         scores
       };
     }
@@ -1095,34 +1103,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     confidenceScore += scores.contractPrice;
 
-    // 3. Combo Trade Score (10 points max)
-    const isCall = trade.type === 'call';
+    // 3. Combo Trade Score (10 points max) - using pre-computed map for O(1) lookup
     const fillStyle = trade.fill_style || '';
-    const hasComboTrade = allTrades.some(t => {
-      if (t.underlying_ticker !== trade.underlying_ticker) return false;
-      if (t.expiry !== trade.expiry) return false;
-      if (Math.abs(t.strike - trade.strike) > trade.strike * 0.05) return false;
-
-      const oppositeFill = t.fill_style || '';
-      const oppositeType = t.type.toLowerCase();
-
-      // Bullish combo: Calls with A/AA + Puts with B/BB
-      if (isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
-        return oppositeType === 'put' && (oppositeFill === 'B' || oppositeFill === 'BB');
-      }
-      // Bearish combo: Calls with B/BB + Puts with A/AA
-      if (isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
-        return oppositeType === 'put' && (oppositeFill === 'A' || oppositeFill === 'AA');
-      }
-      // For puts, reverse logic
-      if (!isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
-        return oppositeType === 'call' && (oppositeFill === 'A' || oppositeFill === 'AA');
-      }
-      if (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
-        return oppositeType === 'call' && (oppositeFill === 'B' || oppositeFill === 'BB');
-      }
-      return false;
-    });
+    const comboLookupKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${fillStyle}`;
+    const hasComboTrade = comboMap.get(comboLookupKey) || false;
     if (hasComboTrade) scores.combo = 10;
     confidenceScore += scores.combo;
 
@@ -1132,102 +1116,152 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const tradeTime = new Date(trade.trade_timestamp);
     const currentTime = new Date();
 
-    // 4. Price Action Score (25 points max) - Stock within standard deviation
-    const stdDev = historicalStdDevs.get(trade.underlying_ticker);
+    // 4. Price Action Score (25 points max) - Range-based scoring
+    const ranges = historicalRanges.get(trade.underlying_ticker);
 
-    if (!currentStockPrice || !entryStockPrice) {
-      throw new Error(`Missing price action data for ${trade.underlying_ticker}`);
+    // Skip price action scoring if we don't have the required data yet
+    if (!currentStockPrice || !entryStockPrice || !ranges || ranges.length < 3) {
+      // Give partial points if data is still loading
+      scores.priceAction = 0;
+      confidenceScore += scores.priceAction;
+    } else {
+      const day0 = ranges[2]; // Current/most recent day
+      const day1 = ranges[1]; // Previous day
+      const day2 = ranges[0]; // 2 days ago
+
+      const day0Spread = day0.high - day0.low;
+      const day1Spread = day1.high - day1.low;
+      const day2Spread = day2.high - day2.low;
+
+      // Condition 1: Day 0 within Day 1 range
+      const day0WithinDay1 = (day0.low >= day1.low && day0.high <= day1.high);
+      if (day0WithinDay1) {
+        scores.priceAction += 5;
+      }
+
+      // Condition 2: Day 0 within Day 2 range
+      const day0WithinDay2 = (day0.low >= day2.low && day0.high <= day2.high);
+      if (day0WithinDay2) {
+        scores.priceAction += 5;
+      }
+
+      // Condition 3: Day 1 within Day 2 range
+      const day1WithinDay2 = (day1.low >= day2.low && day1.high <= day2.high);
+      if (day1WithinDay2) {
+        scores.priceAction += 5;
+      }
+
+      // Condition 4: Day 0 spread < Day 1 spread
+      const day0SmallerThanDay1 = (day0Spread < day1Spread);
+      if (day0SmallerThanDay1) {
+        scores.priceAction += 5;
+      }
+
+      // Condition 5: Day 1 spread < Day 2 spread
+      const day1SmallerThanDay2 = (day1Spread < day2Spread);
+      if (day1SmallerThanDay2) {
+        scores.priceAction += 5;
+      }
+
+      confidenceScore += scores.priceAction;
     }
 
+    // 5. Stock Reaction Score (25 points max) - OPTIONS PRICE APPROACH
+    // Measure option price changes at 1hr/3hr checkpoints and stock inverse moves at 2hr
     const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
-    const tradingDaysElapsed = Math.floor(hoursElapsed / 6.5); // 6.5-hour trading day
+    const isCall = trade.type === 'call';
 
-    // Calculate current stock move in percentage
-    const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
-    const absMove = Math.abs(stockPercentChange);
+    // Get or fetch checkpoint data
+    const checkpointKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}`;
+    let checkpoints = optionPriceCheckpoints.get(checkpointKey);
 
-    // Check if stock is within 1 standard deviation
-    if (!stdDev) {
-      throw new Error(`Missing standard deviation data for ${trade.underlying_ticker}`);
+    // If checkpoints not loaded yet, try to fetch them
+    if (!checkpoints && hoursElapsed >= 1) {
+      // Fetch option prices at checkpoints
+      // For now, we'll use the current option price as a proxy since we need historical intraday option data
+      // In production, you'd fetch actual historical option prices from Polygon
+      checkpoints = {
+        optionPrice1Hr: currentPrice, // Using current as proxy
+        optionPrice3Hr: currentPrice, // Using current as proxy
+        stockPrice2Hr: currentStockPrice || null
+      };
+      setOptionPriceCheckpoints(prev => new Map(prev).set(checkpointKey, checkpoints!));
     }
 
-    const withinStdDev = absMove <= stdDev;
+    if (checkpoints && currentPrice && entryPrice) {
+      const { optionPrice1Hr, optionPrice3Hr, stockPrice2Hr } = checkpoints;
 
-    // Award points based on how many days stock stayed within std dev
-    if (withinStdDev && tradingDaysElapsed >= 3) scores.priceAction = 25;
-    else if (withinStdDev && tradingDaysElapsed >= 2) scores.priceAction = 20;
-    else if (withinStdDev && tradingDaysElapsed >= 1) scores.priceAction = 15;
-    else scores.priceAction = 10;
+      // Calculate option price changes
+      const optionChange1Hr = optionPrice1Hr ? ((optionPrice1Hr - entryPrice) / entryPrice) * 100 : null;
+      const optionChange3Hr = optionPrice3Hr ? ((optionPrice3Hr - entryPrice) / entryPrice) * 100 : null;
 
-    confidenceScore += scores.priceAction;
+      // Condition 1: Option loses 15-25% in first hour (+5 pts)
+      if (optionChange1Hr !== null && optionChange1Hr >= -25 && optionChange1Hr <= -15) {
+        scores.stockReaction += 5;
+      }
 
-    // 5. Stock Reaction Score (15 points max)
-    // Measure stock movement 1 hour and 3 hours after trade placement
-    if (currentStockPrice && entryStockPrice) {
-      const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
+      // Condition 2: Option loses >30% after 3 hours (+5 pts)
+      if (hoursElapsed >= 3 && optionChange3Hr !== null && optionChange3Hr <= -30) {
+        scores.stockReaction += 5;
+      }
 
-      // Determine trade direction (bullish or bearish)
-      const isBullish = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) ||
-        (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
-      const isBearish = (isCall && (fillStyle === 'B' || fillStyle === 'BB')) ||
-        (!isCall && (fillStyle === 'A' || fillStyle === 'AA'));
+      // Condition 3: Option gains 15-25% in first hour (+5 pts)
+      if (optionChange1Hr !== null && optionChange1Hr >= 15 && optionChange1Hr <= 25) {
+        scores.stockReaction += 5;
+      }
 
-      // Check if stock reversed against trade direction
-      const reversed = (isBullish && stockPercentChange <= -1.0) ||
-        (isBearish && stockPercentChange >= 1.0);
-      const followed = (isBullish && stockPercentChange >= 1.0) ||
-        (isBearish && stockPercentChange <= -1.0);
-      const chopped = Math.abs(stockPercentChange) < 1.0;
+      // Condition 4: Option gains 20-30% after 3 hours (+5 pts)
+      if (hoursElapsed >= 3 && optionChange3Hr !== null && optionChange3Hr >= 20 && optionChange3Hr <= 30) {
+        scores.stockReaction += 5;
+      }
 
-      // Calculate time elapsed since trade
-      const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
+      // Condition 5: Stock moved inverse to trade direction by ≥0.6% after 2 hours (+5 pts)
+      if (hoursElapsed >= 2 && stockPrice2Hr && entryStockPrice) {
+        const stockChange2Hr = ((stockPrice2Hr - entryStockPrice) / entryStockPrice) * 100;
 
-      // Award points based on time checkpoints
-      if (hoursElapsed >= 1) {
-        // 1-hour checkpoint (50% of points)
-        if (reversed) scores.stockReaction += 7.5;
-        else if (chopped) scores.stockReaction += 5;
-        else if (followed) scores.stockReaction += 2.5;
+        // Determine trade direction
+        const isBullish = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) ||
+          (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
 
-        if (hoursElapsed >= 3) {
-          // 3-hour checkpoint (remaining 50%)
-          if (reversed) scores.stockReaction += 7.5;
-          else if (chopped) scores.stockReaction += 5;
-          else if (followed) scores.stockReaction += 2.5;
+        // Check if stock moved inverse (bullish trade = stock down, bearish trade = stock up)
+        const isInverse = (isBullish && stockChange2Hr <= -0.6) || (!isBullish && stockChange2Hr >= 0.6);
+
+        if (isInverse) {
+          scores.stockReaction += 5;
         }
       }
     }
     confidenceScore += scores.stockReaction;
 
-    // Color code confidence score
+    // Color code confidence score (adjusted for 110-point scale)
     let scoreColor = '#ff0000'; // F = Red
-    if (confidenceScore >= 85) scoreColor = '#00ff00'; // A = Bright Green
-    else if (confidenceScore >= 70) scoreColor = '#84cc16'; // B = Lime Green
-    else if (confidenceScore >= 50) scoreColor = '#fbbf24'; // C = Yellow
-    else if (confidenceScore >= 33) scoreColor = '#3b82f6'; // D = Blue
+    if (confidenceScore >= 94) scoreColor = '#00ff00'; // A = Bright Green (85% of 110)
+    else if (confidenceScore >= 77) scoreColor = '#84cc16'; // B = Lime Green (70% of 110)
+    else if (confidenceScore >= 55) scoreColor = '#fbbf24'; // C = Yellow (50% of 110)
+    else if (confidenceScore >= 36) scoreColor = '#3b82f6'; // D = Blue (33% of 110)
 
-    // Grade letter
+    // Grade letter (adjusted for 110-point scale)
     let grade = 'F';
-    if (confidenceScore >= 85) grade = 'A+';
-    else if (confidenceScore >= 80) grade = 'A';
-    else if (confidenceScore >= 75) grade = 'A-';
-    else if (confidenceScore >= 70) grade = 'B+';
-    else if (confidenceScore >= 65) grade = 'B';
-    else if (confidenceScore >= 60) grade = 'B-';
-    else if (confidenceScore >= 55) grade = 'C+';
-    else if (confidenceScore >= 50) grade = 'C';
-    else if (confidenceScore >= 48) grade = 'C-';
-    else if (confidenceScore >= 43) grade = 'D+';
-    else if (confidenceScore >= 38) grade = 'D';
-    else if (confidenceScore >= 33) grade = 'D-';
+    if (confidenceScore >= 94) grade = 'A+';  // 85%
+    else if (confidenceScore >= 88) grade = 'A';   // 80%
+    else if (confidenceScore >= 83) grade = 'A-';  // 75%
+    else if (confidenceScore >= 77) grade = 'B+';  // 70%
+    else if (confidenceScore >= 72) grade = 'B';   // 65%
+    else if (confidenceScore >= 66) grade = 'B-';  // 60%
+    else if (confidenceScore >= 61) grade = 'C+';  // 55%
+    else if (confidenceScore >= 55) grade = 'C';   // 50%
+    else if (confidenceScore >= 53) grade = 'C-';  // 48%
+    else if (confidenceScore >= 47) grade = 'D+';  // 43%
+    else if (confidenceScore >= 42) grade = 'D';   // 38%
+    else if (confidenceScore >= 36) grade = 'D-';  // 33%
 
     // Create breakdown tooltip text
-    const breakdown = `Score: ${confidenceScore}/100
+    const breakdown = `Score: ${confidenceScore}/110
 Expiration: ${scores.expiration}/25
 Contract P&L: ${scores.contractPrice}/25
 Combo Trade: ${scores.combo}/10
 Price Action: ${scores.priceAction}/25
-Stock Reaction: ${scores.stockReaction}/15`;
+Stock Reaction: ${scores.stockReaction}/25`;
 
     return { grade, score: confidenceScore, color: scoreColor, breakdown, scores };
   };
@@ -1253,6 +1287,41 @@ Stock Reaction: ${scores.stockReaction}/15`;
     if (!trade.moneyness || trade.moneyness !== 'OTM') {
       return false;
     }
+
+    return true;
+  };
+
+  // Notable Flow Pick criteria checker (8 criteria)
+  const meetsNotableCriteria = (trade: OptionsFlowData): boolean => {
+    // 1. Expiration: 0-14 days
+    const daysToExpiry = Math.floor((new Date(trade.expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (daysToExpiry < 0 || daysToExpiry > 14) return false;
+
+    // 2. OTM only
+    if (!trade.moneyness || trade.moneyness !== 'OTM') return false;
+
+    // 3. Premium: $120k-$220k
+    if (trade.total_premium < 120000 || trade.total_premium > 220000) return false;
+
+    // 4. SWEEP only
+    if (trade.classification !== 'SWEEP' && trade.trade_type !== 'SWEEP') return false;
+
+    // 5. Contracts: 600-1300
+    if (trade.trade_size < 600 || trade.trade_size > 1300) return false;
+
+    // 6. Option price: $0.70-$2.00
+    if (trade.premium_per_contract < 0.70 || trade.premium_per_contract > 2.00) return false;
+
+    // 7. Grades: B-, B, B+, A-, A, A+ only
+    if (!optionPricesFetching && Object.keys(currentOptionPrices).length > 0) {
+      const gradeData = calculatePositioningGrade(trade, comboTradeMap);
+      const validGrades = ['B-', 'B', 'B+', 'A-', 'A', 'A+'];
+      if (!validGrades.includes(gradeData.grade)) return false;
+    }
+
+    // 8. Fill styles: A, AA, B, BB only
+    const fillStyle = (trade as any).fill_style || '';
+    if (!['A', 'AA', 'B', 'BB'].includes(fillStyle)) return false;
 
     return true;
   };
@@ -1286,15 +1355,14 @@ Stock Reaction: ${scores.stockReaction}/15`;
     fetchStockChartDataForFlow(flowId, trade.underlying_ticker, '1D');
     fetchOptionPremiumDataForFlow(flowId, trade, '1D');
 
-    // Fetch historical standard deviation data for grading
-    if (!historicalStdDevs.has(trade.underlying_ticker) && !historicalDataLoading.has(trade.underlying_ticker)) {
+    // Fetch historical range data for grading
+    if (!historicalRanges.has(trade.underlying_ticker) && !historicalDataLoading.has(trade.underlying_ticker)) {
       setHistoricalDataLoading(prev => new Set(prev).add(trade.underlying_ticker));
       try {
-        const stdDev = await fetchHistoricalStdDev(trade.underlying_ticker);
-        setHistoricalStdDevs(prev => new Map(prev).set(trade.underlying_ticker, stdDev));
-        console.log(`✅ Loaded stdDev for ${trade.underlying_ticker}: ${stdDev}`);
+        const ranges = await fetchHistoricalRanges(trade.underlying_ticker);
+        setHistoricalRanges(prev => new Map(prev).set(trade.underlying_ticker, ranges));
       } catch (error) {
-        console.error(`Failed to fetch stdDev for ${trade.underlying_ticker}:`, error);
+        console.error(`Failed to fetch ranges for ${trade.underlying_ticker}:`, error);
       } finally {
         setHistoricalDataLoading(prev => {
           const newSet = new Set(prev);
@@ -1327,8 +1395,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
       if (!response.ok) {
         throw new Error('Failed to save flow');
       }
-
-      console.log(`✅ Flow saved successfully for ${today}`);
     } catch (error) {
       console.error('Error saving flow:', error);
     } finally {
@@ -1369,7 +1435,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
       const flowData = await response.json();
       onDataUpdate && onDataUpdate(flowData.data);
       setIsHistoryDialogOpen(false);
-      console.log(`✅ Loaded flow from ${date}`);
     } catch (error) {
       console.error('Error loading flow:', error);
     } finally {
@@ -1390,26 +1455,76 @@ Stock Reaction: ${scores.stockReaction}/15`;
 
       // Reload history
       setSavedFlowDates(prev => prev.filter(f => f.date !== date));
-      console.log(`✅ Deleted flow from ${date}`);
     } catch (error) {
       console.error('Error deleting flow:', error);
     }
   };
 
   const handleSort = (field: keyof OptionsFlowData | 'positioning_grade') => {
-    console.log(`🔧 handleSort called: field=${field}, current sortField=${sortField}, current direction=${sortDirection}`);
     if (sortField === field) {
-      const newDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-      console.log(`🔧 Toggling direction: ${sortDirection} → ${newDirection}`);
-      setSortDirection(newDirection);
+      const newDirection = sortDirection === 'asc' ? 'desc' : 'asc'; setSortDirection(newDirection);
     } else {
-      console.log(`🔧 New field: ${sortField} → ${field}, setting direction=desc`);
       setSortField(field);
       setSortDirection('desc');
     }
   };
 
 
+
+  // Pre-compute combo trade map for O(1) lookups instead of O(n) for each trade
+  const comboTradeMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+
+    // Group trades by ticker-expiry-strike range for combo detection
+    const tradesByKey = new Map<string, OptionsFlowData[]>();
+
+    tradesWithFillStyles.forEach(trade => {
+      const baseKey = `${trade.underlying_ticker}-${trade.expiry}`;
+      if (!tradesByKey.has(baseKey)) {
+        tradesByKey.set(baseKey, []);
+      }
+      tradesByKey.get(baseKey)!.push(trade);
+    });
+
+    // Check each trade group for combos
+    tradesByKey.forEach((trades, baseKey) => {
+      trades.forEach(trade => {
+        const tradeKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.fill_style}`;
+
+        // Look for opposite leg
+        const isCall = trade.type === 'call';
+        const fillStyle = trade.fill_style || '';
+
+        const hasCombo = trades.some(t => {
+          if (Math.abs(t.strike - trade.strike) > trade.strike * 0.10) return false;
+
+          const oppositeFill = t.fill_style || '';
+          const oppositeType = t.type.toLowerCase();
+
+          // Bullish combo: Calls with A/AA + Puts with B/BB
+          if (isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+            return oppositeType === 'put' && (oppositeFill === 'B' || oppositeFill === 'BB');
+          }
+          // Bearish combo: Calls with B/BB + Puts with A/AA
+          if (isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+            return oppositeType === 'put' && (oppositeFill === 'A' || oppositeFill === 'AA');
+          }
+          // For puts, reverse logic
+          if (!isCall && (fillStyle === 'B' || fillStyle === 'BB')) {
+            return oppositeType === 'call' && (oppositeFill === 'A' || oppositeFill === 'AA');
+          }
+          if (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) {
+            return oppositeType === 'call' && (oppositeFill === 'B' || oppositeFill === 'BB');
+          }
+          return false;
+        });
+
+        map.set(tradeKey, hasCombo);
+      });
+    });
+
+    return map;
+  }, [tradesWithFillStyles]);
 
   const filteredAndSortedData = useMemo(() => {
     // OPTIMIZED: Only merge if we have enriched data, otherwise just use raw
@@ -1450,7 +1565,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
     // Log deduplication results only when needed
     if (sourceData.length !== deduplicatedData.length) {
       const duplicatesRemoved = sourceData.length - deduplicatedData.length;
-      console.log(`🔄 Removed ${duplicatesRemoved} duplicates`);
     }
 
     // Step 2: Bundle small trades (<$500) for same contract within 1 minute
@@ -1509,7 +1623,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
     // EFI Highlights filter - when active, show ONLY trades that meet EFI criteria
     if (efiHighlightsActive) {
       filtered = filtered.filter(trade => meetsEfiCriteria(trade));
-      console.log(`🎯 EFI Highlights active: filtered to ${filtered.length} trades that meet EFI criteria`);
     }
 
     // Apply filters - Option Type (checkbox)
@@ -1662,21 +1775,18 @@ Stock Reaction: ${scores.stockReaction}/15`;
       filtered = filtered.filter(trade => trade.underlying_ticker === selectedTickerFilter);
     }
 
-    // A+ grade filter (only active when EFI Highlights is on AND prices are loaded)
-    if (efiHighlightsActive && aGradeFilterActive && !optionPricesFetching) {
-      filtered = filtered.filter(trade => {
-        const gradeData = calculatePositioningGrade(trade, filtered);
-        return gradeData.grade === 'A+' || gradeData.grade === 'A' || gradeData.grade === 'A-';
-      });
+    // Notable Flow Pick filter (only active when EFI Highlights is on AND prices are loaded)
+    if (efiHighlightsActive && notableFilterActive && !optionPricesFetching) {
+      filtered = filtered.filter(trade => meetsNotableCriteria(trade));
     }
 
     // Apply sorting
     filtered.sort((a, b) => {
       // Special handling for positioning grade sorting (custom field)
       if (sortField === 'positioning_grade') {
-        // Calculate positioning grades for comparison
-        const gradeA = calculatePositioningGrade(a, filtered);
-        const gradeB = calculatePositioningGrade(b, filtered);
+        // Calculate grades inline for sorting (can't use cache due to initialization order)
+        const gradeA = calculatePositioningGrade(a, comboTradeMap);
+        const gradeB = calculatePositioningGrade(b, comboTradeMap);
 
         // Use the numeric score for sorting (higher score = better grade)
         // DESC: High to Low (A+ to F), ASC: Low to High (F to A+)
@@ -1699,7 +1809,25 @@ Stock Reaction: ${scores.stockReaction}/15`;
     });
 
     return filtered;
-  }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive, quickFilters, aGradeFilterActive]);
+  }, [data, sortField, sortDirection, selectedOptionTypes, selectedPremiumFilters, customMinPremium, customMaxPremium, selectedTickerFilters, selectedUniqueFilters, expirationStartDate, expirationEndDate, selectedTickerFilter, blacklistedTickers, tradesWithFillStyles, efiHighlightsActive, quickFilters, notableFilterActive]);
+
+  // Memoize all grade calculations - massive performance boost for 100+ trades
+  const gradesCache = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof calculatePositioningGrade>>();
+
+    filteredAndSortedData.forEach(trade => {
+      const tradeId = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`;
+      cache.set(tradeId, calculatePositioningGrade(trade, comboTradeMap));
+    });
+
+    return cache;
+  }, [filteredAndSortedData, historicalRanges, currentPrices, optionPriceCheckpoints, comboTradeMap]);
+
+  // Helper function to get cached grade
+  const getCachedGrade = (trade: OptionsFlowData) => {
+    const tradeId = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`;
+    return gradesCache.get(tradeId) || calculatePositioningGrade(trade, comboTradeMap);
+  };
 
   // Automatically enrich trades with Vol/OI AND Fill Style in ONE combined call - IMMEDIATELY as part of scan
   useEffect(() => {
@@ -1860,7 +1988,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
           <div
             className="fixed top-16 md:inset-0 bottom-0 left-0 right-0 z-[9998]"
             onClick={() => {
-              console.log('Dialog backdrop clicked - closing dialog');
               setIsFilterDialogOpen(false);
             }}
           />
@@ -2947,7 +3074,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 {/* Filter Button */}
                 <button
                   onClick={() => {
-                    console.log('Filter button clicked - opening dialog');
                     setIsFilterDialogOpen(true);
                   }}
                   className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
@@ -3524,26 +3650,26 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   )}
                   {efiHighlightsActive && (
                     <button
-                      onClick={() => setAGradeFilterActive(!aGradeFilterActive)}
+                      onClick={() => setNotableFilterActive(!notableFilterActive)}
                       className="px-4 font-bold uppercase transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                       style={{
                         height: '48px',
-                        background: aGradeFilterActive
-                          ? 'linear-gradient(180deg, #00ff00 0%, #00cc00 100%)'
+                        background: notableFilterActive
+                          ? 'linear-gradient(180deg, #FFD700 0%, #FFA500 100%)'
                           : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-                        border: aGradeFilterActive ? '2px solid #00ff00' : '2px solid #2a2a2a',
+                        border: notableFilterActive ? '2px solid #FFD700' : '2px solid #2a2a2a',
                         borderRadius: '4px',
                         fontSize: '12px',
                         letterSpacing: '1px',
                         fontWeight: '900',
-                        boxShadow: aGradeFilterActive
-                          ? '0 0 12px rgba(0, 255, 0, 0.6), inset 0 2px 8px rgba(0, 0, 0, 0.3)'
+                        boxShadow: notableFilterActive
+                          ? '0 0 12px rgba(255, 215, 0, 0.6), inset 0 2px 8px rgba(0, 0, 0, 0.3)'
                           : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
                         outline: 'none',
-                        color: aGradeFilterActive ? '#000000' : '#00ff00'
+                        color: notableFilterActive ? '#000000' : '#FFD700'
                       }}
                     >
-                      A+ ONLY
+                      NOTABLE
                     </button>
                   )}
                 </div>
@@ -3652,6 +3778,24 @@ Stock Reaction: ${scores.stockReaction}/15`;
                     {efiHighlightsActive ? 'ON' : 'OFF'}
                   </div>
                 </button>
+
+                {/* Grading Progress Indicator */}
+                {gradingProgress && (
+                  <div className="flex items-center gap-2 px-4 py-2 rounded" style={{ background: 'rgba(255, 149, 0, 0.1)', border: '1px solid rgba(255, 149, 0, 0.3)' }}>
+                    <div className="text-orange-500 font-bold text-sm">
+                      GRADING: {Math.round((gradingProgress.current / gradingProgress.total) * 100)}%
+                    </div>
+                    <div className="w-32 h-2 bg-black rounded-full overflow-hidden" style={{ border: '1px solid rgba(255, 149, 0, 0.3)' }}>
+                      <div
+                        className="h-full bg-gradient-to-r from-orange-500 to-orange-400 transition-all duration-300"
+                        style={{ width: `${(gradingProgress.current / gradingProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <div className="text-gray-400 text-xs">
+                      {gradingProgress.current}/{gradingProgress.total}
+                    </div>
+                  </div>
+                )}
 
                 {/* Active Ticker Filter */}
                 {selectedTickerFilter && (
@@ -3945,7 +4089,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
                   {/* Filter Button */}
                   <button
                     onClick={() => {
-                      console.log('Filter button clicked - opening dialog');
                       setIsFilterDialogOpen(true);
                     }}
                     className="px-4 md:px-9 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 md:gap-3 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
@@ -4072,7 +4215,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
           <div className="p-0">
             <div className="table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto" style={{ height: 'calc(100vh - 140px)', paddingBottom: '100px', scrollBehavior: 'smooth' }}>
               <table className="w-full options-flow-table" style={{ marginBottom: '80px' }}>
-                <thead className="sticky top-0 bg-gradient-to-b from-yellow-900/10 via-gray-900 to-black z-[5] border-b-2 border-gray-600 shadow-2xl">
+                <thead className="sticky top-0 bg-gradient-to-b from-yellow-900/10 via-gray-900 to-black z-[1] border-b-2 border-gray-600 shadow-2xl">
                   <tr>
                     <th
                       className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 to-black hover:from-yellow-800/15 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
@@ -4147,7 +4290,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       <th
                         className="text-center md:text-left p-2 md:p-6 cursor-pointer bg-gradient-to-b from-yellow-900/10 via-black to-black hover:from-yellow-800/20 hover:via-gray-900 hover:to-black text-orange-400 font-bold text-xs md:text-xl transition-all duration-200 border-r border-gray-700"
                         onClick={() => {
-                          console.log('🎯 Position column clicked!');
                           handleSort('positioning_grade');
                         }}
                       >
@@ -4161,6 +4303,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                 <tbody>
                   {paginatedData.map((trade, index) => {
                     const isEfiHighlight = efiHighlightsActive && meetsEfiCriteria(trade);
+                    const isNotablePick = efiHighlightsActive && meetsNotableCriteria(trade);
 
                     // Determine if EFI highlight is bullish or bearish
                     let isBullishEfi = false;
@@ -4184,9 +4327,14 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       <tr
                         key={`${trade.ticker}-${trade.strike}-${trade.trade_timestamp}-${trade.trade_size}-${index}`}
                         className="border-b border-slate-700/50 hover:bg-slate-800/40 transition-all duration-300 hover:shadow-lg"
-                        style={isEfiHighlight ? (
-                          isBullishEfi ? {
-                            background: `
+                        style={{
+                          ...(isNotablePick ? {
+                            outline: '3px solid #FFD700',
+                            outlineOffset: '-3px'
+                          } : {}),
+                          ...(isEfiHighlight ? (
+                            isBullishEfi ? {
+                              background: `
                               radial-gradient(ellipse at top left, rgba(0, 255, 0, 0.06) 0%, transparent 50%),
                               radial-gradient(ellipse at bottom right, rgba(0, 255, 0, 0.03) 0%, transparent 50%),
                               linear-gradient(to bottom, 
@@ -4208,11 +4356,11 @@ Stock Reaction: ${scores.stockReaction}/15`;
                                 #000602 100%
                               )
                             `,
-                            borderLeft: '5px solid #00ff00',
-                            borderRight: '5px solid #00ff00',
-                            borderTop: '2px solid rgba(0, 255, 0, 0.2)',
-                            borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
-                            boxShadow: `
+                              borderLeft: '5px solid #00ff00',
+                              borderRight: '5px solid #00ff00',
+                              borderTop: '2px solid rgba(0, 255, 0, 0.2)',
+                              borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                              boxShadow: `
                               inset 0 4px 16px rgba(0, 255, 0, 0.2),
                               inset 0 -4px 16px rgba(0, 0, 0, 0.8),
                               inset 5px 0 12px rgba(0, 255, 0, 0.15),
@@ -4223,13 +4371,13 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               0 6px 20px rgba(0, 0, 0, 0.95),
                               0 2px 8px rgba(0, 255, 0, 0.25)
                             `,
-                            position: 'relative' as const,
-                            transform: 'translateZ(0)',
-                            backdropFilter: 'blur(0.5px)',
-                            WebkitBackdropFilter: 'blur(0.5px)',
-                            isolation: 'isolate' as const,
-                          } : {
-                            background: `
+                              position: 'relative' as const,
+                              transform: 'translateZ(0)',
+                              backdropFilter: 'blur(0.5px)',
+                              WebkitBackdropFilter: 'blur(0.5px)',
+                              isolation: 'isolate' as const,
+                            } : {
+                              background: `
                               radial-gradient(ellipse at top left, rgba(255, 0, 0, 0.06) 0%, transparent 50%),
                               radial-gradient(ellipse at bottom right, rgba(255, 0, 0, 0.03) 0%, transparent 50%),
                               linear-gradient(to bottom, 
@@ -4251,11 +4399,11 @@ Stock Reaction: ${scores.stockReaction}/15`;
                                 #060200 100%
                               )
                             `,
-                            borderLeft: '5px solid #ff0000',
-                            borderRight: '5px solid #ff0000',
-                            borderTop: '2px solid rgba(255, 0, 0, 0.2)',
-                            borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
-                            boxShadow: `
+                              borderLeft: '5px solid #ff0000',
+                              borderRight: '5px solid #ff0000',
+                              borderTop: '2px solid rgba(255, 0, 0, 0.2)',
+                              borderBottom: '2px solid rgba(0, 0, 0, 0.95)',
+                              boxShadow: `
                               inset 0 4px 16px rgba(255, 0, 0, 0.2),
                               inset 0 -4px 16px rgba(0, 0, 0, 0.8),
                               inset 5px 0 12px rgba(255, 0, 0, 0.15),
@@ -4266,14 +4414,17 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               0 6px 20px rgba(0, 0, 0, 0.95),
                               0 2px 8px rgba(255, 0, 0, 0.25)
                             `,
-                            position: 'relative' as const,
-                            transform: 'translateZ(0)',
-                            backdropFilter: 'blur(0.5px)',
-                            WebkitBackdropFilter: 'blur(0.5px)',
-                            isolation: 'isolate' as const,
-                          }
-                        ) : {
-                          backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a'
+                              position: 'relative' as const,
+                              transform: 'translateZ(0)',
+                              backdropFilter: 'blur(0.5px)',
+                              WebkitBackdropFilter: 'blur(0.5px)',
+                              isolation: 'isolate' as const,
+                            }
+                          ) : {
+                            backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a'
+                          }),
+                          position: 'relative' as const,
+                          zIndex: hoveredGradeIndex === index ? 99999 : 'auto'
                         }}
                       >
                         <td className="p-2 md:p-6 text-white text-xs md:text-xl font-medium border-r border-gray-700/30 time-cell text-center">
@@ -4299,10 +4450,10 @@ Stock Reaction: ${scores.stockReaction}/15`;
                                 )}
                               </button>
                             </div>
-                            <div className="text-xs text-gray-300">{formatTime(trade.trade_timestamp)}</div>
+                            <div className="text-xs" style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: '#d1d5db' }}>{formatTime(trade.trade_timestamp)}</div>
                           </div>
                           {/* Desktop: Time only */}
-                          <div className="hidden md:block">{formatTimeWithSeconds(trade.trade_timestamp)}</div>
+                          <div className="hidden md:block" style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}>{formatTimeWithSeconds(trade.trade_timestamp)}</div>
                         </td>
                         <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30">
                           <div className="flex items-center gap-2">
@@ -4310,6 +4461,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               onClick={() => handleTickerClick(trade.underlying_ticker)}
                               className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker ? 'ring-2 ring-orange-500 bg-gray-800/50' : ''
                                 }`}
+                              style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
                             >
                               {trade.underlying_ticker}
                             </button>
@@ -4329,13 +4481,13 @@ Stock Reaction: ${scores.stockReaction}/15`;
                         <td className={`p-2 md:p-6 text-sm md:text-xl font-bold border-r border-gray-700/30 call-put-text text-center ${getCallPutColor(trade.type)}`}>
                           {/* Mobile: Strike + Call/Put stacked */}
                           <div className="md:hidden flex flex-col items-center space-y-1">
-                            <div className="text-white text-xs font-semibold">${trade.strike}</div>
+                            <div className="text-xs font-semibold" style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>${trade.strike}</div>
                             <div className={`text-xs font-bold ${getCallPutColor(trade.type)}`}>{trade.type.toUpperCase()}</div>
                           </div>
                           {/* Desktop: Call/Put only */}
                           <div className="hidden md:block">{trade.type.toUpperCase()}</div>
                         </td>
-                        <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white font-semibold border-r border-gray-700/30 strike-cell">${trade.strike}</td>
+                        <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl font-semibold border-r border-gray-700/30 strike-cell" style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>${trade.strike}</td>
                         <td className="p-2 md:p-6 font-medium text-xs md:text-xl text-white border-r border-gray-700/30 size-premium-cell text-center">
                           {/* Mobile: Size@Price+Grade + Premium stacked */}
                           <div className="md:hidden flex flex-col items-center space-y-1">
@@ -4390,19 +4542,19 @@ Stock Reaction: ${scores.stockReaction}/15`;
                         <td className="p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 expiry-cell text-center">
                           {/* Mobile: Expiry + Type stacked */}
                           <div className="md:hidden flex flex-col items-center space-y-1">
-                            <div className="text-white text-xs font-semibold">{formatDate(trade.expiry)}</div>
+                            <div className="text-xs font-semibold" style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : { color: 'white' }}>{formatDate(trade.expiry)}</div>
                             <span className={`trade-type-badge inline-block px-3 py-1 rounded-full text-xs font-bold shadow-lg bg-gradient-to-r ${getTradeTypeColor(trade.classification || trade.trade_type)}`}>
                               {trade.classification || trade.trade_type}
                             </span>
                           </div>
                           {/* Desktop: Expiry only */}
-                          <div className="hidden md:block">{formatDate(trade.expiry)}</div>
+                          <div className="hidden md:block" style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}>{formatDate(trade.expiry)}</div>
                         </td>
                         <td className="p-2 md:p-6 text-xs md:text-xl font-medium border-r border-gray-700/30 price-display text-center">
                           {/* Mobile: Spot + Current stacked vertically */}
                           <div className="md:hidden flex flex-col items-center space-y-1">
                             <div className="text-xs">
-                              <span className="font-bold text-white">
+                              <span className="font-bold" style={isNotablePick ? { color: '#FFD700' } : { color: 'white' }}>
                                 ${typeof trade.spot_price === 'number' ? trade.spot_price.toFixed(2) : parseFloat(trade.spot_price).toFixed(2)}
                               </span>
                             </div>
@@ -4419,6 +4571,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                               currentPrice={currentPrices[trade.underlying_ticker] || trade.current_price}
                               isLoading={priceLoadingState[trade.underlying_ticker]}
                               ticker={trade.underlying_ticker}
+                              isNotablePick={isNotablePick}
                             />
                           </div>
                         </td>
@@ -4450,7 +4603,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           const expiry = trade.expiry.replace(/-/g, '').slice(2);
                           const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
                           const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-                          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+                          const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker);
+                          const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`;
                           const currentPrice = currentOptionPrices[optionTicker];
                           const entryPrice = trade.premium_per_contract;
 
@@ -4470,7 +4624,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                           }
 
                           // Calculate grade using the centralized function
-                          const gradeData = calculatePositioningGrade(trade, filteredAndSortedData);
+                          const gradeData = getCachedGrade(trade);
 
                           if (currentPrice && currentPrice > 0) {
                             const currentValue = currentPrice * trade.trade_size * 100;
@@ -4478,18 +4632,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                             const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
                             const priceHigher = currentPrice > entryPrice;
 
-                            // Determine color based on fill_style (A/AA = Ask, B/BB = Bid) and option type
-                            let color = '#9ca3af'; // default gray
-                            const fillStyle = trade.fill_style || '';
-                            const isCall = trade.type.toLowerCase() === 'call';
-
-                            if (fillStyle === 'A' || fillStyle === 'AA') {
-                              // Ask side - green if price went up, red if down (both calls and puts)
-                              color = priceHigher ? '#00ff00' : '#ff0000';
-                            } else if (fillStyle === 'B' || fillStyle === 'BB') {
-                              // Bid side - red if price went up, green if down (both calls and puts)
-                              color = priceHigher ? '#ff0000' : '#00ff00';
-                            }
+                            // Simple color logic: green if option price went up, red if down
+                            const color = priceHigher ? '#00ff00' : '#ff0000';
 
                             // Smart formatting for value
                             const formatValue = (val: number): string => {
@@ -4502,7 +4646,13 @@ Stock Reaction: ${scores.stockReaction}/15`;
                             const { grade, color: scoreColor, breakdown } = gradeData;
 
                             return (
-                              <td className="p-2 md:p-6 border-r border-gray-700/30">
+                              <td
+                                className="p-2 md:p-6 border-r border-gray-700/30"
+                                style={{
+                                  position: 'relative',
+                                  zIndex: hoveredGradeIndex === index ? 99999 : 'auto'
+                                }}
+                              >
                                 {/* Mobile: Compact grade + percentage */}
                                 <div className="md:hidden flex flex-col items-center space-y-1">
                                   <span style={{
@@ -4588,7 +4738,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                                             fontStyle: 'normal',
                                             fontWeight: 'normal',
                                             whiteSpace: 'pre-line',
-                                            zIndex: 10000,
+                                            zIndex: 99999,
                                             minWidth: '280px',
                                             boxShadow: `
  0 8px 32px rgba(0, 0, 0, 0.8),
@@ -4661,7 +4811,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
                                             fontStyle: 'normal',
                                             fontWeight: 'normal',
                                             whiteSpace: 'pre-line',
-                                            zIndex: 10000,
+                                            zIndex: 99999,
                                             minWidth: '280px',
                                             boxShadow: `
  0 8px 32px rgba(0, 0, 0, 0.8),
@@ -4930,7 +5080,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
               const expiry = flow.expiry.replace(/-/g, '').slice(2);
               const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0');
               const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P';
-              const optionTicker = `O:${flow.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+              const normalizedTicker = normalizeTickerForOptions(flow.underlying_ticker);
+              const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`;
               const currentPrice = currentOptionPrices[optionTicker];
               const entryPrice = (flow as any).originalPrice || flow.premium_per_contract;
 
@@ -4938,7 +5089,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
               let gradeData: any = null;
               if (currentPrice && currentPrice > 0) {
                 try {
-                  gradeData = calculatePositioningGrade(flow, filteredAndSortedData);
+                  gradeData = getCachedGrade(flow);
                 } catch (error) {
                   // Grade calculation failed - missing data
                   gradeData = null;
@@ -4969,7 +5120,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
               const expiry = flow.expiry.replace(/-/g, '').slice(2);
               const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0');
               const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P';
-              const optionTicker = `O:${flow.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+              const normalizedTicker = normalizeTickerForOptions(flow.underlying_ticker);
+              const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`;
               const currentPrice = currentOptionPrices[optionTicker];
               // Use original stored price, not current flow data
               const entryPrice = (flow as any).originalPrice || flow.premium_per_contract;
@@ -4978,7 +5130,7 @@ Stock Reaction: ${scores.stockReaction}/15`;
               let gradeData: any = null;
               if (currentPrice && currentPrice > 0) {
                 try {
-                  gradeData = calculatePositioningGrade(flow, filteredAndSortedData);
+                  gradeData = getCachedGrade(flow);
                 } catch (error) {
                   // Grade calculation failed - missing data for this ticker
                   console.warn(`Grade calculation failed for ${flow.underlying_ticker}:`, error);
@@ -5460,7 +5612,8 @@ Stock Reaction: ${scores.stockReaction}/15`;
                       const expiry = flow.expiry.replace(/-/g, '').slice(2);
                       const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0');
                       const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P';
-                      const optionTicker = `O:${flow.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+                      const normalizedTicker = normalizeTickerForOptions(flow.underlying_ticker);
+                      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`;
                       const premiumData = optionsPremiumData[flowId] || [];
 
                       if (premiumData.length > 0) {
@@ -5668,3 +5821,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
     </>
   );
 };
+
+
+
