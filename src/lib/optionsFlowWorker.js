@@ -228,7 +228,12 @@ if (parentPort) {
 
                      // If dateRange was provided from API, use it directly instead of recalculating
                      const timeRange = dateRange ?
-                            { startTime: dateRange.startTimestamp, endTime: dateRange.endTimestamp, isLive: dateRange.isLive, date: dateRange.currentDate } :
+                            {
+                                   startTime: dateRange.startTimestamp * 1000000, // Convert milliseconds to nanoseconds
+                                   endTime: dateRange.endTimestamp * 1000000, // Convert milliseconds to nanoseconds
+                                   isLive: dateRange.isLive,
+                                   date: dateRange.currentDate
+                            } :
                             getSmartTimeRange();
 
                      console.log(` Worker ${workerIndex}: Using ${dateRange ? 'API-provided' : 'calculated'} date range: ${timeRange.date}`);

@@ -44,6 +44,16 @@ export async function getLastTradingDay(): Promise<string> {
   const easternDate = new Date(easternString);
   let tradingDay = new Date(easternDate);
 
+  // If before market open (9:30 AM ET), start from yesterday
+  const easternHour = easternDate.getHours();
+  const easternMinute = easternDate.getMinutes();
+  const currentTime = easternHour + (easternMinute / 60);
+  const marketOpen = 9.5; // 9:30 AM
+
+  if (currentTime < marketOpen) {
+    tradingDay.setDate(tradingDay.getDate() - 1);
+  }
+
   // Go back up to 10 days to find last trading day
   for (let i = 0; i < 10; i++) {
     const year = tradingDay.getFullYear();
@@ -178,13 +188,17 @@ export async function getSmartDateRange(): Promise<{ currentDate: string; isLive
     const marketOpenTime = new Date(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T09:30:00-05:00`);
     const marketCloseTime = new Date(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T16:00:00-05:00`);
 
-    // If today is a trading day but market is closed (after 4 PM), scan today's session
+    // If today is a trading day but market is closed (after 4 PM and before midnight), scan today's session
     const today = now.toISOString().split('T')[0];
     const easternHour = eastern.getHours();
+    const easternMinute = eastern.getMinutes();
+    const currentTime = easternHour + (easternMinute / 60);
     const isWeekday = eastern.getDay() >= 1 && eastern.getDay() <= 5;
+    const marketOpen = 9.5; // 9:30 AM
+    const marketClose = 16; // 4:00 PM
 
-    if (isWeekday && today === lastTradingDay && easternHour >= 16) {
-      // Today was a trading day but market is now closed - scan today's full session
+    if (isWeekday && today === lastTradingDay && currentTime >= marketClose) {
+      // Today was a trading day but market is now closed (after-hours) - scan today's full session
       const todayMarketOpen = getTodaysMarketOpenTimestamp();
       const todayMarketClose = new Date(todayMarketOpen);
       todayMarketClose.setHours(16, 0, 0, 0);
