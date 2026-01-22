@@ -453,7 +453,7 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                             {/* Defensive Sectors */}
                             <div>
                                 <div style={{
-                                    fontSize: '14px',
+                                    fontSize: '9px',
                                     color: '#ef4444',
                                     fontWeight: '900',
                                     marginBottom: '10px',
@@ -529,12 +529,12 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                                                         <span style={{
                                                             color: s.change >= 0 ? '#10b981' : '#ef4444',
                                                             fontWeight: '900',
-                                                            fontSize: '14px',
+                                                            fontSize: '9px',
                                                             opacity: 1.0
                                                         }}>
                                                             {s.change >= 0 ? '+' : ''}{s.change.toFixed(2)}%
                                                         </span>
-                                                        <span style={{ fontSize: '11px', color: '#ff6600', opacity: 1.0, fontWeight: '700' }}>
+                                                        <span style={{ fontSize: '9px', color: '#ff6600', opacity: 1.0, fontWeight: '700' }}>
                                                             vs SPY: {s.relativeToSPY >= 0 ? '+' : ''}{s.relativeToSPY.toFixed(2)}%
                                                         </span>
                                                     </div>
@@ -564,11 +564,11 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                                                                 borderRadius: '2px'
                                                             }}>
                                                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                                                    <span style={{ fontSize: '11px', color: '#ffffff', fontWeight: '800' }}>{h.symbol}</span>
+                                                                    <span style={{ fontSize: '9px', color: '#ffffff', fontWeight: '800' }}>{h.symbol}</span>
                                                                     <span style={{ fontSize: '9px', color: '#ffffff' }}>({h.weight.toFixed(1)}%)</span>
                                                                 </div>
                                                                 <span style={{
-                                                                    fontSize: '11px',
+                                                                    fontSize: '9px',
                                                                     color: h.change >= 0 ? '#10b981' : '#ef4444',
                                                                     fontWeight: '800'
                                                                 }}>
@@ -587,7 +587,7 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                             {/* Growth Sectors */}
                             <div>
                                 <div style={{
-                                    fontSize: '14px',
+                                    fontSize: '9px',
                                     color: '#10b981',
                                     fontWeight: '900',
                                     marginBottom: '10px',
@@ -658,12 +658,12 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                                                         <span style={{
                                                             color: s.change >= 0 ? '#10b981' : '#ef4444',
                                                             fontWeight: '900',
-                                                            fontSize: '14px',
+                                                            fontSize: '9px',
                                                             opacity: 1.0
                                                         }}>
                                                             {s.change >= 0 ? '+' : ''}{s.change.toFixed(2)}%
                                                         </span>
-                                                        <span style={{ fontSize: '11px', color: '#ff6600', opacity: 1.0, fontWeight: '700' }}>
+                                                        <span style={{ fontSize: '9px', color: '#ff6600', opacity: 1.0, fontWeight: '700' }}>
                                                             vs SPY: {s.relativeToSPY >= 0 ? '+' : ''}{s.relativeToSPY.toFixed(2)}%
                                                         </span>
                                                     </div>
@@ -693,11 +693,11 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                                                                 borderRadius: '2px'
                                                             }}>
                                                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                                                    <span style={{ fontSize: '11px', color: '#ffffff', fontWeight: '800' }}>{h.symbol}</span>
+                                                                    <span style={{ fontSize: '9px', color: '#ffffff', fontWeight: '800' }}>{h.symbol}</span>
                                                                     <span style={{ fontSize: '9px', color: '#ffffff' }}>({h.weight.toFixed(1)}%)</span>
                                                                 </div>
                                                                 <span style={{
-                                                                    fontSize: '11px',
+                                                                    fontSize: '9px',
                                                                     color: h.change >= 0 ? '#10b981' : '#ef4444',
                                                                     fontWeight: '800'
                                                                 }}>
@@ -716,7 +716,7 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                             {/* Value Sectors */}
                             <div>
                                 <div style={{
-                                    fontSize: '14px',
+                                    fontSize: '9px',
                                     color: '#ff6600',
                                     fontWeight: '900',
                                     marginBottom: '10px',
@@ -792,12 +792,12 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                                                         <span style={{
                                                             color: s.change >= 0 ? '#10b981' : '#ef4444',
                                                             fontWeight: '900',
-                                                            fontSize: '14px',
+                                                            fontSize: '9px',
                                                             opacity: 1.0
                                                         }}>
                                                             {s.change >= 0 ? '+' : ''}{s.change.toFixed(2)}%
                                                         </span>
-                                                        <span style={{ fontSize: '11px', color: '#ff6600', opacity: 1.0, fontWeight: '700' }}>
+                                                        <span style={{ fontSize: '9px', color: '#ff6600', opacity: 1.0, fontWeight: '700' }}>
                                                             vs SPY: {s.relativeToSPY >= 0 ? '+' : ''}{s.relativeToSPY.toFixed(2)}%
                                                         </span>
                                                     </div>
@@ -827,11 +827,11 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                                                                 borderRadius: '2px'
                                                             }}>
                                                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                                                    <span style={{ fontSize: '11px', color: '#ffffff', fontWeight: '800' }}>{h.symbol}</span>
+                                                                    <span style={{ fontSize: '9px', color: '#ffffff', fontWeight: '800' }}>{h.symbol}</span>
                                                                     <span style={{ fontSize: '9px', color: '#ffffff' }}>({h.weight.toFixed(1)}%)</span>
                                                                 </div>
                                                                 <span style={{
-                                                                    fontSize: '11px',
+                                                                    fontSize: '9px',
                                                                     color: h.change >= 0 ? '#10b981' : '#ef4444',
                                                                     fontWeight: '800'
                                                                 }}>
@@ -863,7 +863,7 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                             borderRadius: '6px',
                             border: '1px solid rgba(255, 255, 255, 0.1)'
                         }}>
-                            <div style={{ fontSize: '11px', color: '#ffffff', fontWeight: '700', marginBottom: '6px', fontFamily: 'monospace' }}>
+                            <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '6px', fontFamily: 'monospace' }}>
                                 SPREAD VELOCITY
                             </div>
                             <div style={{ fontSize: '16px', fontWeight: '900', color: parseFloat(velocity) > 0 ? '#10b981' : '#ef4444', fontFamily: 'monospace' }}>
@@ -880,7 +880,7 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                             borderRadius: '6px',
                             border: '1px solid rgba(255, 255, 255, 0.1)'
                         }}>
-                            <div style={{ fontSize: '11px', color: '#ffffff', fontWeight: '700', marginBottom: '6px', fontFamily: 'monospace' }}>
+                            <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '6px', fontFamily: 'monospace' }}>
                                 TIMEFRAME SYNC
                             </div>
                             <div style={{ fontSize: '16px', fontWeight: '900', color: alignmentPercentage >= 80 ? '#10b981' : alignmentPercentage >= 60 ? '#fbbf24' : '#ef4444', fontFamily: 'monospace' }}>
@@ -897,7 +897,7 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                             borderRadius: '6px',
                             border: '1px solid rgba(255, 255, 255, 0.1)'
                         }}>
-                            <div style={{ fontSize: '11px', color: '#ffffff', fontWeight: '700', marginBottom: '6px', fontFamily: 'monospace' }}>
+                            <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '6px', fontFamily: 'monospace' }}>
                                 MARKET BREADTH
                             </div>
                             <div style={{ fontSize: '16px', fontWeight: '900', color: breadthPercentage >= 50 ? '#10b981' : '#ef4444', fontFamily: 'monospace' }}>
@@ -914,7 +914,7 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                             borderRadius: '6px',
                             border: '1px solid rgba(255, 255, 255, 0.1)'
                         }}>
-                            <div style={{ fontSize: '11px', color: '#ffffff', fontWeight: '700', marginBottom: '6px', fontFamily: 'monospace' }}>
+                            <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '6px', fontFamily: 'monospace' }}>
                                 REGIME STRENGTH
                             </div>
                             <div style={{ fontSize: '16px', fontWeight: '900', color: color, fontFamily: 'monospace' }}>

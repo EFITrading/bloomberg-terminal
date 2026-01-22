@@ -580,14 +580,16 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   // Fetch current prices using the direct API call that works (anti-flicker)
   const fetchCurrentPrices = async (tickers: string[]) => {
-    const uniqueTickers = [...new Set(tickers)]; const pricesUpdate: Record<string, number> = {};
-    const loadingUpdate: Record<string, boolean> = {};
+    const uniqueTickers = [...new Set(tickers)];
 
-    // Set loading state for all tickers at once
+    if (uniqueTickers.length === 0) return;
+
+    // Set all tickers to loading state initially
+    const initialLoadingState: Record<string, boolean> = {};
     uniqueTickers.forEach(ticker => {
-      loadingUpdate[ticker] = true;
+      initialLoadingState[ticker] = true;
     });
-    setPriceLoadingState(prev => ({ ...prev, ...loadingUpdate }));
+    setPriceLoadingState(prev => ({ ...prev, ...initialLoadingState }));
 
     // OPTIMIZED PARALLEL BATCH PROCESSING with rate limit respect
     const BATCH_SIZE = 15; // Process 15 tickers per batch (increased from 3)
@@ -600,11 +602,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       batches.push(uniqueTickers.slice(i, i + BATCH_SIZE));
     }
 
-    console.log(`🚀 Processing ${uniqueTickers.length} tickers in ${batches.length} batches (${BATCH_SIZE} per batch, ${MAX_CONCURRENT_BATCHES} parallel)`);
+    // Shared accumulator for all price updates
+    const allPricesUpdate: Record<string, number> = {};
 
     // Process batches with sliding window concurrency
     const processBatch = async (batch: string[], batchIndex: number) => {
-      console.log(`📦 Batch ${batchIndex + 1}/${batches.length}: [${batch.join(', ')}]`);
+      const batchPricesUpdate: Record<string, number> = {};
+      const batchLoadingUpdate: Record<string, boolean> = {};
 
       const batchPromises = batch.map(async (ticker, tickerIndex) => {
         // Stagger requests within batch to avoid burst
@@ -628,22 +632,23 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
               const price = lastTradePrice || prevDayClose;
 
               if (price && price > 0) {
-                pricesUpdate[ticker] = price;
+                batchPricesUpdate[ticker] = price;
+                allPricesUpdate[ticker] = price;
               }
             }
           }
         } catch (error) {
-          // Silent fail - don't spam console
+          // Silent fail
         }
 
-        loadingUpdate[ticker] = false;
+        batchLoadingUpdate[ticker] = false;
       });
 
       await Promise.allSettled(batchPromises);
 
       // Update UI after each batch completes
-      setPriceLoadingState(prev => ({ ...prev, ...loadingUpdate }));
-      setCurrentPrices(prev => ({ ...prev, ...pricesUpdate }));
+      setPriceLoadingState(prev => ({ ...prev, ...batchLoadingUpdate }));
+      setCurrentPrices(prev => ({ ...prev, ...batchPricesUpdate }));
     };
 
     // Process batches with controlled concurrency
@@ -658,8 +663,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
       }
     }
-
-    console.log(`✅ All batches complete. Updated ${Object.keys(pricesUpdate).length}/${uniqueTickers.length} prices.`);
   };
 
   // Fetch current prices when data changes (debounced)
@@ -668,7 +671,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     // Debounce API calls to prevent excessive requests
     const debounceTimer = setTimeout(() => {
-      const tickers = [...new Set(data.map(trade => trade.underlying_ticker))]; // Unique tickers only      fetchCurrentPrices(tickers);
+      const tickers = [...new Set(data.map(trade => trade.underlying_ticker))]; // Unique tickers only
+      fetchCurrentPrices(tickers);
     }, 500); // 500ms debounce
 
     return () => clearTimeout(debounceTimer);
@@ -756,7 +760,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const pricesUpdate: Record<string, number> = {};
     const failed: string[] = [];
 
-    console.log('🔍 fetchCurrentOptionPrices: Starting fetch for', trades.length, 'trades');
     setOptionPricesFetching(true);
     setGradingProgress({ current: 0, total: trades.length });    // Parallel batch processing for faster fetching
     const BATCH_SIZE = 15; // 15 contracts per batch
@@ -801,7 +804,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
             }
           }
         } catch (error) {
-          // Silent fail - don't spam console
+          // Silent fail
         }
       }));
 
@@ -822,7 +825,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       }
     }
 
-    console.log('🏁 fetchCurrentOptionPrices: Complete. Total prices:', Object.keys(pricesUpdate).length);
     setOptionPricesFetching(false);
     setGradingProgress(null);
   };
@@ -1821,7 +1823,7 @@ Stock Reaction: ${scores.stockReaction}/25`;
     });
 
     return cache;
-  }, [filteredAndSortedData, historicalRanges, currentPrices, optionPriceCheckpoints, comboTradeMap]);
+  }, [filteredAndSortedData, historicalRanges, currentPrices, currentOptionPrices, optionPriceCheckpoints, comboTradeMap]);
 
   // Helper function to get cached grade
   const getCachedGrade = (trade: OptionsFlowData) => {

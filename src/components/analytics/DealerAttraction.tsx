@@ -4184,7 +4184,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       setExpirations(allAvailableExpirations);
 
       // Calculate OI, GEX, VEX for all expiration dates with organized processing order
-      console.log(`🚨🚨 DEALER ATTRACTION COMPONENT - Starting organized calculation sequence: OI → GEX → VEX for ${selectedTicker} 🚨🚨🚨`);
       const calcStartTime = performance.now();
       setProgress(25);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
@@ -4200,28 +4199,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       // Get Live OI data from parameter (if passed) or React state
       const liveOIDataFromState = liveOIMapOverride || liveOIData;
       const tradesData = tradesDataOverride || flowTradesData;
-      console.log(`💰 Flow Map: Calculating simple premium values for new trades (${tradesData.length} trades available)`);
 
       // Calculate premium values by strike from flow trades (AA, A, BB only)
       const flowPremiumByStrike: { [expiration: string]: { [strike: number]: { callPremium: number, putPremium: number, callContracts: number, putContracts: number } } } = {};
 
-      // DEBUG: Log first few trades to see what data we have
-      if (tradesData.length > 0) {
-        console.log(`🔍 FLOW MAP DEBUG - First trade sample:`, {
-          ticker: tradesData[0].ticker,
-          strike: tradesData[0].strike,
-          expiry: tradesData[0].expiry,
-          type: tradesData[0].type,
-          trade_size: tradesData[0].trade_size,
-          premium_per_contract: tradesData[0].premium_per_contract,
-          total_premium: tradesData[0].total_premium,
-          fill_style: tradesData[0].fill_style,
-          all_keys: Object.keys(tradesData[0])
-        });
-      }
-
       let openingTradesCount = 0;
       let totalPremiumSum = 0;
+
 
       tradesData.forEach(trade => {
         // Only count opening trades (AA, A, BB)
@@ -4264,9 +4248,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         }
       });
 
-      console.log(`💰 FLOW MAP SUMMARY: ${openingTradesCount} opening trades (AA/A/BB), Total Premium: $${totalPremiumSum.toLocaleString()}`);
-      console.log(`💰 Calculated premiums for ${Object.keys(flowPremiumByStrike).length} expirations`);
-
       // DEBUG: Show sample of premiums by expiration
       Object.keys(flowPremiumByStrike).slice(0, 2).forEach(exp => {
         const strikes = Object.keys(flowPremiumByStrike[exp]).slice(0, 3);
@@ -4298,7 +4279,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           vexByStrikeByExp[expDate] = {};
 
           // STEP 1: Process calls - Calculate OI first, then build other metrics from it
-          console.log(`🚨 Processing expiration ${expDate}, found ${Object.keys(calls).length} call strikes`);
           Object.entries(calls).forEach(([strike, data]: [string, any]) => {
             const strikeNum = parseFloat(strike);
             let oi = data.open_interest || 0;
@@ -4313,7 +4293,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
             if (oi > 0) {
               // STEP 1A: Calculate OI (Open Interest) - Foundation for all other calculations
-              console.log(`📊 Step 1A - Call OI: Strike ${strikeNum} = ${oi}`);
               oiByStrikeByExp[expDate][strikeNum] = { call: oi, put: 0, callOI: oi, putOI: 0 };
 
               // STEP 1B: Calculate GEX and get all Greeks from API
@@ -4330,10 +4309,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
                 const iv = data.implied_volatility || 0.3; // Use API IV or default to 30%
                 vanna = calculateVanna(strikeNum, currentPrice, T, iv);
-                console.log(`🧮 CALCULATED VANNA - Call: Strike ${strikeNum}, T=${T.toFixed(4)}, IV=${iv.toFixed(4)}, vanna=${vanna.toFixed(8)}`);
               }
 
-              console.log(`📊 GREEKS DEBUG - Call: Strike ${strikeNum}, gamma=${gamma}, delta=${delta}, vanna=${vanna}, theta=${theta} (from API), vega=${vega}`);
               gexByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0, callTheta: theta, putTheta: 0, callVega: vega, putVega: 0 };
               dealerByStrikeByExp[expDate][strikeNum] = { call: 0, put: 0, callOI: oi, putOI: 0, callGamma: gamma, putGamma: 0, callDelta: delta, putDelta: 0, callVanna: vanna, putVanna: 0 };
 
@@ -4359,15 +4336,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
               // ALWAYS calculate BOTH formulas
               // 1. NET GEX - Standard formula
-              console.log(`📊 Calculating NET GEX (standard) for call`);
               if (gamma) {
                 const gex = gamma * oi * (currentPrice * currentPrice) * 100;
                 gexByStrikeByExp[expDate][strikeNum].call = gex;
-                console.log(`⚡ GEX Call: Strike ${strikeNum} = ${gamma} × ${oi} × ${currentPrice}² × 100 = ${gex}`);
               }
 
               // 2. NET DEALER - Enhanced formula
-              console.log(`🔧 Calculating NET DEALER (enhanced) for call`);
               if (gamma && delta !== undefined && vanna !== undefined) {
                 const expirationDate = new Date(expDate);
                 const today = new Date();
@@ -4382,7 +4356,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   const liveWeight = Math.abs(delta) * (1 - Math.abs(delta));
                   const dealerValue = oi * gammaEff * liveWeight * wT * currentPrice * contractMult;
                   dealerByStrikeByExp[expDate][strikeNum].call = dealerValue;
-                  console.log(`🎯 DEALER Call: Strike ${strikeNum} = ${oi} × ${gammaEff.toFixed(6)} × ${liveWeight.toFixed(4)} × ${wT.toFixed(4)} × ${currentPrice} × 100 = ${dealerValue}`);
                 }
               }
 
@@ -4392,7 +4365,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               }
               vexByStrikeByExp[expDate][strikeNum].callOI = oi;
               vexByStrikeByExp[expDate][strikeNum].callVega = vega; // Store vega for recalculation
-              console.log(`🔍🚨 Call VEX Debug: Strike ${strikeNum}, OI=${oi}, Vega=${vega}, greeks:`, data.greeks);
               if (vega && vega !== 0) {
                 // Professional VEX Formula (Goldman Sachs style):
                 // VEX = Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
@@ -4414,9 +4386,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 const vex = vega * oi * currentPrice * 100 * moneynessWeight * timeWeight;
 
                 vexByStrikeByExp[expDate][strikeNum].call = vex;
-                console.log(`🟣 Step 1C - Call VEX (Pro): Strike ${strikeNum} = ${vega} × ${oi} × ${currentPrice} × 100 × ${moneynessWeight.toFixed(3)} × ${timeWeight.toFixed(3)} = ${vex}`);
-              } else {
-                console.log(`❌ Call VEX ZERO: Strike ${strikeNum} - vega is ${vega} (greeks exist: ${!!data.greeks})`);
               }
 
 
@@ -4426,7 +4395,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           });
 
           // STEP 2: Process puts - Same order: OI → GEX → VEX → Premium with Theta calculation
-          console.log(`🔍 PUT PROCESSING DEBUG: Found ${Object.keys(puts).length} put strikes for ${expDate}`);
 
           // Special debugging for Nov 10
           if (expDate === '2025-11-10') {
@@ -4462,7 +4430,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               }
               oiByStrikeByExp[expDate][strikeNum].put = oi;
               oiByStrikeByExp[expDate][strikeNum].putOI = oi;
-              console.log(`📊 Step 2A - Put OI: Strike ${strikeNum} = ${oi}`);
 
               // STEP 2B: Update GEX with put data and get all Greeks from API
               if (!gexByStrikeByExp[expDate][strikeNum]) {
@@ -4486,7 +4453,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 const T = (expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000);
                 const iv = data.implied_volatility || 0.3; // Use API IV or default to 30%
                 vanna = calculateVanna(strikeNum, currentPrice, T, iv);
-                console.log(`🧮 CALCULATED VANNA - Put: Strike ${strikeNum}, T=${T.toFixed(4)}, IV=${iv.toFixed(4)}, vanna=${vanna.toFixed(8)}`);
               }
 
               gexByStrikeByExp[expDate][strikeNum].putOI = oi;
@@ -4495,8 +4461,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               gexByStrikeByExp[expDate][strikeNum].putVanna = vanna;
               gexByStrikeByExp[expDate][strikeNum].putTheta = theta;
               gexByStrikeByExp[expDate][strikeNum].putVega = vega;
-
-              console.log(`📊 GREEKS DEBUG - Put: Strike ${strikeNum}, gamma=${gamma}, delta=${delta}, vanna=${vanna}, theta=${theta} (from API), vega=${vega}`);
 
               dealerByStrikeByExp[expDate][strikeNum].putOI = oi;
               dealerByStrikeByExp[expDate][strikeNum].putGamma = gamma;
@@ -4522,15 +4486,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
               // ALWAYS calculate BOTH formulas
               // 1. NET GEX - Standard formula
-              console.log(`📊 Calculating NET GEX (standard) for put`);
               if (gamma) {
                 const gex = -gamma * oi * (currentPrice * currentPrice) * 100; // Negative for puts
                 gexByStrikeByExp[expDate][strikeNum].put = gex;
-                console.log(`⚡ GEX Put: Strike ${strikeNum} = -${gamma} × ${oi} × ${currentPrice}² × 100 = ${gex}`);
               }
 
               // 2. NET DEALER - Enhanced formula
-              console.log(`🔧 Calculating NET DEALER (enhanced) for put`);
               if (gamma && delta !== undefined && vanna !== undefined) {
                 const expirationDate = new Date(expDate);
                 const today = new Date();
@@ -4545,7 +4506,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                   const liveWeight = Math.abs(delta) * (1 - Math.abs(delta));
                   const dealerValue = -oi * gammaEff * liveWeight * wT * currentPrice * contractMult;
                   dealerByStrikeByExp[expDate][strikeNum].put = dealerValue;
-                  console.log(`🎯 DEALER Put: Strike ${strikeNum} = -${oi} × ${gammaEff.toFixed(6)} × ${liveWeight.toFixed(4)} × ${wT.toFixed(4)} × ${currentPrice} × 100 = ${dealerValue}`);
                 }
               }
 
@@ -4557,7 +4517,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               }
               vexByStrikeByExp[expDate][strikeNum].putOI = oi;
               vexByStrikeByExp[expDate][strikeNum].putVega = vega; // Store vega for recalculation
-              console.log(`🔍 Put VEX Debug: Strike ${strikeNum}, OI=${oi}, Vega=${vega}, greeks:`, data.greeks);
               if (vega) {
                 // Professional VEX Formula (Goldman Sachs style):
                 // VEX = -Vega × OI × Spot × 100 × Moneyness_Weight × Time_Weight
@@ -4577,9 +4536,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                 const vex = -vega * oi * currentPrice * 100 * moneynessWeight * timeWeight;
 
                 vexByStrikeByExp[expDate][strikeNum].put = vex;
-                console.log(`🟣 Step 2C - Put VEX (Pro): Strike ${strikeNum} = -${vega} × ${oi} × ${currentPrice} × 100 × ${moneynessWeight.toFixed(3)} × ${timeWeight.toFixed(3)} = ${vex}`);
-              } else {
-                console.log(`❌ Put VEX ZERO: Strike ${strikeNum} - vega is ${vega}`);
               }
 
 
@@ -4603,9 +4559,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
 
       // ALWAYS store ALL calculations - we calculated both formulas simultaneously
-      console.log(`✅ Calculation sequence complete for ${selectedTicker}. Storing ALL formulas...`);
-      console.log(`📊 STORING NET GEX (Standard Formula) - ${Object.keys(gexByStrikeByExp).length} expirations`);
-      console.log(`📊 STORING NET DEALER (Enhanced Formula) - ${Object.keys(dealerByStrikeByExp).length} expirations`);
 
       // Store both calculations - they were computed in parallel
       setGexByStrikeByExpiration(gexByStrikeByExp);
@@ -4613,15 +4566,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
       // If NOT in live mode, also save as base (original) data
       if (!liveOIMapOverride) {
-        console.log(`💾 SAVING BASE DATA (not live mode)`);
         setBaseGexByStrikeByExpiration(gexByStrikeByExp);
         setBaseDealerByStrikeByExpiration(dealerByStrikeByExp);
-      } else {
-        console.log(`🔴 LIVE MODE: Not overwriting base data backup`);
       }
 
       setFlowGexByStrikeByExpiration(flowGexByStrikeByExp);
-      console.log(`🔥 STATE UPDATED: GEX=${Object.keys(gexByStrikeByExp).length}, DEALER=${Object.keys(dealerByStrikeByExp).length}, FLOW GEX=${Object.keys(flowGexByStrikeByExp).length} expirations`);
       setProgress(87);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
 
@@ -4629,7 +4578,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       setProgress(90);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
 
-      console.log(`🎯 All data structures updated: GEX, VEX calculated from foundational OI data`);
       setProgress(95);
       await new Promise(resolve => setTimeout(resolve, 0)); // Force UI update
 
@@ -4671,7 +4619,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         return row;
       });
 
-      console.log(`📊 FINAL FORMATTED DATA SAMPLE (first 3 rows):`, formattedData.slice(0, 3));
       setData(formattedData);
       setProgress(100);
       setLoading(false);
@@ -4694,17 +4641,17 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     }
   };
 
-  // Auto-trigger Live OI scan when Flow GEX is enabled
+  // Auto-trigger Live OI scan when Flow GEX is enabled (only if not already in live mode)
   useEffect(() => {
-    if (selectedTicker && showFlowGEX) {
-      console.log(`🔥🔥🔥 AUTO-TRIGGERING LIVE OI SCAN: ${selectedTicker}`);
+    if (selectedTicker && showFlowGEX && !liveMode) {
+      // Flow Map enabled and not in live mode yet - trigger live scan
       setLiveMode(true);
-      // Start the scan - it will auto-call fetchOptionsData when complete
       updateLiveOI();
-    } else if (selectedTicker && !showFlowGEX) {
-      // Flow GEX disabled - fetch normally
+    } else if (selectedTicker && !showFlowGEX && !liveMode) {
+      // Flow GEX disabled and not in live mode - fetch normally
       fetchOptionsData();
     }
+    // If already in live mode, do nothing - data is already live
   }, [selectedTicker, showFlowGEX]);
 
   // Memoize GEX calculated data (always uses Net GEX formula)
@@ -5142,29 +5089,15 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   };
 
   // Calculate separate top values for each mode
-  // In live mode, use allCalculatedData which has live OI applied
-  // In normal mode, use the base data maps
+  // Always use allCalculatedData since the tables always render from these arrays
+  // (they already have live OI applied when liveMode is active)
   const gexTopValues = useMemo(() => {
-    const isLive = liveMode && liveOIData.size > 0;
-    let topVals;
-    if (isLive) {
-      topVals = calculateTopValues(allGEXCalculatedData, 'gex', 'Net GEX');
-    } else {
-      topVals = calculateTopValuesFromMap(gexByStrikeByExpiration);
-    }
-    return topVals;
-  }, [gexByStrikeByExpiration, allGEXCalculatedData, liveMode, liveOIData]);
+    return calculateTopValues(allGEXCalculatedData, 'gex', 'Net GEX');
+  }, [allGEXCalculatedData]);
 
   const dealerTopValues = useMemo(() => {
-    const isLive = liveMode && liveOIData.size > 0;
-    let topVals;
-    if (isLive) {
-      topVals = calculateTopValues(allDealerCalculatedData, 'dealer', 'Net Dealer');
-    } else {
-      topVals = calculateTopValuesFromMap(dealerByStrikeByExpiration);
-    }
-    return topVals;
-  }, [dealerByStrikeByExpiration, allDealerCalculatedData, liveMode, liveOIData]);
+    return calculateTopValues(allDealerCalculatedData, 'dealer', 'Net Dealer');
+  }, [allDealerCalculatedData]);
 
   const flowTopValues = useMemo(() => calculateTopValues(data, 'flow'), [data]);
   const vexTopValues = useMemo(() => calculateTopValues(allCalculatedData, 'vex', gexMode, vexMode), [allCalculatedData, gexMode, vexMode]);
@@ -5178,27 +5111,26 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     return gexTopValues;
   }, [showFlowGEX, showDealer, showGEX, showVEX, flowTopValues, dealerTopValues, gexTopValues, vexTopValues]);
 
-  const getCellStyle = (value: number, isVexValue: boolean = false, strike?: number, exp?: string, customTopValues?: any): { bg: string; ring: string; label?: string } => {
+  const getCellStyle = (value: number, isVexValue: boolean = false, strike?: number, exp?: string, customTopValues?: any): { bg: string; ring: string } => {
     let bgColor = '';
     let ringColor = '';
-    let label = '';
 
     // Determine which top values to use
     const topVals = customTopValues || topValues;
 
-    // Check if this is the highest positive or highest negative value
-    // Use epsilon for floating point comparison to handle precision issues
-    const isHighestPositive = value > 0 && Math.abs(value - topVals.highestPositive) < 0.01;
-    const isHighestNegative = value < 0 && Math.abs(Math.abs(value) - topVals.highestNegative) < 0.01;
+    // Check if this is the highest positive or highest negative value (with small tolerance for floating point)
+    const relativeEpsilon = 0.001;
+    const isHighestPositive = value > 0 && Math.abs(value - topVals.highestPositive) < Math.max(Math.abs(topVals.highestPositive) * relativeEpsilon, 0.01);
+    const isHighestNegative = value < 0 && Math.abs(Math.abs(value) - topVals.highestNegative) < Math.max(topVals.highestNegative * relativeEpsilon, 0.01);
 
     // Bloomberg Terminal Theme
     if (useBloombergTheme) {
       if (isHighestPositive) {
-        bgColor = 'text-black font-black border-2 border-amber-400 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 ring-2 ring-amber-300/50';
-        label = 'MAGNET';
+        // Highest positive value - golden box
+        bgColor = 'text-black font-black border-2 border-amber-500 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 shadow-lg shadow-amber-500/50';
       } else if (isHighestNegative) {
-        bgColor = 'text-black font-black border-2 border-cyan-400 bg-gradient-to-br from-cyan-400 via-cyan-500 to-cyan-600 ring-2 ring-cyan-300/50';
-        label = 'PIVOT';
+        // Highest negative value - purple box
+        bgColor = 'text-white font-black border-2 border-purple-500 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800 shadow-lg shadow-purple-500/50';
       } else if (value > 0) {
         // Positive values - green intensity based on value
         const intensity = Math.min(Math.abs(value) / (topVals.highestPositive || 1), 1);
@@ -5225,11 +5157,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     } else {
       // Original Theme (Default)
       if (isHighestPositive) {
-        bgColor = 'text-white border border-purple-500/50 bg-purple-600';
-        label = 'MAGNET';
+        // Highest positive value - golden box
+        bgColor = 'text-black font-black border-2 border-amber-500 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600';
       } else if (isHighestNegative) {
-        bgColor = 'text-white border border-blue-500/50 bg-blue-600';
-        label = 'PIVOT';
+        // Highest negative value - purple box
+        bgColor = 'text-white font-black border-2 border-purple-500 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800';
       } else if (value !== 0) {
         bgColor = 'bg-gradient-to-br from-black to-gray-900 text-white border border-gray-700/30';
       } else {
@@ -5237,7 +5169,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       }
     }
 
-    return { bg: bgColor, ring: ringColor, label };
+    return { bg: bgColor, ring: ringColor };
   };
 
   const formatDate = (dateStr: string) => {
@@ -6198,21 +6130,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
                                     const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
 
-                                    // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
-                                    let hasMagnetCell = false;
-                                    let hasPivotCell = false;
-                                    table1Expirations.forEach(exp => {
-                                      const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
-                                      const gexValue = calculatedRow?.[exp] as any;
-                                      const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
-                                      if (displayValue > 0 && Math.abs(displayValue - gexTopValues.highestPositive) < 0.01) {
-                                        hasMagnetCell = true;
-                                      }
-                                      if (displayValue < 0 && Math.abs(Math.abs(displayValue) - gexTopValues.highestNegative) < 0.01) {
-                                        hasPivotCell = true;
-                                      }
-                                    });
-
                                     return (
                                       <tr
                                         key={idx}
@@ -6224,10 +6141,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           minWidth: `${mobileStrikeWidth}px`,
                                           maxWidth: `${mobileStrikeWidth}px`
                                         }}>
-                                          <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                            hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                              isCurrentPriceRow ? 'text-orange-500' : 'text-white'
-                                            }`}>
+                                          <div className={`text-base font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
                                             {row.strike.toFixed(1)}
                                           </div>
                                         </td>
@@ -6245,7 +6159,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                               style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                             >
                                               <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
                                                 <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                               </div>
                                             </td>
@@ -6302,21 +6215,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
                                     const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
 
-                                    // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
-                                    let hasMagnetCell = false;
-                                    let hasPivotCell = false;
-                                    table2Expirations.forEach(exp => {
-                                      const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
-                                      const dealerValue = calculatedRow?.[exp] as any;
-                                      const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
-                                      if (displayValue > 0 && Math.abs(displayValue - dealerTopValues.highestPositive) < 0.01) {
-                                        hasMagnetCell = true;
-                                      }
-                                      if (displayValue < 0 && Math.abs(Math.abs(displayValue) - dealerTopValues.highestNegative) < 0.01) {
-                                        hasPivotCell = true;
-                                      }
-                                    });
-
                                     return (
                                       <tr
                                         key={idx}
@@ -6328,10 +6226,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           minWidth: `${mobileStrikeWidth}px`,
                                           maxWidth: `${mobileStrikeWidth}px`
                                         }}>
-                                          <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                            hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                              isCurrentPriceRow ? 'text-orange-500' : 'text-white'
-                                            }`}>
+                                          <div className={`text-base font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
                                             {row.strike.toFixed(1)}
                                           </div>
                                         </td>
@@ -6342,16 +6237,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
                                           const cellStyle = getCellStyle(displayValue, false, row.strike, exp, dealerTopValues);
 
-                                          // DEBUG: Log first few cells
-                                          if (idx < 2 && table2Expirations.indexOf(exp) < 2) {
-                                            console.log(`🔍 MM ACTIVITY Cell [${row.strike}, ${exp}]:`, {
-                                              displayValue,
-                                              highest: dealerTopValues.highest,
-                                              isHighest: displayValue === dealerTopValues.highest,
-                                              cellStyle
-                                            });
-                                          }
-
                                           return (
                                             <td
                                               key={exp}
@@ -6359,7 +6244,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                               style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                             >
                                               <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
                                                 <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                               </div>
                                             </td>
@@ -6416,20 +6300,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
                                     const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
 
-                                    // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
-                                    let hasMagnetCell = false;
-                                    let hasPivotCell = false;
-                                    table3Expirations.forEach(exp => {
-                                      const value = row[exp] as any;
-                                      const displayValue = value?.flowNet || 0;
-                                      if (displayValue > 0 && Math.abs(displayValue - flowTopValues.highestPositive) < 0.01) {
-                                        hasMagnetCell = true;
-                                      }
-                                      if (displayValue < 0 && Math.abs(Math.abs(displayValue) - flowTopValues.highestNegative) < 0.01) {
-                                        hasPivotCell = true;
-                                      }
-                                    });
-
                                     return (
                                       <tr
                                         key={idx}
@@ -6441,10 +6311,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           minWidth: `${mobileStrikeWidth}px`,
                                           maxWidth: `${mobileStrikeWidth}px`
                                         }}>
-                                          <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                            hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                              isCurrentPriceRow ? 'text-orange-500' : 'text-white'
-                                            }`}>
+                                          <div className={`text-base font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
                                             {row.strike.toFixed(1)}
                                           </div>
                                         </td>
@@ -6460,7 +6327,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                               style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                             >
                                               <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
                                                 <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
                                               </div>
                                             </td>
@@ -6550,35 +6416,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
                         const isLargestValueRow = row.strike === largestValueStrike;
 
-                        // Check if this row contains MAGNET (highest positive) or PIVOT (highest negative)
-                        let hasMagnetCell = false;
-                        let hasPivotCell = false;
-                        expirations.forEach(exp => {
-                          const value = row[exp] as any;
-                          let displayValue = 0;
-
-                          if (showFlowGEX) {
-                            displayValue = value?.flowNet || 0;
-                          } else if (showVEX) {
-                            displayValue = (value?.callVex || 0) + (value?.putVex || 0);
-                          } else if (showGEX || showDealer) {
-                            displayValue = (value?.call || 0) + (value?.put || 0);
-                          }
-
-                          // Determine which top values to use for this mode
-                          const modeTopValues = showFlowGEX ? flowTopValues :
-                            showVEX ? vexTopValues :
-                              showDealer ? dealerTopValues :
-                                gexTopValues;
-
-                          if (displayValue > 0 && Math.abs(displayValue - modeTopValues.highestPositive) < 0.01) {
-                            hasMagnetCell = true;
-                          }
-                          if (displayValue < 0 && Math.abs(Math.abs(displayValue) - modeTopValues.highestNegative) < 0.01) {
-                            hasPivotCell = true;
-                          }
-                        });
-
                         return (
                           <tr
                             key={idx}
@@ -6590,10 +6427,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               minWidth: `${workbenchStrikeWidth}px`,
                               maxWidth: `${workbenchStrikeWidth}px`
                             }}>
-                              <div className={`text-base font-mono font-bold ${hasMagnetCell ? (useBloombergTheme ? 'text-amber-400' : 'text-purple-600') :
-                                hasPivotCell ? (useBloombergTheme ? 'text-cyan-400' : 'text-blue-600') :
-                                  isCurrentPriceRow ? 'text-orange-500' : 'text-white'
-                                }`}>
+                              <div className={`text-base font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
                                 {row.strike.toFixed(1)}
                               </div>
                             </td>
@@ -6621,18 +6455,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                               const putPremium = value?.putPremium || 0;
                               const callVex = value?.callVex || 0;
                               const putVex = value?.putVex || 0;
-
-                              // Debug VEX rendering values - show both zero and non-zero cases when VEX is enabled
-                              if (showVEX) {
-                                console.log(`🎨 VEX Rendering - Strike ${row.strike}, Exp ${exp}: callVex=${callVex}, putVex=${putVex}, value:`, value);
-                                // Also check if VEX data exists in the original state
-                                const originalVexData = vexByStrikeByExpiration[exp]?.[row.strike];
-                                if (originalVexData) {
-                                  console.log(`📊 Original VEX State - Strike ${row.strike}, Exp ${exp}: call=${originalVexData.call}, put=${originalVexData.put}`);
-                                } else {
-                                  console.log(`❌ No VEX State Found - Strike ${row.strike}, Exp ${exp}`);
-                                }
-                              }
 
                               // Check if this is the largest VEX cell
                               const isLargestVexCall = showVEX &&
@@ -6698,9 +6520,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                     const cellStyle = getCellStyle(displayValue, showVEX, row.strike, exp, modeTopValues);
                                     return (
                                       <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105`}>
-
-                                        {/* Display label if present (MAGNET/PIVOT) */}
-                                        {cellStyle.label && <div className="text-xs font-black mb-1 tracking-wider">{cellStyle.label}</div>}
 
                                         {/* Display the net value */}
                                         <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
