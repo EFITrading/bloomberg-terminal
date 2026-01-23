@@ -98,15 +98,15 @@ body {
 }
 
 .table-scroll-container::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #ff9500 0%, #ff8500 50%, #ff7500 100%);
+    background: linear-gradient(180deg, #4a4a4a 0%, #2a2a2a 50%, #1a1a1a 100%);
     border-radius: 6px;
     border: 2px solid #000000;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.8);
 }
 
 .table-scroll-container::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, #ffaa00 0%, #ff9500 50%, #ff8500 100%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 0 8px rgba(255, 149, 0, 0.5);
+    background: linear-gradient(180deg, #5a5a5a 0%, #3a3a3a 50%, #2a2a2a 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.9);
 }
 
 .table-scroll-container::-webkit-scrollbar-corner {
@@ -116,7 +116,40 @@ body {
 /* Firefox scrollbar for table */
 .table-scroll-container {
     scrollbar-width: thin;
-    scrollbar-color: #ff8500 #000000;
+    scrollbar-color: #3a3a3a #000000;
+}
+
+/* ODTRIO Scrollbar - Dark Gray Glossy */
+.odtrio-scroll-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.odtrio-scroll-container::-webkit-scrollbar-track {
+    background: #000000;
+    border-left: 1px solid #2a2a2a;
+}
+
+.odtrio-scroll-container::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #4a4a4a 0%, #2a2a2a 50%, #1a1a1a 100%);
+    border-radius: 6px;
+    border: 2px solid #000000;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.8);
+}
+
+.odtrio-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #5a5a5a 0%, #3a3a3a 50%, #2a2a2a 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.9);
+}
+
+.odtrio-scroll-container::-webkit-scrollbar-corner {
+    background: #000000;
+}
+
+/* Firefox scrollbar for ODTRIO */
+.odtrio-scroll-container {
+    scrollbar-width: thin;
+    scrollbar-color: #3a3a3a #000000;
 }
 
 /* Custom Animations for Trading Chart */

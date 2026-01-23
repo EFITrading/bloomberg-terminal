@@ -4,6 +4,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const ticker = searchParams.get('ticker') || 'SPX';
   const specificExpiration = searchParams.get('expiration');
+  const minStrike = searchParams.get('minStrike') ? parseFloat(searchParams.get('minStrike')!) : null;
+  const maxStrike = searchParams.get('maxStrike') ? parseFloat(searchParams.get('maxStrike')!) : null;
   const apiKey = process.env.POLYGON_API_KEY;
 
   try {
@@ -20,14 +22,51 @@ export async function GET(request: NextRequest) {
 
     if (specificExpiration) {
       let allContracts: any[] = [];
-      let nextUrl: string | null = `https://api.polygon.io/v3/snapshot/options/I:SPX?expiration_date=${specificExpiration}&limit=250&apikey=${apiKey}`;     
-      
-      while (nextUrl && allContracts.length < 5000) {
+      let nextUrl: string | null = `https://api.polygon.io/v3/snapshot/options/I:SPX?expiration_date=${specificExpiration}&limit=250&apikey=${apiKey}`;
+
+      let hasSeenCalls = false;
+      let hasSeenPuts = false;
+      let callsPassedMax = false;
+      let putsPassedMax = false;
+
+      while (nextUrl && allContracts.length < 10000) {
         const response: Response = await fetch(nextUrl);
         const data: any = await response.json();
-        
+
         if (data.status === 'OK' && data.results && data.results.length > 0) {
-          allContracts.push(...data.results);
+          // Check what contract types are in this page
+          const pageHasCalls = data.results.some((c: any) => c.details?.contract_type?.toLowerCase() === 'call');
+          const pageHasPuts = data.results.some((c: any) => c.details?.contract_type?.toLowerCase() === 'put');
+
+          if (pageHasCalls) hasSeenCalls = true;
+          if (pageHasPuts) hasSeenPuts = true;
+
+          // Filter by strike range during pagination if provided
+          if (minStrike !== null && maxStrike !== null) {
+            const filtered = data.results.filter((c: any) => {
+              const strike = c.details?.strike_price;
+              return strike && strike >= minStrike && strike <= maxStrike;
+            });
+            allContracts.push(...filtered);
+
+            // Check if calls or puts have passed their max strikes
+            const maxCallStrike = Math.max(...data.results
+              .filter((c: any) => c.details?.contract_type?.toLowerCase() === 'call')
+              .map((c: any) => c.details?.strike_price || 0));
+            const maxPutStrike = Math.max(...data.results
+              .filter((c: any) => c.details?.contract_type?.toLowerCase() === 'put')
+              .map((c: any) => c.details?.strike_price || 0));
+
+            if (pageHasCalls && maxCallStrike > maxStrike + 100) callsPassedMax = true;
+            if (pageHasPuts && maxPutStrike > maxStrike + 100) putsPassedMax = true;
+
+            // Early exit only if BOTH calls and puts have been seen and both passed max
+            if (hasSeenCalls && hasSeenPuts && callsPassedMax && putsPassedMax) {
+              break;
+            }
+          } else {
+            allContracts.push(...data.results);
+          }
 
           if (!currentPrice && data.results[0]?.underlying_asset?.value) {
             currentPrice = data.results[0].underlying_asset.value;
@@ -45,7 +84,7 @@ export async function GET(request: NextRequest) {
       allContracts.forEach((contract: any) => {
         const strike = contract.details?.strike_price?.toString();
         const contractType = contract.details?.contract_type?.toLowerCase();
-        
+
         if (!strike || !contractType) return;
 
         const contractData = {
@@ -68,7 +107,7 @@ export async function GET(request: NextRequest) {
           puts[strike] = contractData;
         }
       });
-      
+
       return NextResponse.json({
         success: true,
         data: {
@@ -85,7 +124,7 @@ export async function GET(request: NextRequest) {
       try {
         const res: Response = await fetch(nextUrl);
         const data: any = await res.json();
-        
+
         if (data.status === 'OK' && data.results && data.results.length > 0) {
           data.results.forEach((contract: any) => {
             if (contract.expiration_date) {
@@ -109,7 +148,7 @@ export async function GET(request: NextRequest) {
     for (const expDate of validExpirations) {
       let allContracts: any[] = [];
       let nextUrl: string | null = `https://api.polygon.io/v3/snapshot/options/I:SPX?expiration_date=${expDate}&limit=250&apikey=${apiKey}`;
-      
+
       while (nextUrl && allContracts.length < 5000) {
         try {
           const snapRes: Response = await fetch(nextUrl);
@@ -125,7 +164,7 @@ export async function GET(request: NextRequest) {
           break;
         }
       }
-      
+
       try {
         const calls: Record<string, any> = {};
         const puts: Record<string, any> = {};
@@ -168,7 +207,7 @@ export async function GET(request: NextRequest) {
         }
 
         await new Promise(r => setTimeout(r, 100));
-        
+
       } catch (error) {
         continue;
       }

@@ -6,9 +6,10 @@ import { RegimeAnalysis } from '@/contexts/MarketRegimeContext';
 interface EnhancedRegimeDisplayProps {
     regimeAnalysis: Record<string, RegimeAnalysis>;
     selectedPeriod?: string;
+    watchlistData?: Record<string, any>;
 }
 
-export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod = '1d' }: EnhancedRegimeDisplayProps) {
+export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod = '1d', watchlistData = {} }: EnhancedRegimeDisplayProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [selectedTimeframe, setSelectedTimeframe] = useState(selectedPeriod);
     const [expandedSectors, setExpandedSectors] = useState<string[]>([]);
@@ -140,8 +141,7 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
 
         // Determine outline color based on regime
         const getOutlineColor = () => {
-            if (regime.includes('GROWTH + RISK ON')) return '#eab308';  // Yellow for growth + risk on
-            return null; // No outline for other regimes
+            return null; // No outline
         };
 
         const color = getColor();
@@ -264,10 +264,8 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                 width: '100%',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '20px',
                 background: '#000000',
                 borderRadius: '2px',
-                padding: '24px',
                 border: '2px solid #333333',
                 boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.8)',
             }}
@@ -275,10 +273,11 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
             {/* Toggle Button */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
+                className="hidden md:block"
                 style={{
                     position: 'absolute',
-                    top: '12px',
-                    right: '12px',
+                    top: '8px',
+                    right: '8px',
                     padding: '8px 16px',
                     background: '#000000',
                     border: '2px solid #ff6600',
@@ -298,130 +297,159 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
             </button>
 
             {/* MAIN COMPOSITE GAUGE - Large Central Display */}
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: '300px 1fr',
-                gap: '20px',
-                padding: '20px',
-                background: '#000000',
-                border: `3px solid #ffffff`,
-                borderRadius: '2px',
-                boxShadow: `inset 0 2px 0 rgba(255, 255, 255, 0.15), 0 4px 8px rgba(0, 0, 0, 0.9), 0 0 30px ${compositeColor}30`,
-                alignItems: 'center'
-            }}>
-                {/* Left: Large Gauge */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                    <div style={{
-                        fontSize: '16px',
-                        color: '#ff6600',
-                        fontWeight: '900',
-                        fontFamily: 'monospace',
-                        letterSpacing: '0.3em',
-                        textTransform: 'uppercase'
-                    }}>
-                        COMPOSITE
-                    </div>
-
-                    <RegimeGauge
-                        value={compositeSpread}
-                        label=""
-                        size={239}
-                        thickness={23}
-                        regime={compositeRegime}
-                        showValue={false}
-                        labelOffset={-15}
-                    />
-
-                    <div style={{
-                        padding: '10px 20px',
-                        background: '#000000',
-                        border: `2px solid ${compositeColor}`,
-                        borderRadius: '2px',
-                        boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 15px ${compositeColor}50`,
-                        textAlign: 'center',
-                        marginTop: '20px'
-                    }}>
-                        <div style={{
-                            fontSize: '19px',
-                            fontWeight: '900',
-                            color: compositeColor,
-                            fontFamily: 'monospace',
-                            letterSpacing: '0.05em',
-                            textShadow: `0 0 10px ${compositeColor}70`
-                        }}>
-                            {compositeRegime}
-                        </div>
-                        <div style={{
-                            fontSize: '13px',
-                            color: '#ff6600',
-                            fontWeight: '800',
-                            fontFamily: 'monospace',
-                            marginTop: '4px',
-                            letterSpacing: '0.15em'
-                        }}>
-                            {compositeStrength} • {Math.round(compositeConfidence)}%
-                        </div>
-                    </div>
-                </div>
-
-                {/* Right: Timeframe Gauges */}
-                <div style={{
+            <div className="md:overflow-visible overflow-x-auto md:h-auto h-[280px]">
+                <div className="md:scale-100 scale-[0.7]" style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '12px'
+                    gridTemplateColumns: '300px 1fr',
+                    gap: '20px',
+                    padding: '20px',
+                    background: '#000000',
+                    border: `3px solid #ffffff`,
+                    borderRadius: '2px',
+                    boxShadow: `inset 0 2px 0 rgba(255, 255, 255, 0.15), 0 4px 8px rgba(0, 0, 0, 0.9), 0 0 30px ${compositeColor}30`,
+                    alignItems: 'center',
+                    transformOrigin: 'top left'
                 }}>
-                    {timeframes.map(tf => {
-                        const tfAnalysis = regimeAnalysis[tf];
-                        if (!tfAnalysis) return null;
+                    {/* Left: Large Gauge */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                        <div style={{
+                            fontSize: '16px',
+                            color: '#ff6600',
+                            fontWeight: '900',
+                            fontFamily: 'monospace',
+                            letterSpacing: '0.3em',
+                            textTransform: 'uppercase'
+                        }}>
+                            COMPOSITE
+                        </div>
 
-                        const isSelected = tf === selectedTimeframe;
-                        const tfSpread = tfAnalysis.defensiveGrowthSpread;
+                        <RegimeGauge
+                            value={compositeSpread}
+                            label=""
+                            size={239}
+                            thickness={23}
+                            regime={compositeRegime}
+                            showValue={false}
+                            labelOffset={-15}
+                        />
 
-                        return (
-                            <div
-                                key={tf}
-                                onClick={() => setSelectedTimeframe(tf)}
-                                style={{
-                                    padding: '12px 8px',
-                                    background: '#000000',
-                                    border: isSelected ? `2px solid #ff6600` : '2px solid #333333',
-                                    borderRadius: '2px',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s',
-                                    boxShadow: isSelected ? `0 0 15px #ff660040` : 'none'
-                                }}
-                            >
-                                <div style={{
-                                    fontSize: '14px',
-                                    color: '#ff6600',
-                                    fontWeight: '900',
-                                    fontFamily: 'monospace',
-                                    textAlign: 'center',
-                                    marginBottom: '8px',
-                                    letterSpacing: '0.1em'
-                                }}>
-                                    {tf === '1d' ? 'TODAY' : tf === '5d' ? 'WEEK' : tf === '21d' ? 'MONTH' : tf === '50d' ? 'QUARTER' : tf.toUpperCase()}
-                                </div>
-                                <RegimeGauge
-                                    value={tfSpread}
-                                    label=""
-                                    size={145}
-                                    thickness={14}
-                                    showValue={true}
-                                    regime={tfAnalysis.regime}
-                                />
-                                <div style={{
-                                    fontSize: '12px',
-                                    color: '#ffffff',
-                                    fontFamily: 'monospace',
-                                    textAlign: 'center',
-                                    marginTop: '6px'
-                                }}>
-                                    {tfAnalysis.regime}
-                                </div>
+                        <div style={{
+                            padding: '10px 20px',
+                            background: '#000000',
+                            border: `2px solid ${compositeColor}`,
+                            borderRadius: '2px',
+                            boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 15px ${compositeColor}50`,
+                            textAlign: 'center',
+                            marginTop: '20px'
+                        }}>
+                            <div style={{
+                                fontSize: '19px',
+                                fontWeight: '900',
+                                color: compositeColor,
+                                fontFamily: 'monospace',
+                                letterSpacing: '0.05em',
+                                textShadow: `0 0 10px ${compositeColor}70`
+                            }}>
+                                {compositeRegime}
                             </div>
-                        );
-                    })}
+                            <div style={{
+                                fontSize: '13px',
+                                color: '#ff6600',
+                                fontWeight: '800',
+                                fontFamily: 'monospace',
+                                marginTop: '4px',
+                                letterSpacing: '0.15em'
+                            }}>
+                                {compositeStrength} • {Math.round(compositeConfidence)}%
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right: Timeframe Gauges */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: '12px'
+                    }}>
+                        {timeframes.map(tf => {
+                            const tfAnalysis = regimeAnalysis[tf];
+                            if (!tfAnalysis) return null;
+
+                            const isSelected = tf === selectedTimeframe;
+                            const tfSpread = tfAnalysis.defensiveGrowthSpread;
+
+                            return (
+                                <div
+                                    key={tf}
+                                    onClick={() => setSelectedTimeframe(tf)}
+                                    style={{
+                                        padding: '12px 8px',
+                                        background: '#000000',
+                                        border: isSelected ? `2px solid #ff6600` : '2px solid #333333',
+                                        borderRadius: '2px',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s',
+                                        boxShadow: isSelected ? `0 0 15px #ff660040` : 'none'
+                                    }}
+                                >
+                                    <div style={{
+                                        fontSize: '14px',
+                                        color: '#ff6600',
+                                        fontWeight: '900',
+                                        fontFamily: 'monospace',
+                                        textAlign: 'center',
+                                        marginBottom: '8px',
+                                        letterSpacing: '0.1em'
+                                    }}>
+                                        {tf === '1d' ? 'TODAY' : tf === '5d' ? 'WEEK' : tf === '21d' ? 'MONTH' : tf === '50d' ? 'QUARTER' : tf.toUpperCase()}
+                                    </div>
+                                    <RegimeGauge
+                                        value={tfSpread}
+                                        label=""
+                                        size={145}
+                                        thickness={14}
+                                        showValue={true}
+                                        regime={tfAnalysis.regime}
+                                    />
+                                    <div style={{
+                                        fontSize: '12px',
+                                        color: '#ffffff',
+                                        fontFamily: 'monospace',
+                                        textAlign: 'center',
+                                        marginTop: '6px',
+                                        marginBottom: '10px'
+                                    }}>
+                                        {tfAnalysis.regime}
+                                    </div>
+
+                                    {/* VALUE vs RISK ON Rectangle Gauge */}
+                                    {(() => {
+                                        const xleData = watchlistData?.['XLE'];
+                                        const xlbData = watchlistData?.['XLB'];
+                                        const xliData = watchlistData?.['XLI'];
+                                        const xlfData = watchlistData?.['XLF'];
+
+                                        const periodKey = tf === '1d' ? 'change1d' : tf === '5d' ? 'change5d' : tf === '13d' ? 'change13d' : tf === '21d' ? 'change21d' : tf === '50d' ? 'change50d' : 'changeYTD';
+
+                                        const valueScore = ((xleData?.[periodKey] || 0) + (xlbData?.[periodKey] || 0)) / 2;
+                                        const riskOnScore = ((xliData?.[periodKey] || 0) + (xlfData?.[periodKey] || 0)) / 2;
+                                        const netScore = riskOnScore - valueScore;
+                                        const fillPercent = Math.min(Math.abs(netScore) * 10, 50);
+
+                                        return (
+                                            <div style={{ width: '100%', padding: '0 8px' }}>
+                                                <div style={{ position: 'relative', height: '12px', background: '#1a1a1a', borderRadius: '3px', overflow: 'hidden' }}>
+                                                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: '1px', background: '#555', zIndex: 10 }}></div>
+                                                    {netScore < 0 && <div style={{ position: 'absolute', top: 0, bottom: 0, right: '50%', width: `${fillPercent}%`, background: '#3b82f6', transition: 'width 0.3s' }}></div>}
+                                                    {netScore > 0 && <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: `${fillPercent}%`, background: '#10b981', transition: 'width 0.3s' }}></div>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
 

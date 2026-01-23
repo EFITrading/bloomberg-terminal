@@ -23,7 +23,7 @@ function meetsEfiCriteria(trade: any): boolean {
   if (!trade.moneyness || trade.moneyness !== 'OTM') {
     return false;
   }
-  
+
   return true;
 }
 
@@ -208,43 +208,58 @@ Stock Reaction: ${scores.stockReaction}/15`;
 
 async function fetchCurrentOptionPrices(trades: any[]): Promise<Record<string, number>> {
   const pricesUpdate: Record<string, number> = {};
-  
+
   console.log(`📊 Fetching current option prices for ${trades.length} EFI trades...`);
-  
+
   // Batch in parallel groups of 100
   const BATCH_SIZE = 100;
   const batches = [];
   for (let i = 0; i < trades.length; i += BATCH_SIZE) {
     batches.push(trades.slice(i, i + BATCH_SIZE));
   }
-  
+
   for (const batch of batches) {
     const results = await Promise.all(
       batch.map(async (trade, index) => {
         // Minimal stagger 5ms per trade in batch
         await new Promise(resolve => setTimeout(resolve, index * 5));
-        
+
         try {
           const expiry = trade.expiry.replace(/-/g, '').slice(2);
           const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
           const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
           const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-          
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
-          
+
+          // Use snapshot endpoint - VIX/SPX weeklies need different format
+          const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
+            ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apikey=${POLYGON_API_KEY}`
+            : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+
           const response = await fetch(snapshotUrl, {
             signal: AbortSignal.timeout(3000)
           });
-          
+
           if (response.ok) {
             const data = await response.json();
-            if (data.results && data.results.last_quote) {
-              const bid = data.results.last_quote.bid || 0;
-              const ask = data.results.last_quote.ask || 0;
-              const currentPrice = (bid + ask) / 2;
-              
-              if (currentPrice > 0) {
-                return { optionTicker, price: currentPrice };
+            if (data.results) {
+              // For VIX/SPX bulk snapshot, find the specific contract
+              let result;
+              if (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX') {
+                result = Array.isArray(data.results)
+                  ? data.results.find((r: any) => r.details?.ticker === optionTicker)
+                  : data.results;
+              } else {
+                result = data.results;
+              }
+
+              if (result && result.last_quote) {
+                const bid = result.last_quote.bid || 0;
+                const ask = result.last_quote.ask || 0;
+                const currentPrice = (bid + ask) / 2;
+
+                if (currentPrice > 0) {
+                  return { optionTicker, price: currentPrice };
+                }
               }
             }
           }
@@ -254,7 +269,7 @@ async function fetchCurrentOptionPrices(trades: any[]): Promise<Record<string, n
         return null;
       })
     );
-    
+
     // Aggregate results
     results.forEach(result => {
       if (result) {
@@ -262,36 +277,36 @@ async function fetchCurrentOptionPrices(trades: any[]): Promise<Record<string, n
       }
     });
   }
-  
+
   console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} option prices`);
   return pricesUpdate;
 }
 
 async function fetchCurrentStockPrices(tickers: string[]): Promise<Record<string, number>> {
   const pricesUpdate: Record<string, number> = {};
-  
+
   console.log(`📊 Fetching current stock prices for ${tickers.length} tickers...`);
-  
+
   // Batch in parallel groups of 50
   const BATCH_SIZE = 50;
   const batches = [];
   for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
     batches.push(tickers.slice(i, i + BATCH_SIZE));
   }
-  
+
   for (const batch of batches) {
     const results = await Promise.all(
       batch.map(async (ticker, index) => {
         // Minimal stagger 10ms per ticker in batch
         await new Promise(resolve => setTimeout(resolve, index * 10));
-        
+
         try {
           const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_API_KEY}`;
-          
+
           const response = await fetch(snapshotUrl, {
             signal: AbortSignal.timeout(3000)
           });
-          
+
           if (response.ok) {
             const data = await response.json();
             if (data.ticker && data.ticker.lastTrade && data.ticker.lastTrade.p) {
@@ -304,7 +319,7 @@ async function fetchCurrentStockPrices(tickers: string[]): Promise<Record<string
         return null;
       })
     );
-    
+
     // Aggregate results
     results.forEach(result => {
       if (result) {
@@ -312,43 +327,43 @@ async function fetchCurrentStockPrices(tickers: string[]): Promise<Record<string
       }
     });
   }
-  
+
   console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} stock prices`);
   return pricesUpdate;
 }
 
 async function calculateHistoricalStdDevs(tickers: string[]): Promise<Map<string, number>> {
   const stdDevs = new Map<string, number>();
-  
+
   console.log(`📊 Calculating historical std devs for ${tickers.length} tickers...`);
-  
+
   // Batch in parallel groups of 50
   const BATCH_SIZE = 50;
   const batches = [];
   for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
     batches.push(tickers.slice(i, i + BATCH_SIZE));
   }
-  
+
   for (const batch of batches) {
     const results = await Promise.all(
       batch.map(async (ticker, index) => {
         // Minimal stagger 10ms per ticker in batch
         await new Promise(resolve => setTimeout(resolve, index * 10));
-        
+
         try {
           const endDate = new Date();
           const startDate = new Date();
           startDate.setMonth(startDate.getMonth() - 1);
-          
+
           const formattedEnd = endDate.toISOString().split('T')[0];
           const formattedStart = startDate.toISOString().split('T')[0];
-          
+
           const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${formattedStart}/${formattedEnd}?adjusted=true&sort=asc&limit=50000&apikey=${POLYGON_API_KEY}`;
-          
+
           const response = await fetch(url, {
             signal: AbortSignal.timeout(3000)
           });
-          
+
           if (response.ok) {
             const data = await response.json();
             if (data.results && data.results.length > 1) {
@@ -359,11 +374,11 @@ async function calculateHistoricalStdDevs(tickers: string[]): Promise<Map<string
                 const dailyReturn = ((currClose - prevClose) / prevClose) * 100;
                 returns.push(dailyReturn);
               }
-              
+
               const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
               const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
               const stdDev = Math.sqrt(variance);
-              
+
               return { ticker, stdDev };
             }
           }
@@ -373,7 +388,7 @@ async function calculateHistoricalStdDevs(tickers: string[]): Promise<Map<string
         return null;
       })
     );
-    
+
     // Aggregate results
     results.forEach(result => {
       if (result) {
@@ -381,7 +396,7 @@ async function calculateHistoricalStdDevs(tickers: string[]): Promise<Map<string
       }
     });
   }
-  
+
   console.log(`✅ Calculated ${stdDevs.size} std devs`);
   return stdDevs;
 }
@@ -390,37 +405,37 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const ticker = searchParams.get('ticker');
-    
+
     if (!ticker) {
       return NextResponse.json({ error: 'Ticker required' }, { status: 400 });
     }
-    
+
     // Fetch raw trades from the options flow API
     const flowResponse = await fetch(`${request.headers.get('origin') || 'http://localhost:3000'}/api/stream-options-flow?ticker=${ticker}`);
-    
+
     if (!flowResponse.ok) {
       return NextResponse.json({ error: 'Failed to fetch options flow' }, { status: 500 });
     }
-    
+
     // Parse the streaming response
     const reader = flowResponse.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let allTrades: any[] = [];
-    
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      
+
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
-      
+
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           try {
             const data = JSON.parse(line.slice(6));
-            
+
             if (data.type === 'complete' && data.trades) {
               allTrades = data.trades;
               break;
@@ -430,27 +445,27 @@ export async function GET(request: Request) {
           }
         }
       }
-      
+
       if (allTrades.length > 0) break;
     }
-    
+
     // Filter for EFI trades only
     const efiTrades = allTrades.filter(meetsEfiCriteria);
-    
+
     if (efiTrades.length === 0) {
       return NextResponse.json({ trades: [], message: 'No EFI trades found' });
     }
-    
+
     // Get unique tickers for stock prices
     const uniqueTickers = [...new Set(efiTrades.map(t => t.underlying_ticker))];
-    
+
     // Fetch all required data in parallel
     const [currentOptionPrices, currentPrices, historicalStdDevs] = await Promise.all([
       fetchCurrentOptionPrices(efiTrades),
       fetchCurrentStockPrices(uniqueTickers),
       calculateHistoricalStdDevs(uniqueTickers)
     ]);
-    
+
     // Calculate positioning for each EFI trade
     const tradesWithPositioning = efiTrades.map(trade => {
       const positioning = calculatePositioningGrade(
@@ -460,13 +475,13 @@ export async function GET(request: Request) {
         currentPrices,
         historicalStdDevs
       );
-      
+
       // Add current prices to trade data
       const expiry = trade.expiry.replace(/-/g, '').slice(2);
       const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
       const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
       const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-      
+
       return {
         ...trade,
         current_option_price: currentOptionPrices[optionTicker] || trade.premium_per_contract,
@@ -474,12 +489,12 @@ export async function GET(request: Request) {
         positioning
       };
     });
-    
+
     return NextResponse.json({
       trades: tradesWithPositioning,
       count: tradesWithPositioning.length
     });
-    
+
   } catch (error) {
     console.error('EFI API Error:', error);
     return NextResponse.json(

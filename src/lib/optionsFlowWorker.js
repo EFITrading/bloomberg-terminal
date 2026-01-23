@@ -65,6 +65,11 @@ if (parentPort) {
               // Get historical spot price at exact trade time (cached)
               async function getHistoricalSpotPrice(ticker, tradeTimestamp, currentSpotPrice) {
                      try {
+                            // For SPX/VIX ODTE, skip historical lookup - use current price (saves massive API calls)
+                            if (ticker === 'SPX' || ticker === 'VIX') {
+                                   return currentSpotPrice;
+                            }
+
                             if (!tradeTimestamp) {
                                    console.warn(` Worker: No timestamp for ${ticker}, cannot get historical price`);
                                    return 0; // Don't use fake fallbacks
@@ -256,27 +261,86 @@ if (parentPort) {
                                    });
 
                                    // ===============================
-                                   // STEP 1 — GET SPX PRICE
+                                   // STEP 1 — GET PRICE
                                    // ===============================
                                    let spotPrice = 0;
 
-                                   try {
-                                          const currentPriceUrl = `https://api.polygon.io/v2/last/trade/${ticker}?apikey=${apiKey}`;
-                                          let priceResponse = await makePolygonRequest(currentPriceUrl);
+                                   // ===============================
+                                   // STEP 2 — GET OPTION CONTRACTS
+                                   // ===============================
+                                   let contractsResponse;
 
-                                          if (priceResponse.results?.p || priceResponse.results?.P) {
-                                                 spotPrice = priceResponse.results.p || priceResponse.results.P;
-                                                 console.log(` Worker ${workerIndex}: ${ticker} LIVE price $${spotPrice} (real-time)`);
-                                          } else {
-                                                 // Fallback to previous close if real-time unavailable
-                                                 const prevPriceUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${apiKey}`;
-                                                 priceResponse = await makePolygonRequest(prevPriceUrl);
-                                                 spotPrice = priceResponse.results?.[0]?.c || 0;
-                                                 console.log(` Worker ${workerIndex}: ${ticker} previous close $${spotPrice}`);
+                                   if (ticker === 'VIX') {
+                                          // VIX: Use snapshot API (limited contracts, get price from snapshot)
+                                          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/I:VIX?limit=250&apikey=${apiKey}`;
+                                          contractsResponse = await makePolygonRequest(snapshotUrl);
+
+                                          // Get price from snapshot's underlying_asset
+                                          if (contractsResponse.results?.[0]?.underlying_asset?.value) {
+                                                 spotPrice = contractsResponse.results[0].underlying_asset.value;
+                                                 console.log(` Worker ${workerIndex}: ${ticker} price $${spotPrice} (from snapshot)`);
                                           }
-                                   } catch (e) {
-                                          console.error(` Worker ${workerIndex}: Failed to get ${ticker} price:`, e.message);
-                                          spotPrice = 0;
+
+                                          // Normalize snapshot structure
+                                          if (contractsResponse.results) {
+                                                 contractsResponse.results = contractsResponse.results.map(r => ({
+                                                        strike_price: r.details?.strike_price,
+                                                        contract_type: r.details?.contract_type,
+                                                        ticker: r.details?.ticker,
+                                                        expiration_date: r.details?.expiration_date
+                                                 }));
+                                          }
+                                   } else if (ticker === 'SPX') {
+                                          // SPX: Get price from snapshot, then use reference API with strike filtering
+                                          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/I:SPX?limit=1&apikey=${apiKey}`;
+                                          const priceSnapshot = await makePolygonRequest(snapshotUrl);
+
+                                          if (priceSnapshot.results?.[0]?.underlying_asset?.value) {
+                                                 spotPrice = priceSnapshot.results[0].underlying_asset.value;
+                                                 console.log(` Worker ${workerIndex}: ${ticker} price $${spotPrice} (from snapshot)`);
+                                          }
+
+                                          // Calculate strike range: ATM to 1% OTM only
+                                          const callStrikeMin = Math.floor(spotPrice); // ATM
+                                          const callStrikeMax = Math.ceil(spotPrice * 1.01);  // 1% OTM
+                                          const putStrikeMin = Math.floor(spotPrice * 0.99);  // 1% OTM
+                                          const putStrikeMax = Math.ceil(spotPrice);   // ATM
+
+                                          console.log(` Worker ${workerIndex}: SPX strike range - Calls: $${callStrikeMin}-$${callStrikeMax}, Puts: $${putStrikeMin}-$${putStrikeMax}`);
+
+                                          // Get ODTE + next day only
+                                          const today = new Date().toISOString().split('T')[0];
+                                          const tomorrow = new Date();
+                                          tomorrow.setDate(tomorrow.getDate() + 1);
+                                          const maxExpiry = tomorrow.toISOString().split('T')[0];
+
+                                          // Use reference API with proper filtering (ODTE + next day only)
+                                          const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${today}&expiration_date.lte=${maxExpiry}&strike_price.gte=${putStrikeMin}&strike_price.lte=${callStrikeMax}&limit=1000&apikey=${apiKey}`;
+                                          contractsResponse = await makePolygonRequest(contractsUrl);
+                                   } else {
+                                          // Regular stocks: Get price first, then contracts
+                                          try {
+                                                 const currentPriceUrl = `https://api.polygon.io/v2/last/trade/${ticker}?apikey=${apiKey}`;
+                                                 let priceResponse = await makePolygonRequest(currentPriceUrl);
+
+                                                 if (priceResponse.results?.p || priceResponse.results?.P) {
+                                                        spotPrice = priceResponse.results.p || priceResponse.results.P;
+                                                        console.log(` Worker ${workerIndex}: ${ticker} LIVE price $${spotPrice} (real-time)`);
+                                                 } else {
+                                                        // Fallback to previous close if real-time unavailable
+                                                        const prevPriceUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${apiKey}`;
+                                                        priceResponse = await makePolygonRequest(prevPriceUrl);
+                                                        spotPrice = priceResponse.results?.[0]?.c || 0;
+                                                        console.log(` Worker ${workerIndex}: ${ticker} previous close $${spotPrice}`);
+                                                 }
+                                          } catch (e) {
+                                                 console.error(` Worker ${workerIndex}: Failed to get ${ticker} price:`, e.message);
+                                                 spotPrice = 0;
+                                          }
+
+                                          const today = new Date().toISOString().split('T')[0];
+                                          const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${today}&limit=1000&apikey=${apiKey}`;
+                                          contractsResponse = await makePolygonRequest(contractsUrl);
                                    }
 
                                    // Skip ticker if we couldn't get a valid price
@@ -285,15 +349,6 @@ if (parentPort) {
                                           continue;
                                    }
 
-                                   // ===============================
-                                   // STEP 2 — GET SPX OPTION CONTRACTS
-                                   // ===============================
-                                   // SPX has thousands of contracts - need to add expiration filter to get relevant ones
-                                   const today = new Date().toISOString().split('T')[0];
-                                   const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${today}&limit=1000&apikey=${apiKey}`;
-
-                                   const contractsResponse = await makePolygonRequest(contractsUrl);
-
                                    if (!contractsResponse.results || contractsResponse.results.length === 0) {
                                           console.warn(` Worker ${workerIndex}: No contracts found for ${ticker}`);
                                           continue;
@@ -301,7 +356,7 @@ if (parentPort) {
 
                                    if (contractsResponse.results && contractsResponse.results.length > 0) {
                                           // ===============================
-                                          // STEP 3 — FILTER CONTRACTS (5% ITM RANGE)
+                                          // STEP 3 — FILTER CONTRACTS
                                           // ===============================
                                           const validContracts = contractsResponse.results.filter(contract => {
                                                  const strike = contract.strike_price;
@@ -311,16 +366,29 @@ if (parentPort) {
 
                                                  const pctFromMoney = (strike - spotPrice) / spotPrice;
 
-                                                 if (contractType === 'call') {
-                                                        return pctFromMoney >= -0.05; // up to 5% ITM + all OTM
-                                                 } else if (contractType === 'put') {
-                                                        return pctFromMoney <= 0.05; // up to 5% ITM + all OTM
+                                                 // SPX already filtered by API, just validate range
+                                                 if (ticker === 'SPX') {
+                                                        if (contractType === 'call') {
+                                                               return pctFromMoney >= 0 && pctFromMoney <= 0.01;
+                                                        } else if (contractType === 'put') {
+                                                               return pctFromMoney <= 0 && pctFromMoney >= -0.01;
+                                                        }
+                                                 } else {
+                                                        // VIX and regular stocks: 5% ITM + all OTM
+                                                        if (contractType === 'call') {
+                                                               return pctFromMoney >= -0.05;
+                                                        } else if (contractType === 'put') {
+                                                               return pctFromMoney <= 0.05;
+                                                        }
                                                  }
 
                                                  return false;
                                           });
 
-                                          console.log(` Worker ${workerIndex}: ${ticker} @ $${spotPrice} - ${contractsResponse.results.length} → ${validContracts.length} contracts after PRECISE 5% ITM filter`);
+                                          const filterDesc = ticker === 'SPX'
+                                                 ? 'ATM to 1% OTM (ODTE + next day only)'
+                                                 : '5% ITM + all OTM';
+                                          console.log(` Worker ${workerIndex}: ${ticker} @ $${spotPrice} - ${contractsResponse.results.length} → ${validContracts.length} contracts after ${filterDesc} filter`);
 
                                           const contractsToScan = validContracts;
                                           const contractBatchSize = 50; // Process 50 contracts simultaneously with unlimited API
@@ -368,132 +436,132 @@ if (parentPort) {
                                                  });
 
                                                  // Wait for entire batch to complete
+                                                 console.log(` Worker ${workerIndex}: ⏳ Waiting for ${contractBatch.length} contract API calls to complete...`);
                                                  const batchResults = await Promise.all(batchPromises);
 
                                                  // Process all trade results from this batch
-                                                 for (const result of batchResults) {
+                                                 for (let resultIdx = 0; resultIdx < batchResults.length; resultIdx++) {
+                                                        const result = batchResults[resultIdx];
                                                         if (result && result.trades) {
                                                                const { contract, trades: contractTrades } = result;
                                                                console.log(` Worker ${workerIndex}: ${ticker} contract ${contract.ticker} found ${contractTrades.length} trades`);
 
-                                                               const tradeBatchSize = 10; // Process 10 trades at once
+                                                               // MASSIVE PARALLEL PROCESSING for SPX/high-volume contracts
+                                                               const tradeBatchSize = ticker === 'SPX' ? 1000 : 100; // SPX: 1000 trades per batch, others: 100
                                                                const tradeBatches = [];
                                                                for (let i = 0; i < contractTrades.length; i += tradeBatchSize) {
                                                                       tradeBatches.push(contractTrades.slice(i, i + tradeBatchSize));
                                                                }
 
-                                                               const allProcessedTrades = [];
+                                                               // Process ALL batches in parallel (not sequential) for maximum speed
+                                                               const allProcessedTrades = await Promise.all(
+                                                                      tradeBatches.map(async (tradeBatch, tbIdx) => {
+                                                                             const processedBatch = await Promise.all(tradeBatch.map(async (trade) => {
+                                                                                    try {
+                                                                                           const tradePrice = trade.price || 0;
+                                                                                           const tradeSize = trade.size || 1;
+                                                                                           const totalPremium = tradePrice * tradeSize * 100; // Price per contract × contracts × 100 shares per contract
+                                                                                           const strikePrice = contract.strike_price || 0;
+                                                                                           // Get CORRECTED expiry date (fix 2024 -> 2025/2026 issue)
+                                                                                           let expiryDate = contract.expiration_date || '';
 
-                                                               // Process each trade batch in parallel
-                                                               for (const tradeBatch of tradeBatches) {
-                                                                      const processedTradeBatch = await Promise.all(tradeBatch.map(async (trade) => {
-                                                                             try {
-                                                                                    const tradePrice = trade.price || 0;
-                                                                                    const tradeSize = trade.size || 1;
-                                                                                    const totalPremium = tradePrice * tradeSize * 100; // Price per contract × contracts × 100 shares per contract
-                                                                                    const strikePrice = contract.strike_price || 0;
-                                                                                    // Get CORRECTED expiry date (fix 2024 -> 2025/2026 issue)
-                                                                                    let expiryDate = contract.expiration_date || '';
+                                                                                           // Fix year issue: if expiry shows 2024 but we're in 2025, correct it
+                                                                                           if (expiryDate && expiryDate.includes('2024')) {
+                                                                                                  const currentYear = new Date().getFullYear();
+                                                                                                  if (currentYear >= 2025) {
+                                                                                                         // Check if this is likely a current/future expiry that got mislabeled
+                                                                                                         const expiryTest = new Date(expiryDate);
+                                                                                                         const monthDay = expiryTest.getMonth() * 100 + expiryTest.getDate();
+                                                                                                         const currentMonthDay = new Date().getMonth() * 100 + new Date().getDate();
 
-                                                                                    // Fix year issue: if expiry shows 2024 but we're in 2025, correct it
-                                                                                    if (expiryDate && expiryDate.includes('2024')) {
-                                                                                           const currentYear = new Date().getFullYear();
-                                                                                           if (currentYear >= 2025) {
-                                                                                                  // Check if this is likely a current/future expiry that got mislabeled
-                                                                                                  const expiryTest = new Date(expiryDate);
-                                                                                                  const monthDay = expiryTest.getMonth() * 100 + expiryTest.getDate();
-                                                                                                  const currentMonthDay = new Date().getMonth() * 100 + new Date().getDate();
-
-                                                                                                  // If expiry month/day is current or future, update year
-                                                                                                  if (monthDay >= currentMonthDay) {
-                                                                                                         expiryDate = expiryDate.replace('2024', currentYear.toString());
-                                                                                                         console.log(` Worker ${workerIndex}: Corrected expiry ${contract.expiration_date} → ${expiryDate}`);
-                                                                                                  } else {
-                                                                                                         // If it's clearly a past date, use next year
-                                                                                                         expiryDate = expiryDate.replace('2024', (currentYear + 1).toString());
-                                                                                                         console.log(` Worker ${workerIndex}: Corrected expiry ${contract.expiration_date} → ${expiryDate} (next year)`);
+                                                                                                         // If expiry month/day is current or future, update year
+                                                                                                         if (monthDay >= currentMonthDay) {
+                                                                                                                expiryDate = expiryDate.replace('2024', currentYear.toString());
+                                                                                                         } else {
+                                                                                                                // If it's clearly a past date, use next year
+                                                                                                                expiryDate = expiryDate.replace('2024', (currentYear + 1).toString());
+                                                                                                         }
                                                                                                   }
                                                                                            }
-                                                                                    }
 
-                                                                                    // Get ACTUAL trade timestamp (sip_timestamp is most accurate)
-                                                                                    const actualTradeTimestamp = trade.sip_timestamp || trade.participant_timestamp || trade.timestamp;
-                                                                                    const tradeDate = actualTradeTimestamp ? new Date(actualTradeTimestamp / 1000000) : new Date();
+                                                                                           // Get ACTUAL trade timestamp (sip_timestamp is most accurate)
+                                                                                           const actualTradeTimestamp = trade.sip_timestamp || trade.participant_timestamp || trade.timestamp;
+                                                                                           const tradeDate = actualTradeTimestamp ? new Date(actualTradeTimestamp / 1000000) : new Date();
 
-                                                                                    // Get HISTORICAL spot price at the EXACT time of the trade (cached for performance)
-                                                                                    const tradeTimeSpotPrice = await getHistoricalSpotPrice(ticker, actualTradeTimestamp, spotPrice);
+                                                                                           // Get HISTORICAL spot price at the EXACT time of the trade (cached for performance)
+                                                                                           const tradeTimeSpotPrice = await getHistoricalSpotPrice(ticker, actualTradeTimestamp, spotPrice);
 
-                                                                                    // DEBUG: Log spot price to verify it's being set
-                                                                                    if (!tradeTimeSpotPrice || tradeTimeSpotPrice <= 0) {
-                                                                                           console.warn(` Worker ${workerIndex}: WARNING - Invalid spot price for ${ticker}: ${tradeTimeSpotPrice}, actual spotPrice: ${spotPrice}`);
-                                                                                    }
+                                                                                           // Skip trades with no valid spot price - don't show fake data
+                                                                                           if (!tradeTimeSpotPrice || tradeTimeSpotPrice <= 0) {
+                                                                                                  return null;
+                                                                                           }
 
-                                                                                    // Skip trades with no valid spot price - don't show fake data
-                                                                                    if (!tradeTimeSpotPrice || tradeTimeSpotPrice <= 0) {
-                                                                                           console.warn(` Worker ${workerIndex}: Skipping trade - no valid spot price`);
+                                                                                           // COLLECT ALL TRADES - Tier filtering will happen AFTER aggregation in main service
+                                                                                           // This allows sweep detection to work properly by aggregating small trades first
+
+                                                                                           // Calculate days to expiry using CORRECTED expiry date
+                                                                                           const daysToExpiry = expiryDate ? Math.max(0, Math.ceil((new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24))) : 0;
+
+                                                                                           // Calculate proper moneyness using HISTORICAL spot price
+                                                                                           let moneyness = 'OTM';
+                                                                                           const contractType = contract.contract_type?.toLowerCase();
+                                                                                           if (tradeTimeSpotPrice > 0 && strikePrice > 0) {
+                                                                                                  const percentDiff = Math.abs(tradeTimeSpotPrice - strikePrice) / tradeTimeSpotPrice;
+                                                                                                  if (percentDiff < 0.01) {
+                                                                                                         moneyness = 'ATM';
+                                                                                                  } else if (contractType === 'call') {
+                                                                                                         moneyness = tradeTimeSpotPrice > strikePrice ? 'ITM' : 'OTM';
+                                                                                                  } else {
+                                                                                                         moneyness = tradeTimeSpotPrice < strikePrice ? 'ITM' : 'OTM';
+                                                                                                  }
+                                                                                           }
+
+                                                                                           // 🔥 BUILD TRADE OBJECT WITH VOL/OI DATA - NO FAKE PRICES
+                                                                                           const tradeObj = {
+                                                                                                  underlying_ticker: ticker,
+                                                                                                  ticker: contract.ticker,
+                                                                                                  option_ticker: contract.ticker,
+                                                                                                  trade_size: tradeSize,
+                                                                                                  premium_per_contract: totalPremium / (tradeSize * 100), // Calculate actual per-contract from total
+                                                                                                  total_premium: totalPremium,
+                                                                                                  trade_type: undefined, // Will be classified later based on exchange distribution
+                                                                                                  trade_timestamp: tradeDate, // ACTUAL trade time, not current time
+                                                                                                  timestamp: tradeDate.toISOString(),
+                                                                                                  sip_timestamp: actualTradeTimestamp, // Include original nanosecond timestamp
+                                                                                                  strike: strikePrice,
+                                                                                                  expiry: expiryDate,
+                                                                                                  type: contractType || 'call',
+                                                                                                  spot_price: tradeTimeSpotPrice, // ONLY use real historical price
+                                                                                                  exchange: trade.exchange,
+                                                                                                  exchange_name: getExchangeName(trade.exchange) || 'Unknown',
+                                                                                                  moneyness: moneyness,
+                                                                                                  days_to_expiry: daysToExpiry,
+                                                                                                  worker: workerIndex,
+                                                                                                  conditions: trade.conditions || []
+                                                                                           };
+
+                                                                                           // Vol/OI and fill_style will be enriched on frontend (like AlgoFlow)
+
+                                                                                           return tradeObj;
+                                                                                    } catch (error) {
+                                                                                           console.error(` Worker ${workerIndex}: Trade processing error:`, error);
                                                                                            return null;
                                                                                     }
+                                                                             }));
 
-                                                                                    // COLLECT ALL TRADES - Tier filtering will happen AFTER aggregation in main service
-                                                                                    // This allows sweep detection to work properly by aggregating small trades first
+                                                                             return processedBatch;
+                                                                      })
+                                                               );
 
-                                                                                    // Calculate days to expiry using CORRECTED expiry date
-                                                                                    const daysToExpiry = expiryDate ? Math.max(0, Math.ceil((new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24))) : 0;
+                                                               console.log(` Worker ${workerIndex}: ✅ PARALLEL processing complete for ${contractTrades.length} trades`);
 
-                                                                                    // Calculate proper moneyness using HISTORICAL spot price
-                                                                                    let moneyness = 'OTM';
-                                                                                    const contractType = contract.contract_type?.toLowerCase();
-                                                                                    if (tradeTimeSpotPrice > 0 && strikePrice > 0) {
-                                                                                           const percentDiff = Math.abs(tradeTimeSpotPrice - strikePrice) / tradeTimeSpotPrice;
-                                                                                           if (percentDiff < 0.01) {
-                                                                                                  moneyness = 'ATM';
-                                                                                           } else if (contractType === 'call') {
-                                                                                                  moneyness = tradeTimeSpotPrice > strikePrice ? 'ITM' : 'OTM';
-                                                                                           } else {
-                                                                                                  moneyness = tradeTimeSpotPrice < strikePrice ? 'ITM' : 'OTM';
-                                                                                           }
-                                                                                    }
+                                                               // Flatten all batches
+                                                               const flattenedTrades = allProcessedTrades.flat();
 
-                                                                                    // 🔥 BUILD TRADE OBJECT WITH VOL/OI DATA - NO FAKE PRICES
-                                                                                    const tradeObj = {
-                                                                                           underlying_ticker: ticker,
-                                                                                           ticker: contract.ticker,
-                                                                                           option_ticker: contract.ticker,
-                                                                                           trade_size: tradeSize,
-                                                                                           premium_per_contract: totalPremium / (tradeSize * 100), // Calculate actual per-contract from total
-                                                                                           total_premium: totalPremium,
-                                                                                           trade_type: undefined, // Will be classified later based on exchange distribution
-                                                                                           trade_timestamp: tradeDate, // ACTUAL trade time, not current time
-                                                                                           timestamp: tradeDate.toISOString(),
-                                                                                           sip_timestamp: actualTradeTimestamp, // Include original nanosecond timestamp
-                                                                                           strike: strikePrice,
-                                                                                           expiry: expiryDate,
-                                                                                           type: contractType || 'call',
-                                                                                           spot_price: tradeTimeSpotPrice, // ONLY use real historical price
-                                                                                           exchange: trade.exchange,
-                                                                                           exchange_name: getExchangeName(trade.exchange) || 'Unknown',
-                                                                                           moneyness: moneyness,
-                                                                                           days_to_expiry: daysToExpiry,
-                                                                                           worker: workerIndex,
-                                                                                           conditions: trade.conditions || []
-                                                                                    };
+                                                               // Filter out null trades
+                                                               const validTrades = flattenedTrades.filter(trade => trade !== null);
 
-                                                                                    // Vol/OI and fill_style will be enriched on frontend (like AlgoFlow)
-
-                                                                                    return tradeObj;
-                                                                             } catch (error) {
-                                                                                    console.error(` Worker ${workerIndex}: Trade processing error:`, error);
-                                                                                    return null;
-                                                                             }
-                                                                      }));
-
-                                                                      allProcessedTrades.push(...processedTradeBatch);
-                                                               }
-
-                                                               // Filter out null trades from all batches
-                                                               const validTrades = allProcessedTrades.filter(trade => trade !== null);
-
-                                                               console.log(` Worker ${workerIndex}: Processed ${validTrades.length} valid trades for ${contract.ticker}`);
+                                                               console.log(` Worker ${workerIndex}: ✔️ ${validTrades.length} valid trades (${contractTrades.length - validTrades.length} filtered out) for ${contract.ticker}`);
 
                                                                // STREAM trades immediately as they're found (don't wait till end)
                                                                if (validTrades.length > 0) {

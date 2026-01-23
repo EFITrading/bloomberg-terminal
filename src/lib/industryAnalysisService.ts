@@ -155,6 +155,24 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
     holdings: ['NVDA', 'ISRG', 'ROK', 'EMR', 'HON', 'ADSK', 'TER', 'KLAC', 'AMAT', 'LRCX']
   },
   {
+    symbol: 'RBOT',
+    name: 'Robotics + AI',
+    category: 'AI/Robotics',
+    holdings: ['SERV', 'SYM', 'RR', 'BBAI', 'SOUN', 'ACHR', 'JOBY', 'RKLB', 'ASTS', 'NVDA']
+  },
+  {
+    symbol: 'QNTM',
+    name: 'Quantum Computing',
+    category: 'Quantum',
+    holdings: ['IONQ', 'QUBT', 'QBTS', 'RGTI', 'IBM', 'GOOGL', 'MSFT', 'NVDA', 'AMD', 'INTC']
+  },
+  {
+    symbol: 'DTCR',
+    name: 'Data Centers',
+    category: 'Technology',
+    holdings: ['NBIS', 'IREN', 'CRWV', 'OKLO', 'SMR', 'NNE', 'APLD', 'EQIX', 'DLR', 'CCI']
+  },
+  {
     symbol: 'ARKK',
     name: 'Innovation',
     category: 'Innovation',
@@ -433,6 +451,12 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
     name: 'Financials',
     category: 'Financial',
     holdings: ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'SPGI']
+  },
+  {
+    symbol: 'BROK',
+    name: 'Brokerages',
+    category: 'Financial',
+    holdings: ['SOFI', 'HOOD', 'COIN', 'IBKR', 'SCHW', 'NDAQ', 'CME', 'ICE', 'MKTX', 'VIRT']
   },
 
   // Real Estate

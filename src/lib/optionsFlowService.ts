@@ -3262,21 +3262,46 @@ export class OptionsFlowService {
         const enrichedTrades = await Promise.all(
           batch.map(async (trade) => {
             try {
-              const expiry = trade.expiry.replace(/-/g, '').slice(2);
-              const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-              const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-              const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+              // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
+              const optionTicker = trade.ticker;
 
-              // Use snapshot endpoint - gets EVERYTHING in one call
-              const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
+              // Use snapshot endpoint - VIX/SPX weeklies need different format
+              const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
+                ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
+                : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
 
               const response = await fetch(snapshotUrl);
-              if (!response.ok) return trade;
+              if (!response.ok) {
+                console.log(`❌ Enrichment API error: ${response.status} for ${optionTicker}`);
+                return trade;
+              }
 
               const data = await response.json();
 
               if (data.status === 'OK' && data.results) {
-                const snapshot = data.results;
+                // For VIX/SPX bulk snapshot, find the specific contract
+                let snapshot;
+                if (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX') {
+                  snapshot = Array.isArray(data.results)
+                    ? data.results.find((r: any) => r.details?.ticker === optionTicker)
+                    : data.results;
+
+                  if (batchIndex === 0 && batch.indexOf(trade) === 0) {
+                    console.log(`🔍 VIX/SPX Enrichment - Looking for: ${optionTicker}`);
+                    console.log(`📦 Found ${data.results.length} contracts in bulk snapshot`);
+                    console.log(`✅ Match found: ${snapshot ? 'YES' : 'NO'}`);
+                    if (snapshot) {
+                      console.log(`Bid: ${snapshot.last_quote?.bid}, Ask: ${snapshot.last_quote?.ask}, Vol: ${snapshot.day?.volume}, OI: ${snapshot.open_interest}`);
+                    }
+                  }
+                } else {
+                  snapshot = data.results;
+                }
+
+                if (!snapshot) {
+                  console.log(`❌ No snapshot found for ${optionTicker}`);
+                  return trade;
+                }
 
                 // Extract Vol/OI
                 const volume = snapshot.day?.volume || trade.volume;
@@ -3375,7 +3400,11 @@ export class OptionsFlowService {
               }
 
               // Always fetch snapshot for current OI and bid/ask (OI doesn't change historically)
-              const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
+              // Use snapshot endpoint - VIX/SPX weeklies need different format
+              const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
+                ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apikey=${this.polygonApiKey}`
+                : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
+
               const snapResponse = await fetch(snapshotUrl);
 
               if (!snapResponse.ok) return trade;
@@ -3383,7 +3412,19 @@ export class OptionsFlowService {
               const snapData = await snapResponse.json();
 
               if (snapData.status === 'OK' && snapData.results) {
-                const snapshot = snapData.results;
+                // For VIX/SPX bulk snapshot, find the specific contract
+                let snapshot;
+                if (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX') {
+                  snapshot = Array.isArray(snapData.results)
+                    ? snapData.results.find((r: any) => r.details?.ticker === optionTicker)
+                    : snapData.results;
+                } else {
+                  snapshot = snapData.results;
+                }
+
+                if (!snapshot) {
+                  return trade;
+                }
 
                 // Use snapshot OI (current OI is fine even for historical trades)
                 openInterest = snapshot.open_interest || openInterest;

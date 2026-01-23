@@ -8,29 +8,29 @@
     width: 48px !important;
     min-width: 48px !important;
   }
-  
+
   .mobile-sidebar-btn {
     width: 40px !important;
     height: 40px !important;
     margin-bottom: 0.5rem !important;
   }
-  
+
   .mobile-sidebar-icon {
     font-size: 1.5rem !important;
   }
-  
+
   /* Hide sidebar labels on mobile to save space */
   .mobile-sidebar .text-xs {
     display: none !important;
   }
-  
+
   /* Adjust sidebar button spacing */
   .mobile-sidebar .mb-3 {
     margin-bottom: 0.5rem !important;
   }
-  
+
   /* Make chart area take more space */
-  .sidebar-container + div {
+  .sidebar-container+div {
     width: calc(100vw - 48px) !important;
   }
 }
@@ -40,22 +40,22 @@
     width: 40px !important;
     min-width: 40px !important;
   }
-  
+
   .mobile-sidebar-btn {
     width: 32px !important;
     height: 32px !important;
     border-radius: 6px !important;
   }
-  
+
   .mobile-sidebar-icon {
     font-size: 1.25rem !important;
   }
-  
+
   /* Chart area adjustment */
-  .sidebar-container + div {
+  .sidebar-container+div {
     width: calc(100vw - 40px) !important;
   }
-  
+
   /* Even smaller timeframe buttons for smaller screens */
   .btn-3d-carved {
     padding: 4px 8px !important;
@@ -64,7 +64,7 @@
     min-height: 28px !important;
     margin: 0 1px !important;
   }
-  
+
   /* Chart type buttons mobile */
   .chart-type-dropdown button {
     padding: 4px 6px !important;
@@ -80,27 +80,27 @@
     min-width: 36px !important;
     padding: 0.25rem 0 !important;
   }
-  
+
   .mobile-sidebar-btn {
     width: 28px !important;
     height: 28px !important;
     border-radius: 4px !important;
   }
-  
+
   .mobile-sidebar-icon {
     font-size: 1rem !important;
   }
-  
+
   /* Chart area adjustment */
-  .sidebar-container + div {
+  .sidebar-container+div {
     width: calc(100vw - 36px) !important;
   }
-  
+
   /* Show all sidebar buttons on mobile - removed hiding rule */
   /* .mobile-sidebar .mb-3:nth-child(n+9) {
     display: none !important;
   } */
-  
+
   /* Very small timeframe buttons for tiny screens */
   .btn-3d-carved {
     padding: 2px 4px !important;
@@ -110,14 +110,14 @@
     margin: 0 1px !important;
     font-weight: 600 !important;
   }
-  
+
   /* Ultra compact chart controls */
   .chart-type-dropdown {
     max-width: calc(100vw - 80px) !important;
     overflow-x: auto !important;
     flex-wrap: nowrap !important;
   }
-  
+
   .chart-type-dropdown button {
     padding: 2px 4px !important;
     font-size: 9px !important;
@@ -133,19 +133,19 @@
     width: 32px !important;
     min-width: 32px !important;
   }
-  
+
   .mobile-sidebar-btn {
     width: 26px !important;
     height: 26px !important;
     border-radius: 2px !important;
   }
-  
+
   .mobile-sidebar-icon {
     font-size: 0.8rem !important;
   }
-  
+
   /* Chart area adjustment for ultra small */
-  .sidebar-container + div {
+  .sidebar-container+div {
     width: calc(100vw - 32px) !important;
   }
 }
@@ -156,57 +156,66 @@
 
 /* Mobile sidebar panel optimization - the content panels that appear */
 @media (max-width: 768px) {
+
   /* Sidebar panel container - make it mobile friendly */
   .fixed.top-32.bottom-4.left-16 {
-    top: 100px !important; /* Moved down from 60px */
-    bottom: 10px !important; /* Closer to bottom */
-    left: 50px !important; /* Account for mobile sidebar width */
-    right: 0px !important; /* Even more width - almost edge to edge */
-    width: auto !important; /* Remove fixed width */
-    max-width: calc(100vw - 50px) !important; /* More width */
+    top: 100px !important;
+    /* Moved down from 60px */
+    bottom: 10px !important;
+    /* Closer to bottom */
+    left: 50px !important;
+    /* Account for mobile sidebar width */
+    right: 0px !important;
+    /* Even more width - almost edge to edge */
+    width: auto !important;
+    /* Remove fixed width */
+    max-width: calc(100vw - 50px) !important;
+    /* More width */
     height: auto !important;
-    max-height: calc(100vh - 120px) !important; /* Adjusted for new top position */
+    max-height: calc(100vh - 120px) !important;
+    /* Adjusted for new top position */
   }
-  
+
   /* Ensure panel content is scrollable and fits */
-  .fixed.top-32.bottom-4.left-16 > div:last-child {
-    max-height: calc(100vh - 180px) !important; /* Adjusted for new top position */
+  .fixed.top-32.bottom-4.left-16>div:last-child {
+    max-height: calc(100vh - 180px) !important;
+    /* Adjusted for new top position */
     overflow-y: auto !important;
   }
-  
+
   /* Optimize panel header for mobile */
   .fixed.top-32.bottom-4.left-16 .h-12 {
     padding: 8px 12px !important;
     min-height: 40px !important;
     height: 40px !important;
   }
-  
+
   /* Optimize panel content padding */
   .fixed.top-32.bottom-4.left-16 .p-4 {
     padding: 12px !important;
   }
-  
+
   /* Make panel content font sizes smaller to avoid overlaps */
   .fixed.top-32.bottom-4.left-16 {
     font-size: 13px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-sm {
     font-size: 11px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-xs {
     font-size: 10px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-lg {
     font-size: 15px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-xl {
     font-size: 16px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 h1,
   .fixed.top-32.bottom-4.left-16 h2,
   .fixed.top-32.bottom-4.left-16 h3 {
@@ -216,50 +225,56 @@
 
 @media (max-width: 640px) {
   .fixed.top-32.bottom-4.left-16 {
-    top: 90px !important; /* Moved down from 50px */
+    top: 90px !important;
+    /* Moved down from 50px */
     bottom: 5px !important;
-    left: 42px !important; /* Account for smaller sidebar */
-    right: 0px !important; /* More width */
-    max-width: calc(100vw - 42px) !important; /* More width */
-    max-height: calc(100vh - 100px) !important; /* Adjusted for new top position */
+    left: 42px !important;
+    /* Account for smaller sidebar */
+    right: 0px !important;
+    /* More width */
+    max-width: calc(100vw - 42px) !important;
+    /* More width */
+    max-height: calc(100vh - 100px) !important;
+    /* Adjusted for new top position */
   }
-  
-  .fixed.top-32.bottom-4.left-16 > div:last-child {
-    max-height: calc(100vh - 150px) !important; /* Adjusted for new top position */
+
+  .fixed.top-32.bottom-4.left-16>div:last-child {
+    max-height: calc(100vh - 150px) !important;
+    /* Adjusted for new top position */
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .h-12 {
     padding: 6px 10px !important;
     min-height: 36px !important;
     height: 36px !important;
     font-size: 14px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .p-4 {
     padding: 8px !important;
   }
-  
+
   /* Smaller fonts for medium mobile */
   .fixed.top-32.bottom-4.left-16 {
     font-size: 12px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-sm {
     font-size: 10px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-xs {
     font-size: 9px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-lg {
     font-size: 14px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-xl {
     font-size: 15px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 h1,
   .fixed.top-32.bottom-4.left-16 h2,
   .fixed.top-32.bottom-4.left-16 h3 {
@@ -269,50 +284,55 @@
 
 @media (max-width: 480px) {
   .fixed.top-32.bottom-4.left-16 {
-    top: 80px !important; /* Moved down from 40px */
+    top: 80px !important;
+    /* Moved down from 40px */
     bottom: 5px !important;
     left: 38px !important;
-    right: 0px !important; /* More width */
-    max-width: calc(100vw - 38px) !important; /* More width */
-    max-height: calc(100vh - 90px) !important; /* Adjusted for new top position */
+    right: 0px !important;
+    /* More width */
+    max-width: calc(100vw - 38px) !important;
+    /* More width */
+    max-height: calc(100vh - 90px) !important;
+    /* Adjusted for new top position */
   }
-  
-  .fixed.top-32.bottom-4.left-16 > div:last-child {
-    max-height: calc(100vh - 135px) !important; /* Adjusted for new top position */
+
+  .fixed.top-32.bottom-4.left-16>div:last-child {
+    max-height: calc(100vh - 135px) !important;
+    /* Adjusted for new top position */
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .h-12 {
     padding: 4px 8px !important;
     min-height: 32px !important;
     height: 32px !important;
     font-size: 12px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .p-4 {
     padding: 6px !important;
   }
-  
+
   /* Even smaller fonts for small mobile */
   .fixed.top-32.bottom-4.left-16 {
     font-size: 11px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-sm {
     font-size: 9px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-xs {
     font-size: 8px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-lg {
     font-size: 13px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-xl {
     font-size: 14px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 h1,
   .fixed.top-32.bottom-4.left-16 h2,
   .fixed.top-32.bottom-4.left-16 h3 {
@@ -322,61 +342,66 @@
 
 @media (max-width: 375px) {
   .fixed.top-32.bottom-4.left-16 {
-    top: 75px !important; /* Moved down from 35px */
+    top: 75px !important;
+    /* Moved down from 35px */
     bottom: 5px !important;
     left: 34px !important;
-    right: 0px !important; /* Edge to edge */
-    max-width: calc(100vw - 34px) !important; /* Maximum width possible */
-    max-height: calc(100vh - 85px) !important; /* Adjusted for new top position */
+    right: 0px !important;
+    /* Edge to edge */
+    max-width: calc(100vw - 34px) !important;
+    /* Maximum width possible */
+    max-height: calc(100vh - 85px) !important;
+    /* Adjusted for new top position */
   }
-  
-  .fixed.top-32.bottom-4.left-16 > div:last-child {
-    max-height: calc(100vh - 125px) !important; /* Adjusted for new top position */
+
+  .fixed.top-32.bottom-4.left-16>div:last-child {
+    max-height: calc(100vh - 125px) !important;
+    /* Adjusted for new top position */
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .h-12 {
     padding: 3px 6px !important;
     min-height: 28px !important;
     height: 28px !important;
     font-size: 11px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .p-4 {
     padding: 4px !important;
   }
-  
+
   /* Ultra small fonts for tiny screens */
   .fixed.top-32.bottom-4.left-16 {
     font-size: 10px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-sm {
     font-size: 8px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-xs {
     font-size: 7px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-lg {
     font-size: 12px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 .text-xl {
     font-size: 13px !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 h1,
   .fixed.top-32.bottom-4.left-16 h2,
   .fixed.top-32.bottom-4.left-16 h3 {
     font-size: 11px !important;
   }
-  
+
   /* Also reduce line height to prevent overlaps */
   .fixed.top-32.bottom-4.left-16 {
     line-height: 1.3 !important;
   }
-  
+
   .fixed.top-32.bottom-4.left-16 * {
     line-height: 1.3 !important;
   }
@@ -384,18 +409,20 @@
 
 /* Chart container mobile optimizations */
 @media (max-width: 768px) {
+
   /* Fix chart height on mobile - add more padding to avoid navigation overlap */
   .market-overview-container {
     height: 100vh !important;
-    padding-top: 140px !important; /* Increased from 80px to avoid nav overlap */
+    padding-top: 140px !important;
+    /* Increased from 80px to avoid nav overlap */
   }
-  
+
   /* Ensure chart fills remaining space */
   .chart-container {
     height: calc(100vh - 140px) !important;
     min-height: calc(100vh - 140px) !important;
   }
-  
+
   /* Push the chart toolbar down */
   .chart-controls-container,
   .flex.items-center.justify-between {
@@ -403,13 +430,13 @@
     position: relative !important;
     z-index: 50 !important;
   }
-  
+
   /* Fix empty gray areas */
   canvas {
     width: 100% !important;
     height: 100% !important;
   }
-  
+
   /* Mobile chart settings */
   .chart-settings {
     position: fixed !important;
@@ -421,9 +448,10 @@
 
 @media (max-width: 768px) {
   .market-overview-container {
-    padding-top: 110px !important; /* Reduced from 140px */
+    padding-top: 110px !important;
+    /* Reduced from 140px */
   }
-  
+
   .chart-container {
     height: calc(100vh - 110px) !important;
   }
@@ -431,9 +459,10 @@
 
 @media (max-width: 640px) {
   .market-overview-container {
-    padding-top: 95px !important; /* Reduced from 120px */
+    padding-top: 95px !important;
+    /* Reduced from 120px */
   }
-  
+
   .chart-container {
     height: calc(100vh - 95px) !important;
   }
@@ -441,9 +470,10 @@
 
 @media (max-width: 480px) {
   .market-overview-container {
-    padding-top: 80px !important; /* Reduced from original higher value */
+    padding-top: 80px !important;
+    /* Reduced from original higher value */
   }
-  
+
   .chart-container {
     height: calc(100vh - 80px) !important;
   }
@@ -496,7 +526,7 @@
     -webkit-overflow-scrolling: touch !important;
     max-width: 100vw !important;
   }
-  
+
   .chart-toolbar button {
     min-height: 32px !important;
     min-width: 32px !important;
@@ -505,14 +535,14 @@
     flex-shrink: 0 !important;
     white-space: nowrap !important;
   }
-  
+
   /* Fix chart toolbar container to prevent overflow */
   .chart-controls-container {
     width: 100% !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }
-  
+
   /* Ensure all toolbar elements are visible */
   .flex.items-center.justify-between {
     flex-wrap: nowrap !important;
@@ -524,6 +554,7 @@
 
 /* Mobile timeframe selector */
 @media (max-width: 768px) {
+
   /* Fix top toolbar buttons - make them smaller and more compact */
   .btn-3d-carved {
     padding: 6px 12px !important;
@@ -532,22 +563,26 @@
     min-height: 32px !important;
     margin: 0 2px !important;
   }
-  
+
   /* Mobile timeframe dropdown styling - ZERO extra space, tight wrap */
   select.btn-3d-carved {
-    min-width: 22px !important; /* Just enough for "D" */
-    width: 22px !important; /* Exact width for single letter */
+    min-width: 22px !important;
+    /* Just enough for "D" */
+    width: 22px !important;
+    /* Exact width for single letter */
     max-width: 22px !important;
     height: 36px !important;
     font-size: 12px !important;
     font-weight: 700 !important;
-    letter-spacing: 0px !important; /* No letter spacing */
+    letter-spacing: 0px !important;
+    /* No letter spacing */
     color: #ff6600 !important;
     background: linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #2a2a2a 100%) !important;
     border: 1px solid rgba(255, 102, 0, 0.3) !important;
     border-radius: 4px !important;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0, 0, 0, 0.4) !important;
-    padding: 6px 0px 6px 2px !important; /* Minimal padding */
+    padding: 6px 0px 6px 2px !important;
+    /* Minimal padding */
     margin: 0 1px !important;
     text-shadow: 1px 1px 0px rgba(0, 0, 0, 0.9), -1px -1px 0px rgba(255, 255, 255, 0.1), 0px -1px 0px rgba(255, 255, 255, 0.05), 0px 1px 0px rgba(0, 0, 0, 0.8) !important;
     -webkit-appearance: none !important;
@@ -558,19 +593,20 @@
     /* Remove dropdown arrow to save space */
     background-image: none !important;
   }
-  
+
   select.btn-3d-carved:focus {
     outline: none !important;
     border-color: #ff6600 !important;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 4px rgba(255, 255, 255, 0.05), 0 0 12px rgba(255, 102, 0, 0.8), 0 0 24px rgba(255, 102, 0, 0.4) !important;
     color: #ff8833 !important;
-    width: 22px !important; /* Force width even on focus */
+    width: 22px !important;
+    /* Force width even on focus */
     min-width: 22px !important;
     max-width: 22px !important;
   }
 
   /* Force ultra-compact for ALL timeframe selects */
-  select[class*="btn-3d"], 
+  select[class*="btn-3d"],
   select.timeframe,
   select[value="D"],
   select[value="W"],
@@ -582,12 +618,14 @@
     text-align: center !important;
     overflow: hidden !important;
     letter-spacing: 0px !important;
-    background-image: none !important; /* No dropdown arrow */
+    background-image: none !important;
+    /* No dropdown arrow */
   }
-  
+
   select.btn-3d-carved option {
     background: #1a1a1a !important;
-    color: #ff6600 !important; /* Orange text for options */
+    color: #ff6600 !important;
+    /* Orange text for options */
     padding: 6px !important;
     font-weight: 600 !important;
   }
@@ -595,6 +633,7 @@
 
 /* Chart type dropdown mobile styling */
 @media (max-width: 768px) {
+
   /* Make chart type dropdown tight and consistent */
   select.btn-3d-carved[value="candlestick"],
   select.btn-3d-carved[value="line"] {
@@ -611,7 +650,7 @@
     padding: 4px 6px !important;
     margin: 0 2px !important;
   }
-  
+
   /* Make the timeframe container more compact */
   .chart-type-dropdown {
     flex-wrap: wrap !important;
@@ -619,7 +658,7 @@
     padding: 4px !important;
     max-width: calc(100vw - 100px) !important;
   }
-  
+
   /* Chart toolbar responsive */
   .timeframe-selector {
     display: flex !important;
@@ -629,7 +668,7 @@
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }
-  
+
   .timeframe-btn {
     min-height: 32px !important;
     min-width: 40px !important;
@@ -637,7 +676,7 @@
     font-size: 11px !important;
     flex-shrink: 0 !important;
   }
-  
+
   /* Make the top control bar more compact */
   .top-control-bar {
     flex-wrap: wrap !important;
@@ -645,7 +684,7 @@
     padding: 8px 4px !important;
     justify-content: flex-start !important;
   }
-  
+
   /* Hide the orange separator on mobile to save space */
   .mx-8 {
     display: none !important;
@@ -657,12 +696,12 @@
   .mobile-sidebar-btn:hover {
     transform: none !important;
   }
-  
+
   .mobile-sidebar-btn:active {
     transform: scale(0.95) !important;
     transition: transform 0.1s ease !important;
   }
-  
+
   .chart-toolbar button:active {
     transform: scale(0.95) !important;
     background: rgba(255, 102, 0, 0.2) !important;
@@ -674,12 +713,12 @@
   .desktop-only {
     display: none !important;
   }
-  
+
   /* Show mobile-only elements */
   .mobile-only {
     display: block !important;
   }
-  
+
   /* Active state for both dropdowns */
   select.btn-3d-carved.active,
   select.btn-3d-carved:active {
@@ -688,23 +727,23 @@
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5), inset 0 -2px 4px rgba(255, 255, 255, 0.1), 0 0 12px rgba(255, 102, 0, 0.8) !important;
     text-shadow: 0 0 5px rgba(255, 255, 255, 0.8) !important;
   }
-  
+
   /* Compact symbol search bar - wrap around content */
   .search-bar-premium {
     padding: 4px 6px !important;
     min-width: auto !important;
-    width: auto !important;
-    max-width: fit-content !important;
+    width: 100px !important;
+    max-width: 100px !important;
     display: inline-flex !important;
   }
-  
+
   .search-bar-premium input {
-    width: 19px !important; /* Ultra tight for SPY text */
+    width: 88px !important;
     font-size: 12px !important;
     font-weight: 700 !important;
-    min-width: 17px !important;
-    max-width: 23px !important;
-    padding: 0 1px !important; /* Minimal padding */
+    min-width: 85px !important;
+    max-width: 88px !important;
+    padding: 0 1px !important;
     text-align: center !important;
     letter-spacing: 0.2px !important;
   }
@@ -719,7 +758,7 @@
   }
 
   /* Force compact for symbol inputs */
-  input[placeholder*="SPY"], 
+  input[placeholder*="SPY"],
   input[value*="SPY"],
   input.symbol-input,
   input.ticker-input {
@@ -731,30 +770,34 @@
     font-size: 12px !important;
     font-weight: 700 !important;
   }
-  
+
   /* Compact price display container */
   .market-overview-container .font-mono.text-xl {
-    font-size: 16px !important; /* Reduced from text-xl (24px) */
+    font-size: 16px !important;
+    /* Reduced from text-xl (24px) */
     line-height: 1.2 !important;
   }
-  
+
   .market-overview-container .font-mono.text-xs {
-    font-size: 9px !important; /* Reduced from text-xs (12px) */
-    padding: 1px 4px !important; /* Reduced padding */
+    font-size: 9px !important;
+    /* Reduced from text-xs (12px) */
+    padding: 1px 4px !important;
+    /* Reduced padding */
   }
-  
+
   /* Compact toolbar spacing */
-  .market-overview-container > div > div:first-child {
-    gap: 8px !important; /* Reduce gap between search and price */
+  .market-overview-container>div>div:first-child {
+    gap: 8px !important;
+    /* Reduce gap between search and price */
   }
-  
+
   /* Target the timeframe dropdown container */
   .timeframe-dropdown {
     margin-left: 8px !important;
     padding: 4px !important;
   }
-  
 
-  
+
+
 
 }

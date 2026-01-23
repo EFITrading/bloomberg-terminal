@@ -14768,10 +14768,10 @@ export default function TradingViewChart({
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
+                className="md:text-[20px] text-[12px]"
                 style={{
                   flex: 1,
                   padding: '12px 24px',
-                  fontSize: '20px',
                   fontWeight: '900',
                   fontFamily: 'monospace',
                   letterSpacing: '1px',
@@ -14815,7 +14815,7 @@ export default function TradingViewChart({
                 zIndex: 100,
                 overflow: 'visible'
               }}>
-                <EnhancedRegimeDisplay regimeAnalysis={regimeAnalysis} selectedPeriod="1d" />
+                <EnhancedRegimeDisplay regimeAnalysis={regimeAnalysis} selectedPeriod="1d" watchlistData={watchlistData} />
               </div>
             )}
 
@@ -15019,73 +15019,43 @@ export default function TradingViewChart({
 
                           {/* 1D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
-                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('1d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('1d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('1d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf1d.color}`}>
-                              {symbol === 'SPY' ? (() => {
-                                const regime = getMarketRegimeForHeader('1d');
-                                if (regime === 'MIXED') return 'MIXED';
-                                const score = calculateRegimeScore(regime, '1d');
-                                return `${regime} ${score}`;
-                              })() : perf1d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf1d.color}`}>
+                              {perf1d.status}
                             </span>
                           </div>
 
                           {/* 5D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
-                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('5d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('5d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('5d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf5d.color}`}>
-                              {symbol === 'SPY' ? (() => {
-                                const regime = getMarketRegimeForHeader('5d');
-                                if (regime === 'MIXED') return 'MIXED';
-                                const score = calculateRegimeScore(regime, '5d');
-                                return `${regime} ${score}`;
-                              })() : perf5d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf5d.color}`}>
+                              {perf5d.status}
                             </span>
                           </div>
 
                           {/* 13D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
-                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('13d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('13d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('13d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf13d.color}`}>
-                              {symbol === 'SPY' ? (() => {
-                                const regime = getMarketRegimeForHeader('13d');
-                                if (regime === 'MIXED') return 'MIXED';
-                                const score = calculateRegimeScore(regime, '13d');
-                                return `${regime} ${score}`;
-                              })() : perf13d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf13d.color}`}>
+                              {perf13d.status}
                             </span>
                           </div>
 
                           {/* 21D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
-                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('21d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('21d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('21d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf21d.color}`}>
-                              {symbol === 'SPY' ? (() => {
-                                const regime = getMarketRegimeForHeader('21d');
-                                if (regime === 'MIXED') return 'MIXED';
-                                const score = calculateRegimeScore(regime, '21d');
-                                return `${regime} ${score}`;
-                              })() : perf21d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf21d.color}`}>
+                              {perf21d.status}
                             </span>
                           </div>
 
                           {/* 50D Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
-                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('50d') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('50d') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('50d') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perf50d.color}`}>
-                              {symbol === 'SPY' ? (() => {
-                                const regime = getMarketRegimeForHeader('50d');
-                                if (regime === 'MIXED') return 'MIXED';
-                                const score = calculateRegimeScore(regime, '50d');
-                                return `${regime} ${score}`;
-                              })() : perf50d.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perf50d.color}`}>
+                              {perf50d.status}
                             </span>
                           </div>
 
                           {/* YTD Performance */}
                           <div className="bg-gradient-to-br from-[#0d0d0d] to-[#050505] md:p-3 p-2 flex items-center justify-center gap-1 border-b border-gray-900/50 group-hover:bg-gradient-to-br group-hover:from-[#1a1a1a] group-hover:to-[#0a0a0a] transition-all" style={{ whiteSpace: 'nowrap' }}>
-                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${symbol === 'SPY' ? (getMarketRegimeForHeader('ytd') === 'RISK ON' ? 'text-green-400 animate-pulse' : getMarketRegimeForHeader('ytd') === 'DEFENSIVE' ? 'text-red-500 animate-pulse' : getMarketRegimeForHeader('ytd') === 'VALUE' ? 'text-blue-400 animate-pulse' : 'text-yellow-400') : perfYTD.color}`}>
-                              {symbol === 'SPY' ? (() => {
-                                const regime = getMarketRegimeForHeader('ytd');
-                                if (regime === 'MIXED') return 'MIXED';
-                                const score = calculateRegimeScore(regime, 'ytd');
-                                return `${regime} ${score}`;
-                              })() : perfYTD.status}
+                            <span className={`font-bold md:text-base text-[8px] uppercase tracking-widest ${perfYTD.color}`}>
+                              {perfYTD.status}
                             </span>
                           </div>
                         </div>
