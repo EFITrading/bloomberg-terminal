@@ -7,13 +7,23 @@ export async function GET(request: NextRequest) {
     const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
     try {
-        // Get current stock price
+        // Get current stock price - handle SPX/VIX differently (use snapshot)
         let currentPrice = null;
         try {
-            const priceRes = await fetch(`https://api.polygon.io/v2/last/trade/${ticker}?apikey=${apiKey}`);
-            const priceData = await priceRes.json();
-            if (priceData.status === 'OK' && priceData.results) {
-                currentPrice = priceData.results.p;
+            if (ticker === 'SPX' || ticker === 'VIX') {
+                // For indices, get price from options snapshot
+                const snapshotRes = await fetch(`https://api.polygon.io/v3/snapshot/options/I:${ticker}?limit=1&apikey=${apiKey}`);
+                const snapshotData = await snapshotRes.json();
+                if (snapshotData.status === 'OK' && snapshotData.results?.[0]?.underlying_asset) {
+                    currentPrice = snapshotData.results[0].underlying_asset.value;
+                }
+            } else {
+                // For regular stocks, use last trade
+                const priceRes = await fetch(`https://api.polygon.io/v2/last/trade/${ticker}?apikey=${apiKey}`);
+                const priceData = await priceRes.json();
+                if (priceData.status === 'OK' && priceData.results) {
+                    currentPrice = priceData.results.p || priceData.results.P;
+                }
             }
         } catch (error) {
             console.error(`Failed to fetch current price for ${ticker}:`, error);

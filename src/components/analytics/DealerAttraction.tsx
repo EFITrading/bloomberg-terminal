@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { RefreshCw, AlertCircle, TrendingUp, Activity, Target, BarChart3, Gauge } from 'lucide-react';
 import DealerOpenInterestChart from './DealerOpenInterestChart';
 import DealerGEXChart from './DealerGEXChart';
 import DealerAttractionOIMobile from './DealerAttractionOIMobile';
 import DealerAttractionOIDesktop from './DealerAttractionOIDesktop';
+import GEXTimelineScrubber from './GEXTimelineScrubber';
 
 // Unified OI/GEX Tab Component - now delegates to mobile/desktop specific components
 const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> = ({ selectedTicker, activeTableCount = 0 }) => {
@@ -3826,6 +3828,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [showDealer, setShowDealer] = useState(false);
   const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX');
   const [showFlowGEX, setShowFlowGEX] = useState(false);
+  const [showHistoricalGEX, setShowHistoricalGEX] = useState(true); // Historical GEX Timeline - always on
+  const [historicalTimestamp, setHistoricalTimestamp] = useState<number | null>(null); // Selected historical timestamp
+  const [historicalPrice, setHistoricalPrice] = useState<number>(0); // Price at selected timestamp
+  const [historicalGEXData, setHistoricalGEXData] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callGamma?: number, putGamma?: number } } }>({});
 
   const [showOI, setShowOI] = useState(false);
   const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false);
@@ -4375,81 +4381,77 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         if (ticker === 'SPX') {
           console.time(`${ticker} total fetch time`);
 
+          // STEP 1: Get all available expirations first (use same endpoint as QQQ/SPY)
+          const allExpirationsResponse = await fetch(`/api/options-chain?ticker=SPX`);
+          const allExpirationsResult = await allExpirationsResponse.json();
+
+          if (!allExpirationsResult.success || !allExpirationsResult.data) {
+            console.error(`❌ ${ticker} Failed to fetch available expirations`);
+            setOdtrioData(prev => ({
+              ...prev,
+              [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
+            }));
+            continue;
+          }
+
+          const currentPrice = allExpirationsResult.currentPrice;
+          const allExpirations = Object.keys(allExpirationsResult.data).sort();
+
           // Get current time in Eastern Time
           const currentTimeET = new Date();
           const nowET = new Date(currentTimeET.toLocaleString("en-US", { timeZone: "America/New_York" }));
           const currentHour = nowET.getHours();
           const currentMinute = nowET.getMinutes();
 
-          console.log(`🕐 Current ET time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
+          console.log(`🕐 ${ticker} Current ET time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
 
-          // After 4:15 PM ET (16:15), show next trading day's expiration
+          // After 4:15 PM ET, look for next trading day (same logic as QQQ/SPY)
           let targetDate = new Date();
           targetDate.setHours(0, 0, 0, 0);
           if (currentHour > 16 || (currentHour === 16 && currentMinute >= 15)) {
             targetDate.setDate(targetDate.getDate() + 1);
-            console.log(`⏰ After 4:15 PM ET, targeting next day's expiration`);
+            console.log(`⏰ ${ticker} After 4:15 PM ET, targeting next day's expiration`);
           }
 
-          let odteExpiry = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
-          const fallbackExpiry = new Date(targetDate);
-          fallbackExpiry.setDate(fallbackExpiry.getDate() + 1);
-          const fallbackStr = fallbackExpiry.toISOString().split('T')[0];
+          // Find next available expiration (handles weekends automatically)
+          let odteExpiry = allExpirations.find(exp => {
+            const expDate = new Date(exp);
+            expDate.setHours(0, 0, 0, 0);
+            const daysDiff = Math.ceil((expDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+            return daysDiff >= 0 && daysDiff <= 1;
+          });
 
-          // Start with a reasonable price estimate for SPX (will be updated from API)
-          let currentPrice = 6900; // Fallback estimate
-
-          // Try fetching with a reasonable strike range first to get price
-          let minStrike = currentPrice * 0.99;
-          let maxStrike = currentPrice * 1.02;
-
-          console.log(`📏 ${ticker} initial fetch to get price, trying ${odteExpiry}`);
-
-          let result: any;
-          let odteResponse = await fetch(`/api/spx-fix?ticker=SPX&expiration=${odteExpiry}&minStrike=${minStrike}&maxStrike=${maxStrike}`);
-          result = await odteResponse.json();
-
-          // If target date has no data, try fallback
-          if (!result.success || !result.data || Object.keys(result.data[odteExpiry]?.calls || {}).length === 0) {
-            console.log(`📅 ${ticker} No data for ${odteExpiry}, trying ${fallbackStr}`);
-            const prevOdteExpiry = odteExpiry;
-            odteExpiry = fallbackStr;
-            odteResponse = await fetch(`/api/spx-fix?ticker=SPX&expiration=${odteExpiry}&minStrike=${minStrike}&maxStrike=${maxStrike}`);
-            result = await odteResponse.json();
-
-            if (!result.success || !result.data) {
-              console.error(`❌ ${ticker} ODTE fetch failed for both dates`);
-              setOdtrioData(prev => ({
-                ...prev,
-                [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
-              }));
-              continue;
-            }
+          if (!odteExpiry && allExpirations.length > 0) {
+            odteExpiry = allExpirations[0];
           }
 
-          // Get actual current price from API response
-          if (result.currentPrice && result.currentPrice > 0) {
-            currentPrice = result.currentPrice;
+          if (!odteExpiry) {
+            console.error(`❌ ${ticker} No expiry available`);
+            setOdtrioData(prev => ({
+              ...prev,
+              [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
+            }));
+            continue;
+          }
 
-            // Recalculate strike range with accurate price if needed
-            const newMinStrike = currentPrice * 0.99;
-            const newMaxStrike = currentPrice * 1.02;
+          console.log(`📅 ${ticker} Selected expiration: ${odteExpiry}`);
 
-            // If our estimate was off by more than 5%, refetch with correct range
-            if (Math.abs(newMinStrike - minStrike) / minStrike > 0.05) {
-              console.log(`📏 ${ticker} Refetching with accurate strike range: $${newMinStrike.toFixed(2)} - $${newMaxStrike.toFixed(2)}`);
-              odteResponse = await fetch(`/api/spx-fix?ticker=SPX&expiration=${odteExpiry}&minStrike=${newMinStrike}&maxStrike=${newMaxStrike}`);
-              result = await odteResponse.json();
+          // STEP 2: Now fetch filtered data for that specific expiration
+          const minStrike = currentPrice * 0.99;
+          const maxStrike = currentPrice * 1.02;
 
-              if (!result.success || !result.data) {
-                console.error(`❌ ${ticker} Refetch failed`);
-                setOdtrioData(prev => ({
-                  ...prev,
-                  [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
-                }));
-                continue;
-              }
-            }
+          console.log(`📏 ${ticker} Fetching strike range: $${minStrike.toFixed(2)} - $${maxStrike.toFixed(2)} (Price: $${currentPrice.toFixed(2)})`);
+
+          const odteResponse = await fetch(`/api/spx-fix?ticker=SPX&expiration=${odteExpiry}&minStrike=${minStrike}&maxStrike=${maxStrike}`);
+          const result = await odteResponse.json();
+
+          if (!result.success || !result.data) {
+            console.error(`❌ ${ticker} ODTE fetch failed for ${odteExpiry}`);
+            setOdtrioData(prev => ({
+              ...prev,
+              [ticker]: { data: [], loading: false, currentPrice: 0, odteExpiry: '', timestamp: now }
+            }));
+            continue;
           }
 
           console.log(`✅ ${ticker} Using expiration: ${odteExpiry}, Price: $${currentPrice.toFixed(2)}`);
@@ -5687,6 +5689,178 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     setTickerInput(selectedTicker);
   }, [selectedTicker]);
 
+  // Recalculate GEX when historical timestamp changes
+  useEffect(() => {
+    // Only run if we have a valid historical timestamp
+    if (!showHistoricalGEX) return;
+    if (!historicalTimestamp || !selectedTicker) return;
+    if (expirations.length === 0) return;
+    if (Object.keys(baseGexByStrikeByExpiration).length === 0) return; // Need base data first
+
+    const recalculateHistoricalGEX = async () => {
+      try {
+        const apiKey = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+        // Fetch ALL options contracts (increase limit to get all expirations)
+        let allContracts: any[] = [];
+        let nextUrl: string | null = `https://api.polygon.io/v3/snapshot/options/${selectedTicker}?limit=250&apikey=${apiKey}`;
+
+        // Paginate to get all contracts
+        while (nextUrl && allContracts.length < 5000) {
+          const response = await fetch(nextUrl);
+          const data = await response.json();
+
+          if (data.status !== 'OK') break;
+          if (data.results) allContracts.push(...data.results);
+
+          nextUrl = data.next_url;
+          if (nextUrl && !nextUrl.includes('apikey=')) {
+            nextUrl += `&apikey=${apiKey}`;
+          }
+
+          // Small delay to avoid rate limits
+          if (nextUrl) await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        // Filter contracts by our expirations
+        const contracts = allContracts.filter((c: any) =>
+          expirations.includes(c.details?.expiration_date)
+        );
+
+        // Build live OI map up to the historical timestamp (only for live mode)
+        let liveOIAtTimestamp = new Map<string, number>();
+        if (liveMode && flowTradesData.length > 0) {
+          // Start with base OI from snapshot
+          contracts.forEach((contract: any) => {
+            const strike = contract.details?.strike_price;
+            const expiration = contract.details?.expiration_date;
+            const isCall = contract.details?.contract_type === 'call';
+            if (!strike || !expiration) return;
+
+            const contractKey = `${selectedTicker}_${strike}_${isCall ? 'call' : 'put'}_${expiration}`;
+            liveOIAtTimestamp.set(contractKey, contract.open_interest || 0);
+          });
+
+          // Apply trades that occurred at or before the historical timestamp
+          const sortedTrades = [...flowTradesData].sort((a, b) =>
+            new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+          );
+
+          sortedTrades.forEach(trade => {
+            const tradeTime = new Date(trade.trade_timestamp).getTime();
+            if (tradeTime > historicalTimestamp) return; // Skip future trades
+
+            const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
+            const currentOI = liveOIAtTimestamp.get(contractKey) || 0;
+            const contracts = trade.trade_size || 0;
+
+            // Aggressive opening (AA, A, BB) adds to OI, closing (B) subtracts
+            if (trade.fill_style === 'AA' || trade.fill_style === 'A' || trade.fill_style === 'BB') {
+              liveOIAtTimestamp.set(contractKey, currentOI + contracts);
+            } else if (trade.fill_style === 'B') {
+              liveOIAtTimestamp.set(contractKey, Math.max(0, currentOI - contracts));
+            }
+          });
+        }
+
+        // Recalculate GEX at historical price using Black-Scholes
+        const newGEXData: typeof gexByStrikeByExpiration = {};
+        const newDealerData: typeof dealerByStrikeByExpiration = {};
+
+        expirations.forEach(exp => {
+          newGEXData[exp] = {};
+          newDealerData[exp] = {};
+        });
+
+        const today = new Date();
+
+        contracts.forEach((contract: any) => {
+          const strike = contract.details?.strike_price;
+          const expiration = contract.details?.expiration_date;
+          const isCall = contract.details?.contract_type === 'call';
+
+          if (!strike || !expiration || !expirations.includes(expiration)) return;
+
+          // Use live OI if in live mode, otherwise use snapshot OI
+          let OI = contract.open_interest || 0;
+          if (liveMode && flowTradesData.length > 0) {
+            const contractKey = `${selectedTicker}_${strike}_${isCall ? 'call' : 'put'}_${expiration}`;
+            OI = liveOIAtTimestamp.get(contractKey) || OI;
+          }
+
+          const IV = (contract.implied_volatility || 0.3); // Default 30% if missing
+
+          // Calculate time to expiration for THIS specific expiration
+          const expirationDate = new Date(expiration);
+          const T = Math.max((expirationDate.getTime() - today.getTime()) / (365 * 24 * 60 * 60 * 1000), 0.001);
+
+          // Black-Scholes Gamma calculation
+          const S = historicalPrice;
+          const K = strike;
+          const r = 0.05;
+
+          const d1 = (Math.log(S / K) + (r + 0.5 * IV * IV) * T) / (IV * Math.sqrt(T));
+          const nPrimeD1 = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * d1 * d1);
+          const gamma = nPrimeD1 / (S * IV * Math.sqrt(T));
+
+          // Calculate Delta
+          const normalCDF = (x: number) => {
+            const t = 1 / (1 + 0.2316419 * Math.abs(x));
+            const d = 0.3989423 * Math.exp(-x * x / 2);
+            const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+            return x > 0 ? 1 - p : p;
+          };
+          const delta = isCall ? normalCDF(d1) : normalCDF(d1) - 1;
+
+          // Net GEX formula
+          const spotGEX = gamma * OI * S * S * 100 * (isCall ? 1 : -1);
+
+          // Dealer GEX formula
+          const gamma_eff = gamma * (isCall ? delta : (1 - Math.abs(delta)));
+          const dealerGEX = OI * gamma_eff * 1 * 1 * S * 100;
+
+          if (!newGEXData[expiration][strike]) {
+            newGEXData[expiration][strike] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0 };
+            newDealerData[expiration][strike] = { call: 0, put: 0, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0 };
+          }
+
+          if (isCall) {
+            newGEXData[expiration][strike].call = spotGEX;
+            newGEXData[expiration][strike].callOI = OI;
+            newGEXData[expiration][strike].callGamma = gamma;
+            newDealerData[expiration][strike].call = dealerGEX;
+            newDealerData[expiration][strike].callOI = OI;
+            newDealerData[expiration][strike].callGamma = gamma;
+          } else {
+            newGEXData[expiration][strike].put = spotGEX;
+            newGEXData[expiration][strike].putOI = OI;
+            newGEXData[expiration][strike].putGamma = gamma;
+            newDealerData[expiration][strike].put = dealerGEX;
+            newDealerData[expiration][strike].putOI = OI;
+            newDealerData[expiration][strike].putGamma = gamma;
+          }
+        });
+
+        setGexByStrikeByExpiration(newGEXData);
+        setDealerByStrikeByExpiration(newDealerData);
+      } catch (error) {
+        console.error('Failed to recalculate historical GEX:', error);
+      }
+    };
+
+    recalculateHistoricalGEX();
+  }, [historicalTimestamp, historicalPrice, liveMode, flowTradesData]);
+
+  // Reset to base data when HIST GEX is turned off or timestamp is null
+  useEffect(() => {
+    if (!showHistoricalGEX || historicalTimestamp === null) {
+      if (Object.keys(baseGexByStrikeByExpiration).length > 0) {
+        setGexByStrikeByExpiration(baseGexByStrikeByExpiration);
+        setDealerByStrikeByExpiration(baseDealerByStrikeByExpiration);
+      }
+    }
+  }, [showHistoricalGEX, historicalTimestamp]);
+
 
 
   const formatCurrency = (value: number) => {
@@ -5958,21 +6132,22 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   };
 
   const formatDate = (dateStr: string) => {
-    // Parse as local date to avoid timezone conversion issues
-    // Split the date string and create date in local timezone
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day); // month is 0-indexed in Date constructor
+    // Parse the date string (YYYY-MM-DD format)
+    const [year, month, day] = dateStr.split('-');
 
-    // Format for mobile: "Nov 28, 25" instead of "Nov 28, 2025"
-    const fullDate = date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      timeZone: 'America/New_York'
-    });
+    // Create a Date object at noon UTC to avoid timezone shifting
+    const date = new Date(`${dateStr}T12:00:00Z`);
 
-    // Shorten year for mobile (2025 -> 25)
-    return fullDate.replace(/, (\d{4})$/, (match, year) => `, ${year.slice(-2)}`);
+    // Add 1 day because options expire on Saturday (contract dated Friday)
+    date.setUTCDate(date.getUTCDate() + 1);
+
+    // Format the date
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthName = monthNames[date.getUTCMonth()];
+    const dayNum = date.getUTCDate();
+    const yearShort = date.getUTCFullYear().toString().slice(-2);
+
+    return `${monthName} ${dayNum}, ${yearShort}`;
   };
 
   if (error) {
@@ -6937,6 +7112,46 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             <>
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
 
+              {/* GEX Timeline Scrubber - Always visible when ticker selected */}
+              {!showODTRIO && selectedTicker && (
+                <div className="px-4 pb-4">
+                  <GEXTimelineScrubber
+                    key={selectedTicker}
+                    ticker={selectedTicker}
+                    date={(() => {
+                      // Get current date in Eastern Time (ET)
+                      const now = new Date();
+                      const etDateStr = now.toLocaleDateString('en-US', {
+                        timeZone: 'America/New_York',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                      });
+
+                      // Parse MM/DD/YYYY format
+                      const [month, day, year] = etDateStr.split('/');
+                      const today = new Date(Number(year), Number(month) - 1, Number(day));
+                      const dayOfWeek = today.getDay();
+
+                      // If Saturday (6), go back 1 day. If Sunday (0), go back 2 days.
+                      if (dayOfWeek === 0) today.setDate(today.getDate() - 2); // Sunday -> Friday
+                      else if (dayOfWeek === 6) today.setDate(today.getDate() - 1); // Saturday -> Friday
+
+                      // Format as YYYY-MM-DD
+                      const finalYear = today.getFullYear();
+                      const finalMonth = String(today.getMonth() + 1).padStart(2, '0');
+                      const finalDay = String(today.getDate()).padStart(2, '0');
+                      return `${finalYear}-${finalMonth}-${finalDay}`;
+                    })()}
+                    currentPrice={currentPrice}
+                    onTimeChange={(timestamp, price) => {
+                      setHistoricalTimestamp(timestamp);
+                      setHistoricalPrice(price);
+                    }}
+                  />
+                </div>
+              )}
+
               {/* ODTRIO MODE - Takes priority over everything */}
               {showODTRIO ? (
                 <div className="px-4">
@@ -7093,13 +7308,39 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 </tr>
                               </thead>
                               <tbody>
-                                {tickerDataArray
-                                  .filter(row => {
+                                {(() => {
+                                  const filteredRows = tickerDataArray.filter(row => {
                                     const isInStrikeRange = row.strike >= minStrike && row.strike <= maxStrike;
                                     const hasGEXData = row.expirations && row.expirations[odteExpiry];
                                     return isInStrikeRange && hasGEXData;
-                                  })
-                                  .map((row) => {
+                                  });
+
+                                  // Find purple pivot row index
+                                  const purplePivotIndex = filteredRows.findIndex(row => {
+                                    const gexData = row.expirations?.[odteExpiry];
+                                    if (!gexData) return false;
+                                    const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
+                                    const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                                    const isLowestGEX = netGEX === lowestGEX && netGEX < 0;
+                                    const isLowestDealer = netDealer === lowestDealer && netDealer < 0;
+                                    return showNormalColumn && showDealerColumn && isLowestGEX && isLowestDealer;
+                                  });
+
+                                  // Find golden zone row index
+                                  const goldenRowIndex = filteredRows.findIndex(row => {
+                                    const gexData = row.expirations?.[odteExpiry];
+                                    if (!gexData) return false;
+                                    const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
+                                    const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                                    const isHighestGEX = netGEX === highestGEX && netGEX > 0;
+                                    const isHighestDealer = netDealer === highestDealer && netDealer > 0;
+                                    return showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
+                                  });
+
+                                  // Find current price row index
+                                  const currentPriceRowIndex = filteredRows.findIndex(row => row.strike === closestStrike);
+
+                                  return filteredRows.map((row, rowIndex) => {
                                     const gexData = row.expirations?.[odteExpiry];
                                     if (!gexData) return null;
 
@@ -7151,6 +7392,30 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                     // Check if this is the current price row
                                     const isCurrentPriceRow = row.strike === closestStrike;
 
+                                    // Check if both columns are purple (pivot)
+                                    const bothPurple = showNormalColumn && showDealerColumn && isLowestGEX && isLowestDealer;
+
+                                    // Check if both columns are golden (highest positive GEX)
+                                    const bothGolden = showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
+
+                                    // Show arrows ON the purple pivot row itself
+                                    const isPurplePivot = bothPurple;
+
+                                    // Conditional arrow display based on current price position relative to pivot
+                                    // When current price is BELOW pivot (currentPriceRowIndex > purplePivotIndex): show RED only
+                                    // When current price is ABOVE pivot (currentPriceRowIndex < purplePivotIndex): show GREEN only
+                                    // When current price is AT pivot (currentPriceRowIndex === purplePivotIndex): show BOTH
+                                    const showGreenUpFromPurple = isPurplePivot && (currentPriceRowIndex < purplePivotIndex || rowIndex === currentPriceRowIndex);
+                                    const showRedDownFromPurple = isPurplePivot && (currentPriceRowIndex > purplePivotIndex || rowIndex === currentPriceRowIndex);
+
+                                    // Show flowing pipe connecting current price to golden zone
+                                    const showGoldenPipe = isCurrentPriceRow && goldenRowIndex !== -1;
+                                    const pipeDirection = goldenRowIndex > currentPriceRowIndex ? 'down' : 'up';
+                                    const pipeHeight = Math.abs(goldenRowIndex - currentPriceRowIndex);
+
+                                    // Show spinning pulley at golden zone
+                                    const isGoldenZone = showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
+
                                     return (
                                       <tr
                                         key={`${tricoTicker}-${row.strike}`}
@@ -7164,6 +7429,355 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           <div className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : (isHighestGEX || isHighestDealer) ? 'text-yellow-400' : (isLowestGEX || isLowestDealer) ? 'text-purple-400' : 'text-white'}`} style={{ fontSize: isMobile ? '0.8rem' : '1.8rem' }}>
                                             {row.strike.toFixed(1)}
                                           </div>
+
+                                          {/* Arrows at right edge of Dealer column */}
+                                          {showNormalColumn && showDealerColumn && (
+                                            <>
+                                              {/* Green arrows UP - from purple box top */}
+                                              {showGreenUpFromPurple && (
+                                                <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 40}px`, bottom: '100%', width: '70px', height: '150px', pointerEvents: 'none', zIndex: 100, overflow: 'visible' }}>
+                                                  <defs>
+                                                    <path id={`greenUp-${row.strike}`} d="M 25 150 Q 50 130 45 90 L 45 10" fill="none" />
+                                                    <linearGradient id={`greenGrad-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                                                      <stop offset="0%" style={{ stopColor: '#00ffaa', stopOpacity: 1 }} />
+                                                      <stop offset="50%" style={{ stopColor: '#00ff88', stopOpacity: 1 }} />
+                                                      <stop offset="100%" style={{ stopColor: '#00cc66', stopOpacity: 1 }} />
+                                                    </linearGradient>
+                                                    <filter id="greenGlow-${row.strike}" x="-50%" y="-50%" width="200%" height="200%">
+                                                      <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                                                      <feMerge>
+                                                        <feMergeNode in="coloredBlur" />
+                                                        <feMergeNode in="SourceGraphic" />
+                                                      </feMerge>
+                                                    </filter>
+                                                  </defs>
+                                                  {/* 3D depth shadow layer */}
+                                                  {[0, 1, 2].map((i) => (
+                                                    <g key={`shadow-${i}`}>
+                                                      <text fontSize="42" fill="#003322" opacity="0.6" style={{ fontWeight: 'bold' }}>
+                                                        ↑
+                                                        <animateMotion
+                                                          dur="2.2s"
+                                                          begin={`${i * 0.7}s`}
+                                                          repeatCount="indefinite"
+                                                          path="M 23 152 Q 48 132 43 92 L 43 12"
+                                                        />
+                                                        <animate attributeName="opacity" values="0;0.2;0.6;0.6;0.6;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                      </text>
+                                                    </g>
+                                                  ))}
+                                                  {/* Main 3D arrows with gradient and outline */}
+                                                  {[0, 1, 2].map((i) => (
+                                                    <g key={i}>
+                                                      {/* Stroke outline for depth */}
+                                                      <text fontSize="42" fill="none" stroke="#00ffaa" strokeWidth="3" style={{ fontWeight: 'bold' }}>
+                                                        ↑
+                                                        <animateMotion
+                                                          dur="2.2s"
+                                                          begin={`${i * 0.7}s`}
+                                                          repeatCount="indefinite"
+                                                          path="M 25 150 Q 50 130 45 90 L 45 10"
+                                                        >
+                                                          <mpath href={`#greenUp-${row.strike}`} />
+                                                        </animateMotion>
+                                                        <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                      </text>
+                                                      {/* Inner fill with gradient */}
+                                                      <text fontSize="42" fill="url(#greenGrad-${row.strike})" style={{ filter: `drop-shadow(0 0 20px #00ff88) drop-shadow(0 0 35px #00ff88) drop-shadow(3px 3px 0px #003322) url(#greenGlow-${row.strike})`, fontWeight: 'bold' }}>
+                                                        ↑
+                                                        <animateMotion
+                                                          dur="2.2s"
+                                                          begin={`${i * 0.7}s`}
+                                                          repeatCount="indefinite"
+                                                          path="M 25 150 Q 50 130 45 90 L 45 10"
+                                                        >
+                                                          <mpath href={`#greenUp-${row.strike}`} />
+                                                        </animateMotion>
+                                                        <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                        <animateTransform attributeName="transform" type="scale" values="0.9;1.05;1;1;0.9" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" additive="sum" />
+                                                      </text>
+                                                    </g>
+                                                  ))}
+                                                  <path d="M 45 150 Q 60 130 55 90 L 55 10" stroke="url(#greenGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #00ff88)' }} />
+                                                </svg>
+                                              )}
+
+                                              {/* Red arrows DOWN - from purple box bottom */}
+                                              {showRedDownFromPurple && (
+                                                <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`, top: '100%', width: '70px', height: '150px', pointerEvents: 'none', zIndex: 100, overflow: 'visible' }}>
+                                                  <defs>
+                                                    <path id={`redDown-${row.strike}`} d="M 25 0 Q 0 20 5 60 L 5 140" fill="none" />
+                                                    <linearGradient id={`redGrad-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                                                      <stop offset="0%" style={{ stopColor: '#ff3366', stopOpacity: 1 }} />
+                                                      <stop offset="50%" style={{ stopColor: '#ff1744', stopOpacity: 1 }} />
+                                                      <stop offset="100%" style={{ stopColor: '#cc0022', stopOpacity: 1 }} />
+                                                    </linearGradient>
+                                                    <filter id="redGlow-${row.strike}" x="-50%" y="-50%" width="200%" height="200%">
+                                                      <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                                                      <feMerge>
+                                                        <feMergeNode in="coloredBlur" />
+                                                        <feMergeNode in="SourceGraphic" />
+                                                      </feMerge>
+                                                    </filter>
+                                                  </defs>
+                                                  {/* 3D depth shadow layer */}
+                                                  {[0, 1, 2].map((i) => (
+                                                    <g key={`shadow-${i}`}>
+                                                      <text fontSize="42" fill="#330011" opacity="0.6" style={{ fontWeight: 'bold' }}>
+                                                        ↓
+                                                        <animateMotion
+                                                          dur="2.2s"
+                                                          begin={`${i * 0.7}s`}
+                                                          repeatCount="indefinite"
+                                                          path="M 23 -2 Q -2 18 3 58 L 3 138"
+                                                        />
+                                                        <animate attributeName="opacity" values="0;0.2;0.6;0.6;0.6;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                      </text>
+                                                    </g>
+                                                  ))}
+                                                  {/* Main 3D arrows with gradient and outline */}
+                                                  {[0, 1, 2].map((i) => (
+                                                    <g key={i}>
+                                                      {/* Stroke outline for depth */}
+                                                      <text fontSize="42" fill="none" stroke="#ff3366" strokeWidth="3" style={{ fontWeight: 'bold' }}>
+                                                        ↓
+                                                        <animateMotion
+                                                          dur="2.2s"
+                                                          begin={`${i * 0.7}s`}
+                                                          repeatCount="indefinite"
+                                                          path="M 25 0 Q 0 20 5 60 L 5 140"
+                                                        >
+                                                          <mpath href={`#redDown-${row.strike}`} />
+                                                        </animateMotion>
+                                                        <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                      </text>
+                                                      {/* Inner fill with gradient */}
+                                                      <text fontSize="42" fill="url(#redGrad-${row.strike})" style={{ filter: `drop-shadow(0 0 20px #ff1744) drop-shadow(0 0 35px #ff1744) drop-shadow(3px 3px 0px #330011) url(#redGlow-${row.strike})`, fontWeight: 'bold' }}>
+                                                        ↓
+                                                        <animateMotion
+                                                          dur="2.2s"
+                                                          begin={`${i * 0.7}s`}
+                                                          repeatCount="indefinite"
+                                                          path="M 25 0 Q 0 20 5 60 L 5 140"
+                                                        >
+                                                          <mpath href={`#redDown-${row.strike}`} />
+                                                        </animateMotion>
+                                                        <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                        <animateTransform attributeName="transform" type="scale" values="0.9;1.05;1;1;0.9" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" additive="sum" />
+                                                      </text>
+                                                    </g>
+                                                  ))}
+                                                  <path d="M 35 0 Q 15 20 15 60 L 15 140" stroke="url(#redGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #ff1744)' }} />
+                                                </svg>
+                                              )}
+
+                                              {/* Connected L-shaped pipe from current price to golden zone */}
+                                              {isCurrentPriceRow && goldenRowIndex !== -1 && (
+                                                <svg style={{
+                                                  position: 'absolute',
+                                                  left: `${mobileStrikeWidth + 30}px`,
+                                                  top: '50%',
+                                                  width: `${mobileExpWidth * 2 - 50 + 15}px`,
+                                                  height: `${Math.abs(goldenRowIndex - currentPriceRowIndex) * 37 + 20}px`,
+                                                  pointerEvents: 'none',
+                                                  zIndex: 102,
+                                                  overflow: 'visible',
+                                                  transform: goldenRowIndex > currentPriceRowIndex ? 'translateY(17px)' : `translateY(calc(-100% - 17px))`
+                                                }}>
+                                                  <defs>
+                                                    {/* Vertical glossy shine */}
+                                                    <linearGradient id={`pipeShine-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                                                      <stop offset="0%" style={{ stopColor: '#fff', stopOpacity: 0 }} />
+                                                      <stop offset="15%" style={{ stopColor: '#fff', stopOpacity: 0.6 }} />
+                                                      <stop offset="30%" style={{ stopColor: '#fff', stopOpacity: 0 }} />
+                                                    </linearGradient>
+                                                    {/* 4D glow filter */}
+                                                    <filter id={`pipeGlow-${row.strike}`} x="-50%" y="-50%" width="200%" height="200%">
+                                                      <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                                                      <feFlood floodColor="#00ff00" floodOpacity="0.5" />
+                                                      <feComposite in2="coloredBlur" operator="in" />
+                                                      <feMerge>
+                                                        <feMergeNode />
+                                                        <feMergeNode in="SourceGraphic" />
+                                                      </feMerge>
+                                                    </filter>
+                                                  </defs>
+
+                                                  {(() => {
+                                                    const direction = goldenRowIndex > currentPriceRowIndex ? 'down' : 'up';
+                                                    const verticalHeight = Math.abs(goldenRowIndex - currentPriceRowIndex) * 37;
+                                                    const horizontalWidth = mobileExpWidth * 2 - 50;
+                                                    const pipeColor = direction === 'down' ? '#ff0000' : '#00ff00'; // Red if golden zone below, green if above
+
+                                                    // Create L-shaped path
+                                                    const pathData = direction === 'down'
+                                                      ? `M 8 0 L 8 ${verticalHeight - 8} Q 8 ${verticalHeight} 16 ${verticalHeight} L ${horizontalWidth + 15} ${verticalHeight}`
+                                                      : `M 8 ${verticalHeight + 20} L 8 20 Q 8 12 16 12 L ${horizontalWidth + 15} 12`;
+
+                                                    const yPos = direction === 'down' ? verticalHeight : 12;
+
+                                                    return (
+                                                      <>
+                                                        {/* Shadow layers for L-shape */}
+                                                        <path d={pathData} fill="none" stroke="#2d1f00" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" style={{ filter: 'blur(4px)' }} />
+                                                        <path d={pathData} fill="none" stroke="#5a3e00" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" opacity="0.3" style={{ filter: 'blur(2px)' }} />
+
+                                                        {/* Main L-shaped pipe body */}
+                                                        <path d={pathData} fill="none" stroke="#000000" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `url(#pipeGlow-${row.strike})` }} />
+                                                        <path d={pathData} fill="none" stroke={pipeColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `url(#pipeGlow-${row.strike})` }} />
+
+                                                        {/* Glossy highlight on vertical section */}
+                                                        <line x1="6" y1="0" x2="6" y2={verticalHeight - 8} stroke="url(#pipeShine-${row.strike})" strokeWidth="2" opacity="0.7" />
+
+                                                        {/* Glossy highlight on horizontal section */}
+                                                        <line x1="16" y1={yPos - 1} x2={horizontalWidth + 15} y2={yPos - 1} stroke="url(#pipeShine-${row.strike})" strokeWidth="2" opacity="0.7" />
+
+                                                        {/* Two-tone spinning rope inside pipe - Blue layer */}
+                                                        <g>
+                                                          {/* Vertical blue rope */}
+                                                          <path
+                                                            d={direction === 'down'
+                                                              ? `M 8 0 L 8 ${verticalHeight - 8}`
+                                                              : `M 8 20 L 8 ${verticalHeight + 20}`
+                                                            }
+                                                            stroke="#00bfff"
+                                                            strokeWidth="5"
+                                                            strokeLinecap="round"
+                                                            strokeDasharray="15 15"
+                                                            opacity="0.9"
+                                                            style={{ filter: 'drop-shadow(0 0 8px #00bfff)' }}
+                                                          >
+                                                            <animate
+                                                              attributeName="stroke-dashoffset"
+                                                              from="0"
+                                                              to="30"
+                                                              dur="1s"
+                                                              repeatCount="indefinite"
+                                                            />
+                                                          </path>
+
+                                                          {/* Horizontal blue rope */}
+                                                          <path
+                                                            d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
+                                                            stroke="#00bfff"
+                                                            strokeWidth="5"
+                                                            strokeLinecap="round"
+                                                            strokeDasharray="15 15"
+                                                            opacity="0.9"
+                                                            style={{ filter: 'drop-shadow(0 0 8px #00bfff)' }}
+                                                          >
+                                                            <animate
+                                                              attributeName="stroke-dashoffset"
+                                                              from="30"
+                                                              to="0"
+                                                              dur="1s"
+                                                              repeatCount="indefinite"
+                                                            />
+                                                          </path>
+                                                        </g>
+
+                                                        {/* Two-tone spinning rope inside pipe - Gold layer */}
+                                                        <g>
+                                                          {/* Vertical gold rope */}
+                                                          <path
+                                                            d={direction === 'down'
+                                                              ? `M 8 0 L 8 ${verticalHeight - 8}`
+                                                              : `M 8 20 L 8 ${verticalHeight + 20}`
+                                                            }
+                                                            stroke="#ffd700"
+                                                            strokeWidth="5"
+                                                            strokeLinecap="round"
+                                                            strokeDasharray="15 15"
+                                                            opacity="0.9"
+                                                            style={{ filter: 'drop-shadow(0 0 8px #ffd700)' }}
+                                                          >
+                                                            <animate
+                                                              attributeName="stroke-dashoffset"
+                                                              from="15"
+                                                              to="45"
+                                                              dur="1s"
+                                                              repeatCount="indefinite"
+                                                            />
+                                                          </path>
+
+                                                          {/* Horizontal gold rope */}
+                                                          <path
+                                                            d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
+                                                            stroke="#ffd700"
+                                                            strokeWidth="5"
+                                                            strokeLinecap="round"
+                                                            strokeDasharray="15 15"
+                                                            opacity="0.9"
+                                                            style={{ filter: 'drop-shadow(0 0 8px #ffd700)' }}
+                                                          >
+                                                            <animate
+                                                              attributeName="stroke-dashoffset"
+                                                              from="45"
+                                                              to="15"
+                                                              dur="1s"
+                                                              repeatCount="indefinite"
+                                                            />
+                                                          </path>
+                                                        </g>
+
+                                                        {/* End caps */}
+                                                        <ellipse cx="8" cy={direction === 'down' ? "0" : `${verticalHeight + 20}`} rx="5" ry="4" fill="#000000" stroke={pipeColor} strokeWidth="1.5" opacity="0.9" />
+                                                        <ellipse cx={horizontalWidth + 15} cy={yPos} rx="5" ry="4" fill="#000000" stroke={pipeColor} strokeWidth="1.5" opacity="0.9" />
+                                                      </>
+                                                    );
+                                                  })()}
+                                                </svg>
+                                              )}
+
+                                              {/* Horizontal rope at golden zone + Spinning pulley wheel */}
+                                              {isGoldenZone && (() => {
+                                                const wheelColor = goldenRowIndex > currentPriceRowIndex ? '#ff0000' : '#00ff00';
+                                                return (
+                                                  <>
+                                                    {/* Spinning pulley wheel at golden zone */}
+                                                    <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`, top: '50%', width: '60px', height: '60px', pointerEvents: 'none', zIndex: 100, overflow: 'visible', transform: 'translateY(-50%)' }}>
+                                                      <defs>
+                                                        <filter id={`pulleyGlow-${row.strike}`} x="-50%" y="-50%" width="200%" height="200%">
+                                                          <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                                                          <feMerge>
+                                                            <feMergeNode in="coloredBlur" />
+                                                            <feMergeNode in="SourceGraphic" />
+                                                          </feMerge>
+                                                        </filter>
+                                                      </defs>
+                                                      <g transform="translate(30, 30)">
+                                                        {/* Pulley shadow */}
+                                                        <circle cx="0" cy="0" r="22" fill="#333" opacity="0.5" style={{ filter: 'blur(4px)' }} />
+                                                        {/* Pulley outer ring - golden color with conditional outline */}
+                                                        <circle cx="0" cy="0" r="20" fill="#ffd700" stroke={wheelColor} strokeWidth="3" style={{ filter: `url(#pulleyGlow-${row.strike})` }} />
+                                                        {/* Inner dark ring */}
+                                                        <circle cx="0" cy="0" r="15" fill="#444" />
+                                                        {/* Spinning spokes - golden */}
+                                                        <g>
+                                                          <line x1="0" y1="-15" x2="0" y2="15" stroke="#ffd700" strokeWidth="3" />
+                                                          <line x1="-15" y1="0" x2="15" y2="0" stroke="#ffd700" strokeWidth="3" />
+                                                          <line x1="-10.5" y1="-10.5" x2="10.5" y2="10.5" stroke="#ffd700" strokeWidth="3" />
+                                                          <line x1="-10.5" y1="10.5" x2="10.5" y2="-10.5" stroke="#ffd700" strokeWidth="3" />
+                                                          <animateTransform
+                                                            attributeName="transform"
+                                                            type="rotate"
+                                                            from="0"
+                                                            to="360"
+                                                            dur="2s"
+                                                            repeatCount="indefinite"
+                                                          />
+                                                        </g>
+                                                        {/* Center bolt - golden */}
+                                                        <circle cx="0" cy="0" r="5" fill="#b8860b" stroke="#ffd700" strokeWidth="2" />
+                                                        {/* Metallic shine */}
+                                                        <circle cx="-5" cy="-5" r="8" fill="#fff" opacity="0.4" />
+                                                      </g>
+                                                    </svg>
+                                                  </>
+                                                );
+                                              })()}
+                                            </>
+                                          )}
                                         </td>
                                         {showNormalColumn && (
                                           <td
@@ -7187,7 +7801,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                         )}
                                       </tr>
                                     );
-                                  })}
+                                  });
+                                })()}
                               </tbody>
                             </table>
                           </div>
@@ -7302,11 +7917,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                       const strikeRange = getStrikeRange(currentPrice);
                                       return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
                                     }).map((row, idx) => {
-                                      const closestStrike = currentPrice > 0 ? data.reduce((closest, current) =>
-                                        Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                                      // Use historical price when scrubbing, otherwise current price
+                                      const priceForRow = historicalTimestamp ? historicalPrice : currentPrice;
+                                      const closestStrike = priceForRow > 0 ? data.reduce((closest, current) =>
+                                        Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
                                       ).strike : 0;
 
-                                      const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+                                      const isCurrentPriceRow = priceForRow > 0 && row.strike === closestStrike;
 
                                       return (
                                         <tr
@@ -7387,11 +8004,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                       const strikeRange = getStrikeRange(currentPrice);
                                       return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
                                     }).map((row, idx) => {
-                                      const closestStrike = currentPrice > 0 ? data.reduce((closest, current) =>
-                                        Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                                      // Use historical price when scrubbing, otherwise current price
+                                      const priceForRow = historicalTimestamp ? historicalPrice : currentPrice;
+                                      const closestStrike = priceForRow > 0 ? data.reduce((closest, current) =>
+                                        Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
                                       ).strike : 0;
 
-                                      const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+                                      const isCurrentPriceRow = priceForRow > 0 && row.strike === closestStrike;
 
                                       return (
                                         <tr
@@ -7472,11 +8091,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                       const strikeRange = getStrikeRange(currentPrice);
                                       return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
                                     }).map((row, idx) => {
-                                      const closestStrike = currentPrice > 0 ? data.reduce((closest, current) =>
-                                        Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                                      // Use historical price when scrubbing, otherwise current price
+                                      const priceForRow = historicalTimestamp ? historicalPrice : currentPrice;
+                                      const closestStrike = priceForRow > 0 ? data.reduce((closest, current) =>
+                                        Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
                                       ).strike : 0;
 
-                                      const isCurrentPriceRow = currentPrice > 0 && row.strike === closestStrike;
+                                      const isCurrentPriceRow = priceForRow > 0 && row.strike === closestStrike;
 
                                       return (
                                         <tr
@@ -7545,9 +8166,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           const strikeRange = getStrikeRange(currentPrice);
                           return row.strike >= strikeRange.min && row.strike <= strikeRange.max;
                         }).map((row, idx) => {
-                          // Find the single closest strike to current price
-                          const closestStrike = currentPrice > 0 ? data.reduce((closest, current) =>
-                            Math.abs(current.strike - currentPrice) < Math.abs(closest.strike - currentPrice) ? current : closest
+                          // Find the single closest strike to current price (use historical when scrubbing)
+                          const priceForRow = historicalTimestamp ? historicalPrice : currentPrice;
+                          const closestStrike = priceForRow > 0 ? data.reduce((closest, current) =>
+                            Math.abs(current.strike - priceForRow) < Math.abs(closest.strike - priceForRow) ? current : closest
                           ).strike : 0;
 
                           // Find the strike with the highest GEX value using the same logic as cell highlighting
