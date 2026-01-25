@@ -69,680 +69,207 @@ export interface MarketRegimeData {
   legacy: TimeframeAnalysis;
 }
 
-// Industry ETFs with their major holdings - Comprehensive 100+ Industries List
+// Industry ETFs with their major holdings - NO DUPLICATES
+// Consolidated from 55 to 25 industries by combining similar sectors
 export const INDUSTRY_ETFS: IndustryETF[] = [
-  // Technology & Software
+  // 1. Semiconductors & Quantum
   {
     symbol: 'SMH',
-    name: 'Semiconductors',
+    name: 'Semiconductors & Quantum',
     category: 'Technology',
-    holdings: ['TSM', 'NVDA', 'AVGO', 'AMD', 'QCOM', 'MU', 'INTC', 'AMAT', 'ADI', 'MRVL']
+    holdings: ['TSM', 'NVDA', 'AVGO', 'AMD', 'QCOM', 'MU', 'INTC', 'AMAT', 'ADI', 'MRVL', 'IONQ', 'QUBT', 'QBTS', 'RGTI', 'ARQQ', 'QSI', 'QTUM']
   },
+
+  // 2. Enterprise Software & Cybersecurity
   {
     symbol: 'IGV',
-    name: 'Software',
+    name: 'Enterprise Software & Security',
     category: 'Technology',
-    holdings: ['MSFT', 'AAPL', 'NVDA', 'CRM', 'ORCL', 'ADBE', 'NOW', 'INTU', 'PANW', 'WDAY']
+    holdings: ['MSFT', 'CRM', 'ORCL', 'ADBE', 'NOW', 'INTU', 'WDAY', 'PLTR', 'DDOG', 'TEAM', 'GTLB', 'PANW', 'CRWD', 'FTNT', 'ZS', 'OKTA', 'CHKP', 'GEN', 'CYBR', 'S', 'RPD']
   },
+
+  // 3. Cloud Infrastructure & Data Centers
   {
     symbol: 'SKYY',
-    name: 'Cloud Computing',
+    name: 'Cloud & Data Centers',
     category: 'Technology',
-    holdings: ['MSFT', 'AMZN', 'GOOGL', 'ORCL', 'CRM', 'NOW', 'WDAY', 'ZS', 'NET', 'DDOG']
+    holdings: ['AMZN', 'GOOGL', 'NET', 'SNOW', 'CFLT', 'MDB', 'ESTC', 'DBX', 'BOX', 'FIVN', 'EQIX', 'DLR', 'CCI', 'SBAC', 'AMT', 'CONE', 'CWEN', 'QTS', 'FSLY', 'ANET']
   },
-  {
-    symbol: 'CLOU',
-    name: 'Cloud Computing',
-    category: 'Technology',
-    holdings: ['MSFT', 'AMZN', 'GOOGL', 'CRM', 'NOW', 'WDAY', 'ZS', 'OKTA', 'TWLO', 'DBX']
-  },
-  {
-    symbol: 'WCLD',
-    name: 'Cloud Computing',
-    category: 'Technology',
-    holdings: ['MSFT', 'AMZN', 'GOOGL', 'CRM', 'NOW', 'WDAY', 'ZS', 'OKTA', 'TWLO', 'DOCU']
-  },
-  {
-    symbol: 'XSW',
-    name: 'Software & Services',
-    category: 'Technology',
-    holdings: ['MSFT', 'AAPL', 'GOOGL', 'CRM', 'ORCL', 'ADBE', 'NOW', 'INTU', 'IBM', 'ACN']
-  },
-  {
-    symbol: 'VGT',
-    name: 'Technology',
-    category: 'Technology',
-    holdings: ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'CRM', 'ORCL', 'AMD', 'ADBE', 'NFLX', 'CSCO']
-  },
+
+  // 4. Internet, E-Commerce & Fintech
   {
     symbol: 'FDN',
-    name: 'Internet Companies',
+    name: 'Internet & Fintech',
     category: 'Technology',
-    holdings: ['AMZN', 'META', 'GOOGL', 'NFLX', 'UBER', 'CRM', 'SHOP', 'SPOT', 'EBAY', 'PYPL']
+    holdings: ['META', 'NFLX', 'UBER', 'SHOP', 'SPOT', 'EBAY', 'PYPL', 'SQ', 'DASH', 'ABNB', 'COIN', 'ROKU', 'ZM', 'HOOD', 'PATH', 'RBLX', 'U', 'MARA', 'RIOT', 'AFRM', 'UPST']
   },
 
-  // Cybersecurity
+  // 5. Tech Hardware & Robotics
   {
-    symbol: 'CIBR',
-    name: 'Cybersecurity',
-    category: 'Security',
-    holdings: ['CSCO', 'PANW', 'CRWD', 'FTNT', 'ZS', 'OKTA', 'CHKP', 'GEN', 'CYBR', 'S']
-  },
-  {
-    symbol: 'HACK',
-    name: 'Cybersecurity',
-    category: 'Security',
-    holdings: ['CSCO', 'PANW', 'CRWD', 'FTNT', 'ZS', 'OKTA', 'CHKP', 'GEN', 'CYBR', 'RPD']
-  },
-  {
-    symbol: 'BUG',
-    name: 'Cybersecurity',
-    category: 'Security',
-    holdings: ['CRWD', 'ZS', 'OKTA', 'PANW', 'FTNT', 'NET', 'S', 'CYBR', 'VRNS', 'TENB']
+    symbol: 'VGT',
+    name: 'Hardware & Robotics',
+    category: 'Technology',
+    holdings: ['AAPL', 'CSCO', 'IBM', 'HPQ', 'DELL', 'WDC', 'STX', 'NTAP', 'PSTG', 'SMCI', 'ARM', 'HPE', 'ISRG', 'ROK', 'EMR', 'ADSK', 'TER', 'KLAC', 'LRCX', 'ASML', 'ABB', 'SYM', 'ZBRA', 'CGNX']
   },
 
-  // AI & Robotics
-  {
-    symbol: 'BOTZ',
-    name: 'Automation & Robotics',
-    category: 'AI/Robotics',
-    holdings: ['NVDA', 'TSLA', 'ISRG', 'ROK', 'EMR', 'HON', 'ADSK', 'TER', 'KLAC', 'AMAT']
-  },
-  {
-    symbol: 'ROBO',
-    name: 'Robotics & AI',
-    category: 'AI/Robotics',
-    holdings: ['NVDA', 'ISRG', 'ROK', 'EMR', 'HON', 'ADSK', 'TER', 'KLAC', 'AMAT', 'LRCX']
-  },
-  {
-    symbol: 'RBOT',
-    name: 'Robotics + AI',
-    category: 'AI/Robotics',
-    holdings: ['SERV', 'SYM', 'RR', 'BBAI', 'SOUN', 'ACHR', 'JOBY', 'RKLB', 'ASTS', 'NVDA']
-  },
-  {
-    symbol: 'QNTM',
-    name: 'Quantum Computing',
-    category: 'Quantum',
-    holdings: ['IONQ', 'QUBT', 'QBTS', 'RGTI', 'IBM', 'GOOGL', 'MSFT', 'NVDA', 'AMD', 'INTC']
-  },
-  {
-    symbol: 'DTCR',
-    name: 'Data Centers',
-    category: 'Technology',
-    holdings: ['NBIS', 'IREN', 'CRWV', 'OKLO', 'SMR', 'NNE', 'APLD', 'EQIX', 'DLR', 'CCI']
-  },
+  // 6. Innovation & Electric Vehicles
   {
     symbol: 'ARKK',
-    name: 'Innovation',
+    name: 'Innovation & EV',
     category: 'Innovation',
-    holdings: ['TSLA', 'ROKU', 'COIN', 'SHOP', 'ZM', 'SQ', 'HOOD', 'PATH', 'GBTC', 'RBLX']
-  },
-  {
-    symbol: 'ARKW',
-    name: 'Next Generation Internet',
-    category: 'Innovation',
-    holdings: ['TSLA', 'COIN', 'ROKU', 'SHOP', 'ZOOM', 'SQ', 'TWLO', 'PATH', 'RBLX', 'U']
+    holdings: ['TSLA', 'RIVN', 'LCID', 'F', 'GM', 'XPEV', 'LI', 'APTV', 'BWA']
   },
 
-  // Energy & Clean Energy
-  {
-    symbol: 'TAN',
-    name: 'Solar Energy',
-    category: 'Clean Energy',
-    holdings: ['FSLR', 'ENPH', 'JKS', 'DQ', 'CSIQ', 'SPWR', 'RUN', 'ARRY', 'SEDG', 'SOL']
-  },
-  {
-    symbol: 'PBW',
-    name: 'Clean Energy',
-    category: 'Clean Energy',
-    holdings: ['ENPH', 'FSLR', 'PLUG', 'BE', 'RUN', 'SEDG', 'NOVA', 'CSIQ', 'JKS', 'SPWR']
-  },
-  {
-    symbol: 'ICLN',
-    name: 'Clean Energy',
-    category: 'Clean Energy',
-    holdings: ['ENPH', 'FSLR', 'PLUG', 'NEE', 'EIX', 'RUN', 'BE', 'SEDG', 'ALB', 'MP']
-  },
-  {
-    symbol: 'ACES',
-    name: 'Clean Energy',
-    category: 'Clean Energy',
-    holdings: ['TSLA', 'ENPH', 'FSLR', 'PLUG', 'BE', 'RUN', 'SEDG', 'NOVA', 'ALB', 'MP']
-  },
-  {
-    symbol: 'CTEC',
-    name: 'Sustainable Tech',
-    category: 'Clean Energy',
-    holdings: ['TSLA', 'ENPH', 'FSLR', 'PLUG', 'BE', 'ALB', 'MP', 'LAC', 'SQM', 'NOVA']
-  },
+  // 7. Oil & Gas (Combined Traditional Energy)
   {
     symbol: 'XOP',
-    name: 'Oil & Gas Exploration',
+    name: 'Oil & Gas',
     category: 'Energy',
-    holdings: ['EQT', 'APA', 'DVN', 'FANG', 'MRO', 'CNX', 'OVV', 'CLR', 'CHRD', 'HES']
-  },
-  {
-    symbol: 'OIH',
-    name: 'Oil Services',
-    category: 'Energy',
-    holdings: ['SLB', 'HAL', 'BKR', 'FTI', 'NOV', 'HP', 'PTEN', 'OII', 'WHD', 'LBRT']
-  },
-  {
-    symbol: 'FCG',
-    name: 'Natural Gas',
-    category: 'Energy',
-    holdings: ['EQT', 'AR', 'CNX', 'KNTK', 'SWN', 'RRC', 'COG', 'CTRA', 'MRO', 'DVN']
-  },
-  {
-    symbol: 'UNG',
-    name: 'Natural Gas',
-    category: 'Energy',
-    holdings: ['Natural Gas Futures', 'NG1', 'NG2', 'NG3', 'NG4', 'NG5', 'NG6', 'NG7', 'NG8', 'NG9']
-  },
-  {
-    symbol: 'VDE',
-    name: 'Energy',
-    category: 'Energy',
-    holdings: ['XOM', 'CVX', 'COP', 'EOG', 'SLB', 'PSX', 'VLO', 'MPC', 'OXY', 'KMI']
-  },
-  {
-    symbol: 'AMLP',
-    name: 'Master Limited Partnerships',
-    category: 'Energy',
-    holdings: ['EPD', 'ET', 'KMI', 'MPLX', 'WMB', 'ONEOK', 'PAGP', 'OKE', 'MMP', 'PAA']
-  },
-  {
-    symbol: 'EMLP',
-    name: 'Energy Infrastructure',
-    category: 'Energy',
-    holdings: ['EPD', 'ET', 'KMI', 'MPLX', 'WMB', 'ONEOK', 'PAGP', 'OKE', 'MMP', 'PAA']
+    holdings: ['XOM', 'CVX', 'COP', 'EOG', 'PSX', 'VLO', 'MPC', 'OXY', 'WMB', 'KMI', 'EQT', 'APA', 'DVN', 'FANG', 'MRO', 'CNX', 'OVV', 'CLR', 'CHRD', 'HES', 'SLB', 'HAL', 'BKR', 'FTI', 'NOV', 'HP', 'PTEN', 'OII', 'WHD', 'LBRT', 'AR', 'KNTK', 'SWN', 'RRC', 'COG', 'CTRA', 'NEXT', 'CPG', 'STNG', 'TRMD']
   },
 
-  // Nuclear & Uranium
+  // 8. Renewable Energy
+  {
+    symbol: 'TAN',
+    name: 'Renewable Energy',
+    category: 'Clean Energy',
+    holdings: ['FSLR', 'ENPH', 'JKS', 'DQ', 'CSIQ', 'RUN', 'ARRY', 'SEDG', 'BE', 'NEE', 'EIX', 'GPRE', 'ORA', 'ITRI']
+  },
+
+  // 9. Nuclear Energy
   {
     symbol: 'URA',
-    name: 'Uranium & Nuclear Energy',
-    category: 'Nuclear',
-    holdings: ['CCJ', 'KAP', 'NXE', 'UEC', 'DNN', 'UUUU', 'URG', 'LEU', 'LTBR', 'SMR']
-  },
-  {
-    symbol: 'NLR',
     name: 'Nuclear Energy',
     category: 'Nuclear',
-    holdings: ['NEE', 'DUK', 'SO', 'EXC', 'CCJ', 'BWX', 'BWXT', 'SMR', 'GE', 'WEC']
+    holdings: ['CCJ', 'KAP', 'NXE', 'UEC', 'UUUU', 'LEU', 'LTBR', 'SMR', 'BWXT', 'OKLO']
   },
 
-  // Materials & Mining
+  // 10. Precious Metals (Gold & Silver)
   {
     symbol: 'GDX',
-    name: 'Gold Miners',
+    name: 'Precious Metals',
     category: 'Materials',
-    holdings: ['NEM', 'GOLD', 'AEM', 'WPM', 'KGC', 'FNV', 'AU', 'HMY', 'RGLD', 'IAG']
+    holdings: ['NEM', 'GOLD', 'AEM', 'WPM', 'KGC', 'FNV', 'AU', 'HMY', 'RGLD', 'IAG', 'AG', 'PAAS', 'CDE', 'HL', 'FSM', 'EXK', 'SILV', 'SVM', 'USAS', 'MAG']
   },
-  {
-    symbol: 'XME',
-    name: 'Mining & Metals',
-    category: 'Materials',
-    holdings: ['FCX', 'NEM', 'SCCO', 'GOLD', 'AA', 'X', 'CLF', 'STLD', 'NUE', 'AEM']
-  },
-  {
-    symbol: 'SIL',
-    name: 'Silver Mining',
-    category: 'Materials',
-    holdings: ['AG', 'PAAS', 'CDE', 'HL', 'FSM', 'EXK', 'SILV', 'SVM', 'USAS', 'WPM']
-  },
-  {
-    symbol: 'SLX',
-    name: 'Steel',
-    category: 'Materials',
-    holdings: ['NUE', 'STLD', 'CLF', 'X', 'RS', 'CMC', 'ATI', 'ZEUS', 'WOR', 'TX']
-  },
+
+  // 11. Strategic Metals (Lithium, Rare Earth, Battery Tech)
   {
     symbol: 'LIT',
-    name: 'Lithium & Battery Tech',
+    name: 'Strategic Metals & Battery',
     category: 'Materials',
-    holdings: ['ALB', 'SQM', 'LAC', 'LTHM', 'PLL', 'SGML', 'MP', 'LPI', 'AREC', 'NOVONIX']
-  },
-  {
-    symbol: 'COPX',
-    name: 'Copper Miners',
-    category: 'Materials',
-    holdings: ['FCX', 'SCCO', 'VALE', 'AA', 'TECK', 'FM', 'HBM', 'CMMC', 'IVN', 'ERO']
-  },
-  {
-    symbol: 'REMX',
-    name: 'Rare Earth Metals',
-    category: 'Materials',
-    holdings: ['MP', 'LAC', 'ALB', 'SQM', 'PLL', 'LTHM', 'LPI', 'AREC', 'UEC', 'LEU']
-  },
-  {
-    symbol: 'VAW',
-    name: 'Materials',
-    category: 'Materials',
-    holdings: ['LIN', 'SHW', 'APD', 'ECL', 'FCX', 'NEM', 'CTVA', 'DOW', 'DD', 'NUE']
+    holdings: ['ALB', 'SQM', 'LAC', 'LTHM', 'PLL', 'SGML', 'LPI', 'MP', 'PIL']
   },
 
-  // Biotechnology & Healthcare
+  // 12. Industrial Metals (Steel, Copper, Mining)
+  {
+    symbol: 'SLX',
+    name: 'Industrial Metals',
+    category: 'Materials',
+    holdings: ['NUE', 'STLD', 'CLF', 'X', 'RS', 'CMC', 'ATI', 'ZEUS', 'WOR', 'TX', 'FCX', 'SCCO', 'VALE', 'TECK', 'FM', 'HBM', 'IVN', 'ERO', 'ARLP', 'AA', 'APD', 'LIN', 'SHW', 'ECL', 'DD', 'DOW', 'PPG', 'CTVA', 'EMN']
+  },
+
+  // 13. Life Sciences (Biotech & Pharma)
   {
     symbol: 'XBI',
-    name: 'Biotechnology',
+    name: 'Life Sciences',
     category: 'Healthcare',
-    holdings: ['GILD', 'AMGN', 'BIIB', 'MRNA', 'VRTX', 'REGN', 'ILMN', 'BMRN', 'ALNY', 'TECH']
+    holdings: ['MRNA', 'VRTX', 'REGN', 'ILMN', 'BMRN', 'ALNY', 'TECH', 'SRPT', 'RARE', 'JNJ', 'PFE', 'ABBV', 'MRK', 'BMY', 'LLY', 'GILD', 'AMGN', 'BIIB', 'ZTS']
   },
-  {
-    symbol: 'IBB',
-    name: 'Biotechnology',
-    category: 'Healthcare',
-    holdings: ['GILD', 'AMGN', 'BIIB', 'MRNA', 'VRTX', 'REGN', 'ILMN', 'BMRN', 'ALNY', 'INCY']
-  },
+
+  // 14. Healthcare Services (Devices & Providers)
   {
     symbol: 'IHI',
-    name: 'Medical Devices',
-    category: 'Healthcare',
-    holdings: ['UNH', 'JNJ', 'ABBV', 'PFE', 'TMO', 'ABT', 'DHR', 'BMY', 'AMGN', 'MDT']
-  },
-  {
-    symbol: 'IHF',
-    name: 'Healthcare Providers',
-    category: 'Healthcare',
-    holdings: ['UNH', 'ANTM', 'CI', 'CVS', 'HUM', 'CNC', 'MOH', 'ELV', 'HCA', 'UHS']
-  },
-  {
-    symbol: 'PPH',
-    name: 'Pharmaceuticals',
-    category: 'Healthcare',
-    holdings: ['JNJ', 'PFE', 'ABBV', 'MRK', 'BMY', 'LLY', 'GILD', 'AMGN', 'BIIB', 'CELG']
-  },
-  {
-    symbol: 'XPH',
-    name: 'Pharmaceuticals',
-    category: 'Healthcare',
-    holdings: ['JNJ', 'PFE', 'ABBV', 'MRK', 'BMY', 'LLY', 'GILD', 'AMGN', 'BIIB', 'REGN']
-  },
-  {
-    symbol: 'BIB',
-    name: 'Leveraged Biotechnology',
-    category: 'Healthcare',
-    holdings: ['GILD', 'AMGN', 'BIIB', 'MRNA', 'VRTX', 'REGN', 'ILMN', 'BMRN', 'ALNY', 'INCY']
-  },
-  {
-    symbol: 'BBC',
-    name: 'Biotech Clinical Trials',
-    category: 'Healthcare',
-    holdings: ['MRNA', 'NVAX', 'VRTX', 'REGN', 'ILMN', 'BMRN', 'ALNY', 'TECH', 'SRPT', 'BLUE']
-  },
-  {
-    symbol: 'PBE',
-    name: 'Healthcare Innovations',
-    category: 'Healthcare',
-    holdings: ['UNH', 'JNJ', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'BMY', 'AMGN']
-  },
-  {
-    symbol: 'IYH',
     name: 'Healthcare Services',
     category: 'Healthcare',
-    holdings: ['UNH', 'JNJ', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'BMY', 'AMGN']
-  },
-  {
-    symbol: 'AGNG',
-    name: 'Aging Demographics',
-    category: 'Healthcare',
-    holdings: ['UNH', 'JNJ', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'BMY', 'AMGN']
+    holdings: ['TMO', 'ABT', 'DHR', 'MDT', 'SYK', 'BDX', 'BSX', 'EW', 'DXCM', 'ALGN', 'UNH', 'ANTM', 'CI', 'CVS', 'HUM', 'CNC', 'MOH', 'ELV', 'HCA', 'UHS']
   },
 
-  // Financial Services
+  // 15. Banking (Regional & Capital Markets)
   {
     symbol: 'KRE',
-    name: 'Regional Banks',
+    name: 'Banking',
     category: 'Financial',
-    holdings: ['WFC', 'USB', 'PNC', 'TFC', 'COF', 'MTB', 'FITB', 'HBAN', 'RF', 'KEY']
+    holdings: ['JPM', 'BAC', 'WFC', 'C', 'GS', 'MS', 'BLK', 'SPGI', 'MCO', 'CME', 'USB', 'PNC', 'TFC', 'COF', 'MTB', 'FITB', 'HBAN', 'RF', 'KEY', 'CFG']
   },
+
+  // 16. Financial Services (Insurance, Payments, Brokerages)
   {
     symbol: 'KIE',
-    name: 'Insurance',
-    category: 'Financial',
-    holdings: ['BRK.B', 'PGR', 'TRV', 'AIG', 'MET', 'PRU', 'ALL', 'CB', 'AFL', 'L']
-  },
-  {
-    symbol: 'IAI',
-    name: 'Broker-Dealers',
-    category: 'Financial',
-    holdings: ['MS', 'GS', 'SCHW', 'BLK', 'SPGI', 'MCO', 'ICE', 'CME', 'NDAQ', 'CBOE']
-  },
-  {
-    symbol: 'IAK',
-    name: 'Insurance Providers',
-    category: 'Financial',
-    holdings: ['BRK.B', 'PGR', 'TRV', 'AIG', 'MET', 'PRU', 'ALL', 'CB', 'AFL', 'L']
-  },
-  {
-    symbol: 'KCE',
-    name: 'Capital Markets',
-    category: 'Financial',
-    holdings: ['BRK.B', 'JPM', 'BAC', 'WFC', 'GS', 'MS', 'C', 'USB', 'PNC', 'TFC']
-  },
-  {
-    symbol: 'KBWP',
-    name: 'Property & Real Estate',
-    category: 'Financial',
-    holdings: ['PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'WY', 'DLR', 'O', 'SBAC', 'EXR']
-  },
-  {
-    symbol: 'FXO',
-    name: 'Financials AlphaDEX',
-    category: 'Financial',
-    holdings: ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'SPGI']
-  },
-  {
-    symbol: 'IXG',
-    name: 'Global Financial Services',
-    category: 'Financial',
-    holdings: ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'SPGI']
-  },
-  {
-    symbol: 'IYG',
     name: 'Financial Services',
     category: 'Financial',
-    holdings: ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'SPGI']
-  },
-  {
-    symbol: 'VFH',
-    name: 'Financials',
-    category: 'Financial',
-    holdings: ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'SPGI']
-  },
-  {
-    symbol: 'BROK',
-    name: 'Brokerages',
-    category: 'Financial',
-    holdings: ['SOFI', 'HOOD', 'COIN', 'IBKR', 'SCHW', 'NDAQ', 'CME', 'ICE', 'MKTX', 'VIRT']
+    holdings: ['BRK.B', 'PGR', 'TRV', 'AIG', 'MET', 'PRU', 'ALL', 'CB', 'AFL', 'L', 'V', 'MA', 'AXP', 'FIS', 'FISV', 'ADP', 'PAYX', 'BR', 'TW', 'SOFI', 'IBKR', 'SCHW', 'NDAQ', 'ICE', 'MKTX', 'VIRT', 'LPLA', 'RJF', 'SF']
   },
 
-  // Real Estate
+  // 17. Real Estate & Construction
   {
     symbol: 'VNQ',
-    name: 'Real Estate',
+    name: 'Real Estate & Construction',
     category: 'Real Estate',
-    holdings: ['PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'WY', 'DLR', 'O', 'SBAC', 'EXR']
-  },
-  {
-    symbol: 'IYR',
-    name: 'Real Estate',
-    category: 'Real Estate',
-    holdings: ['PLD', 'AMT', 'CCI', 'EQIX', 'PSA', 'WY', 'DLR', 'O', 'SBAC', 'EXR']
-  },
-  {
-    symbol: 'REZ',
-    name: 'Residential Real Estate',
-    category: 'Real Estate',
-    holdings: ['AMH', 'EXR', 'AVB', 'EQR', 'UDR', 'ESS', 'MAA', 'CPT', 'AIV', 'BRG']
-  },
-  {
-    symbol: 'MORT',
-    name: 'Mortgage REITs',
-    category: 'Real Estate',
-    holdings: ['AGNC', 'NLY', 'STWD', 'BXMT', 'TWO', 'CIM', 'NRZ', 'MFA', 'PMT', 'NYMT']
+    holdings: ['PLD', 'PSA', 'WY', 'O', 'EXR', 'AVB', 'EQR', 'WELL', 'ARE', 'LEN', 'NVR', 'DHI', 'PHM', 'KBH', 'TOL', 'TPG', 'BZH', 'MTH', 'GRBK', 'HD', 'LOW', 'BLD', 'FND', 'BLDR', 'MAS', 'OC', 'VMC', 'MLM']
   },
 
-  // Construction & Homebuilding
-  {
-    symbol: 'ITB',
-    name: 'Home Construction',
-    category: 'Construction',
-    holdings: ['LEN', 'NVR', 'DHI', 'PHM', 'KBH', 'TOL', 'TPG', 'BZH', 'MTH', 'GRBK']
-  },
-  {
-    symbol: 'XHB',
-    name: 'Homebuilders',
-    category: 'Construction',
-    holdings: ['HD', 'LOW', 'LEN', 'DHI', 'PHM', 'AMZN', 'SHW', 'BLD', 'FND', 'BLDR']
-  },
-  {
-    symbol: 'PKB',
-    name: 'Building & Construction',
-    category: 'Construction',
-    holdings: ['CAT', 'DE', 'HD', 'LOW', 'LEN', 'DHI', 'PHM', 'SHW', 'BLD', 'VMC']
-  },
-
-  // Aerospace & Defense
+  // 18. Aerospace & Aviation
   {
     symbol: 'ITA',
-    name: 'Aerospace & Defense',
+    name: 'Aerospace & Aviation',
     category: 'Aerospace',
-    holdings: ['BA', 'RTX', 'LMT', 'NOC', 'GD', 'LHX', 'TXT', 'HWM', 'CW', 'TDG']
-  },
-  {
-    symbol: 'XAR',
-    name: 'Aerospace & Defense',
-    category: 'Aerospace',
-    holdings: ['BA', 'RTX', 'LMT', 'NOC', 'GD', 'LHX', 'TXT', 'HWM', 'CW', 'TDG']
+    holdings: ['BA', 'RTX', 'LMT', 'NOC', 'GD', 'LHX', 'TXT', 'HWM', 'CW', 'TDG', 'DAL', 'UAL', 'AAL', 'LUV', 'ALK', 'JBLU', 'SAVE', 'HA', 'MESA', 'SKYW']
   },
 
-  // Transportation
+  // 19. Transportation & Logistics
   {
     symbol: 'IYT',
-    name: 'Transportation',
+    name: 'Transportation & Logistics',
     category: 'Transportation',
-    holdings: ['UPS', 'FDX', 'UAL', 'DAL', 'LUV', 'UNP', 'CSX', 'NSC', 'KSU', 'CHRW']
-  },
-  {
-    symbol: 'JETS',
-    name: 'Airlines',
-    category: 'Transportation',
-    holdings: ['DAL', 'UAL', 'AAL', 'LUV', 'ALK', 'JBLU', 'SAVE', 'HA', 'MESA', 'SKYW']
-  },
-  {
-    symbol: 'BDRY',
-    name: 'Dry Bulk Shipping',
-    category: 'Transportation',
-    holdings: ['STLD', 'NUE', 'CLF', 'X', 'FCX', 'NEM', 'SCCO', 'GOLD', 'AA', 'RS']
-  },
-  {
-    symbol: 'BOAT',
-    name: 'Maritime Companies',
-    category: 'Transportation',
-    holdings: ['AP', 'MATX', 'KEX', 'SBLK', 'NMM', 'ESEA', 'SB', 'GOGL', 'CPLP', 'GLOP']
+    holdings: ['UPS', 'FDX', 'UNP', 'CSX', 'NSC', 'KSU', 'CHRW', 'EXPD', 'JBHT', 'R']
   },
 
-  // Retail & Consumer
+  // 20. Consumer Discretionary (Retail & Services)
   {
     symbol: 'XRT',
-    name: 'Retail',
-    category: 'Consumer',
-    holdings: ['AMZN', 'HD', 'LOW', 'TJX', 'TGT', 'COST', 'WMT', 'DG', 'DLTR', 'BBY']
-  },
-  {
-    symbol: 'IYC',
-    name: 'Consumer Services',
-    category: 'Consumer',
-    holdings: ['AMZN', 'HD', 'MCD', 'SBUX', 'NKE', 'LOW', 'TJX', 'BKNG', 'CMG', 'YUM']
-  },
-  {
-    symbol: 'IYK',
-    name: 'Consumer Goods',
-    category: 'Consumer',
-    holdings: ['PG', 'KO', 'PEP', 'WMT', 'COST', 'MDLZ', 'CL', 'KMB', 'GIS', 'HSY']
-  },
-  {
-    symbol: 'VCR',
     name: 'Consumer Discretionary',
     category: 'Consumer',
-    holdings: ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'LOW', 'SBUX', 'TJX', 'BKNG', 'CMG']
+    holdings: ['TJX', 'TGT', 'COST', 'WMT', 'DG', 'DLTR', 'BBY', 'ROST', 'GPS', 'ANF', 'MCD', 'SBUX', 'NKE', 'BKNG', 'CMG', 'YUM', 'DPZ', 'QSR', 'WEN', 'JACK']
   },
+
+  // 21. Consumer Staples & Agriculture
   {
     symbol: 'VDC',
     name: 'Consumer Staples',
     category: 'Consumer',
-    holdings: ['PG', 'KO', 'PEP', 'WMT', 'COST', 'MDLZ', 'CL', 'KMB', 'GIS', 'HSY']
-  },
-  {
-    symbol: 'CARZ',
-    name: 'Automobiles',
-    category: 'Consumer',
-    holdings: ['TSLA', 'GM', 'F', 'RIVN', 'LCID', 'APTV', 'BWA', 'ADNT', 'GT', 'ALV']
+    holdings: ['PG', 'KO', 'PEP', 'MDLZ', 'CL', 'KMB', 'GIS', 'HSY', 'K', 'CPB', 'ADM', 'BG', 'CF', 'DE', 'FMC', 'MOS', 'NTR', 'TSN', 'CAG', 'DAR']
   },
 
-  // Food & Agriculture
-  {
-    symbol: 'PBJ',
-    name: 'Food & Beverage',
-    category: 'Consumer',
-    holdings: ['KO', 'PEP', 'MDLZ', 'GIS', 'K', 'HSY', 'SJM', 'CPB', 'CAG', 'TSN']
-  },
-  {
-    symbol: 'FTXG',
-    name: 'Food & Beverage',
-    category: 'Consumer',
-    holdings: ['KO', 'PEP', 'MDLZ', 'GIS', 'K', 'HSY', 'SJM', 'CPB', 'CAG', 'TSN']
-  },
-  {
-    symbol: 'MOO',
-    name: 'Agribusiness',
-    category: 'Agriculture',
-    holdings: ['ADM', 'BG', 'CF', 'DE', 'FMC', 'MOS', 'NTR', 'TSN', 'CTVA', 'DAR']
-  },
-
-  // Industrials
+  // 22. Industrials & Utilities
   {
     symbol: 'VIS',
-    name: 'Industrials',
+    name: 'Industrials & Utilities',
     category: 'Industrial',
-    holdings: ['BA', 'UNP', 'HON', 'UPS', 'RTX', 'LMT', 'CAT', 'DE', 'GE', 'MMM']
+    holdings: ['HON', 'CAT', 'GE', 'MMM', 'ITW', 'ETN', 'PH', 'CMI', 'FTV', 'AME', 'SO', 'DUK', 'AEP', 'SRE', 'D', 'PEG', 'EXC', 'XEL', 'ED', 'ES']
   },
 
-  // Natural Resources & Forestry
-  {
-    symbol: 'WOOD',
-    name: 'Timber & Forestry',
-    category: 'Natural Resources',
-    holdings: ['WY', 'PCH', 'RYN', 'CUT', 'RYAM', 'UFS', 'STOR', 'TREE', 'PLL', 'LSF']
-  },
-  {
-    symbol: 'CUT',
-    name: 'Timber & Forestry',
-    category: 'Natural Resources',
-    holdings: ['WY', 'PCH', 'RYN', 'CUT', 'RYAM', 'UFS', 'STOR', 'TREE', 'PLL', 'LSF']
-  },
-  {
-    symbol: 'IGE',
-    name: 'Natural Resources',
-    category: 'Natural Resources',
-    holdings: ['XOM', 'CVX', 'COP', 'EOG', 'FCX', 'NEM', 'SLB', 'PSX', 'VLO', 'MPC']
-  },
-  {
-    symbol: 'HAP',
-    name: 'Commodities Producers',
-    category: 'Natural Resources',
-    holdings: ['XOM', 'CVX', 'COP', 'EOG', 'FCX', 'NEM', 'SLB', 'PSX', 'VLO', 'MPC']
-  },
-
-  // Utilities
-  {
-    symbol: 'VPU',
-    name: 'Utilities',
-    category: 'Utilities',
-    holdings: ['NEE', 'SO', 'DUK', 'AEP', 'SRE', 'D', 'PEG', 'EXC', 'XEL', 'ED']
-  },
-
-  // Communications & Media
+  // 23. Digital Media & Entertainment
   {
     symbol: 'VOX',
-    name: 'Communication Services',
+    name: 'Digital Media',
     category: 'Communication',
-    holdings: ['META', 'GOOGL', 'GOOG', 'NFLX', 'DIS', 'VZ', 'T', 'CMCSA', 'TMUS', 'CHTR']
+    holdings: ['GOOG', 'DIS', 'VZ', 'T', 'CMCSA', 'TMUS', 'CHTR', 'ATVI', 'EA', 'TTWO', 'SNAP', 'TWTR', 'PINS', 'MTCH', 'IAC', 'Z', 'ZG', 'YELP', 'TRIP', 'NTES', 'SE', 'BILI', 'WB', 'SLGG', 'MGM', 'PENN', 'DKNG', 'CHDN', 'CZR', 'RSI', 'LVS', 'WYNN', 'BYD']
   },
 
-  // Social Media & Gaming
-  {
-    symbol: 'SOCL',
-    name: 'Social Media',
-    category: 'Social',
-    holdings: ['META', 'GOOGL', 'SNAP', 'TWTR', 'PINS', 'MTCH', 'BMBL', 'IAC', 'Z', 'ZG']
-  },
-  {
-    symbol: 'ESPO',
-    name: 'Video Gaming and eSports',
-    category: 'Gaming',
-    holdings: ['NVDA', 'ATVI', 'EA', 'TTWO', 'RBLX', 'AMD', 'NTES', 'SE', 'BILI', 'HUYA']
-  },
-  {
-    symbol: 'NERD',
-    name: 'Video Games & eSports',
-    category: 'Gaming',
-    holdings: ['NVDA', 'ATVI', 'EA', 'TTWO', 'RBLX', 'AMD', 'NTES', 'SE', 'BILI', 'HUYA']
-  },
-  {
-    symbol: 'HERO',
-    name: 'Esports & Gaming',
-    category: 'Gaming',
-    holdings: ['NVDA', 'ATVI', 'EA', 'TTWO', 'RBLX', 'AMD', 'NTES', 'SE', 'BILI', 'HUYA']
-  },
-
-  // International & Emerging Markets
+  // 24. International Markets
   {
     symbol: 'EEM',
-    name: 'Emerging Markets',
+    name: 'International Markets',
     category: 'International',
-    holdings: ['TSM', 'BABA', 'PDD', 'JD', 'NTES', 'BIDU', 'VALE', 'IBN', 'HDB', 'INFY']
-  },
-  {
-    symbol: 'KWEB',
-    name: 'China Internet',
-    category: 'International',
-    holdings: ['BABA', 'PDD', 'JD', 'NTES', 'BIDU', 'TME', 'BILI', 'IQ', 'VIPS', 'DIDI']
-  },
-  {
-    symbol: 'PXH',
-    name: 'Emerging Markets',
-    category: 'International',
-    holdings: ['TSM', 'BABA', 'PDD', 'JD', 'NTES', 'BIDU', 'VALE', 'IBN', 'HDB', 'INFY']
+    holdings: ['BABA', 'PDD', 'JD', 'BIDU', 'IBN', 'HDB', 'INFY', 'SNP', 'TME', 'VIPS', 'TAL', 'EDU', 'YY', 'MOMO', 'ATHM']
   },
 
-  // Infrastructure
+  // 25. Infrastructure & Resources
   {
     symbol: 'IGF',
-    name: 'Global Infrastructure',
+    name: 'Infrastructure & Resources',
     category: 'Infrastructure',
-    holdings: ['NEE', 'AMT', 'CCI', 'EQIX', 'UNP', 'CSX', 'NSC', 'EPD', 'KMI', 'WMB']
-  },
-  {
-    symbol: 'GII',
-    name: 'Global Infrastructure',
-    category: 'Infrastructure',
-    holdings: ['NEE', 'AMT', 'CCI', 'EQIX', 'UNP', 'CSX', 'NSC', 'EPD', 'KMI', 'WMB']
-  },
-  {
-    symbol: 'GRID',
-    name: 'Smart Grid Infrastructure',
-    category: 'Infrastructure',
-    holdings: ['NEE', 'SO', 'DUK', 'AEP', 'SRE', 'D', 'PEG', 'EXC', 'XEL', 'ED']
-  },
-
-  // Specialty & Miscellaneous
-  {
-    symbol: 'BUZZ',
-    name: 'Social Sentiment',
-    category: 'Specialty',
-    holdings: ['AAPL', 'TSLA', 'AMZN', 'GOOGL', 'META', 'MSFT', 'NVDA', 'NFLX', 'AMD', 'CRM']
-  },
-  {
-    symbol: 'BETZ',
-    name: 'Sports Betting & iGaming',
-    category: 'Specialty',
-    holdings: ['DIS', 'MGM', 'PENN', 'DKNG', 'CHDN', 'CZR', 'RSI', 'FUBO', 'LVS', 'WYNN']
-  },
-  {
-    symbol: 'EVX',
-    name: 'Environmental Services',
-    category: 'Specialty',
-    holdings: ['WM', 'RSG', 'WCN', 'CWST', 'CLH', 'SRCL', 'MEG', 'HASI', 'NVRI', 'PESI']
-  },
-  {
-    symbol: 'LCTD',
-    name: 'Low Carbon Transition',
-    category: 'Specialty',
-    holdings: ['TSLA', 'ENPH', 'FSLR', 'PLUG', 'BE', 'NEE', 'XEL', 'AEP', 'SO', 'DUK']
+    holdings: ['EPD', 'PAGP', 'OKE', 'MMP', 'PAA', 'CEQP', 'GEL', 'ENLC', 'DCP', 'WM', 'RSG', 'WCN', 'CWST', 'CLH', 'SRCL', 'MEG', 'HASI', 'NVRI', 'PESI', 'PCH', 'RYN', 'CUT', 'RYAM', 'UFS', 'STOR', 'TREE', 'WOOD', 'TIPT']
   }
 ];
 
@@ -1030,8 +557,16 @@ export class IndustryAnalysisService {
       return { topPerformers: [], worstPerformers: [] };
     }
 
+    // Exclude problematic symbols
+    const excludedSymbols = new Set([
+      'LYNAS', 'PIL', 'UCORE', 'ARAFQ', 'GWMGF', 'FM', 'CMMC', 'X', 'KAP', 'MRO',
+      'CLR', 'HES', 'SWN', 'COG', 'NOVA', 'BLUE', 'TWTR', 'RELIANCE', 'ONEOK', 'MMP',
+      'CEOP', 'ENLC', 'SAVE', 'HA', 'MESA', 'GPS'
+    ]);
+
     // Analyze each holding using cached data
     for (const holding of etf.holdings) {
+      if (excludedSymbols.has(holding)) continue;
       const holdingData = historicalDataMap.get(holding);
       if (holdingData) {
         const relativePerformance = this.calculateHoldingPerformanceFromData(holdingData, etfData);
@@ -1043,12 +578,13 @@ export class IndustryAnalysisService {
       }
     }
 
-    // Sort by performance
+    // Sort by performance and filter out any remaining excluded symbols
     holdingPerformances.sort((a, b) => b.relativePerformance - a.relativePerformance);
+    const filtered = holdingPerformances.filter(h => !excludedSymbols.has(h.symbol));
 
     return {
-      topPerformers: holdingPerformances.slice(0, 5), // Top 5 performers
-      worstPerformers: holdingPerformances.slice(-5).reverse() // Bottom 5 performers
+      topPerformers: filtered.slice(0, 5), // Top 5 performers
+      worstPerformers: filtered.slice(-5).reverse() // Bottom 5 performers
     };
   }
 
@@ -1147,7 +683,7 @@ export class IndustryAnalysisService {
     if (progressCallback) progressCallback('Initializing parallel analysis...', 10);
 
     // Track actual progress with Promise.allSettled to monitor completion
-    const completedTasks = { count: 0, total: 3 };
+    const completedTasks = { count: 0, total: 4 };
 
     const trackablePromises = [
       this.analyzeTimeframe(5, 'Life').then(result => {
@@ -1167,6 +703,15 @@ export class IndustryAnalysisService {
         return result;
       }),
       this.analyzeTimeframe(80, 'Momentum').then(result => {
+        completedTasks.count++;
+        if (progressCallback) {
+          const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
+          progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
+        }
+        return result;
+      }),
+      this.analyzeTimeframe(180, 'Legacy').then(result => {
+        completedTasks.count++;
         if (progressCallback) {
           const progress = 25 + (completedTasks.count / completedTasks.total) * 70;
           progressCallback(`Completed ${completedTasks.count}/${completedTasks.total} timeframes...`, progress);
@@ -1176,11 +721,11 @@ export class IndustryAnalysisService {
     ];
 
     try {
-      const [life, developing, momentum] = await Promise.all(trackablePromises);
+      const [life, developing, momentum, legacy] = await Promise.all(trackablePromises);
 
       if (progressCallback) progressCallback('Finalizing results...', 100);
 
-      return { life, developing, momentum };
+      return { life, developing, momentum, legacy };
     } catch (error) {
       throw error;
     }
@@ -1210,7 +755,8 @@ export class IndustryAnalysisService {
     const timeframes = [
       { days: 5, name: 'life' as keyof MarketRegimeData, label: 'Life' },
       { days: 21, name: 'developing' as keyof MarketRegimeData, label: 'Developing' },
-      { days: 80, name: 'momentum' as keyof MarketRegimeData, label: 'Momentum' }
+      { days: 80, name: 'momentum' as keyof MarketRegimeData, label: 'Momentum' },
+      { days: 180, name: 'legacy' as keyof MarketRegimeData, label: 'Legacy' }
     ];
 
     // Execute analyses sequentially to prevent resource exhaustion

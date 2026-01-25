@@ -7087,6 +7087,22 @@ export default function TradingViewChart({
   const [showTradeModal, setShowTradeModal] = useState(false);
   const [isCalculatingTrades, setIsCalculatingTrades] = useState(false);
 
+  // Scroll position preservation for RegimesPanel
+  const regimesPanelScrollRef = useRef<HTMLDivElement>(null);
+  const savedRegimesScrollPos = useRef<number>(0);
+
+  // Scroll position preservation for Screeners Panel
+  const screenersPanelScrollRef = useRef<HTMLDivElement>(null);
+  const savedScreenersScrollPos = useRef<number>(0);
+
+  // Scroll position preservation for News Panel
+  const newsPanelScrollRef = useRef<HTMLDivElement>(null);
+  const savedNewsScrollPos = useRef<number>(0);
+
+  // Scroll position preservation for Alerts Panel
+  const alertsPanelScrollRef = useRef<HTMLDivElement>(null);
+  const savedAlertsScrollPos = useRef<number>(0);
+
   // Expected Range state for probability levels
   const [expectedRangeLevels, setExpectedRangeLevels] = useState<any>(null);
   const [isLoadingExpectedRange, setIsLoadingExpectedRange] = useState(false);
@@ -7102,6 +7118,25 @@ export default function TradingViewChart({
 
   // Seasonal state
   const [isSeasonalDropdownOpen, setIsSeasonalDropdownOpen] = useState(false);
+
+  // Restore scroll positions for all sidebar panels on every render
+  useLayoutEffect(() => {
+    if (screenersPanelScrollRef.current && savedScreenersScrollPos.current > 0) {
+      screenersPanelScrollRef.current.scrollTop = savedScreenersScrollPos.current;
+    }
+  });
+
+  useLayoutEffect(() => {
+    if (newsPanelScrollRef.current && savedNewsScrollPos.current > 0) {
+      newsPanelScrollRef.current.scrollTop = savedNewsScrollPos.current;
+    }
+  });
+
+  useLayoutEffect(() => {
+    if (alertsPanelScrollRef.current && savedAlertsScrollPos.current > 0) {
+      alertsPanelScrollRef.current.scrollTop = savedAlertsScrollPos.current;
+    }
+  });
   const [isSeasonalActive, setIsSeasonalActive] = useState(false);
   const [isSeasonal20YActive, setIsSeasonal20YActive] = useState(false);
   const [isSeasonal15YActive, setIsSeasonal15YActive] = useState(false);
@@ -8528,13 +8563,16 @@ export default function TradingViewChart({
             }
           };
 
-          // Web Worker pool for parallel scoring computation across multiple threads
-          const scoreWithWorkers = (candidates: any[], pricesMap: Map<string, any[]>): Promise<any[]> => {
+          // Web Worker pool for parallel scoring computation with DUAL STRATEGIES
+          const scoreWithWorkers = (candidates: any[], pricesMap: Map<string, any[]>): Promise<{ setup: any[], momentum: any[] }> => {
             return new Promise((resolve, reject) => {
               const workerCount = Math.min(4, Math.max(1, Math.floor(candidates.length / 20))); // 4 workers max, 1 per 20 candidates
-              const workers: Worker[] = [];
-              const results: any[][] = [];
-              let completedWorkers = 0;
+              const setupWorkers: Worker[] = [];
+              const momentumWorkers: Worker[] = [];
+              const setupResults: any[][] = [];
+              const momentumResults: any[][] = [];
+              let completedSetupWorkers = 0;
+              let completedMomentumWorkers = 0;
 
               // Convert Map to plain object for worker transfer
               const pricesObj: Record<string, any[]> = {};
@@ -8545,6 +8583,7 @@ export default function TradingViewChart({
               // Split candidates across workers
               const chunkSize = Math.ceil(candidates.length / workerCount);
 
+              // Launch SETUP-QUALITY workers
               for (let i = 0; i < workerCount; i++) {
                 const start = i * chunkSize;
                 const end = Math.min(start + chunkSize, candidates.length);
@@ -8552,32 +8591,76 @@ export default function TradingViewChart({
 
                 if (chunk.length === 0) continue;
 
-                const worker = new Worker('/workers/aiTradeScoreWorker.js');
-                workers.push(worker);
+                const setupWorker = new Worker('/workers/aiTradeScoreWorkerNew.js');
+                setupWorkers.push(setupWorker);
 
-                worker.onmessage = (e) => {
+                setupWorker.onmessage = (e) => {
                   if (e.data.success) {
-                    results[i] = e.data.scoredCandidates;
-                    completedWorkers++;
+                    setupResults[i] = e.data.scoredCandidates;
+                    completedSetupWorkers++;
 
-                    if (completedWorkers === workerCount) {
+                    if (completedSetupWorkers === workerCount && completedMomentumWorkers === workerCount) {
                       // All workers done, combine results
-                      const allScored = results.flat();
-                      workers.forEach(w => w.terminate());
-                      resolve(allScored);
+                      const allSetup = setupResults.flat();
+                      const allMomentum = momentumResults.flat();
+                      setupWorkers.forEach(w => w.terminate());
+                      momentumWorkers.forEach(w => w.terminate());
+                      resolve({ setup: allSetup, momentum: allMomentum });
                     }
                   } else {
-                    workers.forEach(w => w.terminate());
+                    setupWorkers.forEach(w => w.terminate());
+                    momentumWorkers.forEach(w => w.terminate());
                     reject(new Error(e.data.error));
                   }
                 };
 
-                worker.onerror = (error) => {
-                  workers.forEach(w => w.terminate());
+                setupWorker.onerror = (error) => {
+                  setupWorkers.forEach(w => w.terminate());
+                  momentumWorkers.forEach(w => w.terminate());
                   reject(error);
                 };
 
-                worker.postMessage({ candidates: chunk, pricesMap: pricesObj });
+                setupWorker.postMessage({ candidates: chunk, pricesMap: pricesObj });
+              }
+
+              // Launch MOMENTUM-VOLATILITY workers in parallel
+              for (let i = 0; i < workerCount; i++) {
+                const start = i * chunkSize;
+                const end = Math.min(start + chunkSize, candidates.length);
+                const chunk = candidates.slice(start, end);
+
+                if (chunk.length === 0) continue;
+
+                const momentumWorker = new Worker('/workers/aiTradeScoreMomentumWorker.js');
+                momentumWorkers.push(momentumWorker);
+
+                momentumWorker.onmessage = (e) => {
+                  if (e.data.success) {
+                    momentumResults[i] = e.data.scoredCandidates;
+                    completedMomentumWorkers++;
+
+                    if (completedSetupWorkers === workerCount && completedMomentumWorkers === workerCount) {
+                      // All workers done, combine results
+                      const allSetup = setupResults.flat();
+                      const allMomentum = momentumResults.flat();
+                      setupWorkers.forEach(w => w.terminate());
+                      momentumWorkers.forEach(w => w.terminate());
+                      resolve({ setup: allSetup, momentum: allMomentum });
+                    }
+                  } else {
+                    setupWorkers.forEach(w => w.terminate());
+                    momentumWorkers.forEach(w => w.terminate());
+                    reject(new Error(e.data.error));
+                  }
+                };
+
+                momentumWorker.onerror = (error) => {
+                  setupWorkers.forEach(w => w.terminate());
+                  momentumWorkers.forEach(w => w.terminate());
+                  reject(error);
+                };
+
+                momentumWorker.postMessage({ candidates: chunk, pricesMap: pricesObj });
               }
             });
           };
@@ -8687,72 +8770,118 @@ export default function TradingViewChart({
             }
           }
 
-          // Score all candidates in parallel using multiple Web Workers
-          const scoredCandidates = await scoreWithWorkers(allCandidates, pricesMap);
-          const validScored = scoredCandidates.filter((c: any) => c.score > 0);
+          // Score all candidates in parallel using DUAL STRATEGY Web Workers
+          const { setup: setupScored, momentum: momentumScored } = await scoreWithWorkers(allCandidates, pricesMap);
+          const validSetup = setupScored.filter((c: any) => c.score > 0);
+          const validMomentum = momentumScored.filter((c: any) => c.score > 0);
 
-          if (validScored.length === 0) {
+          console.log(`📊 Setup scored: ${validSetup.length}/${setupScored.length}, 🚀 Momentum scored: ${validMomentum.length}/${momentumScored.length}`);
+
+          if (validSetup.length === 0 && validMomentum.length === 0) {
             setIsCalculatingTrades(false);
             return;
           }
 
-          // Find best bullish and best bearish overall (GOLD highlights)
-          const bullishScored = validScored.filter((c: any) => c.trend === 'bullish');
-          const bearishScored = validScored.filter((c: any) => c.trend === 'bearish');
+          // SETUP-QUALITY STRATEGY: Find best bullish and bearish (GOLD highlights)
+          const setupBullish = validSetup.filter((c: any) => c.trend === 'bullish');
+          const setupBearish = validSetup.filter((c: any) => c.trend === 'bearish');
 
-          const bestBullish = bullishScored.length > 0 ? bullishScored.reduce((best: any, curr: any) => curr.score > best.score ? curr : best) : null;
-          const bestBearish = bearishScored.length > 0 ? bearishScored.reduce((best: any, curr: any) => curr.score > best.score ? curr : best) : null;
+          const bestSetupBullish = setupBullish.length > 0 ? setupBullish.reduce((best: any, curr: any) => curr.score > best.score ? curr : best) : null;
+          const bestSetupBearish = setupBearish.length > 0 ? setupBearish.reduce((best: any, curr: any) => curr.score > best.score ? curr : best) : null;
 
-          // Find best in each industry (PURPLE highlights)
-          const industryBestMap = new Map<string, any>();
+          // SETUP-QUALITY STRATEGY: Find best in each industry (PURPLE highlights)
+          const setupIndustryBestMap = new Map<string, any>();
 
           for (const industry of [...bullishIndustries, ...bearishIndustries]) {
-            const industryStocks = validScored.filter(c => c.industrySymbol === industry.symbol);
+            const industryStocks = validSetup.filter(c => c.industrySymbol === industry.symbol);
             if (industryStocks.length > 0) {
               const best = industryStocks.reduce((best, curr) => curr.score > best.score ? curr : best);
-              industryBestMap.set(industry.symbol, best);
+              setupIndustryBestMap.set(industry.symbol, best);
             }
           }
 
-          // Fetch full trade details for all highlighted stocks
+          // MOMENTUM-VOLATILITY STRATEGY: Find best bullish and bearish (ORANGE highlights)
+          const momentumBullish = validMomentum.filter((c: any) => c.trend === 'bullish');
+          const momentumBearish = validMomentum.filter((c: any) => c.trend === 'bearish');
+
+          const bestMomentumBullish = momentumBullish.length > 0 ? momentumBullish.reduce((best: any, curr: any) => curr.score > best.score ? curr : best) : null;
+          const bestMomentumBearish = momentumBearish.length > 0 ? momentumBearish.reduce((best: any, curr: any) => curr.score > best.score ? curr : best) : null;
+
+          // MOMENTUM-VOLATILITY STRATEGY: Find best in each industry (BLUE highlights)
+          const momentumIndustryBestMap = new Map<string, any>();
+
+          for (const industry of [...bullishIndustries, ...bearishIndustries]) {
+            const industryStocks = validMomentum.filter(c => c.industrySymbol === industry.symbol);
+            if (industryStocks.length > 0) {
+              const best = industryStocks.reduce((best, curr) => curr.score > best.score ? curr : best);
+              momentumIndustryBestMap.set(industry.symbol, best);
+            }
+          }
+
+          // Fetch full trade details for all highlighted stocks (4 types)
           const tradesMap: Record<string, any> = {};
 
-          // Fetch for gold highlights
-          if (bestBullish) {
-            const details = await fetchTradeDetails(bestBullish, regimeTab);
+          // Fetch SETUP-QUALITY: Gold highlights (best overall)
+          if (bestSetupBullish) {
+            const details = await fetchTradeDetails(bestSetupBullish, regimeTab);
             if (details) {
-              details.score = bestBullish.score;
-              details.details = bestBullish.details;
+              details.score = bestSetupBullish.score;
+              details.details = bestSetupBullish.details;
               details.highlightType = 'gold';
+              details.strategy = 'setup';
               details.sourceTab = regimeTab;
-              tradesMap[bestBullish.symbol] = details;
+              tradesMap[bestSetupBullish.symbol] = details;
             }
           }
 
-          if (bestBearish && bestBearish.symbol !== bestBullish?.symbol) {
-            const details = await fetchTradeDetails(bestBearish, regimeTab);
+          if (bestSetupBearish && bestSetupBearish.symbol !== bestSetupBullish?.symbol) {
+            const details = await fetchTradeDetails(bestSetupBearish, regimeTab);
             if (details) {
-              details.score = bestBearish.score;
-              details.details = bestBearish.details;
+              details.score = bestSetupBearish.score;
+              details.details = bestSetupBearish.details;
               details.highlightType = 'gold';
+              details.strategy = 'setup';
               details.sourceTab = regimeTab;
-              tradesMap[bestBearish.symbol] = details;
+              tradesMap[bestSetupBearish.symbol] = details;
             }
           }
 
-          // Fetch for purple highlights (industry leaders) - PARALLEL
-          const purplePromises = Array.from(industryBestMap.entries()).map(async ([industrySymbol, candidate]) => {
-            // Skip if already fetched as gold
-            if (tradesMap[candidate.symbol]) {
-              tradesMap[candidate.symbol].highlightType = 'gold'; // Gold takes precedence
-              return null;
+          // Fetch MOMENTUM-VOLATILITY: Orange highlights (best overall)
+          if (bestMomentumBullish && !tradesMap[bestMomentumBullish.symbol]) {
+            const details = await fetchTradeDetails(bestMomentumBullish, regimeTab);
+            if (details) {
+              details.score = bestMomentumBullish.score;
+              details.details = bestMomentumBullish.details;
+              details.highlightType = 'blue';
+              details.strategy = 'momentum';
+              details.sourceTab = regimeTab;
+              tradesMap[bestMomentumBullish.symbol] = details;
             }
+          }
+
+          if (bestMomentumBearish && bestMomentumBearish.symbol !== bestMomentumBullish?.symbol && !tradesMap[bestMomentumBearish.symbol]) {
+            const details = await fetchTradeDetails(bestMomentumBearish, regimeTab);
+            if (details) {
+              details.score = bestMomentumBearish.score;
+              details.details = bestMomentumBearish.details;
+              details.highlightType = 'blue';
+              details.strategy = 'momentum';
+              details.sourceTab = regimeTab;
+              tradesMap[bestMomentumBearish.symbol] = details;
+            }
+          }
+
+          // Fetch SETUP-QUALITY: Purple highlights (industry leaders) - PARALLEL
+          const purplePromises = Array.from(setupIndustryBestMap.entries()).map(async ([industrySymbol, candidate]) => {
+            // Skip if already fetched
+            if (tradesMap[candidate.symbol]) return null;
 
             const details = await fetchTradeDetails(candidate, regimeTab);
             if (details) {
               details.score = candidate.score;
               details.details = candidate.details;
               details.highlightType = 'purple';
+              details.strategy = 'setup';
               details.sourceTab = regimeTab;
               details.industryLeaderOf = industrySymbol;
               return { symbol: candidate.symbol, details };
@@ -8761,8 +8890,34 @@ export default function TradingViewChart({
             }
           });
 
-          const purpleResults = await Promise.all(purplePromises);
+          // Fetch MOMENTUM-VOLATILITY: Pink highlights (industry leaders) - PARALLEL
+          const pinkPromises = Array.from(momentumIndustryBestMap.entries()).map(async ([industrySymbol, candidate]) => {
+            // Skip if already fetched
+            if (tradesMap[candidate.symbol]) return null;
+
+            const details = await fetchTradeDetails(candidate, regimeTab);
+            if (details) {
+              details.score = candidate.score;
+              details.details = candidate.details;
+              details.highlightType = 'pink';
+              details.strategy = 'momentum';
+              details.sourceTab = regimeTab;
+              details.industryLeaderOf = industrySymbol;
+              return { symbol: candidate.symbol, details };
+            } else {
+              return null;
+            }
+          });
+
+          const [purpleResults, pinkResults] = await Promise.all([Promise.all(purplePromises), Promise.all(pinkPromises)]);
+
           purpleResults.forEach(result => {
+            if (result) {
+              tradesMap[result.symbol] = result.details;
+            }
+          });
+
+          pinkResults.forEach(result => {
             if (result) {
               tradesMap[result.symbol] = result.details;
             }
@@ -8771,6 +8926,10 @@ export default function TradingViewChart({
           // Update state and cache for this tab
           const goldCount = Object.values(tradesMap).filter(t => t.highlightType === 'gold').length;
           const purpleCount = Object.values(tradesMap).filter(t => t.highlightType === 'purple').length;
+          const blueCount = Object.values(tradesMap).filter(t => t.highlightType === 'blue').length;
+          const pinkCount = Object.values(tradesMap).filter(t => t.highlightType === 'pink').length;
+
+          console.log(`✅ ${regimeTab} Highlights: 🥇 Gold=${goldCount} 🟣 Purple=${purpleCount} 🔵 Blue=${blueCount} 🩷 Pink=${pinkCount}`);
 
           // Update cache for this specific tab
           setHighlightedTradesCache(prev => ({ ...prev, [regimeTab]: tradesMap }));
@@ -14190,38 +14349,20 @@ export default function TradingViewChart({
     const scrollPositionRef = useRef<number>(0);
     const lastDataHashRef = useRef<string>('');
 
-    // Track scroll position continuously
-    useEffect(() => {
+    // Restore scroll position immediately after render (synchronous)
+    useLayoutEffect(() => {
       const scrollContainer = watchlistScrollRef.current;
-      if (!scrollContainer || activeTab !== 'Watchlist') return;
-
-      const handleScroll = () => {
-        scrollPositionRef.current = scrollContainer.scrollTop;
-      };
-
-      scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-      return () => scrollContainer.removeEventListener('scroll', handleScroll);
-    }, [activeTab]);
-
-    // Prevent scroll reset when data changes
-    useEffect(() => {
-      const dataHash = JSON.stringify(Object.keys(watchlistData).sort());
-
-      // Only restore if the data structure is the same (just values changed)
-      if (dataHash === lastDataHashRef.current) {
-        const scrollContainer = watchlistScrollRef.current;
-        if (scrollContainer && activeTab === 'Watchlist') {
-          const savedScroll = scrollPositionRef.current;
-          // Force scroll restoration synchronously
-          if (savedScroll > 0) {
-            scrollContainer.style.scrollBehavior = 'auto';
-            scrollContainer.scrollTop = savedScroll;
-          }
-        }
+      if (scrollContainer && scrollPositionRef.current > 0) {
+        scrollContainer.scrollTop = scrollPositionRef.current;
       }
+    });
 
-      lastDataHashRef.current = dataHash;
-    }, [watchlistData, activeTab]);
+    // Save scroll position on scroll (use callback for stability)
+    const handleScroll = useCallback(() => {
+      if (watchlistScrollRef.current) {
+        scrollPositionRef.current = watchlistScrollRef.current.scrollTop;
+      }
+    }, []);
 
     // Fetch data when tab, timeframe, or symbols change - stable reference
     const stableSymbols = useMemo(() => [...pdSelectedSymbols].sort().join(','), [pdSelectedSymbols]);
@@ -14853,6 +14994,7 @@ export default function TradingViewChart({
             {/* Bloomberg-style Content */}
             <div
               ref={watchlistScrollRef}
+              onScroll={handleScroll}
               className="flex-1 overflow-y-auto bg-black"
               style={{
                 overflowAnchor: 'none',
@@ -15148,7 +15290,7 @@ export default function TradingViewChart({
                     </div>
 
                     {/* Cards Grid */}
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 grid-cols-2 gap-3">
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 grid-cols-3 gap-2">
                       {category.symbols.map((symbol) => {
                         const data = trackingData[symbol];
                         if (!data) return null;
@@ -15177,7 +15319,7 @@ export default function TradingViewChart({
                               }}
                             />
 
-                            <div className="relative md:p-6 p-3">
+                            <div className="relative md:p-6 p-2">
                               <div className="md:flex md:items-center md:justify-between md:gap-4">
                                 {/* Left: Ticker and Price (all horizontal on mobile) */}
                                 <div className="md:flex-shrink-0 md:w-20">
@@ -15186,14 +15328,14 @@ export default function TradingViewChart({
                                     {data.symbol}
                                   </div>
                                   {/* Mobile layout - all in one row */}
-                                  <div className="md:hidden flex items-center gap-2">
-                                    <div className="font-black text-white text-sm tracking-tight">
+                                  <div className="md:hidden flex flex-col items-start gap-0.5">
+                                    <div className="font-black text-white text-[10px] tracking-tight">
                                       {data.symbol}
                                     </div>
-                                    <div className="font-bold text-white text-xs">
+                                    <div className="font-bold text-white text-[9px]">
                                       ${data.price.toFixed(2)}
                                     </div>
-                                    <div className={`text-[10px] font-bold ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    <div className={`text-[8px] font-bold ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                       {data.change >= 0 ? '+' : ''}{data.change.toFixed(2)}%
                                     </div>
                                   </div>
@@ -15204,7 +15346,7 @@ export default function TradingViewChart({
                                   <svg
                                     viewBox="0 0 200 50"
                                     preserveAspectRatio="none"
-                                    className="w-full md:h-16 h-12"
+                                    className="w-full md:h-16 h-8"
                                   >
                                     {data.sparklineData.length > 1 && (() => {
                                       const prices = data.sparklineData.map(p => p.price);
@@ -15320,7 +15462,7 @@ export default function TradingViewChart({
 
         {/* Options Trades Tab Content */}
         {activeTab === 'Options Trades' && (
-          <div className="flex-1 overflow-y-auto bg-black p-6">
+          <div className="flex-1 overflow-y-auto bg-black p-6" style={{ display: 'block' }}>
             {(() => {
               const saved = localStorage.getItem('optionsWatchlist');
               const optionsWatchlist: any[] = saved ? JSON.parse(saved) : [];
@@ -15337,7 +15479,7 @@ export default function TradingViewChart({
               }
 
               return (
-                <div className="space-y-4">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px', width: '100%' }}>
                   {optionsWatchlist.map((option) => {
                     // Use live quotes if available, otherwise fall back to stored bid/ask
                     const liveQuote = liveOptionQuotes[option.id];
@@ -15509,7 +15651,8 @@ export default function TradingViewChart({
                         style={{
                           background: '#000000',
                           borderColor: pnlPercent >= 0 ? '#22c55e30' : '#ef444430',
-                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 2px 8px rgba(0,0,0,0.7)'
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 2px 8px rgba(0,0,0,0.7)',
+                          width: '100%'
                         }}
                       >
                         {/* Remove Trade Button */}
@@ -16185,9 +16328,9 @@ export default function TradingViewChart({
                               })}
                             </div>
 
-                            <div className="flex gap-4">
+                            <div className="space-y-4">
                               {/* Premium Chart */}
-                              <div className="flex-1">
+                              <div>
                                 <div className="text-sm text-white font-bold uppercase mb-2 text-center" style={{ color: '#00d4ff' }}>Premium</div>
                                 <div className="w-full h-[265px] rounded-lg" style={{
                                   background: 'linear-gradient(to bottom, #030508 0%, #010203 100%)',
@@ -16274,7 +16417,7 @@ export default function TradingViewChart({
                               </div>
 
                               {/* Stock Chart */}
-                              <div className="flex-1">
+                              <div>
                                 <div className="text-sm text-white font-bold uppercase mb-2 text-center" style={{ color: '#ff9500' }}>Stock Price</div>
                                 <div className="w-full h-[265px] rounded-lg" style={{
                                   background: 'linear-gradient(to bottom, #030508 0%, #010203 100%)',
@@ -16444,7 +16587,7 @@ export default function TradingViewChart({
     setHighlightFilter: (filter: 'all' | 'gold' | 'purple' | 'highlights') => void
   }) => {
 
-    const getCurrentTimeframeData = () => {
+    const getCurrentTimeframeData = useCallback(() => {
       if (!marketRegimeData) {
         return null;
       }
@@ -16468,19 +16611,76 @@ export default function TradingViewChart({
       }
 
       return data;
-    };
+    }, [marketRegimeData, activeTab]);
 
     const timeframeData = getCurrentTimeframeData();
-    const bullishIndustries = timeframeData?.industries?.filter((industry: any) => industry.trend === 'bullish').slice(0, 20) || [];
-    const bearishIndustries = timeframeData?.industries?.filter((industry: any) => industry.trend === 'bearish').slice(0, 20) || [];
+    const bullishIndustries = useMemo(() =>
+      timeframeData?.industries?.filter((industry: any) => industry.trend === 'bullish').slice(0, 20) || []
+      , [timeframeData]);
+    const bearishIndustries = useMemo(() =>
+      timeframeData?.industries?.filter((industry: any) => industry.trend === 'bearish').slice(0, 20) || []
+      , [timeframeData]);
+
+    // Memoize filtered and sorted trades to prevent re-computation on every render
+    const { filteredBullishTrades, filteredBearishTrades } = useMemo(() => {
+      const allTabsHighlights: Array<[string, any]> = [];
+      Object.keys(highlightedTradesCache).forEach(tab => {
+        Object.entries(highlightedTradesCache[tab] || {}).forEach(([symbol, trade]) => {
+          allTabsHighlights.push([symbol, trade]);
+        });
+      });
+
+      const bullish = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
+        const matchesFilter = highlightFilter === 'gold' ? (trade.highlightType === 'gold' || trade.highlightType === 'blue') :
+          highlightFilter === 'purple' ? (trade.highlightType === 'purple' || trade.highlightType === 'pink') :
+            highlightFilter === 'highlights' ? (trade.highlightType === 'gold' || trade.highlightType === 'purple' || trade.highlightType === 'blue' || trade.highlightType === 'pink') : true;
+        return matchesFilter && trade.optionType?.toLowerCase() === 'call';
+      }).sort((a, b) => {
+        const scoreA = a[1].score || 0;
+        const scoreB = b[1].score || 0;
+        return sortByPercentage ? scoreB - scoreA : scoreA - scoreB;
+      });
+
+      const bearish = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
+        const matchesFilter = highlightFilter === 'gold' ? (trade.highlightType === 'gold' || trade.highlightType === 'blue') :
+          highlightFilter === 'purple' ? (trade.highlightType === 'purple' || trade.highlightType === 'pink') :
+            highlightFilter === 'highlights' ? (trade.highlightType === 'gold' || trade.highlightType === 'purple' || trade.highlightType === 'blue' || trade.highlightType === 'pink') : true;
+        return matchesFilter && trade.optionType?.toLowerCase() === 'put';
+      }).sort((a, b) => {
+        const scoreA = a[1].score || 0;
+        const scoreB = b[1].score || 0;
+        return sortByPercentage ? scoreB - scoreA : scoreA - scoreB;
+      });
+
+      return { filteredBullishTrades: bullish, filteredBearishTrades: bearish };
+    }, [highlightedTradesCache, highlightFilter, sortByPercentage]);
+
+    // Preserve scroll position on re-renders
+    useLayoutEffect(() => {
+      const scrollContainer = regimesPanelScrollRef.current;
+      if (scrollContainer && savedRegimesScrollPos.current > 0) {
+        scrollContainer.scrollTop = savedRegimesScrollPos.current;
+      }
+    });
+
+    // Save scroll position before any updates
+    const handleScroll = useCallback(() => {
+      if (regimesPanelScrollRef.current) {
+        savedRegimesScrollPos.current = regimesPanelScrollRef.current.scrollTop;
+      }
+    }, []);
 
     return (
       <>
-        <div className="h-screen overflow-auto" style={{
-          background: '#000000',
-          borderBottom: '2px solid rgba(255, 102, 0, 0.4)',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-        }}>
+        <div
+          ref={regimesPanelScrollRef}
+          onScroll={handleScroll}
+          className="h-screen overflow-auto"
+          style={{
+            background: '#000000',
+            borderBottom: '2px solid rgba(255, 102, 0, 0.4)',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+          }}>
           {/* Premium Title Section */}
           <div className="px-6 py-6 relative overflow-hidden">
             {/* Background Ambient Glow */}
@@ -16521,21 +16721,45 @@ export default function TradingViewChart({
             </div>
           </div>
 
-          {/* Premium Tab Navigation */}
-          <div className="px-6 pb-4" style={{
-            marginTop: window.innerWidth < 768 ? '-8px' : undefined
+          {/* Abstract Hexagonal Tab Navigation */}
+          <div className="px-6 pb-3" style={{
+            marginTop: window.innerWidth < 768 ? '-12px' : '-16px'
           }}>
-            <div className="flex gap-2 md:gap-3" style={{
-              background: 'transparent'
+            <div className="grid grid-cols-4 gap-3" style={{
+              position: 'relative'
             }}>
               {['Life', 'Developing', 'Momentum', 'Legacy'].map((tab, index) => {
-                const tabColors = {
-                  'Life': { bg: '#4caf50', activeBg: '#4caf50', color: '#ffffff' },
-                  'Developing': { bg: '#2196f3', activeBg: '#2196f3', color: '#ffffff' },
-                  'Momentum': { bg: '#9c27b0', activeBg: '#9c27b0', color: '#ffffff' },
-                  'Legacy': { bg: '#ff9800', activeBg: '#ff9800', color: '#ffffff' }
+                const tabConfig = {
+                  'Life': {
+                    gradient: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
+                    glow: 'rgba(16, 185, 129, 0.4)',
+                    border: '#10b981',
+                    color: '#10b981',
+                    subtitle: 'Short-Term'
+                  },
+                  'Developing': {
+                    gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)',
+                    glow: 'rgba(59, 130, 246, 0.4)',
+                    border: '#3b82f6',
+                    color: '#3b82f6',
+                    subtitle: 'EMERGING'
+                  },
+                  'Momentum': {
+                    gradient: 'linear-gradient(135deg, #a855f7 0%, #9333ea 50%, #7e22ce 100%)',
+                    glow: 'rgba(168, 85, 247, 0.4)',
+                    border: '#a855f7',
+                    color: '#a855f7',
+                    subtitle: 'Medium-Term'
+                  },
+                  'Legacy': {
+                    gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)',
+                    glow: 'rgba(245, 158, 11, 0.4)',
+                    border: '#f59e0b',
+                    color: '#f59e0b',
+                    subtitle: 'Long-Term'
+                  }
                 };
-                const tabStyle = tabColors[tab as keyof typeof tabColors];
+                const config = tabConfig[tab as keyof typeof tabConfig];
                 const isMobile = window.innerWidth < 768;
                 const isActive = activeTab === tab;
 
@@ -16543,104 +16767,299 @@ export default function TradingViewChart({
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    className="flex-1 font-mono font-bold uppercase transition-all duration-300"
+                    className="relative overflow-hidden transition-all duration-500 group"
                     style={{
-                      padding: isMobile ? '12px 16px' : '16px 32px',
-                      fontSize: isMobile ? '0.875rem' : '1.125rem',
+                      padding: isMobile ? '10px 6px' : '14px 12px',
                       background: isActive
-                        ? `linear-gradient(135deg, ${tabStyle.activeBg} 0%, ${tabStyle.activeBg}dd 100%)`
-                        : 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
-                      color: '#ffffff',
-                      borderRadius: '20px',
-                      border: isActive ? `2px solid ${tabStyle.bg}` : '2px solid rgba(30, 30, 30, 0.8)',
-                      textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+                        ? `linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)`
+                        : 'linear-gradient(135deg, rgba(15, 15, 15, 0.8) 0%, rgba(5, 5, 5, 0.95) 100%)',
+                      backdropFilter: 'blur(10px)',
+                      border: isActive
+                        ? `2px solid ${config.border}`
+                        : '2px solid rgba(40, 40, 40, 0.5)',
+                      borderRadius: '0px',
+                      clipPath: 'polygon(0 0, 95% 0, 100% 100%, 5% 100%)',
                       boxShadow: isActive
-                        ? `inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.4)`
-                        : 'inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.5)',
-                      transform: isActive ? 'translateY(-2px)' : 'translateY(0)',
+                        ? `0 8px 25px ${config.glow}, 
+                           0 15px 45px rgba(0, 0, 0, 0.9),
+                           inset 0 3px 15px ${config.glow},
+                           inset 0 1px 0 rgba(255, 255, 255, 0.4),
+                           inset 0 -2px 8px rgba(0, 0, 0, 0.8)`
+                        : `0 4px 12px rgba(0, 0, 0, 0.8), 
+                           0 8px 20px rgba(0, 0, 0, 0.5),
+                           inset 0 1px 0 rgba(255, 255, 255, 0.05),
+                           inset 0 -1px 3px rgba(0, 0, 0, 0.6)`,
+                      transform: isActive ? 'scale(1.05) translateY(-6px) perspective(1000px) rotateX(2deg)' : 'scale(1) perspective(1000px)',
                       cursor: 'pointer',
-                      letterSpacing: '0.05em',
-                      fontWeight: '900'
-                    }}
-                    onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                      if (activeTab !== tab) {
-                        e.currentTarget.style.background = `linear-gradient(135deg, #0d0d0d 0%, #1a1a1a 100%)`;
-                        e.currentTarget.style.borderColor = 'rgba(40, 40, 40, 0.8)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                      }
-                    }}
-                    onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                      if (activeTab !== tab) {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)';
-                        e.currentTarget.style.borderColor = 'rgba(30, 30, 30, 0.8)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                      }
+                      position: 'relative',
+                      transformStyle: 'preserve-3d'
                     }}
                   >
-                    {tab}
+                    {/* Glossy top highlight - stronger for 4D effect */}
+                    <div className="absolute top-0 left-0 right-0 h-1" style={{
+                      background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
+                      opacity: isActive ? 1 : 0.2,
+                      filter: 'blur(1px)'
+                    }} />
+
+                    {/* Bottom shadow for depth */}
+                    <div className="absolute bottom-0 left-0 right-0 h-2" style={{
+                      background: 'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
+                      opacity: isActive ? 0.8 : 0.3
+                    }} />
+
+                    {/* Side edge highlight for 3D depth */}
+                    <div className="absolute top-0 right-0 w-px h-full" style={{
+                      background: `linear-gradient(180deg, ${config.border} 0%, transparent 100%)`,
+                      opacity: isActive ? 0.6 : 0
+                    }} />
+
+                    {/* Geometric accent line */}
+                    <div className="absolute top-0 left-0 right-0 h-0.5" style={{
+                      background: isActive ? `linear-gradient(90deg, transparent, ${config.border}, transparent)` : 'transparent',
+                      opacity: isActive ? 1 : 0,
+                      transition: 'opacity 0.3s'
+                    }} />
+
+                    <div className="relative z-10 flex flex-col items-center gap-1">
+                      <div className="font-black tracking-wider" style={{
+                        fontSize: isMobile ? '0.7rem' : '0.875rem',
+                        color: isActive ? config.color : '#ffffff',
+                        textShadow: 'none',
+                        letterSpacing: '0.1em',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        {tab.toUpperCase()}
+                      </div>
+                      <div className="text-xs" style={{
+                        fontSize: isMobile ? '0.55rem' : '0.65rem',
+                        color: isActive ? config.color : '#ffffff',
+                        letterSpacing: '0.05em',
+                        marginTop: '-2px'
+                      }}>
+                        {config.subtitle}
+                      </div>
+                    </div>
+
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Highlight Filter Buttons */}
-          <div className="px-6 pb-4">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setHighlightFilter('all')}
-                className="px-4 py-2 font-mono text-sm font-bold uppercase tracking-wider transition-all duration-200"
-                style={{
-                  background: highlightFilter === 'all' ? '#ff6600' : '#000000',
-                  color: highlightFilter === 'all' ? '#000000' : '#666666',
-                  border: highlightFilter === 'all' ? '2px solid #ff6600' : '2px solid #333333',
-                  borderRadius: '6px'
-                }}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setHighlightFilter('gold')}
-                className="px-6 py-3 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2"
-                style={{
-                  background: highlightFilter === 'gold' ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
-                  color: highlightFilter === 'gold' ? '#000000' : '#FFD700',
-                  border: highlightFilter === 'gold' ? '2px solid #FFD700' : '2px solid rgba(255, 215, 0, 0.3)',
-                  borderRadius: '8px',
-                  fontSize: '1.1rem',
-                  boxShadow: highlightFilter === 'gold' ? '0 6px 20px rgba(255, 215, 0, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
-                }}
-              >
-                <TbTrendingUp size={20} /> {window.innerWidth < 768 ? 'Best' : 'Best Performers'}
-              </button>
-              <button
-                onClick={() => setHighlightFilter('purple')}
-                className="px-6 py-3 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2"
-                style={{
-                  background: highlightFilter === 'purple' ? 'linear-gradient(135deg, #8A2BE2 0%, #9370DB 50%, #8A2BE2 100%)' : 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
-                  color: highlightFilter === 'purple' ? '#000000' : '#8A2BE2',
-                  border: highlightFilter === 'purple' ? '2px solid #8A2BE2' : '2px solid rgba(138, 43, 226, 0.3)',
-                  borderRadius: '8px',
-                  fontSize: '1.1rem',
-                  boxShadow: highlightFilter === 'purple' ? '0 6px 20px rgba(138, 43, 226, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
-                }}
-              >
-                <TbChartBar size={20} /> {window.innerWidth < 768 ? 'Picks' : 'Industry Picks'}
-              </button>
-              <button
-                onClick={() => setHighlightFilter('highlights')}
-                className="px-6 py-3 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2"
-                style={{
-                  background: highlightFilter === 'highlights' ? '#CD7F32' : 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
-                  color: highlightFilter === 'highlights' ? '#000000' : '#ffffff',
-                  border: highlightFilter === 'highlights' ? '2px solid #CD7F32' : '2px solid #333333',
-                  borderRadius: '8px',
-                  fontSize: '1.1rem',
-                  boxShadow: highlightFilter === 'highlights' ? '0 6px 20px rgba(205, 127, 50, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.3)'
-                }}
-              >
-                <TbFilter size={20} /> {window.innerWidth < 768 ? 'Highlights' : 'Key Highlights'}
-              </button>
+          {/* Abstract Filter Control Panel */}
+          <div className="px-6 pb-6">
+            <div className="relative" style={{
+              background: 'linear-gradient(135deg, rgba(20, 20, 20, 0.4) 0%, rgba(10, 10, 10, 0.6) 100%)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
+              borderRadius: '16px',
+              padding: '16px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.03)'
+            }}>
+              {/* Decorative corner accents */}
+              <div className="absolute top-0 left-0 w-12 h-12" style={{
+                background: 'linear-gradient(135deg, rgba(255, 102, 0, 0.15) 0%, transparent 100%)',
+                borderRadius: '16px 0 0 0'
+              }} />
+              <div className="absolute bottom-0 right-0 w-12 h-12" style={{
+                background: 'linear-gradient(-45deg, rgba(255, 102, 0, 0.15) 0%, transparent 100%)',
+                borderRadius: '0 0 16px 0'
+              }} />
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 relative z-10">
+                <button
+                  onClick={() => setHighlightFilter('all')}
+                  className="group relative overflow-hidden transition-all duration-300"
+                  style={{
+                    padding: '12px 20px',
+                    background: highlightFilter === 'all'
+                      ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
+                      : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
+                    border: highlightFilter === 'all' ? '2px solid #ff6600' : '2px solid rgba(60, 60, 60, 0.4)',
+                    borderRadius: '10px',
+                    boxShadow: highlightFilter === 'all'
+                      ? '0 8px 25px rgba(255, 102, 0, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(255, 102, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
+                      : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
+                    transform: highlightFilter === 'all' ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)' : 'scale(1) perspective(1000px)',
+                    clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
+                    transformStyle: 'preserve-3d'
+                  }}
+                >
+                  {/* Glossy top highlight */}
+                  <div className="absolute top-0 left-0 right-0 h-1" style={{
+                    background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
+                    opacity: highlightFilter === 'all' ? 1 : 0.2,
+                    filter: 'blur(1px)'
+                  }} />
+                  {/* Bottom shadow */}
+                  <div className="absolute bottom-0 left-0 right-0 h-2" style={{
+                    background: 'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
+                    opacity: highlightFilter === 'all' ? 0.8 : 0.3
+                  }} />
+                  {/* Side edge */}
+                  <div className="absolute top-0 right-0 w-px h-full" style={{
+                    background: 'linear-gradient(180deg, #ff6600 0%, transparent 100%)',
+                    opacity: highlightFilter === 'all' ? 0.6 : 0
+                  }} />
+                  <div className="flex items-center justify-center gap-2 relative z-10">
+                    <TbFilter size={18} style={{
+                      color: highlightFilter === 'all' ? '#ff6600' : '#ffffff'
+                    }} />
+                    <span className="font-black text-sm tracking-widest" style={{
+                      color: highlightFilter === 'all' ? '#ff6600' : '#ffffff',
+                      textShadow: 'none',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      ALL
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setHighlightFilter('gold')}
+                  className="group relative overflow-hidden transition-all duration-300"
+                  style={{
+                    padding: '12px 20px',
+                    background: highlightFilter === 'gold'
+                      ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
+                      : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
+                    border: highlightFilter === 'gold' ? '2px solid #FFD700' : '2px solid rgba(255, 215, 0, 0.2)',
+                    borderRadius: '10px',
+                    boxShadow: highlightFilter === 'gold'
+                      ? '0 8px 25px rgba(255, 215, 0, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(255, 215, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
+                      : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
+                    transform: highlightFilter === 'gold' ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)' : 'scale(1) perspective(1000px)',
+                    clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
+                    transformStyle: 'preserve-3d'
+                  }}
+                >
+                  {/* Glossy top highlight */}
+                  <div className="absolute top-0 left-0 right-0 h-1" style={{
+                    background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
+                    opacity: highlightFilter === 'gold' ? 1 : 0.2,
+                    filter: 'blur(1px)'
+                  }} />
+                  {/* Bottom shadow */}
+                  <div className="absolute bottom-0 left-0 right-0 h-2" style={{
+                    background: 'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
+                    opacity: highlightFilter === 'gold' ? 0.8 : 0.3
+                  }} />
+                  {/* Side edge */}
+                  <div className="absolute top-0 right-0 w-px h-full" style={{
+                    background: 'linear-gradient(180deg, #FFD700 0%, transparent 100%)',
+                    opacity: highlightFilter === 'gold' ? 0.6 : 0
+                  }} />
+                  <div className="flex items-center justify-center gap-2 relative z-10">
+                    <TbTrendingUp size={18} style={{
+                      color: highlightFilter === 'gold' ? '#FFD700' : '#ffffff'
+                    }} />
+                    <span className="font-black text-sm tracking-widest" style={{
+                      color: highlightFilter === 'gold' ? '#FFD700' : '#ffffff',
+                      textShadow: 'none',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      {window.innerWidth < 768 ? 'BEST' : 'BEST PERFORMERS'}
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setHighlightFilter('purple')}
+                  className="group relative overflow-hidden transition-all duration-300"
+                  style={{
+                    padding: '12px 20px',
+                    background: highlightFilter === 'purple'
+                      ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
+                      : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
+                    border: highlightFilter === 'purple' ? '2px solid #8A2BE2' : '2px solid rgba(138, 43, 226, 0.2)',
+                    borderRadius: '10px',
+                    boxShadow: highlightFilter === 'purple'
+                      ? '0 8px 25px rgba(138, 43, 226, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(138, 43, 226, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
+                      : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
+                    transform: highlightFilter === 'purple' ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)' : 'scale(1) perspective(1000px)',
+                    clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
+                    transformStyle: 'preserve-3d'
+                  }}
+                >
+                  {/* Glossy top highlight */}
+                  <div className="absolute top-0 left-0 right-0 h-1" style={{
+                    background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
+                    opacity: highlightFilter === 'purple' ? 1 : 0.2,
+                    filter: 'blur(1px)'
+                  }} />
+                  {/* Bottom shadow */}
+                  <div className="absolute bottom-0 left-0 right-0 h-2" style={{
+                    background: 'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
+                    opacity: highlightFilter === 'purple' ? 0.8 : 0.3
+                  }} />
+                  {/* Side edge */}
+                  <div className="absolute top-0 right-0 w-px h-full" style={{
+                    background: 'linear-gradient(180deg, #8A2BE2 0%, transparent 100%)',
+                    opacity: highlightFilter === 'purple' ? 0.6 : 0
+                  }} />
+                  <div className="flex items-center justify-center gap-2 relative z-10">
+                    <TbChartBar size={18} style={{
+                      color: highlightFilter === 'purple' ? '#8A2BE2' : '#ffffff'
+                    }} />
+                    <span className="font-black text-sm tracking-widest" style={{
+                      color: highlightFilter === 'purple' ? '#8A2BE2' : '#ffffff',
+                      textShadow: 'none',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      {window.innerWidth < 768 ? 'PICKS' : 'INDUSTRY PICKS'}
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setHighlightFilter('highlights')}
+                  className="group relative overflow-hidden transition-all duration-300"
+                  style={{
+                    padding: '12px 20px',
+                    background: highlightFilter === 'highlights'
+                      ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
+                      : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
+                    border: highlightFilter === 'highlights' ? '2px solid #CD7F32' : '2px solid rgba(205, 127, 50, 0.2)',
+                    borderRadius: '10px',
+                    boxShadow: highlightFilter === 'highlights'
+                      ? '0 8px 25px rgba(205, 127, 50, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(205, 127, 50, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
+                      : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
+                    transform: highlightFilter === 'highlights' ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)' : 'scale(1) perspective(1000px)',
+                    clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
+                    transformStyle: 'preserve-3d'
+                  }}
+                >
+                  {/* Glossy top highlight */}
+                  <div className="absolute top-0 left-0 right-0 h-1" style={{
+                    background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%)',
+                    opacity: highlightFilter === 'highlights' ? 1 : 0.2,
+                    filter: 'blur(1px)'
+                  }} />
+                  {/* Bottom shadow */}
+                  <div className="absolute bottom-0 left-0 right-0 h-2" style={{
+                    background: 'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.6) 100%)',
+                    opacity: highlightFilter === 'highlights' ? 0.8 : 0.3
+                  }} />
+                  {/* Side edge */}
+                  <div className="absolute top-0 right-0 w-px h-full" style={{
+                    background: 'linear-gradient(180deg, #CD7F32 0%, transparent 100%)',
+                    opacity: highlightFilter === 'highlights' ? 0.6 : 0
+                  }} />
+                  <div className="flex items-center justify-center gap-2 relative z-10">
+                    <TbStarFilled size={18} style={{
+                      color: highlightFilter === 'highlights' ? '#CD7F32' : '#ffffff'
+                    }} />
+                    <span className="font-black text-sm tracking-widest" style={{
+                      color: highlightFilter === 'highlights' ? '#CD7F32' : '#ffffff',
+                      textShadow: 'none',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      {window.innerWidth < 768 ? 'HIGHLIGHTS' : 'KEY HIGHLIGHTS'}
+                    </span>
+                  </div>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -16713,18 +17132,11 @@ export default function TradingViewChart({
                 {/* Conditional Rendering: Highlights View or Industry Grid */}
                 {highlightFilter !== 'all' ? (
                   <div className="px-6 pb-6">
-                    <div className="text-center mb-6">
-                      <h2 className="font-bold font-mono" style={{
-                        fontSize: '1.2rem',
-                        color: highlightFilter === 'gold' ? '#FFD700' : highlightFilter === 'purple' ? '#8A2BE2' : '#ff6600'
-                      }}>
-                        {highlightFilter === 'gold' ? 'Best Overall Trades' : highlightFilter === 'purple' ? 'Top Industry Leaders' : 'All Highlighted Trades'}
-                      </h2>
-
-                      {/* Sort Button */}
+                    {/* Sort Button */}
+                    <div className="flex justify-center mb-6">
                       <button
                         onClick={() => setSortByPercentage(!sortByPercentage)}
-                        className="mt-4 px-4 py-2 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2 mx-auto text-xs"
+                        className="px-4 py-2 font-mono font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2 text-xs"
                         style={{
                           background: '#000000',
                           color: '#ff6600',
@@ -16737,588 +17149,550 @@ export default function TradingViewChart({
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 md:gap-8">
-                      {/* Bullish Column */}
+                    {/* Conditional Layout - Best Performers: 1+1 | Others: 2+2 = 4 columns */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Bullish Section */}
                       <div>
-                        <div className="mb-6 pb-4 border-b-2 relative overflow-hidden" style={{
+                        <div className="mb-6 pb-3 border-b relative overflow-hidden" style={{
                           borderColor: '#10b981',
-                          background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.05) 50%, rgba(16, 185, 129, 0.2) 100%)'
+                          background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, transparent 50%, rgba(16, 185, 129, 0.15) 100%)'
                         }}>
-                          <div className="flex items-center justify-center gap-3 py-2">
-                            <div className="w-1 h-8 rounded-full bg-gradient-to-b from-green-400 to-emerald-600" style={{
-                              boxShadow: '0 0 10px rgba(16, 185, 129, 0.5)'
-                            }} />
-                            <h3 className="font-black uppercase tracking-[0.2em] flex items-center gap-2" style={{
-                              fontSize: '1.5rem',
-                              color: '#ffffff',
-                              textShadow: '0 0 20px rgba(16, 185, 129, 0.6), 2px 2px 4px rgba(0, 0, 0, 0.8)',
-                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                          <div className="flex items-center justify-center gap-3 py-3">
+                            <div className="w-px h-6 bg-gradient-to-b from-transparent via-green-400 to-transparent" />
+                            <h3 className="font-black uppercase tracking-widest flex items-center gap-2" style={{
+                              fontSize: '1.1rem',
+                              color: '#00ff00',
+                              fontFamily: 'system-ui, -apple-system, sans-serif',
+                              letterSpacing: '0.15em'
                             }}>
-                              <TbTrendingUp size={24} /> BULLISH
+                              <TbTrendingUp size={20} /> BULLISH
                             </h3>
-                            <div className="w-1 h-8 rounded-full bg-gradient-to-b from-green-400 to-emerald-600" style={{
-                              boxShadow: '0 0 10px rgba(16, 185, 129, 0.5)'
-                            }} />
+                            <div className="w-px h-6 bg-gradient-to-b from-transparent via-green-400 to-transparent" />
                           </div>
                         </div>
-                        <div className="space-y-3">
-                          {(() => {
-                            // Combine highlights from all tabs (keep all tab-specific entries)
-                            const allTabsHighlights: Array<[string, any]> = [];
-                            Object.keys(highlightedTradesCache).forEach(tab => {
-                              Object.entries(highlightedTradesCache[tab] || {}).forEach(([symbol, trade]) => {
-                                allTabsHighlights.push([symbol, trade]);
-                              });
-                            });
+                        <div className="space-y-4">
+                          {filteredBullishTrades.map(([symbol, trade]: [string, any], idx) => {
+                            const isGold = trade.highlightType === 'gold';
+                            const isPurple = trade.highlightType === 'purple';
+                            const isBlue = trade.highlightType === 'blue';
+                            const isPink = trade.highlightType === 'pink';
 
-                            const filtered = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
-                              const matchesFilter = highlightFilter === 'gold' ? trade.highlightType === 'gold' :
-                                highlightFilter === 'purple' ? trade.highlightType === 'purple' : true;
-                              return matchesFilter && trade.optionType?.toLowerCase() === 'call';
-                            });
+                            const tickerColor = isGold ? '#FFD700' :
+                              isPurple ? '#8A2BE2' :
+                                isBlue ? '#1E90FF' :
+                                  isPink ? '#FF69B4' : '#ffffff';
+                            const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
 
-                            // Sort by percentage
-                            const sorted = filtered.sort((a, b) => {
-                              const scoreA = a[1].score || 0;
-                              const scoreB = b[1].score || 0;
-                              return sortByPercentage ? scoreB - scoreA : scoreA - scoreB;
-                            });
+                            // Get tab label and color from trade's sourceTab
+                            const tradeTab = trade.sourceTab;
+                            if (!tradeTab) {
+                              console.log(`⚠️ WARNING: Bullish ${symbol} missing sourceTab:`, trade);
+                            }
+                            const tabColor = tradeTab === 'life' ? '#10b981' :
+                              tradeTab === 'developing' ? '#3b82f6' :
+                                tradeTab === 'momentum' ? '#a855f7' : '#f59e0b';
 
-                            return sorted.map(([symbol, trade]: [string, any], idx) => {
-                              const isGold = trade.highlightType === 'gold';
-                              const tickerColor = isGold ? '#FFD700' : '#8A2BE2';
-                              const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
+                            // Determine card styling based on highlight type
+                            let cardBorder = '1px solid rgba(16, 185, 129, 0.3)';
+                            let cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(16, 185, 129, 0.1)';
 
-                              // Get tab label and color from trade's sourceTab
-                              const tradeTab = trade.sourceTab;
-                              if (!tradeTab) {
-                                console.log(`⚠️ WARNING: Bullish ${symbol} missing sourceTab:`, trade);
-                              }
-                              const tabColor = tradeTab === 'life' ? '#00ff00' :
-                                tradeTab === 'developing' ? '#0000ff' : '#8b00ff';
+                            if (isGold) {
+                              cardBorder = '2px solid rgba(255, 215, 0, 0.6)';
+                              cardShadow = '0 4px 12px rgba(255, 215, 0, 0.4), inset 0 1px 0 rgba(255, 215, 0, 0.2)';
+                            } else if (isPurple) {
+                              cardBorder = '2px solid rgba(138, 43, 226, 0.6)';
+                              cardShadow = '0 4px 12px rgba(138, 43, 226, 0.4), inset 0 1px 0 rgba(138, 43, 226, 0.2)';
+                            } else if (isBlue) {
+                              cardBorder = '2px solid rgba(30, 144, 255, 0.6)';
+                              cardShadow = '0 4px 12px rgba(30, 144, 255, 0.4), inset 0 1px 0 rgba(30, 144, 255, 0.2)';
+                            } else if (isPink) {
+                              cardBorder = '2px solid rgba(255, 105, 180, 0.6)';
+                              cardShadow = '0 4px 12px rgba(255, 105, 180, 0.4), inset 0 1px 0 rgba(255, 105, 180, 0.2)';
+                            }
 
-                              return (
-                                <div
-                                  key={uniqueKey}
-                                  className="group relative overflow-hidden transition-all duration-300 hover:translate-y-[-2px] cursor-pointer"
-                                  style={{
-                                    background: 'linear-gradient(135deg, #0a1612 0%, #060d0a 100%)',
-                                    border: '1px solid rgba(16, 185, 129, 0.2)',
-                                    borderRadius: '12px',
-                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(16, 185, 129, 0.1) inset'
-                                  }}
-                                  onClick={() => {
-                                    setSelectedTradeForModal(trade);
-                                    setShowTradeModal(true);
-                                  }}
-                                >
-                                  {/* Top accent line */}
-                                  <div className="h-0.5" style={{
-                                    background: 'linear-gradient(90deg, transparent 0%, #10b981 50%, transparent 100%)'
-                                  }} />
-
-                                  <div className="relative p-5">
-                                    {/* Top: Ticker centered with score on sides */}
-                                    <div className="flex items-center justify-center gap-6 mb-4">
-                                      <div className="flex-1 text-right">
-                                        <div className="inline-flex items-center px-3 py-1 rounded-md" style={{
-                                          background: `${tabColor}15`,
-                                          border: `1px solid ${tabColor}30`
-                                        }}>
-                                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
-                                            {tradeTab === 'life' ? 'Short' : tradeTab === 'developing' ? 'Medium' : tradeTab === 'momentum' ? 'Long' : 'Legacy'}
-                                          </span>
-                                        </div>
+                            return (
+                              <div
+                                key={uniqueKey}
+                                className="group relative overflow-hidden transition-all duration-200 hover:scale-[1.02] cursor-pointer"
+                                style={{
+                                  background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+                                  border: cardBorder,
+                                  borderRadius: '8px',
+                                  boxShadow: cardShadow
+                                }}
+                                onClick={() => {
+                                  setSelectedTradeForModal(trade);
+                                  setShowTradeModal(true);
+                                }}
+                              >
+                                <div className="relative p-4">
+                                  {/* Horizontal Header: Timeframe | Symbol | Score */}
+                                  <div className="flex items-center gap-3 mb-3">
+                                    {/* Timeframe indicator - vertical colored bar */}
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-1 h-8 rounded-full" style={{ background: tabColor }} />
+                                      <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
+                                        {tradeTab === 'life' ? 'Short-Term' : tradeTab === 'developing' ? 'Medium-Term' : tradeTab === 'momentum' ? 'Long-Term' : 'Legacy'}
                                       </div>
+                                    </div>
 
-                                      <div className="text-center flex items-center justify-center gap-2">
-                                        <span className="font-black tracking-tight" style={{
-                                          fontSize: window.innerWidth < 768 ? '1.4rem' : '2rem',
-                                          background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
-                                          WebkitBackgroundClip: 'text',
-                                          WebkitTextFillColor: 'transparent',
-                                          filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
-                                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                                          display: 'inline-block'
-                                        }}>
-                                          {symbol}
-                                        </span>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (trade && trade.strike && trade.expiration && trade.contractPrice) {
-                                              // Get current stock price - use strike if stockPrice not available
-                                              let currentStockPrice = trade.stockPrice;
-                                              if (!currentStockPrice || currentStockPrice === 0) {
-                                                currentStockPrice = trade.strike;
-                                              }
+                                    {/* Symbol in center */}
+                                    <div className="flex-1 text-center flex items-center justify-center gap-2">
+                                      <span className="font-black tracking-tight" style={{
+                                        fontSize: '1.5rem',
+                                        background: isGold ? 'linear-gradient(135deg, #FFD700, #FFA500)' :
+                                          isBlue ? 'linear-gradient(135deg, #1E90FF, #4169E1)' :
+                                            isPink ? 'linear-gradient(135deg, #FF69B4, #FF1493)' :
+                                              'linear-gradient(135deg, #A855F7, #D946EF)',
+                                        WebkitBackgroundClip: 'text',
+                                        WebkitTextFillColor: 'transparent',
+                                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                                        display: 'inline-block'
+                                      }}>
+                                        {symbol}
+                                      </span>
+                                    </div>
 
-                                              // Calculate targets using Black-Scholes expected move
-                                              const expiryDate = new Date(trade.expiration);
-                                              const now = new Date();
-                                              const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-                                              const T = daysToExpiry / 365;
-                                              const sigma = (trade.impliedVolatility || 50) / 100;
-                                              const isCall = trade.optionType?.toLowerCase() === 'call';
+                                    {/* Score and Watchlist Button */}
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-black tabular-nums" style={{
+                                        fontSize: '1.5rem',
+                                        color: '#00ff00',
+                                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                                        opacity: 1
+                                      }}>
+                                        {Math.round(trade.score)}
+                                      </span>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (trade && trade.strike && trade.expiration && trade.contractPrice) {
+                                            // Get current stock price - use strike if stockPrice not available
+                                            let currentStockPrice = trade.stockPrice;
+                                            if (!currentStockPrice || currentStockPrice === 0) {
+                                              currentStockPrice = trade.strike;
+                                            }
 
-                                              let target80StockPrice = 0;
-                                              let target90StockPrice = 0;
+                                            // Calculate targets using Black-Scholes expected move
+                                            const expiryDate = new Date(trade.expiration);
+                                            const now = new Date();
+                                            const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                                            const T = daysToExpiry / 365;
+                                            const sigma = (trade.impliedVolatility || 50) / 100;
+                                            const isCall = trade.optionType?.toLowerCase() === 'call';
 
-                                              if (T > 0 && sigma > 0 && currentStockPrice > 0) {
-                                                if (isCall) {
-                                                  const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
-                                                  target80StockPrice = currentStockPrice + (expectedMove1SD * 0.84);
-                                                  target90StockPrice = currentStockPrice + (expectedMove1SD * 1.28);
-                                                } else {
-                                                  const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
-                                                  target80StockPrice = currentStockPrice - (expectedMove1SD * 0.84);
-                                                  target90StockPrice = currentStockPrice - (expectedMove1SD * 1.28);
-                                                }
-                                              }
+                                            let target80StockPrice = 0;
+                                            let target90StockPrice = 0;
 
-                                              const watchlistItem = {
-                                                id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
-                                                ticker: trade.optionTicker || `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'call' ? 'C' : 'P'}${trade.strike}`,
-                                                symbol: symbol,
-                                                strike: trade.strike,
-                                                type: trade.optionType?.toLowerCase() || 'call',
-                                                contract_type: trade.optionType?.toLowerCase() || 'call',
-                                                expiration: trade.expiration,
-                                                bid: trade.contractPrice * 0.98,
-                                                ask: trade.contractPrice * 1.02,
-                                                lastPrice: trade.contractPrice,
-                                                last_price: trade.contractPrice,
-                                                delta: trade.delta || 0,
-                                                theta: trade.thetaDecay ? -Math.abs(trade.thetaDecay) : 0,
-                                                implied_volatility: trade.impliedVolatility || 0,
-                                                strike_price: trade.strike,
-                                                expiration_date: trade.expiration,
-                                                addedAt: new Date(),
-                                                entryPrice: trade.contractPrice,
-                                                stockPrice: currentStockPrice,
-                                                stockTarget80: target80StockPrice,
-                                                stockTarget90: target90StockPrice,
-                                                stopLoss: trade.contractPrice * 0.75
-                                              };
-                                              const saved = localStorage.getItem('optionsWatchlist');
-                                              const existing = saved ? JSON.parse(saved) : [];
-                                              const alreadyExists = existing.some((item: any) =>
-                                                item.symbol === watchlistItem.symbol &&
-                                                item.strike === watchlistItem.strike &&
-                                                item.expiration === watchlistItem.expiration
-                                              );
-                                              if (!alreadyExists) {
-                                                localStorage.setItem('optionsWatchlist', JSON.stringify([...existing, watchlistItem]));
-                                                setHighlightFilter(highlightFilter);
+                                            if (T > 0 && sigma > 0 && currentStockPrice > 0) {
+                                              if (isCall) {
+                                                const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
+                                                target80StockPrice = currentStockPrice + (expectedMove1SD * 0.84);
+                                                target90StockPrice = currentStockPrice + (expectedMove1SD * 1.28);
+                                              } else {
+                                                const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
+                                                target80StockPrice = currentStockPrice - (expectedMove1SD * 0.84);
+                                                target90StockPrice = currentStockPrice - (expectedMove1SD * 1.28);
                                               }
                                             }
-                                          }}
-                                          className="hover:scale-110 transition-transform"
-                                          title="Add to Options Watchlist"
-                                        >
-                                          {(() => {
+
+                                            const watchlistItem = {
+                                              id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
+                                              ticker: trade.optionTicker || `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'call' ? 'C' : 'P'}${trade.strike}`,
+                                              symbol: symbol,
+                                              strike: trade.strike,
+                                              type: trade.optionType?.toLowerCase() || 'call',
+                                              contract_type: trade.optionType?.toLowerCase() || 'call',
+                                              expiration: trade.expiration,
+                                              bid: trade.contractPrice * 0.98,
+                                              ask: trade.contractPrice * 1.02,
+                                              lastPrice: trade.contractPrice,
+                                              last_price: trade.contractPrice,
+                                              delta: trade.delta || 0,
+                                              theta: trade.thetaDecay ? -Math.abs(trade.thetaDecay) : 0,
+                                              implied_volatility: trade.impliedVolatility || 0,
+                                              strike_price: trade.strike,
+                                              expiration_date: trade.expiration,
+                                              addedAt: new Date(),
+                                              entryPrice: trade.contractPrice,
+                                              stockPrice: currentStockPrice,
+                                              stockTarget80: target80StockPrice,
+                                              stockTarget90: target90StockPrice,
+                                              stopLoss: trade.contractPrice * 0.75
+                                            };
                                             const saved = localStorage.getItem('optionsWatchlist');
                                             const existing = saved ? JSON.parse(saved) : [];
-                                            const isInWatchlist = existing.some((item: any) =>
-                                              item.symbol === symbol &&
-                                              item.strike === trade.strike &&
-                                              item.expiration === trade.expiration
+                                            const alreadyExists = existing.some((item: any) =>
+                                              item.symbol === watchlistItem.symbol &&
+                                              item.strike === watchlistItem.strike &&
+                                              item.expiration === watchlistItem.expiration
                                             );
-                                            return isInWatchlist ?
-                                              <TbStarFilled className="w-5 h-5 text-yellow-400" /> :
-                                              <TbStar className="w-5 h-5 text-yellow-400 hover:text-yellow-300" />;
-                                          })()}
-                                        </button>
-                                      </div>
+                                            if (!alreadyExists) {
+                                              localStorage.setItem('optionsWatchlist', JSON.stringify([...existing, watchlistItem]));
+                                              setHighlightFilter(highlightFilter);
+                                            }
+                                          }
+                                        }}
+                                        className="hover:scale-110 transition-transform"
+                                        title="Add to Watchlist"
+                                      >
+                                        {(() => {
+                                          const saved = localStorage.getItem('optionsWatchlist');
+                                          const existing = saved ? JSON.parse(saved) : [];
+                                          const isInWatchlist = existing.some((item: any) =>
+                                            item.symbol === symbol &&
+                                            item.strike === trade.strike &&
+                                            item.expiration === trade.expiration
+                                          );
+                                          return isInWatchlist ?
+                                            <TbStarFilled className="w-4 h-4 text-yellow-400" /> :
+                                            <TbStar className="w-4 h-4 text-gray-500 hover:text-yellow-400" />;
+                                        })()}
+                                      </button>
+                                    </div>
+                                  </div>
 
-                                      <div className="flex-1" style={{
-                                        marginLeft: window.innerWidth < 768 ? '-20px' : '0'
-                                      }}>
-                                        <div className="font-black tabular-nums" style={{
-                                          fontSize: window.innerWidth < 768 ? '1.4rem' : '2rem',
-                                          color: '#10b981',
-                                          lineHeight: '1',
-                                          textShadow: '0 0 20px rgba(16, 185, 129, 0.3)',
-                                          fontFamily: 'system-ui, -apple-system, sans-serif'
-                                        }}>
-                                          {trade.score}{window.innerWidth >= 768 ? '%' : ''}
-                                        </div>
+                                  {/* Industry */}
+                                  <div className="text-xs text-orange-400 mb-3 text-center font-bold">
+                                    {trade.industry}
+                                  </div>
+
+                                  {/* Trade Info */}
+                                  <div className="flex items-center justify-center gap-2 mb-3 text-xs">
+                                    <span className="font-bold text-white">${trade.strike?.toFixed(0)}</span>
+                                    <span className="font-bold" style={{ color: '#10b981' }}>{trade.optionType?.toUpperCase()}</span>
+                                    <span className="text-orange-400 font-bold">
+                                      {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''}
+                                    </span>
+                                  </div>
+
+                                  {/* Metrics Grid */}
+                                  <div className="grid grid-cols-3 gap-2 text-xs pt-3" style={{
+                                    borderTop: '1px solid rgba(16, 185, 129, 0.1)'
+                                  }}>
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-1 font-bold">Price</div>
+                                      <div className="text-white font-mono font-bold text-xs">
+                                        ${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
-
-                                    {/* Middle: Industry centered */}
-                                    <div className="text-center mb-4">
-                                      <div className="text-sm font-medium" style={{ color: '#ffffff' }}>
-                                        {trade.industry}
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-1 font-bold">IV</div>
+                                      <div className="text-white font-mono font-bold text-xs">
+                                        {trade.impliedVolatility || 'N/A'}%
                                       </div>
                                     </div>
-
-                                    {/* Bottom: Trade details centered */}
-                                    <div className="pt-4 text-center" style={{
-                                      borderTop: '1px solid rgba(16, 185, 129, 0.1)'
-                                    }}>
-                                      <div className="flex items-baseline justify-center gap-2 mb-3">
-                                        <span className="font-bold text-white" style={{ fontSize: '1.125rem' }}>
-                                          ${trade.strike?.toFixed(0)}
-                                        </span>
-                                        <span className="text-sm font-semibold" style={{ color: '#10b981' }}>
-                                          {trade.optionType?.toUpperCase()}
-                                        </span>
-                                        <span className="text-xs font-medium" style={{ color: '#ffffff' }}>
-                                          {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
-                                        </span>
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-1 font-bold">Decay</div>
+                                      <div className="text-white font-mono font-bold text-xs">
+                                        ${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}
                                       </div>
+                                    </div>
+                                  </div>
 
-                                      {/* Contract Details */}
-                                      <div className="grid grid-cols-3 gap-2 text-xs">
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Price</div>
-                                          <div className="text-white font-mono font-bold">
-                                            ${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">IV</div>
-                                          <div className="text-white font-mono font-bold">
-                                            {trade.impliedVolatility || 'N/A'}%
-                                          </div>
-                                        </div>
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Decay/Day</div>
-                                          <div className="text-white font-mono font-bold">
-                                            ${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
+                                  {/* Targets */}
+                                  <div className="grid grid-cols-3 gap-2 text-xs mt-2">
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-1 font-bold">Target 1</div>
+                                      <div className="text-green-400 font-mono font-bold text-xs">
+                                        ${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}
                                       </div>
-
-                                      <div className="grid grid-cols-3 gap-2 text-xs mt-2">
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Target #1</div>
-                                          <div className="text-green-400 font-mono font-bold">
-                                            ${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Target #2</div>
-                                          <div className="text-green-400 font-mono font-bold">
-                                            ${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Stop Loss</div>
-                                          <div className="text-red-400 font-mono font-bold">
-                                            ${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
+                                    </div>
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-1 font-bold">Target 2</div>
+                                      <div className="text-green-400 font-mono font-bold text-xs">
+                                        ${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}
+                                      </div>
+                                    </div>
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-1 font-bold">Stop Loss</div>
+                                      <div className="text-red-400 font-mono font-bold text-xs">
+                                        ${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
                                   </div>
                                 </div>
-                              );
-                            });
-                          })()}
-                          {Object.entries(highlightedTrades || {}).filter(([symbol, trade]: [string, any]) => {
-                            const matchesFilter = highlightFilter === 'gold' ? trade.highlightType === 'gold' :
-                              highlightFilter === 'purple' ? trade.highlightType === 'purple' : true;
-                            return matchesFilter && trade.optionType?.toLowerCase() === 'call';
-                          }).length === 0 && (
-                              <div className="text-center py-8">
-                                <div className="text-gray-500 font-mono text-sm">No bullish trades</div>
                               </div>
-                            )}
+                            );
+                          })}
+                          {filteredBullishTrades.length === 0 && (
+                            <div className="col-span-full text-center py-8">
+                              <div className="text-gray-500 font-mono text-sm">No bullish trades</div>
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      {/* Bearish Column */}
+                      {/* Bearish Section */}
                       <div>
-                        <div className="mb-6 pb-4 border-b-2 relative overflow-hidden" style={{
+                        <div className="mb-6 pb-3 border-b relative overflow-hidden" style={{
                           borderColor: '#ef4444',
-                          background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.05) 50%, rgba(239, 68, 68, 0.2) 100%)'
+                          background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, transparent 50%, rgba(239, 68, 68, 0.15) 100%)'
                         }}>
-                          <div className="flex items-center justify-center gap-3 py-2">
-                            <div className="w-1 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600" style={{
-                              boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)'
-                            }} />
-                            <h3 className="font-black uppercase tracking-[0.2em] flex items-center gap-2" style={{
-                              fontSize: '1.5rem',
-                              color: '#ffffff',
-                              textShadow: '0 0 20px rgba(239, 68, 68, 0.6), 2px 2px 4px rgba(0, 0, 0, 0.8)',
-                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                          <div className="flex items-center justify-center gap-3 py-3">
+                            <div className="w-px h-6 bg-gradient-to-b from-transparent via-red-400 to-transparent" />
+                            <h3 className="font-black uppercase tracking-widest flex items-center gap-2" style={{
+                              fontSize: '1.1rem',
+                              color: '#ff0000',
+                              fontFamily: 'system-ui, -apple-system, sans-serif',
+                              letterSpacing: '0.15em'
                             }}>
-                              <TbTrendingDown size={24} /> BEARISH
+                              <TbTrendingDown size={20} /> BEARISH
                             </h3>
-                            <div className="w-1 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600" style={{
-                              boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)'
-                            }} />
+                            <div className="w-px h-6 bg-gradient-to-b from-transparent via-red-400 to-transparent" />
                           </div>
                         </div>
-                        <div className="space-y-3">
-                          {(() => {
-                            // Combine highlights from all tabs (keep all tab-specific entries)
-                            const allTabsHighlights: Array<[string, any]> = [];
-                            Object.keys(highlightedTradesCache).forEach(tab => {
-                              Object.entries(highlightedTradesCache[tab] || {}).forEach(([symbol, trade]) => {
-                                allTabsHighlights.push([symbol, trade]);
-                              });
-                            });
+                        <div className="space-y-4">
+                          {filteredBearishTrades.map(([symbol, trade]: [string, any], idx) => {
+                            const isGold = trade.highlightType === 'gold';
+                            const isPurple = trade.highlightType === 'purple';
+                            const isBlue = trade.highlightType === 'blue';
+                            const isPink = trade.highlightType === 'pink';
 
-                            const filtered = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
-                              const matchesFilter = highlightFilter === 'gold' ? trade.highlightType === 'gold' :
-                                highlightFilter === 'purple' ? trade.highlightType === 'purple' : true;
-                              return matchesFilter && trade.optionType?.toLowerCase() === 'put';
-                            });
+                            const tickerColor = isGold ? '#FFD700' :
+                              isPurple ? '#8A2BE2' :
+                                isBlue ? '#1E90FF' :
+                                  isPink ? '#FF69B4' : '#ffffff';
+                            const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
 
-                            // Sort by percentage
-                            const sorted = filtered.sort((a, b) => {
-                              const scoreA = a[1].score || 0;
-                              const scoreB = b[1].score || 0;
-                              return sortByPercentage ? scoreB - scoreA : scoreA - scoreB;
-                            });
+                            // Get tab label and color from trade's sourceTab
+                            const tradeTab = trade.sourceTab;
+                            if (!tradeTab) {
+                              console.log(`⚠️ WARNING: Bearish ${symbol} missing sourceTab:`, trade);
+                            }
+                            const tabColor = tradeTab === 'life' ? '#10b981' :
+                              tradeTab === 'developing' ? '#3b82f6' :
+                                tradeTab === 'momentum' ? '#a855f7' : '#f59e0b';
 
-                            return sorted.map(([symbol, trade]: [string, any], idx) => {
-                              const isGold = trade.highlightType === 'gold';
-                              const tickerColor = isGold ? '#FFD700' : '#8A2BE2';
-                              const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
+                            // Determine card styling based on highlight type
+                            let cardBorder = '1px solid rgba(239, 68, 68, 0.3)';
+                            let cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)';
 
-                              // Get tab label and color from trade's sourceTab
-                              const tradeTab = trade.sourceTab;
-                              if (!tradeTab) {
-                                console.log(`⚠️ WARNING: Bearish ${symbol} missing sourceTab:`, trade);
-                              }
-                              const tabColor = tradeTab === 'life' ? '#00ff00' :
-                                tradeTab === 'developing' ? '#0000ff' : '#8b00ff';
+                            if (isGold) {
+                              cardBorder = '2px solid rgba(255, 215, 0, 0.6)';
+                              cardShadow = '0 4px 12px rgba(255, 215, 0, 0.4), inset 0 1px 0 rgba(255, 215, 0, 0.2)';
+                            } else if (isPurple) {
+                              cardBorder = '2px solid rgba(138, 43, 226, 0.6)';
+                              cardShadow = '0 4px 12px rgba(138, 43, 226, 0.4), inset 0 1px 0 rgba(138, 43, 226, 0.2)';
+                            } else if (isBlue) {
+                              cardBorder = '2px solid rgba(30, 144, 255, 0.6)';
+                              cardShadow = '0 4px 12px rgba(30, 144, 255, 0.4), inset 0 1px 0 rgba(30, 144, 255, 0.2)';
+                            } else if (isPink) {
+                              cardBorder = '2px solid rgba(255, 105, 180, 0.6)';
+                              cardShadow = '0 4px 12px rgba(255, 105, 180, 0.4), inset 0 1px 0 rgba(255, 105, 180, 0.2)';
+                            }
 
-                              return (
-                                <div
-                                  key={uniqueKey}
-                                  className="group relative overflow-hidden transition-all duration-300 hover:translate-y-[-2px] cursor-pointer"
-                                  style={{
-                                    background: 'linear-gradient(135deg, #1a0e12 0%, #0d060a 100%)',
-                                    border: '1px solid rgba(239, 68, 68, 0.2)',
-                                    borderRadius: '12px',
-                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(239, 68, 68, 0.1) inset'
-                                  }}
-                                  onClick={() => {
-                                    setSelectedTradeForModal(trade);
-                                    setShowTradeModal(true);
-                                  }}
-                                >
-                                  {/* Top accent line */}
-                                  <div className="h-0.5" style={{
-                                    background: 'linear-gradient(90deg, transparent 0%, #ef4444 50%, transparent 100%)'
-                                  }} />
-
-                                  <div className="relative p-5">
-                                    {/* Top: Ticker centered with score on sides */}
-                                    <div className="flex items-center justify-center gap-6 mb-4">
-                                      <div className="flex-1 text-right" style={{
-                                        marginRight: window.innerWidth < 768 ? '-20px' : '0'
-                                      }}>
-                                        <div className="inline-flex items-center px-3 py-1 rounded-md" style={{
-                                          background: `${tabColor}15`,
-                                          border: `1px solid ${tabColor}30`
-                                        }}>
-                                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
-                                            {tradeTab === 'life' ? 'Short' : tradeTab === 'developing' ? 'Medium' : tradeTab === 'momentum' ? 'Long' : 'Legacy'}
-                                          </span>
-                                        </div>
+                            return (
+                              <div
+                                key={uniqueKey}
+                                className="group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] cursor-pointer"
+                                style={{
+                                  background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+                                  border: cardBorder,
+                                  borderRadius: '8px',
+                                  boxShadow: cardShadow
+                                }}
+                                onClick={() => {
+                                  setSelectedTradeForModal(trade);
+                                  setShowTradeModal(true);
+                                }}
+                              >
+                                <div className="relative p-4">
+                                  {/* Horizontal Header: Timeframe | Symbol | Score */}
+                                  <div className="flex items-center gap-3 mb-3">
+                                    {/* Timeframe indicator - vertical colored bar */}
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-1 h-8 rounded-full" style={{ background: tabColor }} />
+                                      <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
+                                        {tradeTab === 'life' ? 'Short-Term' : tradeTab === 'developing' ? 'Medium-Term' : tradeTab === 'momentum' ? 'Long-Term' : 'Legacy'}
                                       </div>
+                                    </div>
 
-                                      <div className="text-center flex items-center justify-center gap-2">
-                                        <span className="font-black tracking-tight" style={{
-                                          fontSize: window.innerWidth < 768 ? '1.4rem' : '2rem',
-                                          background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' : 'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
-                                          WebkitBackgroundClip: 'text',
-                                          WebkitTextFillColor: 'transparent',
-                                          filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
-                                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                                          display: 'inline-block'
-                                        }}>
-                                          {symbol}
-                                        </span>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (trade && trade.strike && trade.expiration && trade.contractPrice) {
-                                              // Get current stock price - use strike if stockPrice not available
-                                              let currentStockPrice = trade.stockPrice;
-                                              if (!currentStockPrice || currentStockPrice === 0) {
-                                                currentStockPrice = trade.strike;
-                                              }
+                                    {/* Symbol in center */}
+                                    <div className="flex-1 text-center flex items-center justify-center gap-2">
+                                      <span className="font-black tracking-tight" style={{
+                                        fontSize: '1.5rem',
+                                        background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' :
+                                          isBlue ? 'linear-gradient(135deg, #1E90FF 0%, #4169E1 50%, #1E90FF 100%)' :
+                                            isPink ? 'linear-gradient(135deg, #FF69B4 0%, #FF1493 50%, #FF69B4 100%)' :
+                                              'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
+                                        WebkitBackgroundClip: 'text',
+                                        WebkitTextFillColor: 'transparent',
+                                        filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
+                                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                                        display: 'inline-block'
+                                      }}>
+                                        {symbol}
+                                      </span>
+                                    </div>
 
-                                              // Calculate targets using Black-Scholes expected move
-                                              const expiryDate = new Date(trade.expiration);
-                                              const now = new Date();
-                                              const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-                                              const T = daysToExpiry / 365;
-                                              const sigma = (trade.impliedVolatility || 50) / 100;
-                                              const isPut = trade.optionType?.toLowerCase() === 'put';
+                                    {/* Score and Watchlist Button */}
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-black tracking-tight" style={{
+                                        fontSize: '1.5rem',
+                                        color: '#ff0000',
+                                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                                        opacity: 1
+                                      }}>
+                                        {window.innerWidth < 768
+                                          ? (typeof trade.score === 'number' ? Math.round(trade.score) : 'N/A')
+                                          : (typeof trade.score === 'number' ? trade.score.toFixed(1) : 'N/A')}
+                                      </span>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (trade && trade.strike && trade.expiration && trade.contractPrice) {
+                                            // Get current stock price - use strike if stockPrice not available
+                                            let currentStockPrice = trade.stockPrice;
+                                            if (!currentStockPrice || currentStockPrice === 0) {
+                                              currentStockPrice = trade.strike;
+                                            }
 
-                                              let target80StockPrice = 0;
-                                              let target90StockPrice = 0;
+                                            // Calculate targets using Black-Scholes expected move
+                                            const expiryDate = new Date(trade.expiration);
+                                            const now = new Date();
+                                            const daysToExpiry = Math.max(1, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                                            const T = daysToExpiry / 365;
+                                            const sigma = (trade.impliedVolatility || 50) / 100;
+                                            const isPut = trade.optionType?.toLowerCase() === 'put';
 
-                                              if (T > 0 && sigma > 0 && currentStockPrice > 0) {
-                                                if (isPut) {
-                                                  const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
-                                                  target80StockPrice = currentStockPrice - (expectedMove1SD * 0.84);
-                                                  target90StockPrice = currentStockPrice - (expectedMove1SD * 1.28);
-                                                } else {
-                                                  const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
-                                                  target80StockPrice = currentStockPrice + (expectedMove1SD * 0.84);
-                                                  target90StockPrice = currentStockPrice + (expectedMove1SD * 1.28);
-                                                }
-                                              }
+                                            let target80StockPrice = 0;
+                                            let target90StockPrice = 0;
 
-                                              const watchlistItem = {
-                                                id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
-                                                ticker: trade.optionTicker || `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'put' ? 'P' : 'C'}${trade.strike}`,
-                                                symbol: symbol,
-                                                strike: trade.strike,
-                                                type: trade.optionType?.toLowerCase() || 'put',
-                                                contract_type: trade.optionType?.toLowerCase() || 'put',
-                                                expiration: trade.expiration,
-                                                bid: trade.contractPrice * 0.98,
-                                                ask: trade.contractPrice * 1.02,
-                                                lastPrice: trade.contractPrice,
-                                                last_price: trade.contractPrice,
-                                                delta: trade.delta || 0,
-                                                theta: trade.thetaDecay ? -Math.abs(trade.thetaDecay) : 0,
-                                                implied_volatility: trade.impliedVolatility || 0,
-                                                strike_price: trade.strike,
-                                                expiration_date: trade.expiration,
-                                                addedAt: new Date(),
-                                                entryPrice: trade.contractPrice,
-                                                stockPrice: currentStockPrice,
-                                                stockTarget80: target80StockPrice,
-                                                stockTarget90: target90StockPrice,
-                                                stopLoss: trade.contractPrice * 0.75
-                                              };
-                                              const saved = localStorage.getItem('optionsWatchlist');
-                                              const existing = saved ? JSON.parse(saved) : [];
-                                              const alreadyExists = existing.some((item: any) =>
-                                                item.symbol === watchlistItem.symbol &&
-                                                item.strike === watchlistItem.strike &&
-                                                item.expiration === watchlistItem.expiration
-                                              );
-                                              if (!alreadyExists) {
-                                                localStorage.setItem('optionsWatchlist', JSON.stringify([...existing, watchlistItem]));
-                                                setHighlightFilter(highlightFilter);
+                                            if (T > 0 && sigma > 0 && currentStockPrice > 0) {
+                                              if (isPut) {
+                                                const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
+                                                target80StockPrice = currentStockPrice - (expectedMove1SD * 0.84);
+                                                target90StockPrice = currentStockPrice - (expectedMove1SD * 1.28);
+                                              } else {
+                                                const expectedMove1SD = currentStockPrice * sigma * Math.sqrt(T);
+                                                target80StockPrice = currentStockPrice + (expectedMove1SD * 0.84);
+                                                target90StockPrice = currentStockPrice + (expectedMove1SD * 1.28);
                                               }
                                             }
-                                          }}
-                                          className="hover:scale-110 transition-transform"
-                                          title="Add to Options Watchlist"
-                                        >
-                                          {(() => {
+
+                                            const watchlistItem = {
+                                              id: `${symbol}-${trade.strike}-${trade.expiration}-${Date.now()}`,
+                                              ticker: trade.optionTicker || `${symbol}${new Date(trade.expiration).toLocaleDateString('en-US', { year: '2-digit', month: '2-digit', day: '2-digit' }).replace(/\//g, '')}${trade.optionType === 'put' ? 'P' : 'C'}${trade.strike}`,
+                                              symbol: symbol,
+                                              strike: trade.strike,
+                                              type: trade.optionType?.toLowerCase() || 'put',
+                                              contract_type: trade.optionType?.toLowerCase() || 'put',
+                                              expiration: trade.expiration,
+                                              bid: trade.contractPrice * 0.98,
+                                              ask: trade.contractPrice * 1.02,
+                                              lastPrice: trade.contractPrice,
+                                              last_price: trade.contractPrice,
+                                              delta: trade.delta || 0,
+                                              theta: trade.thetaDecay ? -Math.abs(trade.thetaDecay) : 0,
+                                              implied_volatility: trade.impliedVolatility || 0,
+                                              strike_price: trade.strike,
+                                              expiration_date: trade.expiration,
+                                              addedAt: new Date(),
+                                              entryPrice: trade.contractPrice,
+                                              stockPrice: currentStockPrice,
+                                              stockTarget80: target80StockPrice,
+                                              stockTarget90: target90StockPrice,
+                                              stopLoss: trade.contractPrice * 0.75
+                                            };
                                             const saved = localStorage.getItem('optionsWatchlist');
                                             const existing = saved ? JSON.parse(saved) : [];
-                                            const isInWatchlist = existing.some((item: any) =>
-                                              item.symbol === symbol &&
-                                              item.strike === trade.strike &&
-                                              item.expiration === trade.expiration
+                                            const alreadyExists = existing.some((item: any) =>
+                                              item.symbol === watchlistItem.symbol &&
+                                              item.strike === watchlistItem.strike &&
+                                              item.expiration === watchlistItem.expiration
                                             );
-                                            return isInWatchlist ?
-                                              <TbStarFilled className="w-5 h-5 text-yellow-400" /> :
-                                              <TbStar className="w-5 h-5 text-yellow-400 hover:text-yellow-300" />;
-                                          })()}
-                                        </button>
-                                      </div>
+                                            if (!alreadyExists) {
+                                              localStorage.setItem('optionsWatchlist', JSON.stringify([...existing, watchlistItem]));
+                                              setHighlightFilter(highlightFilter);
+                                            }
+                                          }
+                                        }}
+                                        className="hover:scale-110 transition-transform"
+                                        title="Add to Options Watchlist"
+                                      >
+                                        {(() => {
+                                          const saved = localStorage.getItem('optionsWatchlist');
+                                          const existing = saved ? JSON.parse(saved) : [];
+                                          const isInWatchlist = existing.some((item: any) =>
+                                            item.symbol === symbol &&
+                                            item.strike === trade.strike &&
+                                            item.expiration === trade.expiration
+                                          );
+                                          return isInWatchlist ?
+                                            <TbStarFilled className="w-4 h-4 text-yellow-400" /> :
+                                            <TbStar className="w-4 h-4 text-yellow-400 hover:text-yellow-300" />;
+                                        })()}
+                                      </button>
+                                    </div>
+                                  </div>
 
-                                      <div className="flex-1" style={{
-                                        marginLeft: window.innerWidth < 768 ? '-20px' : '0'
-                                      }}>
-                                        <div className="font-black tabular-nums" style={{
-                                          fontSize: window.innerWidth < 768 ? '1.4rem' : '2rem',
-                                          color: '#ef4444',
-                                          lineHeight: '1',
-                                          textShadow: '0 0 20px rgba(239, 68, 68, 0.3)',
-                                          fontFamily: 'system-ui, -apple-system, sans-serif'
-                                        }}>
-                                          {trade.score}{window.innerWidth >= 768 ? '%' : ''}
-                                        </div>
+                                  {/* Industry and Trade Details */}
+                                  <div className="mb-2">
+                                    <div className="text-xs text-orange-400 text-center font-bold">
+                                      {trade.industry}
+                                    </div>
+                                  </div>
+
+                                  <div className="text-xs text-center text-orange-400 mb-3 font-bold">
+                                    <span className="font-bold text-white">${trade.strike?.toFixed(0)}</span>
+                                    {' '}<span className="text-red-400 font-semibold">{trade.optionType?.toUpperCase()}</span>
+                                    {' • '}
+                                    <span className="text-white">{trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''}</span>
+                                  </div>
+
+                                  {/* Contract Metrics */}
+                                  <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Price</div>
+                                      <div className="text-white font-mono font-bold">
+                                        ${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
-
-                                    {/* Middle: Industry centered */}
-                                    <div className="text-center mb-4">
-                                      <div className="text-sm font-medium" style={{ color: '#ffffff' }}>
-                                        {trade.industry}
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-0.5 font-bold">IV</div>
+                                      <div className="text-white font-mono font-bold">
+                                        {trade.impliedVolatility || 'N/A'}%
                                       </div>
                                     </div>
-
-                                    {/* Bottom: Trade details centered */}
-                                    <div className="pt-4 text-center" style={{
-                                      borderTop: '1px solid rgba(239, 68, 68, 0.1)'
-                                    }}>
-                                      <div className="flex items-baseline justify-center gap-2 mb-3">
-                                        <span className="font-bold text-white" style={{ fontSize: '1.125rem' }}>
-                                          ${trade.strike?.toFixed(0)}
-                                        </span>
-                                        <span className="text-sm font-semibold" style={{ color: '#ef4444' }}>
-                                          {trade.optionType?.toUpperCase()}
-                                        </span>
-                                        <span className="text-xs font-medium" style={{ color: '#ffffff' }}>
-                                          {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : ''}
-                                        </span>
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Decay</div>
+                                      <div className="text-white font-mono font-bold">
+                                        ${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}
                                       </div>
+                                    </div>
+                                  </div>
 
-                                      {/* Contract Details */}
-                                      <div className="grid grid-cols-3 gap-2 text-xs">
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Price</div>
-                                          <div className="text-white font-mono font-bold">
-                                            ${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">IV</div>
-                                          <div className="text-white font-mono font-bold">
-                                            {trade.impliedVolatility || 'N/A'}%
-                                          </div>
-                                        </div>
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Decay/Day</div>
-                                          <div className="text-white font-mono font-bold">
-                                            ${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
+                                  {/* Targets */}
+                                  <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-800">
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Target 1</div>
+                                      <div className="text-red-400 font-mono font-bold">
+                                        ${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}
                                       </div>
-
-                                      <div className="grid grid-cols-3 gap-2 text-xs mt-2">
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Target #1</div>
-                                          <div className="text-red-400 font-mono font-bold">
-                                            ${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Target #2</div>
-                                          <div className="text-red-400 font-mono font-bold">
-                                            ${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
-                                        <div className="text-center">
-                                          <div className="text-gray-400 mb-1">Stop Loss</div>
-                                          <div className="text-red-400 font-mono font-bold">
-                                            ${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}
-                                          </div>
-                                        </div>
+                                    </div>
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Target 2</div>
+                                      <div className="text-red-400 font-mono font-bold">
+                                        ${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}
+                                      </div>
+                                    </div>
+                                    <div className="text-center">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Stop Loss</div>
+                                      <div className="text-red-400 font-mono font-bold">
+                                        ${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
                                   </div>
                                 </div>
-                              );
-                            });
-                          })()}
-                          {Object.entries(highlightedTrades || {}).filter(([symbol, trade]: [string, any]) => {
-                            const matchesFilter = highlightFilter === 'gold' ? trade.highlightType === 'gold' :
-                              highlightFilter === 'purple' ? trade.highlightType === 'purple' : true;
-                            return matchesFilter && trade.optionType?.toLowerCase() === 'put';
-                          }).length === 0 && (
-                              <div className="text-center py-8">
-                                <div className="text-gray-500 font-mono text-sm">No bearish trades</div>
                               </div>
-                            )}
+                            );
+                          })}
+                          {filteredBearishTrades.length === 0 && (
+                            <div className="text-center py-8">
+                              <div className="text-gray-500 font-mono text-sm">No bearish trades</div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -17347,147 +17721,120 @@ export default function TradingViewChart({
                       <div className="grid grid-cols-2 gap-6" style={{ opacity: isCalculatingTrades ? 0.3 : 1 }}>
                         {/* Premium Bullish Industries Section */}
                         <div>
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="flex items-center space-x-3">
-                              <div className="flex items-center space-x-2">
-                                <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" style={{
-                                  boxShadow: '0 0 8px rgba(76, 175, 80, 0.8)'
-                                }} />
-                                <span className="text-green-400 font-mono font-bold text-sm uppercase tracking-wider">
-                                  Bullish
-                                </span>
-                              </div>
+                          <div className="flex items-center justify-between mb-4 pb-3 border-b" style={{ borderColor: '#00ff00' }}>
+                            <h3 className="flex items-center justify-center flex-1">
+                              <span className="font-black uppercase tracking-wider" style={{ color: '#00ff00', fontSize: '1rem' }}>
+                                BULLISH
+                              </span>
                             </h3>
-                            <div className="text-green-400 font-mono text-xs bg-green-400 bg-opacity-10 px-2 py-1 rounded">
+                            <div className="font-mono text-xs font-bold px-3 py-1 rounded" style={{
+                              color: '#ff6600',
+                              background: 'rgba(255, 102, 0, 0.1)',
+                              border: '1px solid rgba(255, 102, 0, 0.3)'
+                            }}>
                               {bullishIndustries.length} sectors
                             </div>
                           </div>
 
-                          <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-4">
                             {bullishIndustries.length > 0 ? bullishIndustries.map((industry: any, index: number) => (
                               <div
                                 key={industry.symbol}
-                                className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
+                                className="group relative p-4 rounded-lg transition-all duration-200 cursor-pointer"
                                 style={{
-                                  background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)',
-                                  border: '1px solid rgba(76, 175, 80, 0.2)',
-                                  boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)'
+                                  background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+                                  border: '1px solid rgba(0, 255, 0, 0.3)',
+                                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.6)'
                                 }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(0, 0, 0, 0.2) 100%)';
-                                  e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.4)';
+                                  e.currentTarget.style.borderColor = 'rgba(0, 255, 0, 0.6)';
                                   e.currentTarget.style.transform = 'translateY(-2px)';
-                                  e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 25px rgba(76, 175, 80, 0.15)';
+                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 255, 0, 0.2)';
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)';
-                                  e.currentTarget.style.borderColor = 'rgba(76, 175, 80, 0.2)';
+                                  e.currentTarget.style.borderColor = 'rgba(0, 255, 0, 0.3)';
                                   e.currentTarget.style.transform = 'translateY(0)';
-                                  e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)';
+                                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.6)';
                                 }}
                               >
                                 <div className="flex justify-between items-start mb-3">
                                   <div className="flex-1">
                                     <div className="flex items-center space-x-3">
-                                      <span className="text-green-400 font-mono font-bold text-2xl tracking-wide">
+                                      <span className="font-black text-2xl tracking-wide" style={{ color: '#00ff00' }}>
                                         {industry.symbol}
                                       </span>
-                                      <div className="flex items-center space-x-1">
-                                        <div className="w-1 h-1 bg-green-400 rounded-full" />
-                                        <div className="w-1 h-1 bg-green-400 rounded-full opacity-75" />
-                                        <div className="w-1 h-1 bg-green-400 rounded-full opacity-50" />
-                                      </div>
                                     </div>
-                                    <div className="text-gray-300 text-base mt-1 font-medium leading-relaxed">
+                                    <div className="text-xs mt-1 font-bold uppercase tracking-wide" style={{ color: '#ff6600' }}>
                                       {industry.name}
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    <div className="text-green-400 font-mono text-xl font-bold">
+                                    <div className="font-mono text-xl font-black" style={{ color: '#00ff00' }}>
                                       +{industry.relativePerformance.toFixed(2)}%
-                                    </div>
-                                    <div className="w-16 h-1 bg-gray-700 rounded-full mt-1 overflow-hidden">
-                                      <div
-                                        className="h-full bg-gradient-to-r from-green-500 to-green-300 rounded-full transition-all duration-1000"
-                                        style={{ width: `${Math.min(100, (industry.relativePerformance / 5) * 100)}%` }}
-                                      />
                                     </div>
                                   </div>
                                 </div>
 
                                 {/* Top Performers */}
                                 {industry.topPerformers && industry.topPerformers.length > 0 && (
-                                  <div className="border-t border-green-400 border-opacity-20 pt-3 mt-3">
-                                    <div className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wide">
-                                      Top 3 Performers
-                                    </div>
-                                    <div className="space-y-1">
+                                  <div className="border-t pt-3 mt-3" style={{ borderColor: 'rgba(0, 255, 0, 0.2)' }}>
+                                    <div className="space-y-2">
                                       {industry.topPerformers.slice(0, 3).map((stock: any) => {
-                                        // Check if this stock is highlighted
                                         const tradeData = highlightedTrades[stock.symbol];
                                         const isHighlighted = !!tradeData;
                                         const isGold = tradeData?.highlightType === 'gold';
                                         const isPurple = tradeData?.highlightType === 'purple';
+                                        const isBlue = tradeData?.highlightType === 'blue';
+                                        const isPink = tradeData?.highlightType === 'pink';
 
-                                        // Determine colors and borders
                                         let bgColor = 'rgba(0, 0, 0, 0.3)';
-                                        let borderColor = 'rgba(76, 175, 80, 0.1)';
-                                        let textColor = 'text-white';
-                                        let hoverBg = 'rgba(76, 175, 80, 0.1)';
-                                        let hoverBorder = 'rgba(76, 175, 80, 0.3)';
+                                        let borderColor = 'rgba(0, 255, 0, 0.3)';
+                                        let symbolColor = '#ffffff';
 
                                         if (isGold) {
-                                          bgColor = 'rgba(255, 215, 0, 0.15)';
-                                          borderColor = 'rgba(255, 215, 0, 0.5)';
-                                          textColor = 'text-yellow-300';
-                                          hoverBg = 'rgba(255, 215, 0, 0.25)';
-                                          hoverBorder = 'rgba(255, 215, 0, 0.7)';
+                                          bgColor = 'rgba(255, 215, 0, 0.1)';
+                                          borderColor = '#FFD700';
+                                          symbolColor = '#FFD700';
                                         } else if (isPurple) {
-                                          bgColor = 'rgba(138, 43, 226, 0.15)';
-                                          borderColor = 'rgba(138, 43, 226, 0.5)';
-                                          textColor = 'text-purple-300';
-                                          hoverBg = 'rgba(138, 43, 226, 0.25)';
-                                          hoverBorder = 'rgba(138, 43, 226, 0.7)';
+                                          bgColor = 'rgba(138, 43, 226, 0.1)';
+                                          borderColor = '#8A2BE2';
+                                          symbolColor = '#8A2BE2';
+                                        } else if (isBlue) {
+                                          bgColor = 'rgba(30, 144, 255, 0.1)';
+                                          borderColor = '#1E90FF';
+                                          symbolColor = '#1E90FF';
+                                        } else if (isPink) {
+                                          bgColor = 'rgba(255, 105, 180, 0.1)';
+                                          borderColor = '#FF69B4';
+                                          symbolColor = '#FF69B4';
                                         }
 
                                         return (
                                           <div
                                             key={stock.symbol}
-                                            className={`flex justify-between items-center py-2 px-3 rounded transition-all duration-200 ${isHighlighted ? 'cursor-pointer' : 'cursor-pointer'}`}
+                                            className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200 cursor-pointer"
                                             style={{
                                               background: bgColor,
                                               border: `1px solid ${borderColor}`,
-                                              boxShadow: isHighlighted ? `0 0 12px ${borderColor}` : 'none'
+                                              boxShadow: isHighlighted ? `0 0 8px ${borderColor}` : 'none'
                                             }}
                                             onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                                               e.stopPropagation();
-
                                               if (isHighlighted && tradeData) {
-                                                // Show modal with trade details
                                                 setSelectedTradeForModal(tradeData);
                                                 setShowTradeModal(true);
                                               } else {
-                                                // Just switch chart
-                                                console.log(`?? Switching chart to ${stock.symbol} from bullish industry`);
                                                 if (onSymbolChange) {
                                                   onSymbolChange(stock.symbol);
                                                 }
                                                 setConfig(prev => ({ ...prev, symbol: stock.symbol }));
                                               }
                                             }}
-                                            onMouseEnter={(e) => {
-                                              e.currentTarget.style.background = hoverBg;
-                                              e.currentTarget.style.borderColor = hoverBorder;
-                                            }}
-                                            onMouseLeave={(e) => {
-                                              e.currentTarget.style.background = bgColor;
-                                              e.currentTarget.style.borderColor = borderColor;
-                                            }}
                                           >
-                                            <span className={`${textColor} font-mono font-medium text-lg`}>
+                                            <span className="font-mono font-bold" style={{ color: symbolColor, fontSize: '0.875rem' }}>
                                               {stock.symbol}
                                             </span>
-                                            <span className="text-green-400 font-mono font-bold text-lg">
+                                            <span className="font-mono font-black" style={{ color: '#00ff00', fontSize: '0.875rem' }}>
                                               +{stock.relativePerformance.toFixed(1)}%
                                             </span>
                                           </div>
@@ -17509,43 +17856,40 @@ export default function TradingViewChart({
 
                         {/* Premium Bearish Industries Section */}
                         <div>
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="flex items-center space-x-3">
-                              <div className="flex items-center space-x-2">
-                                <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse" style={{
-                                  boxShadow: '0 0 8px rgba(244, 67, 54, 0.8)'
-                                }} />
-                                <span className="text-red-400 font-mono font-bold text-sm uppercase tracking-wider">
-                                  Bearish
-                                </span>
-                              </div>
+                          <div className="flex items-center justify-between mb-4 pb-3 border-b" style={{ borderColor: '#ff0000' }}>
+                            <h3 className="flex items-center justify-center flex-1">
+                              <span className="font-black uppercase tracking-wider" style={{ color: '#ff0000', fontSize: '1rem' }}>
+                                BEARISH
+                              </span>
                             </h3>
-                            <div className="text-red-400 font-mono text-xs bg-red-400 bg-opacity-10 px-2 py-1 rounded">
+                            <div className="font-mono text-xs font-bold px-3 py-1 rounded" style={{
+                              color: '#ff6600',
+                              background: 'rgba(255, 102, 0, 0.1)',
+                              border: '1px solid rgba(255, 102, 0, 0.3)'
+                            }}>
                               {bearishIndustries.length} sectors
                             </div>
                           </div>
 
-                          <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-4">
                             {bearishIndustries.length > 0 ? bearishIndustries.map((industry: any, index: number) => (
                               <div
                                 key={industry.symbol}
-                                className="group relative p-4 rounded-lg transition-all duration-300 cursor-pointer"
+                                className="group relative p-4 rounded-lg transition-all duration-200 cursor-pointer"
                                 style={{
-                                  background: 'linear-gradient(135deg, rgba(244, 67, 54, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)',
-                                  border: '1px solid rgba(244, 67, 54, 0.2)',
-                                  boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)'
+                                  background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+                                  border: '1px solid rgba(255, 0, 0, 0.3)',
+                                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.6)'
                                 }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(244, 67, 54, 0.15) 0%, rgba(0, 0, 0, 0.2) 100%)';
-                                  e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.4)';
+                                  e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)';
                                   e.currentTarget.style.transform = 'translateY(-2px)';
-                                  e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 25px rgba(244, 67, 54, 0.15)';
+                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(255, 0, 0, 0.2)';
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(244, 67, 54, 0.08) 0%, rgba(0, 0, 0, 0.4) 100%)';
-                                  e.currentTarget.style.borderColor = 'rgba(244, 67, 54, 0.2)';
+                                  e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.3)';
                                   e.currentTarget.style.transform = 'translateY(0)';
-                                  e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3)';
+                                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.6)';
                                 }}
                               >
                                 <div className="flex justify-between items-start mb-3">
@@ -17554,102 +17898,78 @@ export default function TradingViewChart({
                                       <span className="text-red-400 font-mono font-bold text-2xl tracking-wide">
                                         {industry.symbol}
                                       </span>
-                                      <div className="flex items-center space-x-1">
-                                        <div className="w-1 h-1 bg-red-400 rounded-full" />
-                                        <div className="w-1 h-1 bg-red-400 rounded-full opacity-75" />
-                                        <div className="w-1 h-1 bg-red-400 rounded-full opacity-50" />
-                                      </div>
                                     </div>
-                                    <div className="text-gray-300 text-base mt-1 font-medium leading-relaxed">
+                                    <div className="text-xs mt-1 font-bold uppercase tracking-wide" style={{ color: '#ff6600' }}>
                                       {industry.name}
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    <div className="text-red-400 font-mono text-xl font-bold">
+                                    <div className="font-mono text-xl font-black" style={{ color: '#ff0000' }}>
                                       {industry.relativePerformance.toFixed(2)}%
-                                    </div>
-                                    <div className="w-16 h-1 bg-gray-700 rounded-full mt-1 overflow-hidden">
-                                      <div
-                                        className="h-full bg-gradient-to-r from-red-500 to-red-300 rounded-full transition-all duration-1000"
-                                        style={{ width: `${Math.min(100, Math.abs(industry.relativePerformance / 5) * 100)}%` }}
-                                      />
                                     </div>
                                   </div>
                                 </div>
 
                                 {/* Worst Performers */}
                                 {industry.worstPerformers && industry.worstPerformers.length > 0 && (
-                                  <div className="border-t border-red-400 border-opacity-20 pt-3 mt-3">
-                                    <div className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wide">
-                                      Worst 3 Performers
-                                    </div>
-                                    <div className="space-y-1">
+                                  <div className="border-t pt-3 mt-3" style={{ borderColor: 'rgba(255, 0, 0, 0.2)' }}>
+                                    <div className="space-y-2">
                                       {industry.worstPerformers.slice(0, 3).map((stock: any) => {
-                                        // Check if this stock is highlighted
                                         const tradeData = highlightedTrades[stock.symbol];
                                         const isHighlighted = !!tradeData;
                                         const isGold = tradeData?.highlightType === 'gold';
                                         const isPurple = tradeData?.highlightType === 'purple';
+                                        const isBlue = tradeData?.highlightType === 'blue';
+                                        const isPink = tradeData?.highlightType === 'pink';
 
-                                        // Determine colors and borders
                                         let bgColor = 'rgba(0, 0, 0, 0.3)';
-                                        let borderColor = 'rgba(244, 67, 54, 0.1)';
-                                        let textColor = 'text-white';
-                                        let hoverBg = 'rgba(244, 67, 54, 0.1)';
-                                        let hoverBorder = 'rgba(244, 67, 54, 0.3)';
+                                        let borderColor = 'rgba(255, 0, 0, 0.3)';
+                                        let symbolColor = '#ffffff';
 
                                         if (isGold) {
-                                          bgColor = 'rgba(255, 215, 0, 0.15)';
-                                          borderColor = 'rgba(255, 215, 0, 0.5)';
-                                          textColor = 'text-yellow-300';
-                                          hoverBg = 'rgba(255, 215, 0, 0.25)';
-                                          hoverBorder = 'rgba(255, 215, 0, 0.7)';
+                                          bgColor = 'rgba(255, 215, 0, 0.1)';
+                                          borderColor = '#FFD700';
+                                          symbolColor = '#FFD700';
                                         } else if (isPurple) {
-                                          bgColor = 'rgba(138, 43, 226, 0.15)';
-                                          borderColor = 'rgba(138, 43, 226, 0.5)';
-                                          textColor = 'text-purple-300';
-                                          hoverBg = 'rgba(138, 43, 226, 0.25)';
-                                          hoverBorder = 'rgba(138, 43, 226, 0.7)';
+                                          bgColor = 'rgba(138, 43, 226, 0.1)';
+                                          borderColor = '#8A2BE2';
+                                          symbolColor = '#8A2BE2';
+                                        } else if (isBlue) {
+                                          bgColor = 'rgba(30, 144, 255, 0.1)';
+                                          borderColor = '#1E90FF';
+                                          symbolColor = '#1E90FF';
+                                        } else if (isPink) {
+                                          bgColor = 'rgba(255, 105, 180, 0.1)';
+                                          borderColor = '#FF69B4';
+                                          symbolColor = '#FF69B4';
                                         }
 
                                         return (
                                           <div
                                             key={stock.symbol}
-                                            className={`flex justify-between items-center py-2 px-3 rounded transition-all duration-200 ${isHighlighted ? 'cursor-pointer' : 'cursor-pointer'}`}
+                                            className="flex justify-between items-center py-2 px-3 rounded transition-all duration-200 cursor-pointer"
                                             style={{
                                               background: bgColor,
                                               border: `1px solid ${borderColor}`,
-                                              boxShadow: isHighlighted ? `0 0 12px ${borderColor}` : 'none'
+                                              boxShadow: isHighlighted ? `0 0 8px ${borderColor}` : 'none'
                                             }}
                                             onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                                               e.stopPropagation();
-
                                               if (isHighlighted && tradeData) {
-                                                // Show modal with trade details
                                                 setSelectedTradeForModal(tradeData);
                                                 setShowTradeModal(true);
                                               } else {
-                                                // Just switch chart
-                                                console.log(`?? Switching chart to ${stock.symbol} from bearish industry`);
                                                 if (onSymbolChange) {
                                                   onSymbolChange(stock.symbol);
                                                 }
                                                 setConfig(prev => ({ ...prev, symbol: stock.symbol }));
                                               }
                                             }}
-                                            onMouseEnter={(e) => {
-                                              e.currentTarget.style.background = hoverBg;
-                                              e.currentTarget.style.borderColor = hoverBorder;
-                                            }}
-                                            onMouseLeave={(e) => {
-                                              e.currentTarget.style.background = bgColor;
-                                              e.currentTarget.style.borderColor = borderColor;
-                                            }}
                                           >
-                                            <span className={`${textColor} font-mono font-medium text-lg`}>
+                                            <span className="font-mono font-bold" style={{ color: symbolColor, fontSize: '0.875rem' }}>
                                               {stock.symbol}
                                             </span>
-                                            <span className="text-red-400 font-mono font-bold text-lg">
+                                            <span className="font-mono font-black" style={{ color: '#ff0000', fontSize: '0.875rem' }}>
                                               {stock.relativePerformance.toFixed(1)}%
                                             </span>
                                           </div>
@@ -17708,10 +18028,23 @@ export default function TradingViewChart({
                       className="px-3 py-1 font-mono font-bold text-2xl"
                       style={{
                         background: '#000000',
-                        color: selectedTradeForModal.highlightType === 'gold' ? '#FFD700' : selectedTradeForModal.highlightType === 'purple' ? '#8A2BE2' : '#ffffff'
+                        color: selectedTradeForModal.highlightType === 'gold' ? '#FFD700' :
+                          selectedTradeForModal.highlightType === 'purple' ? '#8A2BE2' :
+                            selectedTradeForModal.highlightType === 'blue' ? '#1E90FF' :
+                              selectedTradeForModal.highlightType === 'pink' ? '#FF69B4' : '#ffffff'
                       }}
                     >
                       {selectedTradeForModal.symbol}
+                    </div>
+                    <div
+                      className="px-3 py-1 font-mono text-sm font-bold uppercase"
+                      style={{
+                        background: selectedTradeForModal.strategy === 'setup' ? 'rgba(218, 165, 32, 0.2)' : 'rgba(255, 140, 0, 0.2)',
+                        color: selectedTradeForModal.strategy === 'setup' ? '#FFD700' : '#FF8C00',
+                        border: `1px solid ${selectedTradeForModal.strategy === 'setup' ? 'rgba(218, 165, 32, 0.4)' : 'rgba(255, 140, 0, 0.4)'}`
+                      }}
+                    >
+                      {selectedTradeForModal.strategy === 'setup' ? '📊 SETUP QUALITY' : '🚀 MOMENTUM'}
                     </div>
                   </div>
                   <div className="flex-1 text-center font-mono text-base" style={{ color: '#ffffff' }}>
@@ -17742,7 +18075,7 @@ export default function TradingViewChart({
                     Strength Score
                   </div>
                   <div className="text-white font-mono text-2xl font-bold mb-2 text-center">
-                    {selectedTradeForModal.score}%
+                    {selectedTradeForModal.score}
                   </div>
                   <div className="h-2 rounded-full overflow-hidden" style={{
                     background: '#000000'
@@ -17944,44 +18277,72 @@ export default function TradingViewChart({
                   <div className="text-center font-mono text-lg uppercase tracking-wide mb-5" style={{
                     color: '#ff6600'
                   }}>
-                    9-Factor Score Breakdown
+                    {selectedTradeForModal.strategy === 'setup' ? 'Setup Quality Score Breakdown' : 'Momentum-Volatility Score Breakdown'}
                   </div>
-                  <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
-                    <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#FFD700' }}>Persistence:</span>
-                      <span className="font-bold" style={{ color: '#FFD700' }}>{selectedTradeForModal.details.persistence}/20</span>
+
+                  {selectedTradeForModal.strategy === 'setup' ? (
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
+                      <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Setup Quality:</span>
+                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.setupQuality?.toFixed(1) || 0}/25</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#4ECDC4', fontSize: '15px' }}>Risk/Reward:</span>
+                        <span className="font-bold" style={{ color: '#4ECDC4', fontSize: '16px' }}>{selectedTradeForModal.details.riskReward?.toFixed(1) || 0}/20</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#95E1D3', fontSize: '15px' }}>Volume/Breadth:</span>
+                        <span className="font-bold" style={{ color: '#95E1D3', fontSize: '16px' }}>{selectedTradeForModal.details.volumeBreadth?.toFixed(1) || 0}/15</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#F38181', fontSize: '15px' }}>Momentum Health:</span>
+                        <span className="font-bold" style={{ color: '#F38181', fontSize: '16px' }}>{selectedTradeForModal.details.momentumHealth?.toFixed(1) || 0}/20</span>
+                      </div>
+                      <div className="flex items-center col-span-2 justify-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#AA96DA', fontSize: '15px' }}>Trend Strength:</span>
+                        <span className="font-bold ml-3" style={{ color: '#AA96DA', fontSize: '16px' }}>{selectedTradeForModal.details.trendStrength?.toFixed(1) || 0}/20</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#FF6B6B' }}>Regression:</span>
-                      <span className="font-bold" style={{ color: '#FF6B6B' }}>{selectedTradeForModal.details.regression?.toFixed(1)}/15</span>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
+                      <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#FF8C00', fontSize: '15px' }}>Support Strength:</span>
+                        <span className="font-bold" style={{ color: '#FF8C00', fontSize: '16px' }}>{selectedTradeForModal.details.supportStrength?.toFixed(1) || 0}/25</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Red Day Resilience:</span>
+                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.resilience?.toFixed(1) || 0}/20</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#1E90FF', fontSize: '15px' }}>Retest Quality:</span>
+                        <span className="font-bold" style={{ color: '#1E90FF', fontSize: '16px' }}>{selectedTradeForModal.details.retestQuality?.toFixed(1) || 0}/20</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#32CD32', fontSize: '15px' }}>Volume Behavior:</span>
+                        <span className="font-bold" style={{ color: '#32CD32', fontSize: '16px' }}>{selectedTradeForModal.details.volumeBehavior?.toFixed(1) || 0}/20</span>
+                      </div>
+                      <div className="flex items-center col-span-2 justify-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
+                        <span style={{ color: '#FF1493', fontSize: '15px' }}>Pullback Depth:</span>
+                        <span className="font-bold ml-3" style={{ color: '#FF1493', fontSize: '16px' }}>{selectedTradeForModal.details.pullbackDepth?.toFixed(1) || 0}/15</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#4ECDC4' }}>Efficiency:</span>
-                      <span className="font-bold" style={{ color: '#4ECDC4' }}>{selectedTradeForModal.details.efficiency?.toFixed(1)}/15</span>
-                    </div>
-                    <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#95E1D3' }}>Fractal/Hurst:</span>
-                      <span className="font-bold" style={{ color: '#95E1D3' }}>{selectedTradeForModal.details.fractal?.toFixed(1)}/10</span>
-                    </div>
-                    <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#F38181' }}>Vol-Adjusted:</span>
-                      <span className="font-bold" style={{ color: '#F38181' }}>{selectedTradeForModal.details.volAdjusted?.toFixed(1)}/10</span>
-                    </div>
-                    <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#AA96DA' }}>Drawdown:</span>
-                      <span className="font-bold" style={{ color: '#AA96DA' }}>{selectedTradeForModal.details.drawdown?.toFixed(1)}/10</span>
-                    </div>
-                    <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#FCBAD3' }}>Skewness:</span>
-                      <span className="font-bold" style={{ color: '#FCBAD3' }}>{selectedTradeForModal.details.skewness?.toFixed(1)}/10</span>
-                    </div>
-                    <div className="flex justify-between items-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#FFFFD2' }}>Regime:</span>
-                      <span className="font-bold" style={{ color: '#FFFFD2' }}>{selectedTradeForModal.details.regime?.toFixed(1)}/10</span>
-                    </div>
-                    <div className="flex items-center col-span-2 justify-center p-2 rounded" style={{ background: '#000000' }}>
-                      <span style={{ color: '#A8DADC' }}>Breadth:</span>
-                      <span className="font-bold ml-2" style={{ color: '#A8DADC' }}>{selectedTradeForModal.details.breadth?.toFixed(1)}/10</span>
+                  )}
+
+                  {/* Additional Context */}
+                  <div className="mt-5 pt-4 border-t border-gray-700">
+                    <div className="grid grid-cols-3 gap-4 text-xs font-mono text-gray-400">
+                      <div>
+                        <div className="text-gray-500">Current Price</div>
+                        <div className="text-white font-bold">${selectedTradeForModal.details.currentPrice?.toFixed(2) || 'N/A'}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">MA20</div>
+                        <div className="text-white font-bold">${selectedTradeForModal.details.ma20?.toFixed(2) || 'N/A'}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">ATR</div>
+                        <div className="text-white font-bold">${selectedTradeForModal.details.atr?.toFixed(2) || 'N/A'}</div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -21751,7 +22112,15 @@ export default function TradingViewChart({
                     </div>
 
                     {/* Screener Content */}
-                    <div className="flex-1 overflow-y-auto">
+                    <div
+                      ref={screenersPanelScrollRef}
+                      onScroll={() => {
+                        if (screenersPanelScrollRef.current) {
+                          savedScreenersScrollPos.current = screenersPanelScrollRef.current.scrollTop;
+                        }
+                      }}
+                      className="flex-1 overflow-y-auto"
+                    >
                       {screenersTab === 'HV' && <HVScreener />}
                       {screenersTab === 'RS' && <RSScreener />}
                       {screenersTab === 'Leadership' && <LeadershipScan />}
@@ -21794,11 +22163,20 @@ export default function TradingViewChart({
                         </h1>
                       </div>
                     </div>
-                    <div className="p-4 space-y-4" style={{
-                      maxHeight: '100%',
-                      overflow: 'auto',
-                      background: '#000000'
-                    }}>
+                    <div
+                      ref={alertsPanelScrollRef}
+                      onScroll={() => {
+                        if (alertsPanelScrollRef.current) {
+                          savedAlertsScrollPos.current = alertsPanelScrollRef.current.scrollTop;
+                        }
+                      }}
+                      className="p-4 space-y-4"
+                      style={{
+                        maxHeight: '100%',
+                        overflow: 'auto',
+                        background: '#000000'
+                      }}
+                    >
                       <div className="flex items-center justify-between mb-5" style={{
                         borderBottom: '1px solid rgba(255, 107, 0, 0.25)',
                         paddingBottom: '12px'

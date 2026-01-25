@@ -7212,8 +7212,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       const borderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
                       const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800';
                       const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
-                      const mobileStrikeWidth = 60;
-                      const mobileExpWidth = 90;
+                      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+                      const mobileStrikeWidth = isMobile ? 38 : 60;
+                      const mobileExpWidth = isMobile ? 48 : 90;
 
                       // Calculate GEX ranges for both Normal and Dealer
                       const normalGEXValues = tickerDataArray
@@ -7244,11 +7245,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         highestNegative: Math.abs(Math.min(...dealerGEXValues.filter(v => v < 0)))
                       };
 
-                      // Determine which column to show on mobile (desktop shows both always)
-                      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-                      const showNormalColumn = isMobile ? showGEX : true;
-                      const showDealerColumn = isMobile ? (showDealer && !showGEX) : true; // Desktop always shows both
-                      const columnCount = (showNormalColumn ? 1 : 0) + (showDealerColumn ? 1 : 0);
+                      // Show both columns on mobile and desktop
+                      const showNormalColumn = true;
+                      const showDealerColumn = true;
+                      const columnCount = 2;
 
                       return (
                         <div key={tricoTicker} className="flex-1" style={{ minWidth: 0 }}>
@@ -7426,12 +7426,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                           minWidth: `${mobileStrikeWidth}px`,
                                           maxWidth: `${mobileStrikeWidth}px`
                                         }}>
-                                          <div className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : (isHighestGEX || isHighestDealer) ? 'text-yellow-400' : (isLowestGEX || isLowestDealer) ? 'text-purple-400' : 'text-white'}`} style={{ fontSize: isMobile ? '0.8rem' : '1.8rem' }}>
-                                            {row.strike.toFixed(1)}
+                                          <div className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : (isHighestGEX && isHighestDealer) ? 'text-yellow-400' : (isLowestGEX && isLowestDealer) ? 'text-purple-400' : 'text-white'}`} style={{ fontSize: isMobile ? '0.8rem' : '1.8rem' }}>
+                                            {Math.round(row.strike)}
                                           </div>
 
                                           {/* Arrows at right edge of Dealer column */}
-                                          {showNormalColumn && showDealerColumn && (
+                                          {!isMobile && showNormalColumn && showDealerColumn && (
                                             <>
                                               {/* Green arrows UP - from purple box top */}
                                               {showGreenUpFromPurple && (
@@ -7572,7 +7572,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                               )}
 
                                               {/* Connected L-shaped pipe from current price to golden zone */}
-                                              {isCurrentPriceRow && goldenRowIndex !== -1 && (
+                                              {!isMobile && isCurrentPriceRow && goldenRowIndex !== -1 && (
                                                 <svg style={{
                                                   position: 'absolute',
                                                   left: `${mobileStrikeWidth + 30}px`,
@@ -7730,7 +7730,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                               )}
 
                                               {/* Horizontal rope at golden zone + Spinning pulley wheel */}
-                                              {isGoldenZone && (() => {
+                                              {!isMobile && isGoldenZone && (() => {
                                                 const wheelColor = goldenRowIndex > currentPriceRowIndex ? '#ff0000' : '#00ff00';
                                                 return (
                                                   <>

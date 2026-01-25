@@ -194,17 +194,6 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                         transform: 'translate(-50%, -50%)',
                         textAlign: 'center'
                     }}>
-                        {showValue && size > 150 && (
-                            <div style={{
-                                fontSize: size > 100 ? '24px' : '14px',
-                                fontWeight: '900',
-                                color: color,
-                                fontFamily: 'monospace',
-                                textShadow: `0 0 10px ${color}60`
-                            }}>
-                                {value >= 0 ? '+' : ''}{value.toFixed(2)}%
-                            </div>
-                        )}
                         <div style={{
                             fontSize: size > 100 ? '11px' : '9px',
                             color: '#ffffff',
@@ -297,8 +286,8 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
             </button>
 
             {/* MAIN COMPOSITE GAUGE - Large Central Display */}
-            <div className="md:overflow-visible overflow-x-auto md:h-auto h-[280px]">
-                <div className="md:scale-100 scale-[0.7]" style={{
+            <div className="md:overflow-visible overflow-x-auto md:h-auto h-[200px]">
+                <div className="md:scale-100 scale-[0.41]" style={{
                     display: 'grid',
                     gridTemplateColumns: '300px 1fr',
                     gap: '20px',
@@ -326,8 +315,8 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                         <RegimeGauge
                             value={compositeSpread}
                             label=""
-                            size={239}
-                            thickness={23}
+                            size={276}
+                            thickness={26}
                             regime={compositeRegime}
                             showValue={false}
                             labelOffset={-15}
@@ -406,8 +395,8 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
                                     <RegimeGauge
                                         value={tfSpread}
                                         label=""
-                                        size={145}
-                                        thickness={14}
+                                        size={168}
+                                        thickness={16}
                                         showValue={true}
                                         regime={tfAnalysis.regime}
                                     />

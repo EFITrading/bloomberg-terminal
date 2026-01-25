@@ -1,0 +1,22 @@
+/* =================================================================
+   DESKTOP INDUSTRY ANALYSIS OPTIMIZATIONS
+   ================================================================= */
+
+@media (min-width: 769px) {
+
+    /* PICKS and HIGHLIGHTS: 2 columns per section on desktop */
+    /* This creates 2 bullish + 2 bearish = 4 total columns */
+    .space-y-4 {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 1rem !important;
+    }
+
+    /* BEST PERFORMERS: Keep single column */
+    /* Override above rule when gold filter is active */
+    [data-highlight-filter="gold"] .space-y-4 {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 1rem !important;
+    }
+}

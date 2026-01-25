@@ -7,39 +7,41 @@ import { AuthGuard } from '@/components/AuthGuard'
 import { MarketRegimeProvider } from '@/contexts/MarketRegimeContext'
 
 import './globals.css'
+import './mobile-industry-analysis.css'
+import './desktop-industry-analysis.css'
 
 const inter = Inter({
- variable: '--font-inter',
- subsets: ['latin'],
+    variable: '--font-inter',
+    subsets: ['latin'],
 })
 
 export const metadata: Metadata = {
- title: 'EFI Terminal - Professional Trading Platform',
- description: 'Advanced analytics platform featuring 20-year historical seasonality patterns, real-time derivative flow analysis, and proprietary market regime detection.',
+    title: 'EFI Terminal - Professional Trading Platform',
+    description: 'Advanced analytics platform featuring 20-year historical seasonality patterns, real-time derivative flow analysis, and proprietary market regime detection.',
 }
 
 export default function RootLayout({
- children,
+    children,
 }: Readonly<{
- children: React.ReactNode
+    children: React.ReactNode
 }>) {
- return (
- <html lang="en">
- <body className={`${inter.variable} antialiased`}>
- <ClientSessionProvider>
- <MarketRegimeProvider>
- <AuthGuard>
- <div className="terminal-app">
- <Background />
- <ConditionalNavigation />
- <main className="main-content">
- {children}
- </main>
- </div>
- </AuthGuard>
- </MarketRegimeProvider>
- </ClientSessionProvider>
- </body>
- </html>
- )
+    return (
+        <html lang="en">
+            <body className={`${inter.variable} antialiased`}>
+                <ClientSessionProvider>
+                    <MarketRegimeProvider>
+                        <AuthGuard>
+                            <div className="terminal-app">
+                                <Background />
+                                <ConditionalNavigation />
+                                <main className="main-content">
+                                    {children}
+                                </main>
+                            </div>
+                        </AuthGuard>
+                    </MarketRegimeProvider>
+                </ClientSessionProvider>
+            </body>
+        </html>
+    )
 }
