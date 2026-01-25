@@ -7988,11 +7988,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                   <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                                     <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
                                       <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                                        <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
+                                        <div className={useBloombergTheme ? 'bb-header text-xs md:text-sm text-gray-400' : 'text-xs md:text-sm font-bold text-white uppercase'}>Strike</div>
                                       </th>
                                       {table2Expirations.map(exp => (
                                         <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                          <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                          <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
                                             {formatDate(exp)}
                                           </div>
                                         </th>
@@ -8023,7 +8023,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                             minWidth: `${mobileStrikeWidth}px`,
                                             maxWidth: `${mobileStrikeWidth}px`
                                           }}>
-                                            <div className={`text-base font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                                            <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
                                               {row.strike.toFixed(1)}
                                             </div>
                                           </td>
@@ -8041,7 +8041,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                 style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                               >
                                                 <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                  <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                                  <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
                                                 </div>
                                               </td>
                                             );
@@ -8075,11 +8075,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                   <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
                                     <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
                                       <th className={`px-2 py-3 text-left sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                                        <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
+                                        <div className={useBloombergTheme ? 'bb-header text-xs md:text-sm text-gray-400' : 'text-xs md:text-sm font-bold text-white uppercase'}>Strike</div>
                                       </th>
                                       {table3Expirations.map(exp => (
                                         <th key={exp} className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                          <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                                          <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
                                             {formatDate(exp)}
                                           </div>
                                         </th>
@@ -8110,7 +8110,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                             minWidth: `${mobileStrikeWidth}px`,
                                             maxWidth: `${mobileStrikeWidth}px`
                                           }}>
-                                            <div className={`text-base font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                                            <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
                                               {row.strike.toFixed(1)}
                                             </div>
                                           </td>
@@ -8126,7 +8126,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                 style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                               >
                                                 <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                  <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                                  <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
                                                 </div>
                                               </td>
                                             );
@@ -8150,11 +8150,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black'}`}>
                         <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
                           <th className={`px-3 py-4 text-left sticky left-0 ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${workbenchStrikeWidth}px`, minWidth: `${workbenchStrikeWidth}px`, maxWidth: `${workbenchStrikeWidth}px` }}>
-                            <div className={useBloombergTheme ? 'bb-header text-xs text-gray-400' : 'text-xs font-bold text-white uppercase'}>Strike</div>
+                            <div className={useBloombergTheme ? 'bb-header text-xs md:text-sm text-gray-400' : 'text-xs md:text-sm font-bold text-white uppercase'}>Strike</div>
                           </th>
                           {expirations.map(exp => (
                             <th key={exp} className={`text-center ${useBloombergTheme ? 'bg-black' : 'bg-gradient-to-br from-black via-gray-900 to-black'} border-l border-r ${borderColorDivider} shadow-lg px-4 py-4`} style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
-                              <div className="text-xs font-bold text-white uppercase whitespace-nowrap">
+                              <div className="text-xs md:text-sm font-bold text-white uppercase whitespace-nowrap">
                                 {formatDate(exp)}
                               </div>
                             </th>
@@ -8227,7 +8227,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                 minWidth: `${workbenchStrikeWidth}px`,
                                 maxWidth: `${workbenchStrikeWidth}px`
                               }}>
-                                <div className={`text-base font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                                <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
                                   {row.strike.toFixed(1)}
                                 </div>
                               </td>
@@ -8322,7 +8322,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                         <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all hover:scale-105`}>
 
                                           {/* Display the net value */}
-                                          <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                          <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
 
                                           {/* Show VEX action label if applicable */}
                                           {showVEX && netVexAction && (
