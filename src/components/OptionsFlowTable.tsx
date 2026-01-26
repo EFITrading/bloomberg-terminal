@@ -1295,9 +1295,9 @@ Stock Reaction: ${scores.stockReaction}/25`;
 
   // Notable Flow Pick criteria checker (8 criteria)
   const meetsNotableCriteria = (trade: OptionsFlowData): boolean => {
-    // 1. Expiration: 0-14 days
+    // 1. Expiration: 0-21 days
     const daysToExpiry = Math.floor((new Date(trade.expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    if (daysToExpiry < 0 || daysToExpiry > 14) return false;
+    if (daysToExpiry < 0 || daysToExpiry > 21) return false;
 
     // 2. OTM only
     if (!trade.moneyness || trade.moneyness !== 'OTM') return false;
@@ -1314,10 +1314,10 @@ Stock Reaction: ${scores.stockReaction}/25`;
     // 6. Option price: $0.70-$2.00
     if (trade.premium_per_contract < 0.70 || trade.premium_per_contract > 2.00) return false;
 
-    // 7. Grades: B-, B, B+, A-, A, A+ only
+    // 7. Grades: C-, C, C+, B-, B, B+, A-, A, A+ only
     if (!optionPricesFetching && Object.keys(currentOptionPrices).length > 0) {
       const gradeData = calculatePositioningGrade(trade, comboTradeMap);
-      const validGrades = ['B-', 'B', 'B+', 'A-', 'A', 'A+'];
+      const validGrades = ['C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A', 'A+'];
       if (!validGrades.includes(gradeData.grade)) return false;
     }
 

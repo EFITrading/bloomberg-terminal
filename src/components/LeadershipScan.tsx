@@ -57,7 +57,7 @@ export default function LeadershipScan() {
 
         // Healthcare & Pharmaceuticals (Top 60)
         'UNH', 'JNJ', 'PFE', 'ABBV', 'LLY', 'TMO', 'ABT', 'MRK', 'DHR', 'BMY',
-        'AMGN', 'GILD', 'VRTX', 'REGN', 'ISRG', 'ZTS', 'CVS', 'CI', 'HUM', 'ANTM',
+        'AMGN', 'GILD', 'VRTX', 'REGN', 'ISRG', 'ZTS', 'CVS', 'CI', 'HUM',
         'CNC', 'MOH', 'ELV', 'BIIB', 'ILMN', 'MRNA', 'NVAX', 'BNTX', 'PFE', 'TEVA',
         'CAH', 'MCK', 'ABC', 'COR', 'VTRS', 'AGN', 'BMY', 'LLY', 'NVO', 'RHHBY',
         'SYK', 'BSX', 'MDT', 'EW', 'HOLX', 'BAX', 'BDX', 'DXCM', 'RMD', 'ALGN',

@@ -147,13 +147,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         </select>
 
         {/* Row 1, Col 2: 90% Range P/C Display */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column' as const,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '2px',
-          padding: '6px 8px',
+        <div className="flex flex-col items-center justify-center gap-0 md:gap-[2px] py-[2px] px-[4px] md:py-[6px] md:px-[8px]" style={{
           background: '#000000',
           borderRadius: '8px',
           border: '1px solid #333333',
@@ -164,18 +158,16 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
           `,
           zIndex: 1
         }}>
-          <div style={{
+          <div className="text-[6px] md:text-[9px]" style={{
             color: '#ff6600',
-            fontSize: '9px',
             fontWeight: '600',
             letterSpacing: '0.5px',
             textTransform: 'uppercase' as const
           }}>
             90% Range P/C
           </div>
-          <div style={{
+          <div className="text-[8px] md:text-[11px]" style={{
             color: '#ffffff',
-            fontSize: '11px',
             fontWeight: '600',
             fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
           }}>
@@ -184,13 +176,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         </div>
 
         {/* Row 1, Col 3: 45D P/C Display */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column' as const,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '2px',
-          padding: '6px 8px',
+        <div className="flex flex-col items-center justify-center gap-0 md:gap-[2px] py-[2px] px-[4px] md:py-[6px] md:px-[8px]" style={{
           background: '#000000',
           borderRadius: '8px',
           border: '1px solid #333333',
@@ -201,18 +187,16 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
           `,
           zIndex: 1
         }}>
-          <div style={{
+          <div className="text-[6px] md:text-[9px]" style={{
             color: '#ff6600',
-            fontSize: '9px',
             fontWeight: '600',
             letterSpacing: '0.5px',
             textTransform: 'uppercase' as const
           }}>
             45D P/C
           </div>
-          <div style={{
+          <div className="text-[8px] md:text-[11px]" style={{
             color: '#ffffff',
-            fontSize: '11px',
             fontWeight: '600',
             fontFamily: '"SF Mono", "Monaco", "Courier New", monospace'
           }}>
@@ -367,12 +351,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
         </select>
       </div>
 
-      <div className="w-full md:w-auto" style={{
-        transform: typeof window !== 'undefined' && window.innerWidth < 768 ? 'scale(0.65)' : 'scale(1)',
-        transformOrigin: 'top left',
-        width: typeof window !== 'undefined' && window.innerWidth < 768 ? '154%' : '100%',
-        marginBottom: typeof window !== 'undefined' && window.innerWidth < 768 ? '-18%' : '0'
-      }}>
+      <div className="w-full md:w-auto overflow-x-auto" style={{ maxHeight: '90%', height: '90%' }}>
         <DealerOpenInterestChart
           selectedTicker={selectedTicker}
           compactMode={true}
@@ -388,11 +367,7 @@ const OIGEXTabLegacy: React.FC<{ selectedTicker: string }> = ({ selectedTicker }
           onExpectedRange90Change={setExpectedRange90}
         />
       </div>
-      <div className="w-full md:w-auto" style={{
-        transform: typeof window !== 'undefined' && window.innerWidth < 768 ? 'scale(0.65)' : 'scale(1)',
-        transformOrigin: 'top left',
-        width: typeof window !== 'undefined' && window.innerWidth < 768 ? '154%' : '100%'
-      }}>
+      <div className="w-full md:w-auto overflow-x-auto" style={{ maxHeight: '90%', height: '90%' }}>
         <DealerGEXChart
           selectedTicker={selectedTicker}
           compactMode={true}
@@ -7112,8 +7087,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             <>
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
 
-              {/* GEX Timeline Scrubber - Always visible when ticker selected */}
-              {!showODTRIO && selectedTicker && (
+              {/* GEX Timeline Scrubber - Always visible when ticker selected, but hide when OI mode is active */}
+              {!showODTRIO && selectedTicker && !showOI && (
                 <div className="px-4 pb-4">
                   <GEXTimelineScrubber
                     key={selectedTicker}

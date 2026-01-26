@@ -25,6 +25,115 @@ async function fetchVolumeData(symbol, days = 30) {
     }
 }
 
+// Fetch 10-year seasonality data
+async function fetchSeasonalityData(symbol) {
+    try {
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+        const url = `${baseUrl}/api/seasonal-data?symbol=${symbol}&years=10`;
+
+        const response = await fetch(url);
+        if (!response.ok) return null;
+
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        return null;
+    }
+}
+
+function getDayOfYear(date) {
+    const start = new Date(date.getFullYear(), 0, 0);
+    const diff = date - start;
+    const oneDay = 1000 * 60 * 60 * 24;
+    return Math.floor(diff / oneDay);
+}
+
+function parseDayOfYear(dateStr) {
+    const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    const parts = dateStr.split(' ');
+    if (parts.length !== 2) return 1;
+
+    const month = months[parts[0]];
+    const day = parseInt(parts[1]);
+
+    if (month === undefined || isNaN(day)) return 1;
+
+    const date = new Date(2024, month, day);
+    return getDayOfYear(date);
+}
+
+function isInPeriod(currentDay, startDay, endDay) {
+    if (startDay <= endDay) {
+        return currentDay >= startDay && currentDay <= endDay;
+    } else {
+        return currentDay >= startDay || currentDay <= endDay;
+    }
+}
+
+function findSweetSpot(dailyData) {
+    let bestSweetSpot = { startDay: 1, endDay: 50, totalReturn: -999999 };
+
+    const dayLookup = {};
+    dailyData.forEach(day => {
+        dayLookup[day.dayOfYear] = day;
+    });
+
+    for (let windowSize = 50; windowSize <= 90; windowSize++) {
+        for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+            const endDay = startDay + windowSize - 1;
+            let cumulativeReturn = 0;
+            let validDays = 0;
+
+            for (let day = startDay; day <= endDay; day++) {
+                if (dayLookup[day]) {
+                    cumulativeReturn += dayLookup[day].avgReturn;
+                    validDays++;
+                }
+            }
+
+            if (validDays >= Math.floor(windowSize * 0.8)) {
+                if (cumulativeReturn > bestSweetSpot.totalReturn) {
+                    bestSweetSpot = { startDay, endDay, totalReturn: cumulativeReturn };
+                }
+            }
+        }
+    }
+
+    return bestSweetSpot;
+}
+
+function findPainPoint(dailyData) {
+    let worstPainPoint = { startDay: 1, endDay: 50, totalReturn: 999999 };
+
+    const dayLookup = {};
+    dailyData.forEach(day => {
+        dayLookup[day.dayOfYear] = day;
+    });
+
+    for (let windowSize = 50; windowSize <= 90; windowSize++) {
+        for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+            const endDay = startDay + windowSize - 1;
+            let cumulativeReturn = 0;
+            let validDays = 0;
+
+            for (let day = startDay; day <= endDay; day++) {
+                if (dayLookup[day]) {
+                    cumulativeReturn += dayLookup[day].avgReturn;
+                    validDays++;
+                }
+            }
+
+            if (validDays >= Math.floor(windowSize * 0.8)) {
+                if (cumulativeReturn < worstPainPoint.totalReturn) {
+                    worstPainPoint = { startDay, endDay, totalReturn: cumulativeReturn };
+                }
+            }
+        }
+    }
+
+    return worstPainPoint;
+}
+
 self.onmessage = async function (e) {
     const { candidates, pricesMap } = e.data;
 
@@ -224,46 +333,101 @@ self.onmessage = async function (e) {
             }
 
             // ========================================
-            // 3. VOLUME/BREADTH (15 points)
+            // 3. SEASONAL ALIGNMENT (15 points)
             // ========================================
             try {
-                let volumeScore = 0;
-                const validVolumes = volumes.filter(v => v > 0);
+                let seasonalScore = 0;
+                let seasonalDetails = {
+                    best30Day: null,
+                    worst30Day: null,
+                    sweetSpot: null,
+                    painPoint: null,
+                    inBest30: false,
+                    inWorst30: false,
+                    inSweetSpot: false,
+                    inPainPoint: false
+                };
 
-                if (validVolumes.length >= 10) {
-                    const avgVolume = validVolumes.reduce((a, b) => a + b, 0) / validVolumes.length;
-                    const recentAvgVol = validVolumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
-                    const priorAvgVol = validVolumes.slice(-15, -5).reduce((a, b) => a + b, 0) / 10;
+                // Fetch 10-year seasonality data
+                const seasonalData = await fetchSeasonalityData(candidate.ticker);
 
-                    // A) Volume increasing on directional moves - 6 pts
-                    const volumeIncrease = priorAvgVol > 0 ? (recentAvgVol - priorAvgVol) / priorAvgVol : 0;
-                    if (volumeIncrease > 0.3) volumeScore += 6; // 30%+ increase
-                    else if (volumeIncrease > 0.15) volumeScore += 4;
-                    else if (volumeIncrease > 0) volumeScore += 2;
+                console.log(`🔍 SEASONAL DATA FOR ${candidate.ticker}:`, seasonalData);
 
-                    // B) Volume pattern matches trend - 5 pts
-                    const last3Vol = validVolumes.slice(-3).reduce((a, b) => a + b, 0) / 3;
-                    const last3Returns = [];
-                    for (let i = closes.length - 3; i < closes.length - 1; i++) {
-                        if (i > 0) last3Returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+                if (seasonalData) {
+                    const currentDay = getDayOfYear(new Date());
+
+                    // Extract seasonal windows
+                    const best30Day = seasonalData.find(p => p.period_type === 'best_30day_period');
+                    const worst30Day = seasonalData.find(p => p.period_type === 'worst_30day_period');
+
+                    console.log(`📊 ${candidate.ticker} - Best30Day:`, best30Day);
+                    console.log(`📊 ${candidate.ticker} - Worst30Day:`, worst30Day);
+
+                    // Find sweet spot and pain point
+                    const sweetSpot = findSweetSpot(seasonalData, currentDay);
+                    const painPoint = findPainPoint(seasonalData, currentDay);
+
+                    console.log(`📊 ${candidate.ticker} - SweetSpot:`, sweetSpot);
+                    console.log(`📊 ${candidate.ticker} - PainPoint:`, painPoint);
+
+                    // Store details for modal display
+                    seasonalDetails = {
+                        best30Day: best30Day ? {
+                            start: best30Day.start_day,
+                            end: best30Day.end_day,
+                            avgReturn: best30Day.avg_return
+                        } : null,
+                        worst30Day: worst30Day ? {
+                            start: worst30Day.start_day,
+                            end: worst30Day.end_day,
+                            avgReturn: worst30Day.avg_return
+                        } : null,
+                        sweetSpot: sweetSpot ? {
+                            start: sweetSpot.start,
+                            end: sweetSpot.end,
+                            avgReturn: sweetSpot.avgReturn
+                        } : null,
+                        painPoint: painPoint ? {
+                            start: painPoint.start,
+                            end: painPoint.end,
+                            avgReturn: painPoint.avgReturn
+                        } : null,
+                        inBest30: false,
+                        inWorst30: false,
+                        inSweetSpot: false,
+                        inPainPoint: false
+                    };
+
+                    // Calculate score based on alignment with seasonal periods
+                    if (candidate.trend === 'bullish') {
+                        // Bullish trades score points for being in bullish periods
+                        if (best30Day && isInPeriod(currentDay, best30Day.start_day, best30Day.end_day)) {
+                            seasonalScore += 9; // 60% of 15 points
+                            seasonalDetails.inBest30 = true;
+                        }
+                        if (sweetSpot && isInPeriod(currentDay, sweetSpot.start, sweetSpot.end)) {
+                            seasonalScore += 6; // 40% of 15 points
+                            seasonalDetails.inSweetSpot = true;
+                        }
+                    } else if (candidate.trend === 'bearish') {
+                        // Bearish trades score points for being in bearish periods
+                        if (worst30Day && isInPeriod(currentDay, worst30Day.start_day, worst30Day.end_day)) {
+                            seasonalScore += 9; // 60% of 15 points
+                            seasonalDetails.inWorst30 = true;
+                        }
+                        if (painPoint && isInPeriod(currentDay, painPoint.start, painPoint.end)) {
+                            seasonalScore += 6; // 40% of 15 points
+                            seasonalDetails.inPainPoint = true;
+                        }
                     }
-                    const avgReturn = last3Returns.reduce((a, b) => a + b, 0) / last3Returns.length;
-                    const trendMatches = (candidate.trend === 'bullish' && avgReturn > 0) ||
-                        (candidate.trend === 'bearish' && avgReturn < 0);
-
-                    if (trendMatches && last3Vol > avgVolume * 1.2) volumeScore += 5;
-                    else if (trendMatches) volumeScore += 3;
-
-                    // C) Sector Relative Strength - 4 pts
-                    const relPerf = candidate.relativePerformance || 0;
-                    if (Math.abs(relPerf) > 5) volumeScore += 4; // Strong relative performance
-                    else if (Math.abs(relPerf) > 2) volumeScore += 2;
                 }
 
-                scores.volumeBreadth = Math.min(volumeScore, 15);
-                totalScore += scores.volumeBreadth;
+                scores.seasonalAlignment = Math.min(seasonalScore, 15);
+                scores.seasonalDetails = seasonalDetails;
+                totalScore += scores.seasonalAlignment;
             } catch (err) {
-                scores.volumeBreadth = 0;
+                scores.seasonalAlignment = 0;
+                scores.seasonalDetails = null;
             }
 
             // ========================================
@@ -421,7 +585,8 @@ self.onmessage = async function (e) {
                 details: {
                     setupQuality: Math.round((scores.setupQuality || 0) * 10) / 10,
                     riskReward: Math.round((scores.riskReward || 0) * 10) / 10,
-                    volumeBreadth: Math.round((scores.volumeBreadth || 0) * 10) / 10,
+                    seasonalAlignment: Math.round((scores.seasonalAlignment || 0) * 10) / 10,
+                    seasonalDetails: scores.seasonalDetails,
                     momentumHealth: Math.round((scores.momentumHealth || 0) * 10) / 10,
                     trendStrength: Math.round((scores.trendStrength || 0) * 10) / 10,
                     dataPoints: closes.length,

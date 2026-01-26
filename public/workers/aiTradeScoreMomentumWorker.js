@@ -3,6 +3,119 @@
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
+// Timeframe-specific configuration for momentum scoring
+function getTimeframeConfig(days, availableBars) {
+    if (days <= 5) {
+        // EMERGING (5 days): Focus on immediate momentum, breakouts, quick moves
+        return {
+            label: 'Emerging',
+            maShort: Math.min(5, availableBars),
+            maMedium: Math.min(10, availableBars),
+            maLong: Math.min(20, availableBars),
+            lookbackSupport: Math.min(10, availableBars),
+            lookbackResilience: Math.min(5, availableBars),
+            lookbackRetest: Math.min(5, availableBars),
+            lookbackVolume: Math.min(10, availableBars),
+            lookbackPullback: Math.min(5, availableBars),
+            weights: {
+                support: 15,      // Less important for very short-term
+                resilience: 15,   // Recent strength matters
+                retest: 20,       // Quick bounces critical
+                volume: 15,       // Seasonality less important short-term
+                pullback: 20      // Must be shallow
+            },
+            thresholds: {
+                bounceRate: 0.7,      // Need high success rate
+                resilienceRate: 0.6,  // Moderate resilience needed
+                retestRate: 0.6,      // Good bounce quality
+                accumulation: 1.2,    // Strong accumulation
+                maxPullback: 3        // Very shallow pullbacks only
+            }
+        };
+    } else if (days <= 21) {
+        // SHORT-TERM (21 days): Swing trade setups, 1-month patterns
+        return {
+            label: 'Short-Term',
+            maShort: Math.min(10, availableBars),
+            maMedium: Math.min(20, availableBars),
+            maLong: Math.min(50, availableBars),
+            lookbackSupport: Math.min(15, availableBars),
+            lookbackResilience: Math.min(10, availableBars),
+            lookbackRetest: Math.min(10, availableBars),
+            lookbackVolume: Math.min(15, availableBars),
+            lookbackPullback: Math.min(10, availableBars),
+            weights: {
+                support: 20,
+                resilience: 20,
+                retest: 20,
+                volume: 20,      // Seasonality moderate importance
+                pullback: 15
+            },
+            thresholds: {
+                bounceRate: 0.65,
+                resilienceRate: 0.5,
+                retestRate: 0.6,
+                accumulation: 1.0,
+                maxPullback: 8
+            }
+        };
+    } else if (days <= 80) {
+        // MEDIUM-TERM (80 days): Trend following, longer patterns
+        return {
+            label: 'Medium-Term',
+            maShort: Math.min(20, availableBars),
+            maMedium: Math.min(50, availableBars),
+            maLong: Math.min(100, availableBars),
+            lookbackSupport: Math.min(20, availableBars),
+            lookbackResilience: Math.min(10, availableBars),
+            lookbackRetest: Math.min(15, availableBars),
+            lookbackVolume: Math.min(20, availableBars),
+            lookbackPullback: Math.min(20, availableBars),
+            weights: {
+                support: 25,    // Support holding most important
+                resilience: 20,
+                retest: 20,
+                volume: 25,     // Seasonality important for quarterly
+                pullback: 15
+            },
+            thresholds: {
+                bounceRate: 0.7,
+                resilienceRate: 0.5,
+                retestRate: 0.5,
+                accumulation: 0.9,
+                maxPullback: 15
+            }
+        };
+    } else {
+        // LONG-TERM (180+ days): Position trades, multi-month trends
+        return {
+            label: 'Long-Term',
+            maShort: Math.min(50, availableBars),
+            maMedium: Math.min(100, availableBars),
+            maLong: Math.min(200, availableBars),
+            lookbackSupport: Math.min(40, availableBars),
+            lookbackResilience: Math.min(20, availableBars),
+            lookbackRetest: Math.min(30, availableBars),
+            lookbackVolume: Math.min(30, availableBars),
+            lookbackPullback: Math.min(40, availableBars),
+            weights: {
+                support: 30,    // Long-term support is critical
+                resilience: 25, // Must weather storms
+                retest: 15,     // Less critical over long periods
+                volume: 30,     // Seasonality MOST important for long-term
+                pullback: 15
+            },
+            thresholds: {
+                bounceRate: 0.75,     // Must hold support well
+                resilienceRate: 0.6,  // Must show consistent strength
+                retestRate: 0.5,      // Moderate retest quality OK
+                accumulation: 0.7,    // Lower accumulation threshold
+                maxPullback: 25       // Can handle deeper pullbacks
+            }
+        };
+    }
+}
+
 // Fetch volume data from Polygon API for missing data
 async function fetchVolumeData(symbol, days = 100) {
     try {
@@ -26,9 +139,130 @@ async function fetchVolumeData(symbol, days = 100) {
     }
 }
 
+// Fetch 10-year seasonality data
+async function fetchSeasonalityData(symbol) {
+    try {
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+        const url = `${baseUrl}/api/seasonal-data?symbol=${symbol}&years=10`;
+
+        const response = await fetch(url);
+        if (!response.ok) return null;
+
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        return null;
+    }
+}
+
+function getDayOfYear(date) {
+    const start = new Date(date.getFullYear(), 0, 0);
+    const diff = date - start;
+    const oneDay = 1000 * 60 * 60 * 24;
+    return Math.floor(diff / oneDay);
+}
+
+function parseDayOfYear(dateStr) {
+    const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    const parts = dateStr.split(' ');
+    if (parts.length !== 2) return 1;
+
+    const month = months[parts[0]];
+    const day = parseInt(parts[1]);
+
+    if (month === undefined || isNaN(day)) return 1;
+
+    const date = new Date(2024, month, day);
+    return getDayOfYear(date);
+}
+
+function formatDayOfYear(dayOfYear) {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const year = 2024; // Leap year for consistent calculations
+    const date = new Date(year, 0);
+    date.setDate(dayOfYear);
+
+    const month = monthNames[date.getMonth()];
+    const day = date.getDate();
+
+    return `${month} ${day}`;
+}
+
+function isInPeriod(currentDay, startDay, endDay) {
+    if (startDay <= endDay) {
+        return currentDay >= startDay && currentDay <= endDay;
+    } else {
+        return currentDay >= startDay || currentDay <= endDay;
+    }
+}
+
+function findSweetSpot(dailyData) {
+    let bestSweetSpot = { startDay: 1, endDay: 50, totalReturn: -999999 };
+
+    const dayLookup = {};
+    dailyData.forEach(day => {
+        dayLookup[day.dayOfYear] = day;
+    });
+
+    for (let windowSize = 50; windowSize <= 90; windowSize++) {
+        for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+            const endDay = startDay + windowSize - 1;
+            let cumulativeReturn = 0;
+            let validDays = 0;
+
+            for (let day = startDay; day <= endDay; day++) {
+                if (dayLookup[day]) {
+                    cumulativeReturn += dayLookup[day].avgReturn;
+                    validDays++;
+                }
+            }
+
+            if (validDays >= Math.floor(windowSize * 0.8)) {
+                if (cumulativeReturn > bestSweetSpot.totalReturn) {
+                    bestSweetSpot = { startDay, endDay, totalReturn: cumulativeReturn };
+                }
+            }
+        }
+    }
+
+    return bestSweetSpot;
+}
+
+function findPainPoint(dailyData) {
+    let worstPainPoint = { startDay: 1, endDay: 50, totalReturn: 999999 };
+
+    const dayLookup = {};
+    dailyData.forEach(day => {
+        dayLookup[day.dayOfYear] = day;
+    });
+
+    for (let windowSize = 50; windowSize <= 90; windowSize++) {
+        for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+            const endDay = startDay + windowSize - 1;
+            let cumulativeReturn = 0;
+            let validDays = 0;
+
+            for (let day = startDay; day <= endDay; day++) {
+                if (dayLookup[day]) {
+                    cumulativeReturn += dayLookup[day].avgReturn;
+                    validDays++;
+                }
+            }
+
+            if (validDays >= Math.floor(windowSize * 0.8)) {
+                if (cumulativeReturn < worstPainPoint.totalReturn) {
+                    worstPainPoint = { startDay, endDay, totalReturn: cumulativeReturn };
+                }
+            }
+        }
+    }
+
+    return worstPainPoint;
+}
+
 // Main message handler - BATCH PROCESSING
 self.onmessage = async function (e) {
-    const { candidates, pricesMap } = e.data;
+    const { candidates, pricesMap, timeframe } = e.data;
 
     if (!candidates || !Array.isArray(candidates)) {
         console.error('Momentum Worker: Invalid candidates array');
@@ -42,25 +276,31 @@ self.onmessage = async function (e) {
         return;
     }
 
+    // Map timeframe to actual days for context
+    const timeframeMap = {
+        'life': { days: 5, label: 'Emerging' },
+        'developing': { days: 21, label: 'Short-Term' },
+        'momentum': { days: 80, label: 'Medium-Term' },
+        'legacy': { days: 180, label: 'Long-Term' }
+    };
+    const timeframeInfo = timeframeMap[timeframe?.toLowerCase()] || { days: 80, label: 'Medium-Term' };
+
     try {
         const scoringPromises = candidates.map(async (candidate, idx) => {
             if (!candidate || !candidate.symbol || !candidate.trend) {
-                console.warn(`⚠️ Momentum: Invalid candidate at index ${idx}:`, candidate);
                 return { ...candidate, score: 0, details: { error: 'Invalid candidate' }, strategy: 'momentum' };
             }
 
             const prices = pricesMap[candidate.symbol];
             if (!prices || !Array.isArray(prices) || prices.length < 20) {
-                console.warn(`⚠️ Momentum: ${candidate.symbol} insufficient data (${prices?.length || 0} bars)`);
                 return { ...candidate, score: 0, details: {}, strategy: 'momentum' };
             }
 
-            return await scoreMomentumCandidate(candidate, prices);
+            return await scoreMomentumCandidate(candidate, prices, timeframeInfo);
         });
 
         const scoredCandidates = await Promise.all(scoringPromises);
         const validScores = scoredCandidates.filter(c => c.score > 0);
-        console.log(`✅ Momentum Worker: Scored ${scoredCandidates.length} candidates, ${validScores.length} with score > 0`);
         self.postMessage({ success: true, scoredCandidates });
     } catch (error) {
         console.error('Momentum Worker error:', error);
@@ -69,190 +309,614 @@ self.onmessage = async function (e) {
 };
 
 // Score a single candidate using momentum-volatility strategy
-async function scoreMomentumCandidate(candidate, prices) {
+async function scoreMomentumCandidate(candidate, prices, timeframeInfo) {
     const { symbol, trend, relativePerformance } = candidate;
     const closes = prices.map(p => p.close);
     const highs = prices.map(p => p.high);
     const lows = prices.map(p => p.low);
     const volumes = prices.map(p => p.volume || 0);
 
-    console.log(`🚀 Momentum: ${symbol} (${trend}) - Price: $${closes[closes.length - 1].toFixed(2)}, Bars: ${closes.length}`);
+    // Timeframe-specific lookback periods and weights
+    const timeframeConfig = getTimeframeConfig(timeframeInfo.days, closes.length);
 
     // Fetch volume data if more than 50% are zeros
     let validVolumes = volumes;
     const zeroCount = volumes.filter(v => v === 0).length;
     if (zeroCount > volumes.length * 0.5) {
-        console.log(`📊 ${symbol}: Fetching volume from API (${zeroCount}/${volumes.length} zeros)`);
         const fetchedVolumes = await fetchVolumeData(symbol, prices.length);
         if (fetchedVolumes.length > 0) {
             validVolumes = fetchedVolumes.slice(-prices.length);
-            console.log(`✅ ${symbol}: Got ${fetchedVolumes.length} volume bars from API`);
         }
     }
 
-    // Calculate moving averages for support analysis
-    const ma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-    const ma50 = closes.length >= 50 ? closes.slice(-50).reduce((a, b) => a + b, 0) / 50 : ma20;
+    // Calculate moving averages using timeframe-specific periods
+    const maShort = closes.slice(-timeframeConfig.maShort).reduce((a, b) => a + b, 0) / timeframeConfig.maShort;
+    const maMedium = closes.length >= timeframeConfig.maMedium
+        ? closes.slice(-timeframeConfig.maMedium).reduce((a, b) => a + b, 0) / timeframeConfig.maMedium
+        : maShort;
+    const maLong = closes.length >= timeframeConfig.maLong
+        ? closes.slice(-timeframeConfig.maLong).reduce((a, b) => a + b, 0) / timeframeConfig.maLong
+        : maMedium;
     const currentPrice = closes[closes.length - 1];
 
-    // 1. SUPPORT HOLDING STRENGTH (25 points)
+    // 1. SUPPORT HOLDING STRENGTH (weighted by timeframe) - INSTITUTIONAL LOGIC
     let supportStrength = 0;
 
-    // Check how well it respects MA20/MA50 on pullbacks
-    let touchCount = 0;
-    let bounceCount = 0;
-    for (let i = closes.length - 20; i < closes.length - 1; i++) {
-        if (i < 0) continue;
-        const localMA20 = closes.slice(Math.max(0, i - 19), i + 1).reduce((a, b) => a + b, 0) / Math.min(20, i + 1);
-        const distanceToMA = (closes[i] - localMA20) / localMA20 * 100;
+    const supportLookback = Math.min(timeframeConfig.lookbackSupport, closes.length - 1);
 
-        // Touched MA20 (within 2%)
-        if (Math.abs(distanceToMA) < 2) {
-            touchCount++;
-            // Bounced back up next day
-            if (i < closes.length - 1 && closes[i + 1] > closes[i]) {
-                bounceCount++;
-            }
-        }
-    }
+    // A) ORDER FLOW ABSORPTION (40% of support weight)
+    // Measures how aggressively buyers step in on selloffs
+    let absorptionScore = 0;
+    let selloffCount = 0;
+    let strongAbsorptionCount = 0;
 
-    if (touchCount > 0) {
-        const bounceRate = bounceCount / touchCount;
-        if (bounceRate > 0.8) supportStrength += 15; // 80%+ bounce rate = strong support
-        else if (bounceRate > 0.6) supportStrength += 10;
-        else if (bounceRate > 0.4) supportStrength += 5;
-    }
-
-    // Current position relative to MA20
-    const aboveMA20 = (currentPrice - ma20) / ma20 * 100;
-    if (trend === 'bullish' && aboveMA20 > 0 && aboveMA20 < 5) supportStrength += 10; // Above but not extended
-    else if (trend === 'bearish' && aboveMA20 < 0 && aboveMA20 > -5) supportStrength += 10;
-
-    // 2. RED DAY RESILIENCE (20 points)
-    let resilience = 0;
-
-    // Count red days and check if stock outperformed on those days
-    let redDays = 0;
-    let outperformOnRed = 0;
-    for (let i = closes.length - 10; i < closes.length; i++) {
-        if (i < 1) continue;
-        const dailyChange = (closes[i] - closes[i - 1]) / closes[i - 1] * 100;
-
-        // Assume market had a red day if this is trending (simplified - ideally use SPY data)
-        if (dailyChange < 0) {
-            redDays++;
-            // Check if it lost less than average or held better
-            const avgLoss = closes.slice(Math.max(0, i - 10), i).map((c, idx, arr) =>
-                idx > 0 ? (c - arr[idx - 1]) / arr[idx - 1] * 100 : 0
-            ).filter(x => x < 0).reduce((a, b) => a + b, 0) / Math.max(1, closes.slice(Math.max(0, i - 10), i).filter((c, idx, arr) => idx > 0 && c < arr[idx - 1]).length);
-
-            if (dailyChange > avgLoss || dailyChange > -1) { // Lost less than avg or less than 1%
-                outperformOnRed++;
-            }
-        }
-    }
-
-    if (redDays > 0) {
-        const resilienceRate = outperformOnRed / redDays;
-        if (resilienceRate > 0.7) resilience += 20; // 70%+ resilience = diamond hands
-        else if (resilienceRate > 0.5) resilience += 12;
-        else if (resilienceRate > 0.3) resilience += 6;
-    }
-
-    // 3. RETEST QUALITY (20 points)
-    let retestQuality = 0;
-
-    // Find recent pullbacks and check bounce quality
-    let pullbackCount = 0;
-    let cleanBounces = 0;
-
-    for (let i = closes.length - 15; i < closes.length - 2; i++) {
+    for (let i = closes.length - supportLookback; i < closes.length; i++) {
         if (i < 2) continue;
 
-        // Detect pullback: 2+ consecutive down days followed by up day
-        if (closes[i] < closes[i - 1] && closes[i - 1] < closes[i - 2] && closes[i + 1] > closes[i]) {
-            pullbackCount++;
+        // Identify selloff: 2+ consecutive down bars
+        if (closes[i] < closes[i - 1] && closes[i - 1] < closes[i - 2]) {
+            selloffCount++;
 
-            // Clean bounce = next day recovers >50% of pullback
-            const pullbackSize = closes[i - 2] - closes[i];
-            const bounceSize = closes[i + 1] - closes[i];
+            // Check volume pattern: Front-loaded volume = absorption
+            const selloffVol1 = validVolumes[i - 1] || 0;
+            const selloffVol2 = validVolumes[i] || 0;
+            const avgVol = validVolumes.slice(Math.max(0, i - 10), i).reduce((a, b) => a + b, 0) / 10;
 
-            if (bounceSize > pullbackSize * 0.5) {
-                cleanBounces++;
+            // Volume front-loaded (first day has more volume)
+            const frontLoaded = selloffVol1 > selloffVol2 && selloffVol1 > avgVol * 1.2;
+
+            // Price efficiency: Large volume with small price move = absorption
+            const priceMove = Math.abs((closes[i] - closes[i - 2]) / closes[i - 2]);
+            const volumeSpike = (selloffVol1 + selloffVol2) / 2 > avgVol * 1.5;
+            const efficientAbsorption = volumeSpike && priceMove < 0.03; // <3% move despite volume
+
+            // Reversal speed: Quick snapback = strong buying
+            let quickReversal = false;
+            if (i < closes.length - 2) {
+                const barsToRecover = closes.slice(i, Math.min(i + 5, closes.length)).findIndex(c => c > closes[i - 2]);
+                if (barsToRecover >= 0 && barsToRecover <= 2) {
+                    quickReversal = true; // Recovered in 1-2 bars
+                }
+            }
+
+            // Score this selloff
+            if ((frontLoaded || efficientAbsorption) && quickReversal) {
+                strongAbsorptionCount++;
+            } else if (frontLoaded || efficientAbsorption || quickReversal) {
+                strongAbsorptionCount += 0.5;
             }
         }
     }
 
-    if (pullbackCount > 0) {
-        const cleanRate = cleanBounces / pullbackCount;
-        if (cleanRate > 0.7) retestQuality += 20; // 70%+ clean bounces
-        else if (cleanRate > 0.5) retestQuality += 12;
-        else if (cleanRate > 0.3) retestQuality += 6;
-    } else if (pullbackCount === 0 && trend === 'bullish') {
-        // No pullbacks = one-way move (good for momentum)
-        retestQuality += 15;
+    if (selloffCount > 0) {
+        const absorptionRate = strongAbsorptionCount / selloffCount;
+        if (absorptionRate > 0.7) absorptionScore = timeframeConfig.weights.support * 0.40;
+        else if (absorptionRate > 0.5) absorptionScore = timeframeConfig.weights.support * 0.30;
+        else if (absorptionRate > 0.3) absorptionScore = timeframeConfig.weights.support * 0.20;
+        else absorptionScore = timeframeConfig.weights.support * 0.10;
     }
 
-    // 4. VOLUME BEHAVIOR (20 points)
-    let volumeBehavior = 0;
+    supportStrength += absorptionScore;
 
-    // Check if volume increases on up days and decreases on down days (accumulation pattern)
-    let upDaysHighVol = 0;
-    let downDaysLowVol = 0;
-    let totalUpDays = 0;
-    let totalDownDays = 0;
+    // B) CLOSE POSITION STRENGTH (35% of support weight)
+    // Where does price close relative to daily range - shows control
+    let closePositionScore = 0;
+    let validBars = 0;
+    let strongCloses = 0;
+    let redDayStrongCloses = 0;
+    let redDayCount = 0;
 
-    const avgVolume = validVolumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    for (let i = closes.length - supportLookback; i < closes.length; i++) {
+        if (i < 1) continue;
 
-    for (let i = closes.length - 10; i < closes.length; i++) {
+        const high = highs[i];
+        const low = lows[i];
+        const close = closes[i];
+        const range = high - low;
+
+        if (range > 0) {
+            validBars++;
+            const closePosition = (close - low) / range; // 0 = closed at low, 1 = closed at high
+
+            // For bullish: want to close in upper 70% of range
+            // For bearish: want to close in lower 30% of range
+            if (trend === 'bullish' && closePosition > 0.70) {
+                strongCloses++;
+            } else if (trend === 'bearish' && closePosition < 0.30) {
+                strongCloses++;
+            }
+
+            // Extra credit: Strong closes on red days (shows buying despite selling)
+            const isRedDay = close < closes[i - 1];
+            if (isRedDay) {
+                redDayCount++;
+                if ((trend === 'bullish' && closePosition > 0.60) ||
+                    (trend === 'bearish' && closePosition < 0.40)) {
+                    redDayStrongCloses++;
+                }
+            }
+        }
+    }
+
+    if (validBars > 0) {
+        const closeStrength = strongCloses / validBars;
+        const redDayStrength = redDayCount > 0 ? redDayStrongCloses / redDayCount : 0;
+
+        // Combine overall close strength + red day strength
+        const combinedStrength = (closeStrength * 0.6) + (redDayStrength * 0.4);
+
+        if (combinedStrength > 0.7) closePositionScore = timeframeConfig.weights.support * 0.35;
+        else if (combinedStrength > 0.5) closePositionScore = timeframeConfig.weights.support * 0.25;
+        else if (combinedStrength > 0.3) closePositionScore = timeframeConfig.weights.support * 0.15;
+        else closePositionScore = timeframeConfig.weights.support * 0.05;
+    }
+
+    supportStrength += closePositionScore;
+
+    // C) MOMENTUM DECAY RATE (25% of support weight)
+    // How well does momentum hold during pullbacks - leading indicator
+    let momentumDecayScore = 0;
+
+    if (closes.length >= 20) {
+        // Calculate ROC (Rate of Change) momentum over time
+        const rocPeriod = Math.min(10, Math.floor(closes.length / 3));
+        const rocValues = [];
+
+        for (let i = rocPeriod; i < closes.length; i++) {
+            const roc = (closes[i] - closes[i - rocPeriod]) / closes[i - rocPeriod] * 100;
+            rocValues.push(roc);
+        }
+
+        // Find pullback periods (price declining but check if momentum holds)
+        let pullbackMomentumHolds = 0;
+        let pullbackCount = 0;
+
+        for (let i = 3; i < rocValues.length - 1; i++) {
+            // Identify pullback: price lower than 3 bars ago
+            const priceChange = (closes[i + rocPeriod] - closes[i + rocPeriod - 3]) / closes[i + rocPeriod - 3];
+
+            if (priceChange < 0) { // Pullback detected
+                pullbackCount++;
+
+                // Check if momentum decayed slowly (held elevated)
+                const momentumChange = rocValues[i] - rocValues[i - 3];
+                const avgMomentum = rocValues.slice(Math.max(0, i - 10), i).reduce((a, b) => a + b, 0) / 10;
+
+                // Momentum held if it didn't decay much or stayed above baseline
+                if (momentumChange > -2 || rocValues[i] > avgMomentum * 0.5) {
+                    pullbackMomentumHolds++;
+                }
+            }
+        }
+
+        // Check reacceleration: After pullback, does momentum snap back quickly?
+        let reaccelerationCount = 0;
+        let reaccelerationOps = 0;
+
+        for (let i = 5; i < rocValues.length - 2; i++) {
+            // After momentum dipped, did it reaccelerate within 2 bars?
+            if (rocValues[i] < rocValues[i - 3] && rocValues[i] < 0) {
+                reaccelerationOps++;
+                const nextMomentum = Math.max(rocValues[i + 1], rocValues[i + 2] || 0);
+                if (nextMomentum > rocValues[i] * 1.5 || nextMomentum > 0) {
+                    reaccelerationCount++;
+                }
+            }
+        }
+
+        // Score based on momentum holding + reacceleration
+        const holdRate = pullbackCount > 0 ? pullbackMomentumHolds / pullbackCount : 0.5;
+        const reaccelRate = reaccelerationOps > 0 ? reaccelerationCount / reaccelerationOps : 0.5;
+        const combinedMomentum = (holdRate * 0.6) + (reaccelRate * 0.4);
+
+        if (combinedMomentum > 0.7) momentumDecayScore = timeframeConfig.weights.support * 0.25;
+        else if (combinedMomentum > 0.5) momentumDecayScore = timeframeConfig.weights.support * 0.18;
+        else if (combinedMomentum > 0.3) momentumDecayScore = timeframeConfig.weights.support * 0.10;
+        else momentumDecayScore = timeframeConfig.weights.support * 0.05;
+    }
+
+    supportStrength += momentumDecayScore;
+
+    // 2. RESILIENCE - "THE ONE" INDICATORS (weighted by timeframe)
+    let resilience = 0;
+
+    const resilienceLookback = Math.min(timeframeConfig.lookbackResilience, closes.length);
+
+    // A) LIQUIDITY VACUUM BEHAVIOR (40% of resilience weight)
+    // Tracks unfilled gaps - when stock leaves prices behind forever
+    let vacuumScore = 0;
+    let gapCount = 0;
+    let unfilledGapCount = 0;
+    let gapContinuationPower = 0;
+
+    for (let i = closes.length - resilienceLookback; i < closes.length - 1; i++) {
+        if (i < 1) continue;
+
+        // Identify gaps >1.5%
+        const gapSize = Math.abs((closes[i] - closes[i - 1]) / closes[i - 1]) * 100;
+
+        if (gapSize > 1.5) {
+            gapCount++;
+            const gapDirection = closes[i] > closes[i - 1] ? 'up' : 'down';
+            const gapLevel = closes[i - 1]; // Where gap started
+
+            // Check if gap ever filled in next 10 bars (or until end)
+            let gapFilled = false;
+            const checkBars = Math.min(10, closes.length - i - 1);
+
+            for (let j = 1; j <= checkBars; j++) {
+                if (gapDirection === 'up' && lows[i + j] <= gapLevel) {
+                    gapFilled = true;
+                    break;
+                } else if (gapDirection === 'down' && highs[i + j] >= gapLevel) {
+                    gapFilled = true;
+                    break;
+                }
+            }
+
+            if (!gapFilled) {
+                unfilledGapCount++;
+
+                // Measure continuation power (price keeps going after gap)
+                const priceAfterGap = closes[Math.min(i + 3, closes.length - 1)];
+                const continuation = Math.abs((priceAfterGap - closes[i]) / closes[i]) * 100;
+                gapContinuationPower += continuation;
+            }
+        }
+    }
+
+    if (gapCount > 0) {
+        const unfilledRate = unfilledGapCount / gapCount;
+        const avgContinuation = unfilledGapCount > 0 ? gapContinuationPower / unfilledGapCount : 0;
+
+        // Score based on unfilled gaps + continuation
+        const vacuumStrength = (unfilledRate * 0.6) + Math.min(avgContinuation / 5, 0.4); // Cap continuation at 5%
+
+        if (vacuumStrength > 0.8) vacuumScore = timeframeConfig.weights.resilience * 0.40;
+        else if (vacuumStrength > 0.6) vacuumScore = timeframeConfig.weights.resilience * 0.30;
+        else if (vacuumStrength > 0.4) vacuumScore = timeframeConfig.weights.resilience * 0.20;
+        else if (vacuumStrength > 0.2) vacuumScore = timeframeConfig.weights.resilience * 0.10;
+    }
+
+    resilience += vacuumScore;
+
+    // B) CONSECUTIVE HIGHER LOW STREAK (35% of resilience weight)
+    // Perfect staircase structure - each low higher than prior
+    let higherLowScore = 0;
+
+    // Find swing lows (local minimums)
+    const swingLows = [];
+    for (let i = 2; i < closes.length - 2; i++) {
+        // Swing low if low is lower than 2 bars before and after
+        if (lows[i] < lows[i - 1] && lows[i] < lows[i - 2] &&
+            lows[i] < lows[i + 1] && lows[i] < lows[i + 2]) {
+            swingLows.push({ index: i, low: lows[i] });
+        }
+    }
+
+    // Calculate longest consecutive higher low streak
+    let currentStreak = 1;
+    let maxStreak = 1;
+
+    for (let i = 1; i < swingLows.length; i++) {
+        if (swingLows[i].low > swingLows[i - 1].low) {
+            currentStreak++;
+            maxStreak = Math.max(maxStreak, currentStreak);
+        } else {
+            currentStreak = 1;
+        }
+    }
+
+    // Also check if current structure is holding (most recent lows)
+    let recentStructureIntact = true;
+    if (swingLows.length >= 3) {
+        const lastThree = swingLows.slice(-3);
+        if (!(lastThree[2].low > lastThree[1].low && lastThree[1].low > lastThree[0].low)) {
+            recentStructureIntact = false;
+        }
+    }
+
+    // Score based on streak length + recent structure
+    const streakScore = Math.min(maxStreak / 12, 1.0); // 12+ streak = max score
+    const structureBonus = recentStructureIntact ? 0.2 : 0;
+    const combinedStructure = (streakScore * 0.8) + structureBonus;
+
+    if (trend === 'bullish') {
+        if (combinedStructure > 0.8) higherLowScore = timeframeConfig.weights.resilience * 0.35;
+        else if (combinedStructure > 0.6) higherLowScore = timeframeConfig.weights.resilience * 0.25;
+        else if (combinedStructure > 0.4) higherLowScore = timeframeConfig.weights.resilience * 0.15;
+        else if (combinedStructure > 0.2) higherLowScore = timeframeConfig.weights.resilience * 0.08;
+    } else {
+        // For bearish, look for lower highs instead
+        const swingHighs = [];
+        for (let i = 2; i < closes.length - 2; i++) {
+            if (highs[i] > highs[i - 1] && highs[i] > highs[i - 2] &&
+                highs[i] > highs[i + 1] && highs[i] > highs[i + 2]) {
+                swingHighs.push({ index: i, high: highs[i] });
+            }
+        }
+
+        let lowerHighStreak = 1;
+        let maxLowerHighStreak = 1;
+        for (let i = 1; i < swingHighs.length; i++) {
+            if (swingHighs[i].high < swingHighs[i - 1].high) {
+                lowerHighStreak++;
+                maxLowerHighStreak = Math.max(maxLowerHighStreak, lowerHighStreak);
+            } else {
+                lowerHighStreak = 1;
+            }
+        }
+
+        const bearStreakScore = Math.min(maxLowerHighStreak / 12, 1.0);
+        if (bearStreakScore > 0.8) higherLowScore = timeframeConfig.weights.resilience * 0.35;
+        else if (bearStreakScore > 0.6) higherLowScore = timeframeConfig.weights.resilience * 0.25;
+        else if (bearStreakScore > 0.4) higherLowScore = timeframeConfig.weights.resilience * 0.15;
+    }
+
+    resilience += higherLowScore;
+
+    // C) RELATIVE VOLUME DIVERGENCE (25% of resilience weight)
+    // Volume asymmetry - up days vs down days
+    let volumeDivergenceScore = 0;
+
+    let upDayVolumes = [];
+    let downDayVolumes = [];
+
+    for (let i = closes.length - resilienceLookback; i < closes.length; i++) {
         if (i < 1) continue;
 
         const priceChange = closes[i] - closes[i - 1];
-        const volRatio = validVolumes[i] / avgVolume;
+        const vol = validVolumes[i];
 
-        if (priceChange > 0) {
-            totalUpDays++;
-            if (volRatio > 1.1) upDaysHighVol++; // Volume 10%+ above average on up day
-        } else if (priceChange < 0) {
-            totalDownDays++;
-            if (volRatio < 0.9) downDaysLowVol++; // Volume 10%+ below average on down day
+        if (vol > 0) {
+            if (priceChange > 0) {
+                upDayVolumes.push(vol);
+            } else if (priceChange < 0) {
+                downDayVolumes.push(vol);
+            }
         }
     }
 
-    const accumulation = (totalUpDays > 0 ? upDaysHighVol / totalUpDays : 0) +
-        (totalDownDays > 0 ? downDaysLowVol / totalDownDays : 0);
+    if (upDayVolumes.length > 0 && downDayVolumes.length > 0) {
+        const avgUpVol = upDayVolumes.reduce((a, b) => a + b, 0) / upDayVolumes.length;
+        const avgDownVol = downDayVolumes.reduce((a, b) => a + b, 0) / downDayVolumes.length;
 
-    if (accumulation > 1.4) volumeBehavior += 20; // Strong accumulation pattern
-    else if (accumulation > 1.0) volumeBehavior += 12;
-    else if (accumulation > 0.7) volumeBehavior += 6;
+        // Calculate volume skew
+        const volumeSkew = trend === 'bullish'
+            ? avgUpVol / avgDownVol  // For bullish: want high volume on up days
+            : avgDownVol / avgUpVol; // For bearish: want high volume on down days
 
-    // 5. PULLBACK DEPTH (15 points)
+        // Elite stocks show massive asymmetry
+        if (volumeSkew > 2.5) volumeDivergenceScore = timeframeConfig.weights.resilience * 0.25;
+        else if (volumeSkew > 2.0) volumeDivergenceScore = timeframeConfig.weights.resilience * 0.20;
+        else if (volumeSkew > 1.5) volumeDivergenceScore = timeframeConfig.weights.resilience * 0.15;
+        else if (volumeSkew > 1.3) volumeDivergenceScore = timeframeConfig.weights.resilience * 0.10;
+        else if (volumeSkew > 1.1) volumeDivergenceScore = timeframeConfig.weights.resilience * 0.05;
+    }
+
+    resilience += volumeDivergenceScore;
+
+    // 3. RETEST QUALITY (weighted by timeframe) - BREAKOUT & HOLD STRENGTH
+    let retestQuality = 0;
+
+    const retestLookback = Math.min(timeframeConfig.lookbackRetest, closes.length - 2);
+
+    // Calculate 52-week high/low (or max available data)
+    const fiftyTwoWeekHigh = Math.max(...closes);
+    const fiftyTwoWeekLow = Math.min(...closes);
+
+    // A) PROXIMITY TO HIGHS/LOWS (40% of retest score)
+    if (trend === 'bullish') {
+        const distanceFromHigh = (fiftyTwoWeekHigh - currentPrice) / fiftyTwoWeekHigh * 100;
+
+        // At or near 52-week high = STRONGEST
+        if (distanceFromHigh < 1) retestQuality += timeframeConfig.weights.retest * 0.40; // Within 1% of highs
+        else if (distanceFromHigh < 3) retestQuality += timeframeConfig.weights.retest * 0.30; // Within 3%
+        else if (distanceFromHigh < 5) retestQuality += timeframeConfig.weights.retest * 0.20; // Within 5%
+        else if (distanceFromHigh < 10) retestQuality += timeframeConfig.weights.retest * 0.10; // Within 10%
+        // More than 10% from highs = poor retest
+    } else {
+        // Bearish: want to be at or near 52-week lows
+        const distanceFromLow = (currentPrice - fiftyTwoWeekLow) / fiftyTwoWeekLow * 100;
+
+        if (distanceFromLow < 1) retestQuality += timeframeConfig.weights.retest * 0.40;
+        else if (distanceFromLow < 3) retestQuality += timeframeConfig.weights.retest * 0.30;
+        else if (distanceFromLow < 5) retestQuality += timeframeConfig.weights.retest * 0.20;
+        else if (distanceFromLow < 10) retestQuality += timeframeConfig.weights.retest * 0.10;
+    }
+
+    // B) BREAKOUT & HOLD PATTERN (30% of retest score)
+    // Look for stocks making new highs and HOLDING them (not giving back gains)
+    let breakoutCount = 0;
+    let holdCount = 0;
+
+    for (let i = closes.length - retestLookback; i < closes.length - 1; i++) {
+        if (i < retestLookback) continue;
+
+        // Check if this day made a new high/low relative to prior period
+        const priorPeriod = closes.slice(Math.max(0, i - retestLookback), i);
+        const priorHigh = Math.max(...priorPeriod);
+        const priorLow = Math.min(...priorPeriod);
+
+        if (trend === 'bullish' && closes[i] > priorHigh) {
+            // Made a new high - did it HOLD it?
+            breakoutCount++;
+
+            // Check next few days - did price stay above 90% of the breakout level?
+            const holdPeriod = Math.min(3, closes.length - i - 1);
+            let held = true;
+            for (let j = 1; j <= holdPeriod; j++) {
+                if (closes[i + j] < closes[i] * 0.90) { // Gave back more than 10%
+                    held = false;
+                    break;
+                }
+            }
+            if (held) holdCount++;
+        } else if (trend === 'bearish' && closes[i] < priorLow) {
+            // Made a new low - did it HOLD it?
+            breakoutCount++;
+
+            const holdPeriod = Math.min(3, closes.length - i - 1);
+            let held = true;
+            for (let j = 1; j <= holdPeriod; j++) {
+                if (closes[i + j] > closes[i] * 1.10) { // Bounced back more than 10%
+                    held = false;
+                    break;
+                }
+            }
+            if (held) holdCount++;
+        }
+    }
+
+    if (breakoutCount > 0) {
+        const holdRate = holdCount / breakoutCount;
+        if (holdRate > 0.7) retestQuality += timeframeConfig.weights.retest * 0.30; // 70%+ hold rate
+        else if (holdRate > 0.5) retestQuality += timeframeConfig.weights.retest * 0.20;
+        else if (holdRate > 0.3) retestQuality += timeframeConfig.weights.retest * 0.10;
+    }
+
+    // C) PROGRESSIVE HIGHS/LOWS (30% of retest score)
+    // Divide timeframe into thirds and check for progression
+    if (closes.length >= 9) {
+        const third = Math.floor(closes.length / 3);
+        const firstThird = closes.slice(0, third);
+        const middleThird = closes.slice(third, third * 2);
+        const lastThird = closes.slice(third * 2);
+
+        const high1 = Math.max(...firstThird);
+        const high2 = Math.max(...middleThird);
+        const high3 = Math.max(...lastThird);
+
+        const low1 = Math.min(...firstThird);
+        const low2 = Math.min(...middleThird);
+        const low3 = Math.min(...lastThird);
+
+        if (trend === 'bullish') {
+            // Want progressive higher highs
+            if (high3 > high2 && high2 > high1) {
+                retestQuality += timeframeConfig.weights.retest * 0.30; // Perfect progression
+            } else if (high3 > high2 || high2 > high1) {
+                retestQuality += timeframeConfig.weights.retest * 0.15; // Some progression
+            }
+        } else {
+            // Want progressive lower lows
+            if (low3 < low2 && low2 < low1) {
+                retestQuality += timeframeConfig.weights.retest * 0.30;
+            } else if (low3 < low2 || low2 < low1) {
+                retestQuality += timeframeConfig.weights.retest * 0.15;
+            }
+        }
+    }
+
+    // 4. SEASONAL ALIGNMENT (10-year seasonality analysis) - weighted by timeframe
+    let seasonalAlignment = 0;
+
+    try {
+        // Fetch 10-year seasonality data
+        const seasonalData = await fetchSeasonalityData(symbol);
+
+        if (seasonalData) {
+            const currentDayOfYear = getDayOfYear(new Date());
+
+            // Check if in bullish 30-day period (60% weight)
+            const best30Day = seasonalData.spyComparison?.best30DayPeriod;
+            let inBullish30Day = false;
+            if (best30Day) {
+                const startDay = parseDayOfYear(best30Day.startDate);
+                const endDay = parseDayOfYear(best30Day.endDate);
+                inBullish30Day = isInPeriod(currentDayOfYear, startDay, endDay);
+            }
+
+            // Check if in worst 30-day period (60% weight)
+            const worst30Day = seasonalData.spyComparison?.worst30DayPeriod;
+            let inBearish30Day = false;
+            if (worst30Day) {
+                const startDay = parseDayOfYear(worst30Day.startDate);
+                const endDay = parseDayOfYear(worst30Day.endDate);
+                inBearish30Day = isInPeriod(currentDayOfYear, startDay, endDay);
+            }
+
+            // Check if in sweet spot (40% weight)
+            const sweetSpot = findSweetSpot(seasonalData.dailyData);
+            const inSweetSpot = isInPeriod(currentDayOfYear, sweetSpot.startDay, sweetSpot.endDay);
+
+            // Check if in pain point (40% weight)
+            const painPoint = findPainPoint(seasonalData.dailyData);
+            const inPainPoint = isInPeriod(currentDayOfYear, painPoint.startDay, painPoint.endDay);
+
+            // Calculate seasonal score based on trend alignment
+            if (trend === 'bullish') {
+                // Bullish trade gets points if in bullish seasonal periods
+                if (inBullish30Day) seasonalAlignment += timeframeConfig.weights.volume * 0.60; // 60% for best 30-day
+                if (inSweetSpot) seasonalAlignment += timeframeConfig.weights.volume * 0.40;    // 40% for sweet spot
+            } else if (trend === 'bearish') {
+                // Bearish trade gets points if in bearish seasonal periods
+                if (inBearish30Day) seasonalAlignment += timeframeConfig.weights.volume * 0.60; // 60% for worst 30-day
+                if (inPainPoint) seasonalAlignment += timeframeConfig.weights.volume * 0.40;    // 40% for pain point
+            }
+
+            // Store seasonal details for modal display (matching UI expected format)
+            var seasonalDetails = {
+                best30Day: best30Day ? {
+                    start: best30Day.startDate || '',
+                    end: best30Day.endDate || '',
+                    avgReturn: best30Day.avgReturn || 0
+                } : null,
+                worst30Day: worst30Day ? {
+                    start: worst30Day.startDate || '',
+                    end: worst30Day.endDate || '',
+                    avgReturn: worst30Day.avgReturn || 0
+                } : null,
+                sweetSpot: sweetSpot ? {
+                    start: formatDayOfYear(sweetSpot.startDay),
+                    end: formatDayOfYear(sweetSpot.endDay),
+                    avgReturn: sweetSpot.avgReturn || 0
+                } : null,
+                painPoint: painPoint ? {
+                    start: formatDayOfYear(painPoint.startDay),
+                    end: formatDayOfYear(painPoint.endDay),
+                    avgReturn: painPoint.avgReturn || 0
+                } : null,
+                inBest30: inBullish30Day,
+                inWorst30: inBearish30Day,
+                inSweetSpot: inSweetSpot,
+                inPainPoint: inPainPoint
+            };
+        } else {
+            var seasonalDetails = null;
+        }
+    } catch (error) {
+        console.error(`Seasonality error for ${symbol}:`, error.message);
+        seasonalAlignment = 0;
+        var seasonalDetails = null;
+    }
+
+    // 5. PULLBACK DEPTH (weighted by timeframe)
     let pullbackDepth = 0;
 
-    // Find highest high in last 20 days and check current pullback
-    const recentHigh = Math.max(...closes.slice(-20));
+    // Find highest high/lowest low in timeframe-specific lookback
+    const pullbackLookback = Math.min(timeframeConfig.lookbackPullback, closes.length);
+    const recentHigh = Math.max(...closes.slice(-pullbackLookback));
     const pullbackPct = (recentHigh - currentPrice) / recentHigh * 100;
 
     if (trend === 'bullish') {
-        // Bullish: Shallow pullbacks are good (10-20%)
-        if (pullbackPct < 5) pullbackDepth += 15; // Very shallow, strong
-        else if (pullbackPct < 10) pullbackDepth += 10;
-        else if (pullbackPct < 15) pullbackDepth += 6; // Healthy pullback
-        else if (pullbackPct < 20) pullbackDepth += 3;
-        // >20% = too deep, no points
+        // Bullish: Shallow pullbacks are good (timeframe-dependent max)
+        if (pullbackPct < timeframeConfig.thresholds.maxPullback * 0.3) pullbackDepth += timeframeConfig.weights.pullback;
+        else if (pullbackPct < timeframeConfig.thresholds.maxPullback * 0.5) pullbackDepth += timeframeConfig.weights.pullback * 0.67;
+        else if (pullbackPct < timeframeConfig.thresholds.maxPullback * 0.7) pullbackDepth += timeframeConfig.weights.pullback * 0.4;
+        else if (pullbackPct < timeframeConfig.thresholds.maxPullback) pullbackDepth += timeframeConfig.weights.pullback * 0.2;
+        // Deeper than max = no points
     } else {
         // Bearish: Looking for stocks holding near lows
-        const recentLow = Math.min(...closes.slice(-20));
+        const recentLow = Math.min(...closes.slice(-pullbackLookback));
         const bounceFromLow = (currentPrice - recentLow) / recentLow * 100;
 
-        if (bounceFromLow < 5) pullbackDepth += 15;
-        else if (bounceFromLow < 10) pullbackDepth += 10;
-        else if (bounceFromLow < 15) pullbackDepth += 6;
+        if (bounceFromLow < timeframeConfig.thresholds.maxPullback * 0.3) pullbackDepth += timeframeConfig.weights.pullback;
+        else if (bounceFromLow < timeframeConfig.thresholds.maxPullback * 0.5) pullbackDepth += timeframeConfig.weights.pullback * 0.67;
+        else if (bounceFromLow < timeframeConfig.thresholds.maxPullback * 0.7) pullbackDepth += timeframeConfig.weights.pullback * 0.4;
     }
 
-    const totalScore = Math.min(100, supportStrength + resilience + retestQuality + volumeBehavior + pullbackDepth);
-
-    console.log(`📈 ${symbol} Momentum Score: ${totalScore.toFixed(1)} | Support:${supportStrength.toFixed(0)} Resilience:${resilience.toFixed(0)} Retest:${retestQuality.toFixed(0)} Volume:${volumeBehavior.toFixed(0)} Pullback:${pullbackDepth.toFixed(0)}`);
+    const totalScore = Math.min(100, supportStrength + resilience + retestQuality + seasonalAlignment + pullbackDepth);
 
     return {
         ...candidate,
@@ -261,8 +925,10 @@ async function scoreMomentumCandidate(candidate, prices) {
             supportStrength: Math.round(supportStrength),
             resilience: Math.round(resilience),
             retestQuality: Math.round(retestQuality),
-            volumeBehavior: Math.round(volumeBehavior),
-            pullbackDepth: Math.round(pullbackDepth)
+            seasonalAlignment: Math.round(seasonalAlignment),
+            pullbackDepth: Math.round(pullbackDepth),
+            currentPrice: currentPrice,
+            seasonalDetails: seasonalDetails
         },
         strategy: 'momentum'
     };

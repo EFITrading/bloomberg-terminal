@@ -34,7 +34,7 @@ const SECTOR_STOCKS = {
         'CRWD', 'ZS', 'PANW', 'FTNT', 'CYBR', 'SPLK', 'NOW', 'WDAY', 'VEEV', 'TEAM', 'ATLASSIAN', 'MDB', 'ESTC', 'GTLB'
     ],
     'Healthcare': [
-        'JNJ', 'UNH', 'PFE', 'ABBV', 'TMO', 'ABT', 'DHR', 'BMY', 'LLY', 'MRK', 'AMGN', 'GILD', 'MDT', 'CI', 'ANTM', 'CVS',
+        'JNJ', 'UNH', 'PFE', 'ABBV', 'TMO', 'ABT', 'DHR', 'BMY', 'LLY', 'MRK', 'AMGN', 'GILD', 'MDT', 'CI', 'CVS',
         'HUM', 'WBA', 'CVS', 'MCK', 'CAH', 'ABC', 'ISRG', 'SYK', 'BSX', 'EW', 'ZBH', 'BAX', 'BDX', 'A', 'ALGN', 'IDXX',
         'IQV', 'REGN', 'VRTX', 'BIIB', 'MRNA', 'BNTX', 'ZTS', 'ELV', 'CNC', 'MOH', 'HCA', 'UHS', 'DVA', 'FMS'
     ],

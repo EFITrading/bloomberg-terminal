@@ -1542,9 +1542,13 @@ export default function AlgoFlowScreener() {
         }
       };
 
-      eventSource.onerror = () => {
-        setError('Connection error - please try again');
-        setLoading(false);
+      eventSource.onerror = (error) => {
+        // Only log errors if stream hasn't completed successfully
+        if (!isStreamComplete) {
+          console.warn('⚠️ EventSource connection issue');
+          setError('Stream connection unavailable');
+          setLoading(false);
+        }
         eventSource.close();
       };
 

@@ -181,7 +181,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
     symbol: 'IHI',
     name: 'Healthcare Services',
     category: 'Healthcare',
-    holdings: ['TMO', 'ABT', 'DHR', 'MDT', 'SYK', 'BDX', 'BSX', 'EW', 'DXCM', 'ALGN', 'UNH', 'ANTM', 'CI', 'CVS', 'HUM', 'CNC', 'MOH', 'ELV', 'HCA', 'UHS']
+    holdings: ['TMO', 'ABT', 'DHR', 'MDT', 'SYK', 'BDX', 'BSX', 'EW', 'DXCM', 'ALGN', 'UNH', 'CI', 'CVS', 'HUM', 'CNC', 'MOH', 'ELV', 'HCA', 'UHS']
   },
 
   // 15. Banking (Regional & Capital Markets)

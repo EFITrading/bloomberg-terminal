@@ -220,7 +220,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 16px',
+          padding: '8px 12px',
           background: 'linear-gradient(145deg, rgba(5, 10, 25, 0.9), rgba(0, 5, 15, 0.95))',
           borderRadius: '10px',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -228,31 +228,31 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
         }}>
           <div style={{
             color: '#ff6600',
-            fontSize: '16.5px',
+            fontSize: '13px',
             fontWeight: '700',
             letterSpacing: '1px',
             textTransform: 'uppercase'
           }}>
             P/C Ratio
           </div>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ color: '#ff4444', fontSize: '11px', fontWeight: '600', marginBottom: '2px' }}>90%</div>
+              <div style={{ color: '#ff4444', fontSize: '9px', fontWeight: '600', marginBottom: '1px' }}>90%</div>
               <div style={{
                 color: '#ffffff',
-                fontSize: '16px',
+                fontSize: '12px',
                 fontWeight: '700',
                 fontFamily: '"SF Mono", monospace'
               }}>
                 {expectedRangePCRatio || '—'}
               </div>
             </div>
-            <div style={{ color: '#333', fontSize: '20px', fontWeight: '300' }}>|</div>
+            <div style={{ color: '#333', fontSize: '16px', fontWeight: '300' }}>|</div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ color: '#00d4ff', fontSize: '11px', fontWeight: '600', marginBottom: '2px' }}>45D</div>
+              <div style={{ color: '#00d4ff', fontSize: '9px', fontWeight: '600', marginBottom: '1px' }}>45D</div>
               <div style={{
                 color: '#ffffff',
-                fontSize: '16px',
+                fontSize: '12px',
                 fontWeight: '700',
                 fontFamily: '"SF Mono", monospace'
               }}>

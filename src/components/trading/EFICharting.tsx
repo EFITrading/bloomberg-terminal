@@ -7085,6 +7085,7 @@ export default function TradingViewChart({
   const [highlightedTradesCache, setHighlightedTradesCache] = useState<{ [key: string]: Record<string, any> }>({});
   const [selectedTradeForModal, setSelectedTradeForModal] = useState<any>(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
+  const [expandedScoreComponent, setExpandedScoreComponent] = useState<string | null>(null);
   const [isCalculatingTrades, setIsCalculatingTrades] = useState(false);
 
   // Scroll position preservation for RegimesPanel
@@ -8564,7 +8565,7 @@ export default function TradingViewChart({
           };
 
           // Web Worker pool for parallel scoring computation with DUAL STRATEGIES
-          const scoreWithWorkers = (candidates: any[], pricesMap: Map<string, any[]>): Promise<{ setup: any[], momentum: any[] }> => {
+          const scoreWithWorkers = (candidates: any[], pricesMap: Map<string, any[]>, timeframe: string): Promise<{ setup: any[], momentum: any[] }> => {
             return new Promise((resolve, reject) => {
               const workerCount = Math.min(4, Math.max(1, Math.floor(candidates.length / 20))); // 4 workers max, 1 per 20 candidates
               const setupWorkers: Worker[] = [];
@@ -8620,7 +8621,7 @@ export default function TradingViewChart({
                   reject(error);
                 };
 
-                setupWorker.postMessage({ candidates: chunk, pricesMap: pricesObj });
+                setupWorker.postMessage({ candidates: chunk, pricesMap: pricesObj, timeframe });
               }
 
               // Launch MOMENTUM-VOLATILITY workers in parallel
@@ -8660,7 +8661,7 @@ export default function TradingViewChart({
                   reject(error);
                 };
 
-                momentumWorker.postMessage({ candidates: chunk, pricesMap: pricesObj });
+                momentumWorker.postMessage({ candidates: chunk, pricesMap: pricesObj, timeframe });
               }
             });
           };
@@ -8770,8 +8771,8 @@ export default function TradingViewChart({
             }
           }
 
-          // Score all candidates in parallel using DUAL STRATEGY Web Workers
-          const { setup: setupScored, momentum: momentumScored } = await scoreWithWorkers(allCandidates, pricesMap);
+          // Score all candidates in parallel using DUAL STRATEGY Web Workers (with timeframe context)
+          const { setup: setupScored, momentum: momentumScored } = await scoreWithWorkers(allCandidates, pricesMap, regimeTab);
           const validSetup = setupScored.filter((c: any) => c.score > 0);
           const validMomentum = momentumScored.filter((c: any) => c.score > 0);
 
@@ -14954,7 +14955,7 @@ export default function TradingViewChart({
                 alignItems: 'center',
                 position: 'relative',
                 zIndex: 100,
-                overflow: 'visible'
+                overflow: 'hidden'
               }}>
                 <EnhancedRegimeDisplay regimeAnalysis={regimeAnalysis} selectedPeriod="1d" watchlistData={watchlistData} />
               </div>
@@ -16728,48 +16729,48 @@ export default function TradingViewChart({
             <div className="grid grid-cols-4 gap-3" style={{
               position: 'relative'
             }}>
-              {['Life', 'Developing', 'Momentum', 'Legacy'].map((tab, index) => {
+              {['Weekly', 'Monthly', 'Quarterly', 'Leap'].map((tab, index) => {
                 const tabConfig = {
-                  'Life': {
+                  'Weekly': {
                     gradient: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
                     glow: 'rgba(16, 185, 129, 0.4)',
                     border: '#10b981',
                     color: '#10b981',
-                    subtitle: 'Short-Term'
+                    originalTab: 'Life'
                   },
-                  'Developing': {
+                  'Monthly': {
                     gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)',
                     glow: 'rgba(59, 130, 246, 0.4)',
                     border: '#3b82f6',
                     color: '#3b82f6',
-                    subtitle: 'EMERGING'
+                    originalTab: 'Developing'
                   },
-                  'Momentum': {
+                  'Quarterly': {
                     gradient: 'linear-gradient(135deg, #a855f7 0%, #9333ea 50%, #7e22ce 100%)',
                     glow: 'rgba(168, 85, 247, 0.4)',
                     border: '#a855f7',
                     color: '#a855f7',
-                    subtitle: 'Medium-Term'
+                    originalTab: 'Momentum'
                   },
-                  'Legacy': {
+                  'Leap': {
                     gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)',
                     glow: 'rgba(245, 158, 11, 0.4)',
                     border: '#f59e0b',
                     color: '#f59e0b',
-                    subtitle: 'Long-Term'
+                    originalTab: 'Legacy'
                   }
                 };
                 const config = tabConfig[tab as keyof typeof tabConfig];
                 const isMobile = window.innerWidth < 768;
-                const isActive = activeTab === tab;
+                const isActive = activeTab === config.originalTab;
 
                 return (
                   <button
                     key={tab}
-                    onClick={() => setActiveTab(tab)}
+                    onClick={() => setActiveTab(config.originalTab)}
                     className="relative overflow-hidden transition-all duration-500 group"
                     style={{
-                      padding: isMobile ? '10px 6px' : '14px 12px',
+                      padding: isMobile ? '10px 6px' : '16px 12px',
                       background: isActive
                         ? `linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)`
                         : 'linear-gradient(135deg, rgba(15, 15, 15, 0.8) 0%, rgba(5, 5, 5, 0.95) 100%)',
@@ -16821,23 +16822,15 @@ export default function TradingViewChart({
                       transition: 'opacity 0.3s'
                     }} />
 
-                    <div className="relative z-10 flex flex-col items-center gap-1">
+                    <div className="relative z-10 flex flex-col items-center justify-center">
                       <div className="font-black tracking-wider" style={{
-                        fontSize: isMobile ? '0.7rem' : '0.875rem',
+                        fontSize: isMobile ? '0.85rem' : '1.1rem',
                         color: isActive ? config.color : '#ffffff',
                         textShadow: 'none',
                         letterSpacing: '0.1em',
                         fontFamily: 'system-ui, -apple-system, sans-serif'
                       }}>
                         {tab.toUpperCase()}
-                      </div>
-                      <div className="text-xs" style={{
-                        fontSize: isMobile ? '0.55rem' : '0.65rem',
-                        color: isActive ? config.color : '#ffffff',
-                        letterSpacing: '0.05em',
-                        marginTop: '-2px'
-                      }}>
-                        {config.subtitle}
                       </div>
                     </div>
 
@@ -17231,8 +17224,16 @@ export default function TradingViewChart({
                                     {/* Timeframe indicator - vertical colored bar */}
                                     <div className="flex items-center gap-2">
                                       <div className="w-1 h-8 rounded-full" style={{ background: tabColor }} />
-                                      <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
-                                        {tradeTab === 'life' ? 'Short-Term' : tradeTab === 'developing' ? 'Medium-Term' : tradeTab === 'momentum' ? 'Long-Term' : 'Legacy'}
+                                      <div className="flex flex-col">
+                                        <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
+                                          {tradeTab === 'life' ? 'Weekly' : tradeTab === 'developing' ? 'Monthly' : tradeTab === 'momentum' ? 'Quarterly' : 'Leap'}
+                                        </div>
+                                        <div className="text-[0.65rem] font-medium uppercase tracking-wide" style={{
+                                          color: '#ffffff',
+                                          marginTop: '2px'
+                                        }}>
+                                          {isBlue || isPink ? 'Momentum' : 'Quality'}
+                                        </div>
                                       </div>
                                     </div>
 
@@ -17503,8 +17504,16 @@ export default function TradingViewChart({
                                     {/* Timeframe indicator - vertical colored bar */}
                                     <div className="flex items-center gap-2">
                                       <div className="w-1 h-8 rounded-full" style={{ background: tabColor }} />
-                                      <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
-                                        {tradeTab === 'life' ? 'Short-Term' : tradeTab === 'developing' ? 'Medium-Term' : tradeTab === 'momentum' ? 'Long-Term' : 'Legacy'}
+                                      <div className="flex flex-col">
+                                        <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
+                                          {tradeTab === 'life' ? 'Weekly' : tradeTab === 'developing' ? 'Monthly' : tradeTab === 'momentum' ? 'Quarterly' : 'Leap'}
+                                        </div>
+                                        <div className="text-[0.65rem] font-medium uppercase tracking-wide" style={{
+                                          color: '#ffffff',
+                                          marginTop: '2px'
+                                        }}>
+                                          {isBlue || isPink ? 'Momentum' : 'Quality'}
+                                        </div>
                                       </div>
                                     </div>
 
@@ -18002,7 +18011,10 @@ export default function TradingViewChart({
           <div
             className="fixed inset-0 z-50 flex items-center justify-center"
             style={{ background: 'rgba(0, 0, 0, 0.85)' }}
-            onClick={() => setShowTradeModal(false)}
+            onClick={() => {
+              setShowTradeModal(false);
+              setExpandedScoreComponent(null);
+            }}
           >
             <div
               className="relative rounded-xl p-8 max-w-2xl w-full mx-4 overflow-y-auto max-h-[90vh]"
@@ -18014,7 +18026,10 @@ export default function TradingViewChart({
             >
               {/* Close Button */}
               <button
-                onClick={() => setShowTradeModal(false)}
+                onClick={() => {
+                  setShowTradeModal(false);
+                  setExpandedScoreComponent(null);
+                }}
                 className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
               >
                 <TbX size={24} />
@@ -18291,13 +18306,98 @@ export default function TradingViewChart({
                         <span className="font-bold" style={{ color: '#4ECDC4', fontSize: '16px' }}>{selectedTradeForModal.details.riskReward?.toFixed(1) || 0}/20</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#95E1D3', fontSize: '15px' }}>Volume/Breadth:</span>
-                        <span className="font-bold" style={{ color: '#95E1D3', fontSize: '16px' }}>{selectedTradeForModal.details.volumeBreadth?.toFixed(1) || 0}/15</span>
+                        <span style={{ color: '#95E1D3', fontSize: '15px' }}>Seasonal Alignment:</span>
+                        <span className="font-bold" style={{ color: '#95E1D3', fontSize: '16px' }}>{selectedTradeForModal.details.seasonalAlignment?.toFixed(1) || 0}/15</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#F38181', fontSize: '15px' }}>Momentum Health:</span>
                         <span className="font-bold" style={{ color: '#F38181', fontSize: '16px' }}>{selectedTradeForModal.details.momentumHealth?.toFixed(1) || 0}/20</span>
                       </div>
+                      {selectedTradeForModal.details.seasonalDetails && (
+                        <div className="col-span-2 p-4 rounded" style={{ background: '#0a0a0a', border: '1px solid #95E1D3' }}>
+                          <div className="text-sm font-semibold mb-3" style={{ color: '#95E1D3' }}>
+                            10-Year Seasonality Details
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+                            {selectedTradeForModal.details.seasonalDetails.best30Day && (
+                              <div className="p-3 rounded" style={{
+                                background: selectedTradeForModal.details.seasonalDetails.inBest30 ? '#001a00' : '#000000',
+                                border: selectedTradeForModal.details.seasonalDetails.inBest30 ? '1px solid #00ff00' : '1px solid #333'
+                              }}>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span style={{ color: '#00ff00' }}>Best 30-Day</span>
+                                  {selectedTradeForModal.details.seasonalDetails.inBest30 && (
+                                    <span style={{ color: '#00ff00', fontSize: '16px' }}>✓</span>
+                                  )}
+                                </div>
+                                <div style={{ color: '#888' }}>
+                                  {selectedTradeForModal.details.seasonalDetails.best30Day.start} - {selectedTradeForModal.details.seasonalDetails.best30Day.end}
+                                </div>
+                                <div style={{ color: '#00ff00', fontWeight: 'bold' }}>
+                                  +{(selectedTradeForModal.details.seasonalDetails.best30Day.avgReturn || 0).toFixed(2)}%
+                                </div>
+                              </div>
+                            )}
+                            {selectedTradeForModal.details.seasonalDetails.worst30Day && (
+                              <div className="p-3 rounded" style={{
+                                background: selectedTradeForModal.details.seasonalDetails.inWorst30 ? '#1a0000' : '#000000',
+                                border: selectedTradeForModal.details.seasonalDetails.inWorst30 ? '1px solid #ff0000' : '1px solid #333'
+                              }}>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span style={{ color: '#ff0000' }}>Worst 30-Day</span>
+                                  {selectedTradeForModal.details.seasonalDetails.inWorst30 && (
+                                    <span style={{ color: '#ff0000', fontSize: '16px' }}>✓</span>
+                                  )}
+                                </div>
+                                <div style={{ color: '#888' }}>
+                                  {selectedTradeForModal.details.seasonalDetails.worst30Day.start} - {selectedTradeForModal.details.seasonalDetails.worst30Day.end}
+                                </div>
+                                <div style={{ color: '#ff0000', fontWeight: 'bold' }}>
+                                  {(selectedTradeForModal.details.seasonalDetails.worst30Day.avgReturn || 0).toFixed(2)}%
+                                </div>
+                              </div>
+                            )}
+                            {selectedTradeForModal.details.seasonalDetails.sweetSpot && (
+                              <div className="p-3 rounded" style={{
+                                background: selectedTradeForModal.details.seasonalDetails.inSweetSpot ? '#001a00' : '#000000',
+                                border: selectedTradeForModal.details.seasonalDetails.inSweetSpot ? '1px solid #00ff00' : '1px solid #333'
+                              }}>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span style={{ color: '#00ff00' }}>Sweet Spot</span>
+                                  {selectedTradeForModal.details.seasonalDetails.inSweetSpot && (
+                                    <span style={{ color: '#00ff00', fontSize: '16px' }}>✓</span>
+                                  )}
+                                </div>
+                                <div style={{ color: '#888' }}>
+                                  {selectedTradeForModal.details.seasonalDetails.sweetSpot.start} - {selectedTradeForModal.details.seasonalDetails.sweetSpot.end}
+                                </div>
+                                <div style={{ color: '#00ff00', fontWeight: 'bold' }}>
+                                  +{(selectedTradeForModal.details.seasonalDetails.sweetSpot.avgReturn || 0).toFixed(2)}%
+                                </div>
+                              </div>
+                            )}
+                            {selectedTradeForModal.details.seasonalDetails.painPoint && (
+                              <div className="p-3 rounded" style={{
+                                background: selectedTradeForModal.details.seasonalDetails.inPainPoint ? '#1a0000' : '#000000',
+                                border: selectedTradeForModal.details.seasonalDetails.inPainPoint ? '1px solid #ff0000' : '1px solid #333'
+                              }}>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span style={{ color: '#ff0000' }}>Pain Point</span>
+                                  {selectedTradeForModal.details.seasonalDetails.inPainPoint && (
+                                    <span style={{ color: '#ff0000', fontSize: '16px' }}>✓</span>
+                                  )}
+                                </div>
+                                <div style={{ color: '#888' }}>
+                                  {selectedTradeForModal.details.seasonalDetails.painPoint.start} - {selectedTradeForModal.details.seasonalDetails.painPoint.end}
+                                </div>
+                                <div style={{ color: '#ff0000', fontWeight: 'bold' }}>
+                                  {(selectedTradeForModal.details.seasonalDetails.painPoint.avgReturn || 0).toFixed(2)}%
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <div className="flex items-center col-span-2 justify-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#AA96DA', fontSize: '15px' }}>Trend Strength:</span>
                         <span className="font-bold ml-3" style={{ color: '#AA96DA', fontSize: '16px' }}>{selectedTradeForModal.details.trendStrength?.toFixed(1) || 0}/20</span>
@@ -18307,41 +18407,127 @@ export default function TradingViewChart({
                     <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#FF8C00', fontSize: '15px' }}>Support Strength:</span>
-                        <span className="font-bold" style={{ color: '#FF8C00', fontSize: '16px' }}>{selectedTradeForModal.details.supportStrength?.toFixed(1) || 0}/25</span>
+                        <span className="font-bold" style={{ color: '#FF8C00', fontSize: '16px' }}>{selectedTradeForModal.details.supportStrength?.toFixed(1) || 0}</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Red Day Resilience:</span>
-                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.resilience?.toFixed(1) || 0}/20</span>
+                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Elite Resilience:</span>
+                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.resilience?.toFixed(1) || 0}</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#1E90FF', fontSize: '15px' }}>Retest Quality:</span>
-                        <span className="font-bold" style={{ color: '#1E90FF', fontSize: '16px' }}>{selectedTradeForModal.details.retestQuality?.toFixed(1) || 0}/20</span>
+                        <span className="font-bold" style={{ color: '#1E90FF', fontSize: '16px' }}>{selectedTradeForModal.details.retestQuality?.toFixed(1) || 0}</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#32CD32', fontSize: '15px' }}>Volume Behavior:</span>
-                        <span className="font-bold" style={{ color: '#32CD32', fontSize: '16px' }}>{selectedTradeForModal.details.volumeBehavior?.toFixed(1) || 0}/20</span>
+                        <span style={{ color: '#32CD32', fontSize: '15px' }}>Seasonal Alignment:</span>
+                        <span className="font-bold" style={{ color: '#32CD32', fontSize: '16px' }}>{selectedTradeForModal.details.seasonalAlignment?.toFixed(1) || 0}</span>
                       </div>
                       <div className="flex items-center col-span-2 justify-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#FF1493', fontSize: '15px' }}>Pullback Depth:</span>
-                        <span className="font-bold ml-3" style={{ color: '#FF1493', fontSize: '16px' }}>{selectedTradeForModal.details.pullbackDepth?.toFixed(1) || 0}/15</span>
+                        <span className="font-bold ml-3" style={{ color: '#FF1493', fontSize: '16px' }}>{selectedTradeForModal.details.pullbackDepth?.toFixed(1) || 0}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Seasonal Period Details - Only show if not expanded inline */}
+                  {!expandedScoreComponent && selectedTradeForModal.details.seasonalDetails && (
+                    <div className="mt-5 pt-4 border-t border-gray-700">
+                      <div className="text-sm font-semibold mb-3" style={{ color: '#00FFFF' }}>
+                        10-Year Seasonality Analysis
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+                        {/* Best 30-Day Period */}
+                        {selectedTradeForModal.details.seasonalDetails.best30Day && (
+                          <div className="p-3 rounded" style={{
+                            background: selectedTradeForModal.details.seasonalDetails.inBest30 ? '#001a00' : '#000000',
+                            border: selectedTradeForModal.details.seasonalDetails.inBest30 ? '1px solid #00ff00' : '1px solid #333'
+                          }}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span style={{ color: '#00ff00' }}>Best 30-Day</span>
+                              {selectedTradeForModal.details.seasonalDetails.inBest30 && (
+                                <span style={{ color: '#00ff00', fontSize: '16px' }}>✓</span>
+                              )}
+                            </div>
+                            <div style={{ color: '#888' }}>
+                              {selectedTradeForModal.details.seasonalDetails.best30Day.start} - {selectedTradeForModal.details.seasonalDetails.best30Day.end}
+                            </div>
+                            <div style={{ color: '#00ff00', fontWeight: 'bold' }}>
+                              +{(selectedTradeForModal.details.seasonalDetails.best30Day.avgReturn || 0).toFixed(2)}%
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Worst 30-Day Period */}
+                        {selectedTradeForModal.details.seasonalDetails.worst30Day && (
+                          <div className="p-3 rounded" style={{
+                            background: selectedTradeForModal.details.seasonalDetails.inWorst30 ? '#1a0000' : '#000000',
+                            border: selectedTradeForModal.details.seasonalDetails.inWorst30 ? '1px solid #ff0000' : '1px solid #333'
+                          }}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span style={{ color: '#ff0000' }}>Worst 30-Day</span>
+                              {selectedTradeForModal.details.seasonalDetails.inWorst30 && (
+                                <span style={{ color: '#ff0000', fontSize: '16px' }}>✓</span>
+                              )}
+                            </div>
+                            <div style={{ color: '#888' }}>
+                              {selectedTradeForModal.details.seasonalDetails.worst30Day.start} - {selectedTradeForModal.details.seasonalDetails.worst30Day.end}
+                            </div>
+                            <div style={{ color: '#ff0000', fontWeight: 'bold' }}>
+                              {(selectedTradeForModal.details.seasonalDetails.worst30Day.avgReturn || 0).toFixed(2)}%
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Sweet Spot (50-90 day best window) */}
+                        {selectedTradeForModal.details.seasonalDetails.sweetSpot && (
+                          <div className="p-3 rounded" style={{
+                            background: selectedTradeForModal.details.seasonalDetails.inSweetSpot ? '#001a00' : '#000000',
+                            border: selectedTradeForModal.details.seasonalDetails.inSweetSpot ? '1px solid #00ff00' : '1px solid #333'
+                          }}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span style={{ color: '#00ff00' }}>Sweet Spot</span>
+                              {selectedTradeForModal.details.seasonalDetails.inSweetSpot && (
+                                <span style={{ color: '#00ff00', fontSize: '16px' }}>✓</span>
+                              )}
+                            </div>
+                            <div style={{ color: '#888' }}>
+                              {selectedTradeForModal.details.seasonalDetails.sweetSpot.start} - {selectedTradeForModal.details.seasonalDetails.sweetSpot.end}
+                            </div>
+                            <div style={{ color: '#00ff00', fontWeight: 'bold' }}>
+                              +{(selectedTradeForModal.details.seasonalDetails.sweetSpot.avgReturn || 0).toFixed(2)}%
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pain Point (50-90 day worst window) */}
+                        {selectedTradeForModal.details.seasonalDetails.painPoint && (
+                          <div className="p-3 rounded" style={{
+                            background: selectedTradeForModal.details.seasonalDetails.inPainPoint ? '#1a0000' : '#000000',
+                            border: selectedTradeForModal.details.seasonalDetails.inPainPoint ? '1px solid #ff0000' : '1px solid #333'
+                          }}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span style={{ color: '#ff0000' }}>Pain Point</span>
+                              {selectedTradeForModal.details.seasonalDetails.inPainPoint && (
+                                <span style={{ color: '#ff0000', fontSize: '16px' }}>✓</span>
+                              )}
+                            </div>
+                            <div style={{ color: '#888' }}>
+                              {selectedTradeForModal.details.seasonalDetails.painPoint.start} - {selectedTradeForModal.details.seasonalDetails.painPoint.end}
+                            </div>
+                            <div style={{ color: '#ff0000', fontWeight: 'bold' }}>
+                              {(selectedTradeForModal.details.seasonalDetails.painPoint.avgReturn || 0).toFixed(2)}%
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
 
                   {/* Additional Context */}
                   <div className="mt-5 pt-4 border-t border-gray-700">
-                    <div className="grid grid-cols-3 gap-4 text-xs font-mono text-gray-400">
+                    <div className="grid grid-cols-1 gap-4 text-xs font-mono text-gray-400">
                       <div>
                         <div className="text-gray-500">Current Price</div>
                         <div className="text-white font-bold">${selectedTradeForModal.details.currentPrice?.toFixed(2) || 'N/A'}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-500">MA20</div>
-                        <div className="text-white font-bold">${selectedTradeForModal.details.ma20?.toFixed(2) || 'N/A'}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-500">ATR</div>
-                        <div className="text-white font-bold">${selectedTradeForModal.details.atr?.toFixed(2) || 'N/A'}</div>
                       </div>
                     </div>
                   </div>
@@ -25323,6 +25509,8 @@ export default function TradingViewChart({
     </>
   );
 }
+
+
 
 
 

@@ -189,12 +189,8 @@ export async function GET(request: NextRequest) {
             { startTimestamp, endTimestamp, currentDate, isLive }
           );
 
-          // Add timeout to prevent hanging (10 minutes max - enrichment needs time)
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Scan timeout after 10 minutes')), 600000)
-          );
-
-          finalTrades = await Promise.race([scanPromise, timeoutPromise]) as any[];
+          // No timeout - let it complete naturally
+          finalTrades = await scanPromise;
 
           console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
 
@@ -211,11 +207,8 @@ export async function GET(request: NextRequest) {
             streamingCallback
           );
 
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`${timeframe} scan timeout after 15 minutes`)), 900000)
-          );
-
-          finalTrades = await Promise.race([scanPromise, timeoutPromise]) as any[];
+          // No timeout - let it complete naturally
+          finalTrades = await scanPromise;
           console.log(`✅ Multi-Day Scan Complete: ${finalTrades.length} trades found`);
         }
 

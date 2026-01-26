@@ -286,7 +286,10 @@ export default function EnhancedRegimeDisplay({ regimeAnalysis, selectedPeriod =
             </button>
 
             {/* MAIN COMPOSITE GAUGE - Large Central Display */}
-            <div className="md:overflow-visible overflow-x-auto md:h-auto h-[200px]">
+            <div style={{
+                overflow: window.innerWidth < 768 ? 'hidden' : 'visible',
+                height: window.innerWidth < 768 ? '200px' : 'auto'
+            }}>
                 <div className="md:scale-100 scale-[0.41]" style={{
                     display: 'grid',
                     gridTemplateColumns: '300px 1fr',

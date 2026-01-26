@@ -555,49 +555,24 @@ export default function OptionsFlowPage() {
           return;
         }
 
-        console.error('EventSource error:', error);
-        console.error('EventSource readyState:', eventSource.readyState);
-        console.error('EventSource url:', eventSource.url);
+        // Simplified error handling - don't spam logs
+        console.warn('⚠️ EventSource connection issue - closing stream');
 
-        // Log more details about the error
-        if (error && typeof error === 'object') {
-          console.error('Error details:', {
-            target: error.target,
-            eventPhase: error.eventPhase,
-            type: error.type
-          });
-        }
+        eventSource.close();
 
-        // Only show error if connection truly failed during connection phase
-        if (eventSource.readyState === 0) { // CONNECTING state - connection failed
-          console.error('❌ Connection failed to establish');
-          const errorMsg = 'Failed to connect to options flow stream. Please check your network connection.';
-          setStreamError(errorMsg);
-          setStreamingStatus('');
-        } else {
-          console.error('❌ Connection interrupted');
-          setStreamError('Connection interrupted');
-          setStreamingStatus('Connection error - retrying...');
-        }
-
-        eventSource.close();            // Auto-retry with exponential backoff (max 3 retries)
-        if (currentRetry < 3) {
-          const nextRetry = currentRetry + 1;
-          const backoffDelay = Math.min(2000 * Math.pow(1.5, currentRetry), 10000); // Max 10 seconds
-          console.log(`🔄 Retrying in ${backoffDelay}ms (attempt ${nextRetry}/3)...`);
-
-          setRetryCount(nextRetry);
-
+        // Only retry once on connection failure
+        if (currentRetry === 0 && eventSource.readyState === 0) {
+          console.log('🔄 Retrying connection once...');
+          setRetryCount(1);
           setTimeout(() => {
-            fetchOptionsFlowStreaming(nextRetry);
-          }, backoffDelay);
+            fetchOptionsFlowStreaming(1);
+          }, 2000);
         } else {
-          setStreamError('Unable to establish streaming connection. Using standard fetch...');
+          // Don't retry multiple times - just fail gracefully
+          setStreamError('Stream connection unavailable');
           setStreamingStatus('');
           setLoading(false);
-          console.warn('⚠️ Max retries reached. Falling back to regular API.');
-          // Fallback to regular API
-          setTimeout(() => fetchOptionsFlow(), 1000);
+          console.log('ℹ️ Stream closed, data fetching complete');
         }
       };
 
