@@ -802,9 +802,29 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                 pricesUpdate[optionTicker] = currentPrice;
               }
             }
+          } else if (response.status === 404) {
+            // Try historical endpoint for expired options
+            const expiryDate = new Date(trade.expiry);
+            const formattedExpiry = expiryDate.toISOString().split('T')[0];
+            const historicalUrl = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/1/day/${formattedExpiry}/${formattedExpiry}?apikey=${POLYGON_API_KEY}`;
+
+            const histResponse = await fetch(historicalUrl, {
+              signal: AbortSignal.timeout(5000)
+            });
+
+            if (histResponse.ok) {
+              const histData = await histResponse.json();
+              if (histData.results && histData.results.length > 0) {
+                const lastBar = histData.results[histData.results.length - 1];
+                const currentPrice = lastBar.c; // closing price
+                if (currentPrice > 0) {
+                  pricesUpdate[optionTicker] = currentPrice;
+                }
+              }
+            }
           }
         } catch (error) {
-          // Silent fail
+          // Silent fail for network errors
         }
       }));
 
@@ -5079,6 +5099,15 @@ Stock Reaction: ${scores.stockReaction}/25`;
             </div>
           ) : (
             trackedFlows.filter((flow) => {
+              // Remove expired options (more than 1 day past expiration)
+              const expiryDate = new Date(flow.expiry);
+              const now = new Date();
+              const daysSinceExpiry = (now.getTime() - expiryDate.getTime()) / (1000 * 60 * 60 * 24);
+
+              if (daysSinceExpiry > 1) {
+                return false; // Filter out expired options
+              }
+
               const expiry = flow.expiry.replace(/-/g, '').slice(2);
               const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0');
               const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P';
@@ -5238,76 +5267,15 @@ Stock Reaction: ${scores.stockReaction}/25`;
                       </svg>
                     </button>
 
-                    {/* Desktop: All Details in Single Row */}
-                    <div className="hidden md:flex items-center justify-between gap-2 p-3" style={{
-                      background: 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.4) 50%, rgba(255,255,255,0.02) 100%)',
-                      borderRadius: '6px',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3)'
-                    }}>
-                      <div className="flex items-center gap-2 flex-1 flex-wrap">
-                        <span className="text-white font-bold" style={{ fontSize: '17px' }}>{formatTime(flow.trade_timestamp)}</span>
-                        <span className="bg-gradient-to-b from-gray-800 to-black text-orange-500 font-bold px-2 py-1 border border-gray-500/70" style={{ fontSize: '17px' }}>
-                          {flow.underlying_ticker}
-                        </span>
-                        <span className={`font-bold ${flow.type === 'call' ? 'text-green-500' : 'text-red-500'}`} style={{ fontSize: '17px' }}>
-                          {flow.type.toUpperCase()}
-                        </span>
-                        <span className="text-white font-semibold" style={{ fontSize: '17px' }}>${flow.strike}</span>
-                        <span className="font-bold" style={{ fontSize: '17px' }}>
-                          <span className="text-cyan-400">{flow.trade_size.toLocaleString()}</span>
-                          <span className="text-yellow-400"> @${entryPrice.toFixed(2)}</span>
-                          {fillStyle && (
-                            <span className={`ml-1 ${(fillStyle === 'A' || fillStyle === 'AA') ? 'text-green-400' : (fillStyle === 'B' || fillStyle === 'BB') ? 'text-red-400' : 'text-orange-400'}`}>
-                              {fillStyle}
-                            </span>
-                          )}
-                        </span>
-                        <span className="text-white" style={{ fontSize: '17px' }}>{formatDate(flow.expiry)}</span>
-                        <span className="font-bold" style={{ fontSize: '17px', color: '#00ff00' }}>{formatCurrency(flow.total_premium)}</span>
-
-                        {/* Trade Type (Sweep/Block) */}
-                        {flow.trade_type && (flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && (
-                          <span className="font-bold" style={{
-                            fontSize: '17px',
-                            color: flow.trade_type === 'SWEEP' ? '#FFD700' : 'rgba(0, 150, 255, 1)'
-                          }}>
-                            {flow.trade_type}
-                          </span>
-                        )}
-
-                        {/* Grade with percentage */}
-                        {gradeData && currentPrice && currentPrice > 0 ? (
-                          <div className="flex items-center gap-1">
-                            <span className="font-bold" style={{
-                              fontSize: '17px',
-                              color: gradeData.color,
-                              border: `2px solid ${gradeData.color}`,
-                              borderRadius: '4px',
-                              padding: '2px 6px',
-                              boxShadow: `0 0 6px ${gradeData.color}40`
-                            }}>
-                              {gradeData.grade}
-                            </span>
-                            <span className="font-bold" style={{
-                              fontSize: '17px',
-                              color: priceHigher ? '#00ff00' : '#ff0000'
-                            }}>
-                              {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {/* Mobile: 5-Column Table Layout matching main flow table */}
-                    <div className="md:hidden">
-                      <table className="w-full text-center">
+                    {/* Table Layout for all screen sizes */}
+                    <div className="p-1">
+                      <table className="w-full text-center" style={{ tableLayout: 'fixed' }}>
                         <tbody>
                           <tr className="border-b border-gray-700">
                             {/* Column 1: Symbol (Ticker + Time stacked) */}
-                            <td className="p-2">
-                              <div className="flex flex-col items-center space-y-1">
-                                <span className="bg-gradient-to-b from-gray-800 to-black text-orange-500 font-bold px-2 py-1 border border-gray-500/70 text-base">
+                            <td className="p-1" style={{ width: '15%' }}>
+                              <div className="flex flex-col items-center space-y-0.5">
+                                <span className="bg-gradient-to-b from-gray-800 to-black text-orange-500 font-bold px-1.5 py-0.5 border border-gray-500/70 text-base">
                                   {flow.underlying_ticker}
                                 </span>
                                 <span className="text-sm text-gray-300">{formatTime(flow.trade_timestamp)}</span>
@@ -5315,8 +5283,8 @@ Stock Reaction: ${scores.stockReaction}/25`;
                             </td>
 
                             {/* Column 2: Strike (Strike + Call/Put stacked) */}
-                            <td className="p-2">
-                              <div className="flex flex-col items-center space-y-1">
+                            <td className="p-1" style={{ width: '15%' }}>
+                              <div className="flex flex-col items-center space-y-0.5">
                                 <span className="text-white font-semibold text-base">${flow.strike}</span>
                                 <span className={`font-bold text-sm ${flow.type === 'call' ? 'text-green-500' : 'text-red-500'}`}>
                                   {flow.type.toUpperCase()}
@@ -5325,9 +5293,9 @@ Stock Reaction: ${scores.stockReaction}/25`;
                             </td>
 
                             {/* Column 3: Size (Size@Price+FillStyle + Total Premium stacked) */}
-                            <td className="p-2">
-                              <div className="flex flex-col items-center space-y-1">
-                                <div className="flex items-center gap-1">
+                            <td className="p-1" style={{ width: '30%' }}>
+                              <div className="flex flex-col items-center space-y-0.5">
+                                <div className="flex items-center gap-0.5 flex-wrap justify-center">
                                   <span className="text-cyan-400 font-bold text-base">{flow.trade_size.toLocaleString()}</span>
                                   <span className="text-yellow-400 text-base">@${entryPrice.toFixed(2)}</span>
                                   {fillStyle && (
@@ -5341,8 +5309,8 @@ Stock Reaction: ${scores.stockReaction}/25`;
                             </td>
 
                             {/* Column 4: Expiry/Type (Expiry + Trade Type stacked) */}
-                            <td className="p-2">
-                              <div className="flex flex-col items-center space-y-1">
+                            <td className="p-1" style={{ width: '20%' }}>
+                              <div className="flex flex-col items-center space-y-0.5">
                                 <span className="text-white text-sm">{formatDate(flow.expiry)}</span>
                                 {flow.trade_type && (flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && (
                                   <span className="font-bold text-sm" style={{
@@ -5355,9 +5323,26 @@ Stock Reaction: ${scores.stockReaction}/25`;
                             </td>
 
                             {/* Column 5: Grade/P&L (Grade + Percentage stacked) */}
-                            <td className="p-2">
-                              {gradeData && currentPrice && currentPrice > 0 ? (
-                                <div className="flex flex-col items-center space-y-1">
+                            <td className="p-1" style={{ width: '20%' }}>
+                              <div className="flex flex-col items-center space-y-0.5">
+                                {gradeData && currentPrice && currentPrice > 0 ? (
+                                  <>
+                                    <span className="font-bold text-sm" style={{
+                                      color: gradeData.color,
+                                      border: `2px solid ${gradeData.color}`,
+                                      borderRadius: '4px',
+                                      padding: '2px 6px',
+                                      boxShadow: `0 0 6px ${gradeData.color}40`
+                                    }}>
+                                      {gradeData.grade}
+                                    </span>
+                                    <span className="font-bold text-sm" style={{
+                                      color: priceHigher ? '#00ff00' : '#ff0000'
+                                    }}>
+                                      {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
+                                    </span>
+                                  </>
+                                ) : gradeData ? (
                                   <span className="font-bold text-sm" style={{
                                     color: gradeData.color,
                                     border: `2px solid ${gradeData.color}`,
@@ -5367,15 +5352,10 @@ Stock Reaction: ${scores.stockReaction}/25`;
                                   }}>
                                     {gradeData.grade}
                                   </span>
-                                  <span className="font-bold text-sm" style={{
-                                    color: priceHigher ? '#00ff00' : '#ff0000'
-                                  }}>
-                                    {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-sm text-gray-500">-</span>
-                              )}
+                                ) : (
+                                  <span className="text-sm text-gray-500">-</span>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         </tbody>

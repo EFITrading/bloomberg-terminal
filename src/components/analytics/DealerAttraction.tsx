@@ -7131,659 +7131,808 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               {showODTRIO ? (
                 <div className="px-4">
                   <div className="flex gap-1 w-full">
-                    {['SPX', 'QQQ', 'SPY'].map((tricoTicker) => {
-                      const tickerData = odtrioData[tricoTicker];
-                      const tickerDataArray = tickerData?.data || [];
-                      const odteExpiry = tickerData?.odteExpiry;
-                      const currentPrice = tickerData?.currentPrice || 0;
-                      const isLoading = tickerData?.loading;
+                    {(() => {
+                      // Count how many tickers have golden zones above current price
+                      const tickerGoldenPositions: { [key: string]: 'above' | 'below' } = {};
+                      ['SPX', 'QQQ', 'SPY'].forEach((ticker) => {
+                        const tickerData = odtrioData[ticker];
+                        const tickerDataArray = tickerData?.data || [];
+                        const odteExpiry = tickerData?.odteExpiry;
+                        const currentPrice = tickerData?.currentPrice || 0;
 
-                      if (isLoading) {
-                        return (
-                          <div key={tricoTicker} className="flex-1 flex items-center justify-center" style={{ minWidth: 0, minHeight: '400px' }}>
-                            <div className="text-center">
-                              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
-                              <div className="text-emerald-400 text-lg font-bold">Loading {tricoTicker}...</div>
+                        if (odteExpiry && tickerDataArray.length > 0) {
+                          const normalGEXValues = tickerDataArray
+                            .filter(row => row.expirations && row.expirations[odteExpiry])
+                            .map(row => {
+                              const gexData = row.expirations![odteExpiry];
+                              return (gexData.call_gex || 0) + (gexData.put_gex || 0);
+                            });
+                          const dealerGEXValues = tickerDataArray
+                            .filter(row => row.expirations && row.expirations[odteExpiry])
+                            .map(row => {
+                              const gexData = row.expirations![odteExpiry];
+                              return (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                            });
+
+                          const highestGEX = Math.max(...normalGEXValues);
+                          const highestDealer = Math.max(...dealerGEXValues);
+
+                          // Find golden zone row (highest GEX for both columns)
+                          const goldenRow = tickerDataArray.find(row => {
+                            const gexData = row.expirations?.[odteExpiry];
+                            if (!gexData) return false;
+                            const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
+                            const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                            return netGEX === highestGEX && netDealer === highestDealer && netGEX > 0 && netDealer > 0;
+                          });
+
+                          if (goldenRow) {
+                            tickerGoldenPositions[ticker] = goldenRow.strike > currentPrice ? 'above' : 'below';
+                          }
+                        }
+                      });
+
+                      const goldensAbove = Object.values(tickerGoldenPositions).filter(pos => pos === 'above').length;
+                      const isTurboMode = goldensAbove >= 2; // 2 or more tickers have golden zones above
+
+                      return ['SPX', 'QQQ', 'SPY'].map((tricoTicker) => {
+                        const isGoldenAbove = tickerGoldenPositions[tricoTicker] === 'above';
+                        const tickerData = odtrioData[tricoTicker];
+                        const tickerDataArray = tickerData?.data || [];
+                        const odteExpiry = tickerData?.odteExpiry;
+                        const currentPrice = tickerData?.currentPrice || 0;
+                        const isLoading = tickerData?.loading;
+
+                        if (isLoading) {
+                          return (
+                            <div key={tricoTicker} className="flex-1 flex items-center justify-center" style={{ minWidth: 0, minHeight: '400px' }}>
+                              <div className="text-center">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
+                                <div className="text-emerald-400 text-lg font-bold">Loading {tricoTicker}...</div>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      }
+                          );
+                        }
 
-                      if (!odteExpiry || tickerDataArray.length === 0) {
-                        return (
-                          <div key={tricoTicker} className="flex-1 flex items-center justify-center" style={{ minWidth: 0, minHeight: '400px' }}>
-                            <div className="text-gray-400 text-sm">No ODTE data for {tricoTicker}</div>
-                          </div>
-                        );
-                      }
-
-                      // Find current price strike and center the display
-                      const allStrikes = tickerDataArray
-                        .filter(row => row.expirations && row.expirations[odteExpiry])
-                        .map(r => r.strike)
-                        .sort((a, b) => a - b);
-
-                      const closestStrike = allStrikes.reduce((prev, curr) =>
-                        Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev, allStrikes[0]
-                      );
-
-                      const currentIndex = allStrikes.indexOf(closestStrike);
-                      const strikesToShow = 50; // Show 50 strikes total (24 above, current at row 25, 25 below)
-                      const strikesAbove = 24; // Current price will be at row 25
-
-                      // Calculate start and end indices to center around current price
-                      let startIndex = Math.max(0, currentIndex - strikesAbove);
-                      let endIndex = Math.min(allStrikes.length, startIndex + strikesToShow);
-
-                      // Adjust if we hit the end
-                      if (endIndex - startIndex < strikesToShow) {
-                        startIndex = Math.max(0, endIndex - strikesToShow);
-                      }
-
-                      const displayStrikes = allStrikes.slice(startIndex, endIndex);
-                      const minStrike = displayStrikes[0];
-                      const maxStrike = displayStrikes[displayStrikes.length - 1];
-
-                      const borderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
-                      const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800';
-                      const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
-                      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-                      const mobileStrikeWidth = isMobile ? 38 : 60;
-                      const mobileExpWidth = isMobile ? 48 : 90;
-
-                      // Calculate GEX ranges for both Normal and Dealer
-                      const normalGEXValues = tickerDataArray
-                        .filter(row => row.expirations && row.expirations[odteExpiry])
-                        .map(row => {
-                          const gexData = row.expirations![odteExpiry];
-                          return (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                        });
-                      const dealerGEXValues = tickerDataArray
-                        .filter(row => row.expirations && row.expirations[odteExpiry])
-                        .map(row => {
-                          const gexData = row.expirations![odteExpiry];
-                          return (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
-                        });
-
-                      const highestGEX = Math.max(...normalGEXValues);
-                      const lowestGEX = Math.min(...normalGEXValues);
-                      const highestDealer = Math.max(...dealerGEXValues);
-                      const lowestDealer = Math.min(...dealerGEXValues);
-
-                      // Calculate top values for proper gradient opacity
-                      const normalTopValues = {
-                        highestPositive: Math.max(...normalGEXValues.filter(v => v > 0)),
-                        highestNegative: Math.abs(Math.min(...normalGEXValues.filter(v => v < 0)))
-                      };
-                      const dealerTopValues = {
-                        highestPositive: Math.max(...dealerGEXValues.filter(v => v > 0)),
-                        highestNegative: Math.abs(Math.min(...dealerGEXValues.filter(v => v < 0)))
-                      };
-
-                      // Show both columns on mobile and desktop
-                      const showNormalColumn = true;
-                      const showDealerColumn = true;
-                      const columnCount = 2;
-
-                      return (
-                        <div key={tricoTicker} className="flex-1" style={{ minWidth: 0 }}>
-                          <div
-                            className="border border-b-0 px-4 py-3 relative overflow-hidden"
-                            style={{
-                              background: 'linear-gradient(180deg, #0a1929 0%, #051120 50%, #020a15 100%)',
-                              borderColor: '#1e3a5f',
-                              boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8), inset 0 -2px 6px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.6)'
-                            }}
-                          >
-                            <div className="absolute inset-0" style={{
-                              background: 'radial-gradient(ellipse at top, rgba(30,58,95,0.3) 0%, transparent 70%)',
-                              pointerEvents: 'none'
-                            }}></div>
-                            <div className="flex items-center justify-center gap-3 relative z-10">
-                              <div className="w-1.5 h-1.5 rounded-full" style={{
-                                background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
-                                boxShadow: '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)'
-                              }}></div>
-                              <h3
-                                className="text-lg font-black uppercase tracking-widest text-center"
-                                style={{
-                                  letterSpacing: '0.25em',
-                                  color: '#ffffff',
-                                  WebkitTextStroke: '1.5px #ff8c00',
-                                  paintOrder: 'stroke fill',
-                                  filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(255,140,0,0.5))',
-                                  textShadow: '0 0 8px rgba(0,0,0,1)'
-                                }}
-                              >
-                                • {tricoTicker} •
-                              </h3>
-                              <div className="w-1.5 h-1.5 rounded-full" style={{
-                                background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
-                                boxShadow: '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)'
-                              }}></div>
+                        if (!odteExpiry || tickerDataArray.length === 0) {
+                          return (
+                            <div key={tricoTicker} className="flex-1 flex items-center justify-center" style={{ minWidth: 0, minHeight: '400px' }}>
+                              <div className="text-gray-400 text-sm">No ODTE data for {tricoTicker}</div>
                             </div>
-                          </div>
-                          <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto odtrio-scroll-container`} style={{ maxHeight: 'calc(100vh - 300px)', overflowX: 'auto' }}>
-                            <table style={{ minWidth: `${mobileStrikeWidth + (mobileExpWidth * columnCount)}px`, width: '100%' }}>
-                              <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
-                                <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
-                                  <th className={`px-2 py-3 text-center sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
-                                    <div className={useBloombergTheme ? 'bb-header text-orange-500 font-bold' : 'font-bold text-orange-500 uppercase'} style={{ fontSize: isMobile ? '0.45rem' : '1.35rem' }}>Strike</div>
-                                  </th>
-                                  {showNormalColumn && (
-                                    <th className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                      <div className="font-bold text-blue-400 uppercase whitespace-nowrap" style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}>Normal</div>
+                          );
+                        }
+
+                        // Find current price strike and center the display
+                        const allStrikes = tickerDataArray
+                          .filter(row => row.expirations && row.expirations[odteExpiry])
+                          .map(r => r.strike)
+                          .sort((a, b) => a - b);
+
+                        const closestStrike = allStrikes.reduce((prev, curr) =>
+                          Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev, allStrikes[0]
+                        );
+
+                        const currentIndex = allStrikes.indexOf(closestStrike);
+                        const strikesToShow = 50; // Show 50 strikes total (24 above, current at row 25, 25 below)
+                        const strikesAbove = 24; // Current price will be at row 25
+
+                        // Calculate start and end indices to center around current price
+                        let startIndex = Math.max(0, currentIndex - strikesAbove);
+                        let endIndex = Math.min(allStrikes.length, startIndex + strikesToShow);
+
+                        // Adjust if we hit the end
+                        if (endIndex - startIndex < strikesToShow) {
+                          startIndex = Math.max(0, endIndex - strikesToShow);
+                        }
+
+                        const displayStrikes = allStrikes.slice(startIndex, endIndex);
+                        const minStrike = displayStrikes[0];
+                        const maxStrike = displayStrikes[displayStrikes.length - 1];
+
+                        const borderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
+                        const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800';
+                        const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700';
+                        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+                        const mobileStrikeWidth = isMobile ? 38 : 60;
+                        const mobileExpWidth = isMobile ? 48 : 90;
+
+                        // Calculate GEX ranges for both Normal and Dealer
+                        const normalGEXValues = tickerDataArray
+                          .filter(row => row.expirations && row.expirations[odteExpiry])
+                          .map(row => {
+                            const gexData = row.expirations![odteExpiry];
+                            return (gexData.call_gex || 0) + (gexData.put_gex || 0);
+                          });
+                        const dealerGEXValues = tickerDataArray
+                          .filter(row => row.expirations && row.expirations[odteExpiry])
+                          .map(row => {
+                            const gexData = row.expirations![odteExpiry];
+                            return (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                          });
+
+                        const highestGEX = Math.max(...normalGEXValues);
+                        const lowestGEX = Math.min(...normalGEXValues);
+                        const highestDealer = Math.max(...dealerGEXValues);
+                        const lowestDealer = Math.min(...dealerGEXValues);
+
+                        // Calculate top values for proper gradient opacity
+                        const normalTopValues = {
+                          highestPositive: Math.max(...normalGEXValues.filter(v => v > 0)),
+                          highestNegative: Math.abs(Math.min(...normalGEXValues.filter(v => v < 0)))
+                        };
+                        const dealerTopValues = {
+                          highestPositive: Math.max(...dealerGEXValues.filter(v => v > 0)),
+                          highestNegative: Math.abs(Math.min(...dealerGEXValues.filter(v => v < 0)))
+                        };
+
+                        // Show both columns on mobile and desktop
+                        const showNormalColumn = true;
+                        const showDealerColumn = true;
+                        const columnCount = 2;
+
+                        return (
+                          <div key={tricoTicker} className="flex-1" style={{ minWidth: 0 }}>
+                            <div
+                              className="border border-b-0 px-4 py-3 relative overflow-hidden"
+                              style={{
+                                background: 'linear-gradient(180deg, #0a1929 0%, #051120 50%, #020a15 100%)',
+                                borderColor: '#1e3a5f',
+                                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8), inset 0 -2px 6px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.6)'
+                              }}
+                            >
+                              <div className="absolute inset-0" style={{
+                                background: 'radial-gradient(ellipse at top, rgba(30,58,95,0.3) 0%, transparent 70%)',
+                                pointerEvents: 'none'
+                              }}></div>
+                              <div className="flex items-center justify-center gap-3 relative z-10">
+                                <div className="w-1.5 h-1.5 rounded-full" style={{
+                                  background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
+                                  boxShadow: '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)'
+                                }}></div>
+                                <h3
+                                  className="text-lg font-black uppercase tracking-widest text-center"
+                                  style={{
+                                    letterSpacing: '0.25em',
+                                    color: '#ffffff',
+                                    WebkitTextStroke: '1.5px #ff8c00',
+                                    paintOrder: 'stroke fill',
+                                    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(255,140,0,0.5))',
+                                    textShadow: '0 0 8px rgba(0,0,0,1)'
+                                  }}
+                                >
+                                  • {tricoTicker} •
+                                </h3>
+                                <div className="w-1.5 h-1.5 rounded-full" style={{
+                                  background: 'radial-gradient(circle, #60a5fa 0%, #3b82f6 100%)',
+                                  boxShadow: '0 0 8px rgba(96,165,250,0.8), inset 0 1px 1px rgba(255,255,255,0.4)'
+                                }}></div>
+                              </div>
+                            </div>
+                            <div className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto odtrio-scroll-container`} style={{ maxHeight: 'calc(100vh - 300px)', overflowX: 'auto' }}>
+                              <table style={{ minWidth: `${mobileStrikeWidth + (mobileExpWidth * columnCount)}px`, width: '100%' }}>
+                                <thead className={`sticky top-0 z-20 ${useBloombergTheme ? 'bb-table-header' : 'bg-black backdrop-blur-sm'}`} style={{ top: '0', backgroundColor: useBloombergTheme ? undefined : '#000000' }}>
+                                  <tr className={useBloombergTheme ? '' : 'border-b border-gray-700 bg-black'}>
+                                    <th className={`px-2 py-3 text-center sticky left-0 bg-black z-30 border-r ${borderColor} shadow-xl`} style={{ width: `${mobileStrikeWidth}px`, minWidth: `${mobileStrikeWidth}px`, maxWidth: `${mobileStrikeWidth}px` }}>
+                                      <div className={useBloombergTheme ? 'bb-header text-orange-500 font-bold' : 'font-bold text-orange-500 uppercase'} style={{ fontSize: isMobile ? '0.45rem' : '1.35rem' }}>Strike</div>
                                     </th>
-                                  )}
-                                  {showDealerColumn && (
-                                    <th className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
-                                      <div className="font-bold text-purple-400 uppercase whitespace-nowrap" style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}>Dealer</div>
-                                    </th>
-                                  )}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {(() => {
-                                  const filteredRows = tickerDataArray.filter(row => {
-                                    const isInStrikeRange = row.strike >= minStrike && row.strike <= maxStrike;
-                                    const hasGEXData = row.expirations && row.expirations[odteExpiry];
-                                    return isInStrikeRange && hasGEXData;
-                                  });
+                                    {showNormalColumn && (
+                                      <th className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
+                                        <div className="font-bold text-blue-400 uppercase whitespace-nowrap" style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}>Normal</div>
+                                      </th>
+                                    )}
+                                    {showDealerColumn && (
+                                      <th className={`text-center bg-black border-l border-r ${borderColorDivider} shadow-lg px-2 py-3`} style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}>
+                                        <div className="font-bold text-purple-400 uppercase whitespace-nowrap" style={{ fontSize: isMobile ? '0.35rem' : '1.05rem' }}>Dealer</div>
+                                      </th>
+                                    )}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(() => {
+                                    const filteredRows = tickerDataArray.filter(row => {
+                                      const isInStrikeRange = row.strike >= minStrike && row.strike <= maxStrike;
+                                      const hasGEXData = row.expirations && row.expirations[odteExpiry];
+                                      return isInStrikeRange && hasGEXData;
+                                    });
 
-                                  // Find purple pivot row index
-                                  const purplePivotIndex = filteredRows.findIndex(row => {
-                                    const gexData = row.expirations?.[odteExpiry];
-                                    if (!gexData) return false;
-                                    const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                                    const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
-                                    const isLowestGEX = netGEX === lowestGEX && netGEX < 0;
-                                    const isLowestDealer = netDealer === lowestDealer && netDealer < 0;
-                                    return showNormalColumn && showDealerColumn && isLowestGEX && isLowestDealer;
-                                  });
+                                    // Find purple pivot row index
+                                    const purplePivotIndex = filteredRows.findIndex(row => {
+                                      const gexData = row.expirations?.[odteExpiry];
+                                      if (!gexData) return false;
+                                      const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
+                                      const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                                      const isLowestGEX = netGEX === lowestGEX && netGEX < 0;
+                                      const isLowestDealer = netDealer === lowestDealer && netDealer < 0;
+                                      return showNormalColumn && showDealerColumn && isLowestGEX && isLowestDealer;
+                                    });
 
-                                  // Find golden zone row index
-                                  const goldenRowIndex = filteredRows.findIndex(row => {
-                                    const gexData = row.expirations?.[odteExpiry];
-                                    if (!gexData) return false;
-                                    const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                                    const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
-                                    const isHighestGEX = netGEX === highestGEX && netGEX > 0;
-                                    const isHighestDealer = netDealer === highestDealer && netDealer > 0;
-                                    return showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
-                                  });
+                                    // Find golden zone row index
+                                    const goldenRowIndex = filteredRows.findIndex(row => {
+                                      const gexData = row.expirations?.[odteExpiry];
+                                      if (!gexData) return false;
+                                      const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
+                                      const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                                      const isHighestGEX = netGEX === highestGEX && netGEX > 0;
+                                      const isHighestDealer = netDealer === highestDealer && netDealer > 0;
+                                      return showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
+                                    });
 
-                                  // Find current price row index
-                                  const currentPriceRowIndex = filteredRows.findIndex(row => row.strike === closestStrike);
+                                    // Find current price row index
+                                    const currentPriceRowIndex = filteredRows.findIndex(row => row.strike === closestStrike);
 
-                                  return filteredRows.map((row, rowIndex) => {
-                                    const gexData = row.expirations?.[odteExpiry];
-                                    if (!gexData) return null;
+                                    return filteredRows.map((row, rowIndex) => {
+                                      const gexData = row.expirations?.[odteExpiry];
+                                      if (!gexData) return null;
 
-                                    const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
-                                    const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
+                                      const netGEX = (gexData.call_gex || 0) + (gexData.put_gex || 0);
+                                      const netDealer = (gexData.call_dealer || 0) + (gexData.put_dealer || 0);
 
-                                    // Check if this is highest or lowest GEX
-                                    const isHighestGEX = netGEX === highestGEX && netGEX > 0;
-                                    const isLowestGEX = netGEX === lowestGEX && netGEX < 0;
-                                    const isHighestDealer = netDealer === highestDealer && netDealer > 0;
-                                    const isLowestDealer = netDealer === lowestDealer && netDealer < 0;
+                                      // Check if this is highest or lowest GEX
+                                      const isHighestGEX = netGEX === highestGEX && netGEX > 0;
+                                      const isLowestGEX = netGEX === lowestGEX && netGEX < 0;
+                                      const isHighestDealer = netDealer === highestDealer && netDealer > 0;
+                                      const isLowestDealer = netDealer === lowestDealer && netDealer < 0;
 
-                                    // Cell styles for Normal column
-                                    let normalCellStyle;
-                                    if (isHighestGEX) {
-                                      normalCellStyle = {
-                                        bg: 'bg-yellow-500',
-                                        ring: 'ring-2 ring-yellow-400',
-                                        text: 'text-black'
-                                      };
-                                    } else if (isLowestGEX) {
-                                      normalCellStyle = {
-                                        bg: 'bg-purple-600',
-                                        ring: 'ring-2 ring-purple-400',
-                                        text: 'text-white'
-                                      };
-                                    } else {
-                                      normalCellStyle = getCellStyle(netGEX, false, row.strike, odteExpiry, normalTopValues);
-                                    }
+                                      // Cell styles for Normal column
+                                      let normalCellStyle;
+                                      if (isHighestGEX) {
+                                        normalCellStyle = {
+                                          bg: 'bg-yellow-500',
+                                          ring: 'ring-2 ring-yellow-400',
+                                          text: 'text-black'
+                                        };
+                                      } else if (isLowestGEX) {
+                                        normalCellStyle = {
+                                          bg: 'bg-purple-600',
+                                          ring: 'ring-2 ring-purple-400',
+                                          text: 'text-white'
+                                        };
+                                      } else {
+                                        normalCellStyle = getCellStyle(netGEX, false, row.strike, odteExpiry, normalTopValues);
+                                      }
 
-                                    // Cell styles for Dealer column
-                                    let dealerCellStyle;
-                                    if (isHighestDealer) {
-                                      dealerCellStyle = {
-                                        bg: 'bg-yellow-500',
-                                        ring: 'ring-2 ring-yellow-400',
-                                        text: 'text-black'
-                                      };
-                                    } else if (isLowestDealer) {
-                                      dealerCellStyle = {
-                                        bg: 'bg-purple-600',
-                                        ring: 'ring-2 ring-purple-400',
-                                        text: 'text-white'
-                                      };
-                                    } else {
-                                      dealerCellStyle = getCellStyle(netDealer, false, row.strike, odteExpiry, dealerTopValues);
-                                    }
+                                      // Cell styles for Dealer column
+                                      let dealerCellStyle;
+                                      if (isHighestDealer) {
+                                        dealerCellStyle = {
+                                          bg: 'bg-yellow-500',
+                                          ring: 'ring-2 ring-yellow-400',
+                                          text: 'text-black'
+                                        };
+                                      } else if (isLowestDealer) {
+                                        dealerCellStyle = {
+                                          bg: 'bg-purple-600',
+                                          ring: 'ring-2 ring-purple-400',
+                                          text: 'text-white'
+                                        };
+                                      } else {
+                                        dealerCellStyle = getCellStyle(netDealer, false, row.strike, odteExpiry, dealerTopValues);
+                                      }
 
-                                    // Check if this is the current price row
-                                    const isCurrentPriceRow = row.strike === closestStrike;
+                                      // Check if this is the current price row
+                                      const isCurrentPriceRow = row.strike === closestStrike;
 
-                                    // Check if both columns are purple (pivot)
-                                    const bothPurple = showNormalColumn && showDealerColumn && isLowestGEX && isLowestDealer;
+                                      // Check if both columns are purple (pivot)
+                                      const bothPurple = showNormalColumn && showDealerColumn && isLowestGEX && isLowestDealer;
 
-                                    // Check if both columns are golden (highest positive GEX)
-                                    const bothGolden = showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
+                                      // Check if both columns are golden (highest positive GEX)
+                                      const bothGolden = showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
 
-                                    // Show arrows ON the purple pivot row itself
-                                    const isPurplePivot = bothPurple;
+                                      // Show arrows ON the purple pivot row itself
+                                      const isPurplePivot = bothPurple;
 
-                                    // Conditional arrow display based on current price position relative to pivot
-                                    // When current price is BELOW pivot (currentPriceRowIndex > purplePivotIndex): show RED only
-                                    // When current price is ABOVE pivot (currentPriceRowIndex < purplePivotIndex): show GREEN only
-                                    // When current price is AT pivot (currentPriceRowIndex === purplePivotIndex): show BOTH
-                                    const showGreenUpFromPurple = isPurplePivot && (currentPriceRowIndex < purplePivotIndex || rowIndex === currentPriceRowIndex);
-                                    const showRedDownFromPurple = isPurplePivot && (currentPriceRowIndex > purplePivotIndex || rowIndex === currentPriceRowIndex);
+                                      // Conditional arrow display based on current price position relative to pivot
+                                      // When current price is BELOW pivot (currentPriceRowIndex > purplePivotIndex): show RED only
+                                      // When current price is ABOVE pivot (currentPriceRowIndex < purplePivotIndex): show GREEN only
+                                      // When current price is AT pivot (currentPriceRowIndex === purplePivotIndex): show BOTH
+                                      const showGreenUpFromPurple = isPurplePivot && (currentPriceRowIndex < purplePivotIndex || rowIndex === currentPriceRowIndex);
+                                      const showRedDownFromPurple = isPurplePivot && (currentPriceRowIndex > purplePivotIndex || rowIndex === currentPriceRowIndex);
 
-                                    // Show flowing pipe connecting current price to golden zone
-                                    const showGoldenPipe = isCurrentPriceRow && goldenRowIndex !== -1;
-                                    const pipeDirection = goldenRowIndex > currentPriceRowIndex ? 'down' : 'up';
-                                    const pipeHeight = Math.abs(goldenRowIndex - currentPriceRowIndex);
+                                      // Show flowing pipe connecting current price to golden zone
+                                      const showGoldenPipe = isCurrentPriceRow && goldenRowIndex !== -1;
+                                      const pipeDirection = goldenRowIndex > currentPriceRowIndex ? 'down' : 'up';
+                                      const pipeHeight = Math.abs(goldenRowIndex - currentPriceRowIndex);
 
-                                    // Show spinning pulley at golden zone
-                                    const isGoldenZone = showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
+                                      // Show spinning pulley at golden zone
+                                      const isGoldenZone = showNormalColumn && showDealerColumn && isHighestGEX && isHighestDealer;
 
-                                    return (
-                                      <tr
-                                        key={`${tricoTicker}-${row.strike}`}
-                                        className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`}`}
-                                      >
-                                        <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
-                                          width: `${mobileStrikeWidth}px`,
-                                          minWidth: `${mobileStrikeWidth}px`,
-                                          maxWidth: `${mobileStrikeWidth}px`
-                                        }}>
-                                          <div className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : (isHighestGEX && isHighestDealer) ? 'text-yellow-400' : (isLowestGEX && isLowestDealer) ? 'text-purple-400' : 'text-white'}`} style={{ fontSize: isMobile ? '0.8rem' : '1.8rem' }}>
-                                            {Math.round(row.strike)}
-                                          </div>
+                                      return (
+                                        <tr
+                                          key={`${tricoTicker}-${row.strike}`}
+                                          className={`hover:bg-gray-800/20 transition-colors ${isCurrentPriceRow ? 'border-2 border-orange-500' : `border-b ${useBloombergTheme ? 'border-white/10' : 'border-gray-800/30'}`}`}
+                                        >
+                                          <td className={`px-2 py-3 font-bold sticky left-0 z-10 border-r ${borderColor} bg-black`} style={{
+                                            width: `${mobileStrikeWidth}px`,
+                                            minWidth: `${mobileStrikeWidth}px`,
+                                            maxWidth: `${mobileStrikeWidth}px`
+                                          }}>
+                                            <div className={`font-mono font-bold text-center ${isCurrentPriceRow ? 'text-orange-500' : (isHighestGEX && isHighestDealer) ? 'text-yellow-400' : (isLowestGEX && isLowestDealer) ? 'text-purple-400' : 'text-white'}`} style={{ fontSize: isMobile ? '0.8rem' : '1.8rem' }}>
+                                              {Math.round(row.strike)}
+                                            </div>
 
-                                          {/* Arrows at right edge of Dealer column */}
-                                          {!isMobile && showNormalColumn && showDealerColumn && (
-                                            <>
-                                              {/* Green arrows UP - from purple box top */}
-                                              {showGreenUpFromPurple && (
-                                                <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 40}px`, bottom: '100%', width: '70px', height: '150px', pointerEvents: 'none', zIndex: 100, overflow: 'visible' }}>
-                                                  <defs>
-                                                    <path id={`greenUp-${row.strike}`} d="M 25 150 Q 50 130 45 90 L 45 10" fill="none" />
-                                                    <linearGradient id={`greenGrad-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                                                      <stop offset="0%" style={{ stopColor: '#00ffaa', stopOpacity: 1 }} />
-                                                      <stop offset="50%" style={{ stopColor: '#00ff88', stopOpacity: 1 }} />
-                                                      <stop offset="100%" style={{ stopColor: '#00cc66', stopOpacity: 1 }} />
-                                                    </linearGradient>
-                                                    <filter id="greenGlow-${row.strike}" x="-50%" y="-50%" width="200%" height="200%">
-                                                      <feGaussianBlur stdDeviation="4" result="coloredBlur" />
-                                                      <feMerge>
-                                                        <feMergeNode in="coloredBlur" />
-                                                        <feMergeNode in="SourceGraphic" />
-                                                      </feMerge>
-                                                    </filter>
-                                                  </defs>
-                                                  {/* 3D depth shadow layer */}
-                                                  {[0, 1, 2].map((i) => (
-                                                    <g key={`shadow-${i}`}>
-                                                      <text fontSize="42" fill="#003322" opacity="0.6" style={{ fontWeight: 'bold' }}>
-                                                        ↑
-                                                        <animateMotion
-                                                          dur="2.2s"
-                                                          begin={`${i * 0.7}s`}
-                                                          repeatCount="indefinite"
-                                                          path="M 23 152 Q 48 132 43 92 L 43 12"
-                                                        />
-                                                        <animate attributeName="opacity" values="0;0.2;0.6;0.6;0.6;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
-                                                      </text>
-                                                    </g>
-                                                  ))}
-                                                  {/* Main 3D arrows with gradient and outline */}
-                                                  {[0, 1, 2].map((i) => (
-                                                    <g key={i}>
-                                                      {/* Stroke outline for depth */}
-                                                      <text fontSize="42" fill="none" stroke="#00ffaa" strokeWidth="3" style={{ fontWeight: 'bold' }}>
-                                                        ↑
-                                                        <animateMotion
-                                                          dur="2.2s"
-                                                          begin={`${i * 0.7}s`}
-                                                          repeatCount="indefinite"
-                                                          path="M 25 150 Q 50 130 45 90 L 45 10"
-                                                        >
-                                                          <mpath href={`#greenUp-${row.strike}`} />
-                                                        </animateMotion>
-                                                        <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
-                                                      </text>
-                                                      {/* Inner fill with gradient */}
-                                                      <text fontSize="42" fill="url(#greenGrad-${row.strike})" style={{ filter: `drop-shadow(0 0 20px #00ff88) drop-shadow(0 0 35px #00ff88) drop-shadow(3px 3px 0px #003322) url(#greenGlow-${row.strike})`, fontWeight: 'bold' }}>
-                                                        ↑
-                                                        <animateMotion
-                                                          dur="2.2s"
-                                                          begin={`${i * 0.7}s`}
-                                                          repeatCount="indefinite"
-                                                          path="M 25 150 Q 50 130 45 90 L 45 10"
-                                                        >
-                                                          <mpath href={`#greenUp-${row.strike}`} />
-                                                        </animateMotion>
-                                                        <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
-                                                        <animateTransform attributeName="transform" type="scale" values="0.9;1.05;1;1;0.9" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" additive="sum" />
-                                                      </text>
-                                                    </g>
-                                                  ))}
-                                                  <path d="M 45 150 Q 60 130 55 90 L 55 10" stroke="url(#greenGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #00ff88)' }} />
-                                                </svg>
-                                              )}
-
-                                              {/* Red arrows DOWN - from purple box bottom */}
-                                              {showRedDownFromPurple && (
-                                                <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`, top: '100%', width: '70px', height: '150px', pointerEvents: 'none', zIndex: 100, overflow: 'visible' }}>
-                                                  <defs>
-                                                    <path id={`redDown-${row.strike}`} d="M 25 0 Q 0 20 5 60 L 5 140" fill="none" />
-                                                    <linearGradient id={`redGrad-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                                                      <stop offset="0%" style={{ stopColor: '#ff3366', stopOpacity: 1 }} />
-                                                      <stop offset="50%" style={{ stopColor: '#ff1744', stopOpacity: 1 }} />
-                                                      <stop offset="100%" style={{ stopColor: '#cc0022', stopOpacity: 1 }} />
-                                                    </linearGradient>
-                                                    <filter id="redGlow-${row.strike}" x="-50%" y="-50%" width="200%" height="200%">
-                                                      <feGaussianBlur stdDeviation="4" result="coloredBlur" />
-                                                      <feMerge>
-                                                        <feMergeNode in="coloredBlur" />
-                                                        <feMergeNode in="SourceGraphic" />
-                                                      </feMerge>
-                                                    </filter>
-                                                  </defs>
-                                                  {/* 3D depth shadow layer */}
-                                                  {[0, 1, 2].map((i) => (
-                                                    <g key={`shadow-${i}`}>
-                                                      <text fontSize="42" fill="#330011" opacity="0.6" style={{ fontWeight: 'bold' }}>
-                                                        ↓
-                                                        <animateMotion
-                                                          dur="2.2s"
-                                                          begin={`${i * 0.7}s`}
-                                                          repeatCount="indefinite"
-                                                          path="M 23 -2 Q -2 18 3 58 L 3 138"
-                                                        />
-                                                        <animate attributeName="opacity" values="0;0.2;0.6;0.6;0.6;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
-                                                      </text>
-                                                    </g>
-                                                  ))}
-                                                  {/* Main 3D arrows with gradient and outline */}
-                                                  {[0, 1, 2].map((i) => (
-                                                    <g key={i}>
-                                                      {/* Stroke outline for depth */}
-                                                      <text fontSize="42" fill="none" stroke="#ff3366" strokeWidth="3" style={{ fontWeight: 'bold' }}>
-                                                        ↓
-                                                        <animateMotion
-                                                          dur="2.2s"
-                                                          begin={`${i * 0.7}s`}
-                                                          repeatCount="indefinite"
-                                                          path="M 25 0 Q 0 20 5 60 L 5 140"
-                                                        >
-                                                          <mpath href={`#redDown-${row.strike}`} />
-                                                        </animateMotion>
-                                                        <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
-                                                      </text>
-                                                      {/* Inner fill with gradient */}
-                                                      <text fontSize="42" fill="url(#redGrad-${row.strike})" style={{ filter: `drop-shadow(0 0 20px #ff1744) drop-shadow(0 0 35px #ff1744) drop-shadow(3px 3px 0px #330011) url(#redGlow-${row.strike})`, fontWeight: 'bold' }}>
-                                                        ↓
-                                                        <animateMotion
-                                                          dur="2.2s"
-                                                          begin={`${i * 0.7}s`}
-                                                          repeatCount="indefinite"
-                                                          path="M 25 0 Q 0 20 5 60 L 5 140"
-                                                        >
-                                                          <mpath href={`#redDown-${row.strike}`} />
-                                                        </animateMotion>
-                                                        <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
-                                                        <animateTransform attributeName="transform" type="scale" values="0.9;1.05;1;1;0.9" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" additive="sum" />
-                                                      </text>
-                                                    </g>
-                                                  ))}
-                                                  <path d="M 35 0 Q 15 20 15 60 L 15 140" stroke="url(#redGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #ff1744)' }} />
-                                                </svg>
-                                              )}
-
-                                              {/* Connected L-shaped pipe from current price to golden zone */}
-                                              {!isMobile && isCurrentPriceRow && goldenRowIndex !== -1 && (
-                                                <svg style={{
-                                                  position: 'absolute',
-                                                  left: `${mobileStrikeWidth + 30}px`,
-                                                  top: '50%',
-                                                  width: `${mobileExpWidth * 2 - 50 + 15}px`,
-                                                  height: `${Math.abs(goldenRowIndex - currentPriceRowIndex) * 37 + 20}px`,
-                                                  pointerEvents: 'none',
-                                                  zIndex: 102,
-                                                  overflow: 'visible',
-                                                  transform: goldenRowIndex > currentPriceRowIndex ? 'translateY(17px)' : `translateY(calc(-100% - 17px))`
-                                                }}>
-                                                  <defs>
-                                                    {/* Vertical glossy shine */}
-                                                    <linearGradient id={`pipeShine-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                                                      <stop offset="0%" style={{ stopColor: '#fff', stopOpacity: 0 }} />
-                                                      <stop offset="15%" style={{ stopColor: '#fff', stopOpacity: 0.6 }} />
-                                                      <stop offset="30%" style={{ stopColor: '#fff', stopOpacity: 0 }} />
-                                                    </linearGradient>
-                                                    {/* 4D glow filter */}
-                                                    <filter id={`pipeGlow-${row.strike}`} x="-50%" y="-50%" width="200%" height="200%">
-                                                      <feGaussianBlur stdDeviation="2" result="coloredBlur" />
-                                                      <feFlood floodColor="#00ff00" floodOpacity="0.5" />
-                                                      <feComposite in2="coloredBlur" operator="in" />
-                                                      <feMerge>
-                                                        <feMergeNode />
-                                                        <feMergeNode in="SourceGraphic" />
-                                                      </feMerge>
-                                                    </filter>
-                                                  </defs>
-
-                                                  {(() => {
-                                                    const direction = goldenRowIndex > currentPriceRowIndex ? 'down' : 'up';
-                                                    const verticalHeight = Math.abs(goldenRowIndex - currentPriceRowIndex) * 37;
-                                                    const horizontalWidth = mobileExpWidth * 2 - 50;
-                                                    const pipeColor = direction === 'down' ? '#ff0000' : '#00ff00'; // Red if golden zone below, green if above
-
-                                                    // Create L-shaped path
-                                                    const pathData = direction === 'down'
-                                                      ? `M 8 0 L 8 ${verticalHeight - 8} Q 8 ${verticalHeight} 16 ${verticalHeight} L ${horizontalWidth + 15} ${verticalHeight}`
-                                                      : `M 8 ${verticalHeight + 20} L 8 20 Q 8 12 16 12 L ${horizontalWidth + 15} 12`;
-
-                                                    const yPos = direction === 'down' ? verticalHeight : 12;
-
-                                                    return (
-                                                      <>
-                                                        {/* Shadow layers for L-shape */}
-                                                        <path d={pathData} fill="none" stroke="#2d1f00" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" style={{ filter: 'blur(4px)' }} />
-                                                        <path d={pathData} fill="none" stroke="#5a3e00" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" opacity="0.3" style={{ filter: 'blur(2px)' }} />
-
-                                                        {/* Main L-shaped pipe body */}
-                                                        <path d={pathData} fill="none" stroke="#000000" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `url(#pipeGlow-${row.strike})` }} />
-                                                        <path d={pathData} fill="none" stroke={pipeColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `url(#pipeGlow-${row.strike})` }} />
-
-                                                        {/* Glossy highlight on vertical section */}
-                                                        <line x1="6" y1="0" x2="6" y2={verticalHeight - 8} stroke="url(#pipeShine-${row.strike})" strokeWidth="2" opacity="0.7" />
-
-                                                        {/* Glossy highlight on horizontal section */}
-                                                        <line x1="16" y1={yPos - 1} x2={horizontalWidth + 15} y2={yPos - 1} stroke="url(#pipeShine-${row.strike})" strokeWidth="2" opacity="0.7" />
-
-                                                        {/* Two-tone spinning rope inside pipe - Blue layer */}
-                                                        <g>
-                                                          {/* Vertical blue rope */}
-                                                          <path
-                                                            d={direction === 'down'
-                                                              ? `M 8 0 L 8 ${verticalHeight - 8}`
-                                                              : `M 8 20 L 8 ${verticalHeight + 20}`
-                                                            }
-                                                            stroke="#00bfff"
-                                                            strokeWidth="5"
-                                                            strokeLinecap="round"
-                                                            strokeDasharray="15 15"
-                                                            opacity="0.9"
-                                                            style={{ filter: 'drop-shadow(0 0 8px #00bfff)' }}
+                                            {/* Arrows at right edge of Dealer column */}
+                                            {!isMobile && showNormalColumn && showDealerColumn && (
+                                              <>
+                                                {/* Green arrows UP - from purple box top */}
+                                                {showGreenUpFromPurple && (
+                                                  <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 40}px`, bottom: '100%', width: '70px', height: '150px', pointerEvents: 'none', zIndex: 100, overflow: 'visible' }}>
+                                                    <defs>
+                                                      <path id={`greenUp-${row.strike}`} d="M 25 150 Q 50 130 45 90 L 45 10" fill="none" />
+                                                      <linearGradient id={`greenGrad-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                                                        <stop offset="0%" style={{ stopColor: '#00ffaa', stopOpacity: 1 }} />
+                                                        <stop offset="50%" style={{ stopColor: '#00ff88', stopOpacity: 1 }} />
+                                                        <stop offset="100%" style={{ stopColor: '#00cc66', stopOpacity: 1 }} />
+                                                      </linearGradient>
+                                                      <filter id="greenGlow-${row.strike}" x="-50%" y="-50%" width="200%" height="200%">
+                                                        <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                                                        <feMerge>
+                                                          <feMergeNode in="coloredBlur" />
+                                                          <feMergeNode in="SourceGraphic" />
+                                                        </feMerge>
+                                                      </filter>
+                                                    </defs>
+                                                    {/* 3D depth shadow layer */}
+                                                    {[0, 1, 2].map((i) => (
+                                                      <g key={`shadow-${i}`}>
+                                                        <text fontSize="42" fill="#003322" opacity="0.6" style={{ fontWeight: 'bold' }}>
+                                                          ↑
+                                                          <animateMotion
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                            path="M 23 152 Q 48 132 43 92 L 43 12"
+                                                          />
+                                                          <animate attributeName="opacity" values="0;0.2;0.6;0.6;0.6;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                        </text>
+                                                      </g>
+                                                    ))}
+                                                    {/* Main 3D arrows with gradient and outline */}
+                                                    {[0, 1, 2].map((i) => (
+                                                      <g key={i}>
+                                                        {/* Stroke outline for depth */}
+                                                        <text fontSize="42" fill="none" stroke="#00ffaa" strokeWidth="3" style={{ fontWeight: 'bold' }}>
+                                                          ↑
+                                                          <animateMotion
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                            path="M 25 150 Q 50 130 45 90 L 45 10"
                                                           >
-                                                            <animate
-                                                              attributeName="stroke-dashoffset"
-                                                              from="0"
-                                                              to="30"
-                                                              dur="1s"
-                                                              repeatCount="indefinite"
-                                                            />
-                                                          </path>
-
-                                                          {/* Horizontal blue rope */}
-                                                          <path
-                                                            d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
-                                                            stroke="#00bfff"
-                                                            strokeWidth="5"
-                                                            strokeLinecap="round"
-                                                            strokeDasharray="15 15"
-                                                            opacity="0.9"
-                                                            style={{ filter: 'drop-shadow(0 0 8px #00bfff)' }}
+                                                            <mpath href={`#greenUp-${row.strike}`} />
+                                                          </animateMotion>
+                                                          <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                        </text>
+                                                        {/* Inner fill with gradient */}
+                                                        <text fontSize="42" fill="url(#greenGrad-${row.strike})" style={{ filter: `drop-shadow(0 0 20px #00ff88) drop-shadow(0 0 35px #00ff88) drop-shadow(3px 3px 0px #003322) url(#greenGlow-${row.strike})`, fontWeight: 'bold' }}>
+                                                          ↑
+                                                          <animateMotion
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                            path="M 25 150 Q 50 130 45 90 L 45 10"
                                                           >
-                                                            <animate
-                                                              attributeName="stroke-dashoffset"
-                                                              from="30"
-                                                              to="0"
-                                                              dur="1s"
-                                                              repeatCount="indefinite"
-                                                            />
-                                                          </path>
-                                                        </g>
+                                                            <mpath href={`#greenUp-${row.strike}`} />
+                                                          </animateMotion>
+                                                          <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                          <animateTransform attributeName="transform" type="scale" values="0.9;1.05;1;1;0.9" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" additive="sum" />
+                                                        </text>
+                                                      </g>
+                                                    ))}
+                                                    <path d="M 45 150 Q 60 130 55 90 L 55 10" stroke="url(#greenGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #00ff88)' }} />
+                                                  </svg>
+                                                )}
 
-                                                        {/* Two-tone spinning rope inside pipe - Gold layer */}
-                                                        <g>
-                                                          {/* Vertical gold rope */}
-                                                          <path
-                                                            d={direction === 'down'
-                                                              ? `M 8 0 L 8 ${verticalHeight - 8}`
-                                                              : `M 8 20 L 8 ${verticalHeight + 20}`
-                                                            }
-                                                            stroke="#ffd700"
-                                                            strokeWidth="5"
-                                                            strokeLinecap="round"
-                                                            strokeDasharray="15 15"
-                                                            opacity="0.9"
-                                                            style={{ filter: 'drop-shadow(0 0 8px #ffd700)' }}
+                                                {/* Red arrows DOWN - from purple box bottom */}
+                                                {showRedDownFromPurple && (
+                                                  <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`, top: '100%', width: '70px', height: '150px', pointerEvents: 'none', zIndex: 100, overflow: 'visible' }}>
+                                                    <defs>
+                                                      <path id={`redDown-${row.strike}`} d="M 25 0 Q 0 20 5 60 L 5 140" fill="none" />
+                                                      <linearGradient id={`redGrad-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                                                        <stop offset="0%" style={{ stopColor: '#ff3366', stopOpacity: 1 }} />
+                                                        <stop offset="50%" style={{ stopColor: '#ff1744', stopOpacity: 1 }} />
+                                                        <stop offset="100%" style={{ stopColor: '#cc0022', stopOpacity: 1 }} />
+                                                      </linearGradient>
+                                                      <filter id="redGlow-${row.strike}" x="-50%" y="-50%" width="200%" height="200%">
+                                                        <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                                                        <feMerge>
+                                                          <feMergeNode in="coloredBlur" />
+                                                          <feMergeNode in="SourceGraphic" />
+                                                        </feMerge>
+                                                      </filter>
+                                                    </defs>
+                                                    {/* 3D depth shadow layer */}
+                                                    {[0, 1, 2].map((i) => (
+                                                      <g key={`shadow-${i}`}>
+                                                        <text fontSize="42" fill="#330011" opacity="0.6" style={{ fontWeight: 'bold' }}>
+                                                          ↓
+                                                          <animateMotion
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                            path="M 23 -2 Q -2 18 3 58 L 3 138"
+                                                          />
+                                                          <animate attributeName="opacity" values="0;0.2;0.6;0.6;0.6;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                        </text>
+                                                      </g>
+                                                    ))}
+                                                    {/* Main 3D arrows with gradient and outline */}
+                                                    {[0, 1, 2].map((i) => (
+                                                      <g key={i}>
+                                                        {/* Stroke outline for depth */}
+                                                        <text fontSize="42" fill="none" stroke="#ff3366" strokeWidth="3" style={{ fontWeight: 'bold' }}>
+                                                          ↓
+                                                          <animateMotion
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                            path="M 25 0 Q 0 20 5 60 L 5 140"
                                                           >
-                                                            <animate
-                                                              attributeName="stroke-dashoffset"
-                                                              from="15"
-                                                              to="45"
-                                                              dur="1s"
-                                                              repeatCount="indefinite"
-                                                            />
-                                                          </path>
-
-                                                          {/* Horizontal gold rope */}
-                                                          <path
-                                                            d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
-                                                            stroke="#ffd700"
-                                                            strokeWidth="5"
-                                                            strokeLinecap="round"
-                                                            strokeDasharray="15 15"
-                                                            opacity="0.9"
-                                                            style={{ filter: 'drop-shadow(0 0 8px #ffd700)' }}
+                                                            <mpath href={`#redDown-${row.strike}`} />
+                                                          </animateMotion>
+                                                          <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                        </text>
+                                                        {/* Inner fill with gradient */}
+                                                        <text fontSize="42" fill="url(#redGrad-${row.strike})" style={{ filter: `drop-shadow(0 0 20px #ff1744) drop-shadow(0 0 35px #ff1744) drop-shadow(3px 3px 0px #330011) url(#redGlow-${row.strike})`, fontWeight: 'bold' }}>
+                                                          ↓
+                                                          <animateMotion
+                                                            dur="2.2s"
+                                                            begin={`${i * 0.7}s`}
+                                                            repeatCount="indefinite"
+                                                            path="M 25 0 Q 0 20 5 60 L 5 140"
                                                           >
-                                                            <animate
-                                                              attributeName="stroke-dashoffset"
-                                                              from="45"
-                                                              to="15"
-                                                              dur="1s"
-                                                              repeatCount="indefinite"
-                                                            />
-                                                          </path>
-                                                        </g>
+                                                            <mpath href={`#redDown-${row.strike}`} />
+                                                          </animateMotion>
+                                                          <animate attributeName="opacity" values="0;0.3;1;1;1;0" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" />
+                                                          <animateTransform attributeName="transform" type="scale" values="0.9;1.05;1;1;0.9" dur="2.2s" begin={`${i * 0.7}s`} repeatCount="indefinite" additive="sum" />
+                                                        </text>
+                                                      </g>
+                                                    ))}
+                                                    <path d="M 35 0 Q 15 20 15 60 L 15 140" stroke="url(#redGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #ff1744)' }} />
+                                                  </svg>
+                                                )}
 
-                                                        {/* End caps */}
-                                                        <ellipse cx="8" cy={direction === 'down' ? "0" : `${verticalHeight + 20}`} rx="5" ry="4" fill="#000000" stroke={pipeColor} strokeWidth="1.5" opacity="0.9" />
-                                                        <ellipse cx={horizontalWidth + 15} cy={yPos} rx="5" ry="4" fill="#000000" stroke={pipeColor} strokeWidth="1.5" opacity="0.9" />
-                                                      </>
-                                                    );
-                                                  })()}
-                                                </svg>
-                                              )}
+                                                {/* Connected L-shaped pipe from current price to golden zone */}
+                                                {!isMobile && isCurrentPriceRow && goldenRowIndex !== -1 && (() => {
+                                                  // Ticker-specific row height multipliers for precise alignment
+                                                  const rowHeightMultiplier = tricoTicker === 'SPX' ? 39 :
+                                                    tricoTicker === 'SPY' ? 33 :
+                                                      tricoTicker === 'QQQ' ? 38 : 37;
 
-                                              {/* Horizontal rope at golden zone + Spinning pulley wheel */}
-                                              {!isMobile && isGoldenZone && (() => {
-                                                const wheelColor = goldenRowIndex > currentPriceRowIndex ? '#ff0000' : '#00ff00';
-                                                return (
-                                                  <>
-                                                    {/* Spinning pulley wheel at golden zone */}
-                                                    <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`, top: '50%', width: '60px', height: '60px', pointerEvents: 'none', zIndex: 100, overflow: 'visible', transform: 'translateY(-50%)' }}>
+                                                  return (
+                                                    <svg style={{
+                                                      position: 'absolute',
+                                                      left: `${mobileStrikeWidth + 30}px`,
+                                                      top: '50%',
+                                                      width: `${mobileExpWidth * 2 - 50 + 15}px`,
+                                                      height: `${Math.abs(goldenRowIndex - currentPriceRowIndex) * rowHeightMultiplier + 20}px`,
+                                                      pointerEvents: 'none',
+                                                      zIndex: 102,
+                                                      overflow: 'visible',
+                                                      transform: goldenRowIndex > currentPriceRowIndex ? 'translateY(17px)' : `translateY(calc(-100% - 17px))`
+                                                    }}>
                                                       <defs>
-                                                        <filter id={`pulleyGlow-${row.strike}`} x="-50%" y="-50%" width="200%" height="200%">
-                                                          <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                                                        {/* Vertical glossy shine */}
+                                                        <linearGradient id={`pipeShine-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                                                          <stop offset="0%" style={{ stopColor: '#fff', stopOpacity: 0 }} />
+                                                          <stop offset="15%" style={{ stopColor: '#fff', stopOpacity: 0.6 }} />
+                                                          <stop offset="30%" style={{ stopColor: '#fff', stopOpacity: 0 }} />
+                                                        </linearGradient>
+                                                        {/* 4D glow filter */}
+                                                        <filter id={`pipeGlow-${row.strike}`} x="-50%" y="-50%" width="200%" height="200%">
+                                                          <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                                                          <feFlood floodColor="#00ff00" floodOpacity="0.5" />
+                                                          <feComposite in2="coloredBlur" operator="in" />
                                                           <feMerge>
-                                                            <feMergeNode in="coloredBlur" />
+                                                            <feMergeNode />
                                                             <feMergeNode in="SourceGraphic" />
                                                           </feMerge>
                                                         </filter>
                                                       </defs>
-                                                      <g transform="translate(30, 30)">
-                                                        {/* Pulley shadow */}
-                                                        <circle cx="0" cy="0" r="22" fill="#333" opacity="0.5" style={{ filter: 'blur(4px)' }} />
-                                                        {/* Pulley outer ring - golden color with conditional outline */}
-                                                        <circle cx="0" cy="0" r="20" fill="#ffd700" stroke={wheelColor} strokeWidth="3" style={{ filter: `url(#pulleyGlow-${row.strike})` }} />
-                                                        {/* Inner dark ring */}
-                                                        <circle cx="0" cy="0" r="15" fill="#444" />
-                                                        {/* Spinning spokes - golden */}
-                                                        <g>
-                                                          <line x1="0" y1="-15" x2="0" y2="15" stroke="#ffd700" strokeWidth="3" />
-                                                          <line x1="-15" y1="0" x2="15" y2="0" stroke="#ffd700" strokeWidth="3" />
-                                                          <line x1="-10.5" y1="-10.5" x2="10.5" y2="10.5" stroke="#ffd700" strokeWidth="3" />
-                                                          <line x1="-10.5" y1="10.5" x2="10.5" y2="-10.5" stroke="#ffd700" strokeWidth="3" />
-                                                          <animateTransform
-                                                            attributeName="transform"
-                                                            type="rotate"
-                                                            from="0"
-                                                            to="360"
-                                                            dur="2s"
-                                                            repeatCount="indefinite"
-                                                          />
-                                                        </g>
-                                                        {/* Center bolt - golden */}
-                                                        <circle cx="0" cy="0" r="5" fill="#b8860b" stroke="#ffd700" strokeWidth="2" />
-                                                        {/* Metallic shine */}
-                                                        <circle cx="-5" cy="-5" r="8" fill="#fff" opacity="0.4" />
-                                                      </g>
+
+                                                      {(() => {
+                                                        const direction = goldenRowIndex > currentPriceRowIndex ? 'down' : 'up';
+                                                        const verticalHeight = Math.abs(goldenRowIndex - currentPriceRowIndex) * rowHeightMultiplier;
+                                                        const horizontalWidth = mobileExpWidth * 2 - 50;
+                                                        const pipeColor = direction === 'down' ? '#ff0000' : '#00ff00'; // Red if golden zone below, green if above
+                                                        const ropeColor = direction === 'down' ? '#ff0000' : '#00ff00'; // Match pipe color
+                                                        const ropeDuration = isTurboMode ? '0.5s' : '1s'; // Faster in turbo mode
+
+                                                        // Create L-shaped path
+                                                        const pathData = direction === 'down'
+                                                          ? `M 8 0 L 8 ${verticalHeight - 8} Q 8 ${verticalHeight} 16 ${verticalHeight} L ${horizontalWidth + 15} ${verticalHeight}`
+                                                          : `M 8 ${verticalHeight + 20} L 8 20 Q 8 12 16 12 L ${horizontalWidth + 15} 12`;
+
+                                                        const yPos = direction === 'down' ? verticalHeight : 12;
+
+                                                        return (
+                                                          <>
+                                                            {/* Shadow layers for L-shape */}
+                                                            <path d={pathData} fill="none" stroke="#2d1f00" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" style={{ filter: 'blur(4px)' }} />
+                                                            <path d={pathData} fill="none" stroke="#5a3e00" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" opacity="0.3" style={{ filter: 'blur(2px)' }} />
+
+                                                            {/* Main L-shaped pipe body */}
+                                                            <path d={pathData} fill="none" stroke="#000000" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `url(#pipeGlow-${row.strike})` }} />
+                                                            <path d={pathData} fill="none" stroke={pipeColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `url(#pipeGlow-${row.strike})` }} />
+
+                                                            {/* Glossy highlight on vertical section */}
+                                                            <line x1="6" y1="0" x2="6" y2={verticalHeight - 8} stroke="url(#pipeShine-${row.strike})" strokeWidth="2" opacity="0.7" />
+
+                                                            {/* Glossy highlight on horizontal section */}
+                                                            <line x1="16" y1={yPos - 1} x2={horizontalWidth + 15} y2={yPos - 1} stroke="url(#pipeShine-${row.strike})" strokeWidth="2" opacity="0.7" />
+
+                                                            {/* Two-tone spinning rope inside pipe - Blue layer */}
+                                                            <g>
+                                                              {/* Vertical blue rope */}
+                                                              <path
+                                                                d={direction === 'down'
+                                                                  ? `M 8 0 L 8 ${verticalHeight - 8}`
+                                                                  : `M 8 20 L 8 ${verticalHeight + 20}`
+                                                                }
+                                                                stroke="#00bfff"
+                                                                strokeWidth="5"
+                                                                strokeLinecap="round"
+                                                                strokeDasharray="15 15"
+                                                                opacity="0.9"
+                                                                style={{ filter: 'drop-shadow(0 0 8px #00bfff)' }}
+                                                              >
+                                                                <animate
+                                                                  attributeName="stroke-dashoffset"
+                                                                  from="0"
+                                                                  to="30"
+                                                                  dur={ropeDuration}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </path>
+
+                                                              {/* Horizontal blue rope */}
+                                                              <path
+                                                                d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
+                                                                stroke="#00bfff"
+                                                                strokeWidth="5"
+                                                                strokeLinecap="round"
+                                                                strokeDasharray="15 15"
+                                                                opacity="0.9"
+                                                                style={{ filter: 'drop-shadow(0 0 8px #00bfff)' }}
+                                                              >
+                                                                <animate
+                                                                  attributeName="stroke-dashoffset"
+                                                                  from="30"
+                                                                  to="0"
+                                                                  dur={ropeDuration}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </path>
+                                                            </g>
+
+                                                            {/* Two-tone spinning rope inside pipe - Gold layer */}
+                                                            <g>
+                                                              {/* Vertical gold rope */}
+                                                              <path
+                                                                d={direction === 'down'
+                                                                  ? `M 8 0 L 8 ${verticalHeight - 8}`
+                                                                  : `M 8 20 L 8 ${verticalHeight + 20}`
+                                                                }
+                                                                stroke="#ffd700"
+                                                                strokeWidth="5"
+                                                                strokeLinecap="round"
+                                                                strokeDasharray="15 15"
+                                                                opacity="0.9"
+                                                                style={{ filter: 'drop-shadow(0 0 8px #ffd700)' }}
+                                                              >
+                                                                <animate
+                                                                  attributeName="stroke-dashoffset"
+                                                                  from="15"
+                                                                  to="45"
+                                                                  dur={ropeDuration}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </path>
+
+                                                              {/* Horizontal gold rope */}
+                                                              <path
+                                                                d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
+                                                                stroke="#ffd700"
+                                                                strokeWidth="5"
+                                                                strokeLinecap="round"
+                                                                strokeDasharray="15 15"
+                                                                opacity="0.9"
+                                                                style={{ filter: 'drop-shadow(0 0 8px #ffd700)' }}
+                                                              >
+                                                                <animate
+                                                                  attributeName="stroke-dashoffset"
+                                                                  from="45"
+                                                                  to="15"
+                                                                  dur={ropeDuration}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </path>
+                                                            </g>
+
+                                                            {/* NEW: Green/Red rope layer based on direction */}
+                                                            <g>
+                                                              {/* Vertical green/red rope */}
+                                                              <path
+                                                                d={direction === 'down'
+                                                                  ? `M 8 0 L 8 ${verticalHeight - 8}`
+                                                                  : `M 8 20 L 8 ${verticalHeight + 20}`
+                                                                }
+                                                                stroke={ropeColor}
+                                                                strokeWidth="4"
+                                                                strokeLinecap="round"
+                                                                strokeDasharray="10 20"
+                                                                opacity="0.8"
+                                                                style={{ filter: `drop-shadow(0 0 12px ${ropeColor})` }}
+                                                              >
+                                                                <animate
+                                                                  attributeName="stroke-dashoffset"
+                                                                  from="0"
+                                                                  to="30"
+                                                                  dur={ropeDuration}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </path>
+
+                                                              {/* Horizontal green/red rope */}
+                                                              <path
+                                                                d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
+                                                                stroke={ropeColor}
+                                                                strokeWidth="4"
+                                                                strokeLinecap="round"
+                                                                strokeDasharray="10 20"
+                                                                opacity="0.8"
+                                                                style={{ filter: `drop-shadow(0 0 12px ${ropeColor})` }}
+                                                              >
+                                                                <animate
+                                                                  attributeName="stroke-dashoffset"
+                                                                  from="30"
+                                                                  to="0"
+                                                                  dur={ropeDuration}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </path>
+                                                            </g>
+
+                                                            {/* End caps */}
+                                                            <ellipse cx="8" cy={direction === 'down' ? "0" : `${verticalHeight + 20}`} rx="5" ry="4" fill="#000000" stroke={pipeColor} strokeWidth="1.5" opacity="0.9" />
+                                                            <ellipse cx={horizontalWidth + 15} cy={yPos} rx="5" ry="4" fill="#000000" stroke={pipeColor} strokeWidth="1.5" opacity="0.9" />
+                                                          </>
+                                                        );
+                                                      })()}
                                                     </svg>
-                                                  </>
-                                                );
-                                              })()}
-                                            </>
+                                                  );
+                                                })()}
+
+                                                {/* Horizontal rope at golden zone + Spinning pulley wheel */}
+                                                {!isMobile && isGoldenZone && (() => {
+                                                  const wheelColor = goldenRowIndex > currentPriceRowIndex ? '#ff0000' : '#00ff00';
+                                                  const wheelDuration = isTurboMode ? '0.5s' : '2s'; // Faster spin in turbo mode
+                                                  return (
+                                                    <>
+                                                      {/* Spinning pulley wheel at golden zone */}
+                                                      <svg style={{ position: 'absolute', left: `${mobileStrikeWidth + mobileExpWidth * 2 - 25}px`, top: '50%', width: '60px', height: '60px', pointerEvents: 'none', zIndex: 100, overflow: 'visible', transform: 'translateY(-50%)' }}>
+                                                        <defs>
+                                                          <filter id={`pulleyGlow-${row.strike}`} x="-50%" y="-50%" width="200%" height="200%">
+                                                            <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                                                            <feMerge>
+                                                              <feMergeNode in="coloredBlur" />
+                                                              <feMergeNode in="SourceGraphic" />
+                                                            </feMerge>
+                                                          </filter>
+                                                        </defs>
+
+                                                        {/* Smoke animation - only in turbo mode */}
+                                                        {isTurboMode && (
+                                                          <>
+                                                            {[...Array(5)].map((_, i) => (
+                                                              <circle
+                                                                key={i}
+                                                                cx="30"
+                                                                cy="30"
+                                                                r="3"
+                                                                fill="#888"
+                                                                opacity="0"
+                                                              >
+                                                                <animate
+                                                                  attributeName="cy"
+                                                                  from="30"
+                                                                  to="0"
+                                                                  dur="2s"
+                                                                  begin={`${i * 0.4}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                                <animate
+                                                                  attributeName="cx"
+                                                                  from="30"
+                                                                  to={30 + (Math.random() - 0.5) * 20}
+                                                                  dur="2s"
+                                                                  begin={`${i * 0.4}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                                <animate
+                                                                  attributeName="r"
+                                                                  from="2"
+                                                                  to="8"
+                                                                  dur="2s"
+                                                                  begin={`${i * 0.4}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                                <animate
+                                                                  attributeName="opacity"
+                                                                  values="0;0.6;0.3;0"
+                                                                  dur="2s"
+                                                                  begin={`${i * 0.4}s`}
+                                                                  repeatCount="indefinite"
+                                                                />
+                                                              </circle>
+                                                            ))}
+                                                          </>
+                                                        )}
+
+                                                        <g transform="translate(30, 30)">
+                                                          {/* Pulley shadow */}
+                                                          <circle cx="0" cy="0" r="22" fill="#333" opacity="0.5" style={{ filter: 'blur(4px)' }} />
+                                                          {/* Pulley outer ring - golden color with conditional outline */}
+                                                          <circle cx="0" cy="0" r="20" fill="#ffd700" stroke={wheelColor} strokeWidth="3" style={{ filter: `url(#pulleyGlow-${row.strike})` }} />
+                                                          {/* Inner dark ring */}
+                                                          <circle cx="0" cy="0" r="15" fill="#444" />
+                                                          {/* Spinning spokes - golden */}
+                                                          <g>
+                                                            <line x1="0" y1="-15" x2="0" y2="15" stroke="#ffd700" strokeWidth="3" />
+                                                            <line x1="-15" y1="0" x2="15" y2="0" stroke="#ffd700" strokeWidth="3" />
+                                                            <line x1="-10.5" y1="-10.5" x2="10.5" y2="10.5" stroke="#ffd700" strokeWidth="3" />
+                                                            <line x1="-10.5" y1="10.5" x2="10.5" y2="-10.5" stroke="#ffd700" strokeWidth="3" />
+                                                            <animateTransform
+                                                              attributeName="transform"
+                                                              type="rotate"
+                                                              from="0"
+                                                              to="360"
+                                                              dur={wheelDuration}
+                                                              repeatCount="indefinite"
+                                                            />
+                                                          </g>
+                                                          {/* Center bolt - golden */}
+                                                          <circle cx="0" cy="0" r="5" fill="#b8860b" stroke="#ffd700" strokeWidth="2" />
+                                                          {/* Metallic shine */}
+                                                          <circle cx="-5" cy="-5" r="8" fill="#fff" opacity="0.4" />
+                                                        </g>
+                                                      </svg>
+                                                    </>
+                                                  );
+                                                })()}
+                                              </>
+                                            )}
+                                          </td>
+                                          {showNormalColumn && (
+                                            <td
+                                              className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                              style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
+                                            >
+                                              <div className={`${normalCellStyle.bg} ${normalCellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
+                                                <div className={`font-bold mb-1 ${normalCellStyle.text}`} style={{ fontSize: isMobile ? '0.65rem' : '1.5rem' }}>{formatCurrency(netGEX)}</div>
+                                              </div>
+                                            </td>
                                           )}
-                                        </td>
-                                        {showNormalColumn && (
-                                          <td
-                                            className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                            style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
-                                          >
-                                            <div className={`${normalCellStyle.bg} ${normalCellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                              <div className={`font-bold mb-1 ${normalCellStyle.text}`} style={{ fontSize: isMobile ? '0.65rem' : '1.5rem' }}>{formatCurrency(netGEX)}</div>
-                                            </div>
-                                          </td>
-                                        )}
-                                        {showDealerColumn && (
-                                          <td
-                                            className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
-                                            style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
-                                          >
-                                            <div className={`${dealerCellStyle.bg} ${dealerCellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                              <div className={`font-bold mb-1 ${dealerCellStyle.text}`} style={{ fontSize: isMobile ? '0.65rem' : '1.5rem' }}>{formatCurrency(netDealer)}</div>
-                                            </div>
-                                          </td>
-                                        )}
-                                      </tr>
-                                    );
-                                  });
-                                })()}
-                              </tbody>
-                            </table>
+                                          {showDealerColumn && (
+                                            <td
+                                              className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
+                                              style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
+                                            >
+                                              <div className={`${dealerCellStyle.bg} ${dealerCellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
+                                                <div className={`font-bold mb-1 ${dealerCellStyle.text}`} style={{ fontSize: isMobile ? '0.65rem' : '1.5rem' }}>{formatCurrency(netDealer)}</div>
+                                              </div>
+                                            </td>
+                                          )}
+                                        </tr>
+                                      );
+                                    });
+                                  })()}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
               ) : (
