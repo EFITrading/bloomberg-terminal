@@ -6113,10 +6113,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     // Create a Date object at noon UTC to avoid timezone shifting
     const date = new Date(`${dateStr}T12:00:00Z`);
 
-    // Add 1 day because options expire on Saturday (contract dated Friday)
-    date.setUTCDate(date.getUTCDate() + 1);
-
-    // Format the date
+    // Format the date (removed +1 day offset)
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthName = monthNames[date.getUTCMonth()];
     const dayNum = date.getUTCDate();
@@ -8060,7 +8057,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                             minWidth: `${mobileStrikeWidth}px`,
                                             maxWidth: `${mobileStrikeWidth}px`
                                           }}>
-                                            <div className={`text-base font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
+                                            <div className={`text-base md:text-lg font-mono font-bold ${isCurrentPriceRow ? 'text-orange-500' : 'text-white'}`}>
                                               {row.strike.toFixed(1)}
                                             </div>
                                           </td>
@@ -8078,7 +8075,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                 style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                               >
                                                 <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
-                                                  <div className="text-sm font-bold mb-1">{formatCurrency(displayValue)}</div>
+                                                  <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
                                                 </div>
                                               </td>
                                             );
