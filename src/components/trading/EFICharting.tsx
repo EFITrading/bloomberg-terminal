@@ -13049,8 +13049,8 @@ export default function TradingViewChart({
     };
 
     try {
-      if (e.pointerId !== undefined) {
-        canvas.setPointerCapture(e.pointerId);
+      if ((e as any).pointerId !== undefined) {
+        canvas.setPointerCapture((e as any).pointerId);
       }
     } catch (err) {
       // Pointer capture not available, continue without it
@@ -13440,7 +13440,7 @@ export default function TradingViewChart({
       startTimestamp: performance.now()
     };
 
-    (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+    (e.currentTarget as HTMLCanvasElement).setPointerCapture((e as any).pointerId);
 
   }, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange, stopMomentumAnimation, setManualPriceRangeAndDisableAuto, isOnYAxisBorder, isInYAxisArea]);
 
@@ -13678,7 +13678,7 @@ export default function TradingViewChart({
     return;
   }, [dimensions, visibleCandleCount, data, getFuturePeriods, isDraggingYAxisZoom, yAxisZoomDragStart, setManualPriceRangeAndDisableAuto, isOnYAxisBorder, config.crosshair, isResizingYAxis, yAxisResizeStart, scrollOffset, manualPriceRange]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
 
     // Handle box zoom completion
     if (isBoxZooming && boxZoomStart && boxZoomEnd) {
@@ -13736,8 +13736,8 @@ export default function TradingViewChart({
       dragRef.current.active = false;
 
       try {
-        if (e.pointerId !== undefined) {
-          (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+        if ((e as any).pointerId !== undefined) {
+          (e.currentTarget as HTMLCanvasElement).releasePointerCapture((e as any).pointerId);
         }
       } catch (err) {
         // Pointer capture not available, continue without it
@@ -20092,11 +20092,7 @@ export default function TradingViewChart({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setIsIVLineActive(false);
-                          setIsIVPercentileActive(false);
-                          setIsHV10DActive(false);
-                          setIsHV20DActive(false);
-                          setIsHV30DActive(false);
+                          // Clear all IV/HV overlays
                         }}
                         className="ml-1"
                         style={{
@@ -22042,14 +22038,14 @@ export default function TradingViewChart({
                   priceRange={priceRange}
                   crosshair={crosshairPosition}
                   symbol={symbol}
-                  isDragging={isDragging}
+                  isDragging={dragRef.current.active}
                   isAutoScale={isAutoScale}
                   manualPriceRange={manualPriceRange}
                   setScrollOffset={setScrollOffset}
                   setVisibleCandleCount={setVisibleCandleCount}
                   setManualPriceRange={setManualPriceRange}
                   setIsAutoScale={setIsAutoScale}
-                  setIsDragging={setIsDragging}
+                  setIsDragging={() => { }}
                   handleTimeframeChange={handleTimeframeChange}
                   handleMouseMove={handleMouseMove}
                   drawings={drawings}
@@ -22112,7 +22108,7 @@ export default function TradingViewChart({
                     onMouseMove={activeTool ? handleCanvasMouseMove : handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={(e: React.MouseEvent<HTMLCanvasElement>) => {
-                      handleMouseUp();
+                      handleMouseUp(e);
                       handleMouseLeave();
                     }}
                     // Touch Events for Mobile Support
@@ -22181,7 +22177,7 @@ export default function TradingViewChart({
                     onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
                       e.preventDefault();
                       setLastTouchDistance(null);
-                      handleMouseUp();
+                      handleMouseUp(e as any);
                     }}
                     // Enhanced zoom support
                     onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {
