@@ -281,10 +281,11 @@ class SeasonalScreenerService {
                // First, get SPY data for comparison (bulk request)
                console.log(` Getting SPY data for 30 years max...`);
                const spyData = await this.polygonService.getBulkHistoricalData('SPY', 30);
-               throw new Error('Failed to get SPY data for comparison');
-          }
+               if (!spyData || !spyData.results) {
+                    throw new Error('Failed to get SPY data for comparison');
+               }
 
- console.log(` SPY data loaded: ${spyData.results.length} data points`);
+               console.log(` SPY data loaded: ${spyData.results.length} data points`);
 
           const stocksToProcess = TOP500_BY_MARKET_CAP.slice(startOffset, startOffset + actualMaxStocks);
 
@@ -383,6 +384,20 @@ class SeasonalScreenerService {
           // Wait for ALL requests to complete at once - NO BATCHING!
           await Promise.all(allPromises);
 
+          // Remove any remaining duplicates by symbol (safety check)
+          const uniqueOpportunities = opportunities.filter((opportunity, index, array) =>
+               array.findIndex(o => o.symbol === opportunity.symbol) === index
+          );
+
+          // Sort by absolute return (strongest signals first)
+          uniqueOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+
+          console.log(` Bulk screening complete! Found ${uniqueOpportunities.length} unique seasonal opportunities`);
+          console.log(` Bullish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bullish').length}`);
+          console.log(` Bearish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bearish').length}`);
+
+          return uniqueOpportunities;
+
      } catch(error) {
           console.error('? Bulk screening failed:', error);
 
@@ -395,20 +410,6 @@ class SeasonalScreenerService {
           // No fallback data - throw the error to be handled by the API layer
           throw error;
      }
-
-     // Remove any remaining duplicates by symbol (safety check)
-     const uniqueOpportunities = opportunities.filter((opportunity, index, array) =>
-          array.findIndex(o => o.symbol === opportunity.symbol) === index
-     );
-
- // Sort by absolute return (strongest signals first)
- uniqueOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
-
-console.log(` Bulk screening complete! Found ${uniqueOpportunities.length} unique seasonal opportunities`);
-console.log(` Bullish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bullish').length}`);
-console.log(` Bearish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bearish').length}`);
-
-return uniqueOpportunities;
  }
 
  // Mock data method removed - no fallback data
