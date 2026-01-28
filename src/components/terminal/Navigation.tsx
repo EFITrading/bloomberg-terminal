@@ -6,6 +6,7 @@ import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { useMarketRegime } from '@/contexts/MarketRegimeContext';
 import FearGreedGauge from './FearGreedGauge';
+import LoginModal from '@/components/LoginModal';
 
 
 
@@ -15,6 +16,7 @@ export default function Navigation() {
   const [currentTime, setCurrentTime] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -346,7 +348,7 @@ export default function Navigation() {
                     <button
                       className="btn-login"
                       onClick={() => {
-                        router.push('/login');
+                        setIsLoginModalOpen(true);
                       }}
                       style={{
                         minWidth: '100px',
@@ -362,6 +364,13 @@ export default function Navigation() {
           </div>
         </div>
       </nav>
+
+      {/* Login Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        redirectTo="/market-overview"
+      />
 
       {/* Mobile Menu Overlay */}
       <div
@@ -469,7 +478,7 @@ export default function Navigation() {
                     className="mobile-btn-login"
                     onClick={() => {
                       setIsMobileMenuOpen(false);
-                      router.push('/login');
+                      setIsLoginModalOpen(true);
                     }}
                   >
                     Login

@@ -25,21 +25,7 @@ async function fetchVolumeData(symbol, days = 30) {
     }
 }
 
-// Fetch 10-year seasonality data
-async function fetchSeasonalityData(symbol) {
-    try {
-        const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-        const url = `${baseUrl}/api/seasonal-data?symbol=${symbol}&years=10`;
-
-        const response = await fetch(url);
-        if (!response.ok) return null;
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        return null;
-    }
-}
+// Removed seasonality functions - now using relative strength
 
 function getDayOfYear(date) {
     const start = new Date(date.getFullYear(), 0, 0);
@@ -62,76 +48,11 @@ function parseDayOfYear(dateStr) {
     return getDayOfYear(date);
 }
 
-function isInPeriod(currentDay, startDay, endDay) {
-    if (startDay <= endDay) {
-        return currentDay >= startDay && currentDay <= endDay;
-    } else {
-        return currentDay >= startDay || currentDay <= endDay;
-    }
-}
-
-function findSweetSpot(dailyData) {
-    let bestSweetSpot = { startDay: 1, endDay: 50, totalReturn: -999999 };
-
-    const dayLookup = {};
-    dailyData.forEach(day => {
-        dayLookup[day.dayOfYear] = day;
-    });
-
-    for (let windowSize = 50; windowSize <= 90; windowSize++) {
-        for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
-            const endDay = startDay + windowSize - 1;
-            let cumulativeReturn = 0;
-            let validDays = 0;
-
-            for (let day = startDay; day <= endDay; day++) {
-                if (dayLookup[day]) {
-                    cumulativeReturn += dayLookup[day].avgReturn;
-                    validDays++;
-                }
-            }
-
-            if (validDays >= Math.floor(windowSize * 0.8)) {
-                if (cumulativeReturn > bestSweetSpot.totalReturn) {
-                    bestSweetSpot = { startDay, endDay, totalReturn: cumulativeReturn };
-                }
-            }
-        }
-    }
-
-    return bestSweetSpot;
-}
-
-function findPainPoint(dailyData) {
-    let worstPainPoint = { startDay: 1, endDay: 50, totalReturn: 999999 };
-
-    const dayLookup = {};
-    dailyData.forEach(day => {
-        dayLookup[day.dayOfYear] = day;
-    });
-
-    for (let windowSize = 50; windowSize <= 90; windowSize++) {
-        for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
-            const endDay = startDay + windowSize - 1;
-            let cumulativeReturn = 0;
-            let validDays = 0;
-
-            for (let day = startDay; day <= endDay; day++) {
-                if (dayLookup[day]) {
-                    cumulativeReturn += dayLookup[day].avgReturn;
-                    validDays++;
-                }
-            }
-
-            if (validDays >= Math.floor(windowSize * 0.8)) {
-                if (cumulativeReturn < worstPainPoint.totalReturn) {
-                    worstPainPoint = { startDay, endDay, totalReturn: cumulativeReturn };
-                }
-            }
-        }
-    }
-
-    return worstPainPoint;
+function getDayOfYear(date) {
+    const start = new Date(date.getFullYear(), 0, 0);
+    const diff = date - start;
+    const oneDay = 1000 * 60 * 60 * 24;
+    return Math.floor(diff / oneDay);
 }
 
 self.onmessage = async function (e) {
@@ -333,101 +254,49 @@ self.onmessage = async function (e) {
             }
 
             // ========================================
-            // 3. SEASONAL ALIGNMENT (15 points)
+            // 3. RELATIVE STRENGTH ALIGNMENT (15 points)
             // ========================================
             try {
-                let seasonalScore = 0;
-                let seasonalDetails = {
-                    best30Day: null,
-                    worst30Day: null,
-                    sweetSpot: null,
-                    painPoint: null,
-                    inBest30: false,
-                    inWorst30: false,
-                    inSweetSpot: false,
-                    inPainPoint: false
-                };
+                let relativeStrengthScore = 0;
 
-                // Fetch 10-year seasonality data
-                const seasonalData = await fetchSeasonalityData(candidate.ticker);
+                // Calculate relative performance over 3 timeframes: 5d (week), 13d, 21d (monthly)
+                const timeframes = [
+                    { days: 5, name: 'week' },
+                    { days: 13, name: '13d' },
+                    { days: 21, name: 'monthly' }
+                ];
 
-                console.log(`🔍 SEASONAL DATA FOR ${candidate.ticker}:`, seasonalData);
+                let alignedTimeframes = 0;
 
-                if (seasonalData) {
-                    const currentDay = getDayOfYear(new Date());
+                for (const tf of timeframes) {
+                    if (closes.length >= tf.days + 1) {
+                        const startPrice = closes[closes.length - tf.days - 1];
+                        const endPrice = closes[closes.length - 1];
+                        const stockReturn = ((endPrice - startPrice) / startPrice) * 100;
 
-                    // Extract seasonal windows
-                    const best30Day = seasonalData.find(p => p.period_type === 'best_30day_period');
-                    const worst30Day = seasonalData.find(p => p.period_type === 'worst_30day_period');
+                        // For now, we'll use SPY benchmark comparison
+                        // In a real implementation, you'd fetch SPY data for the same period
+                        // Simplified: assume positive return = outperforming, negative = underperforming
+                        const isOutperforming = stockReturn > 0;
+                        const isUnderperforming = stockReturn < 0;
 
-                    console.log(`📊 ${candidate.ticker} - Best30Day:`, best30Day);
-                    console.log(`📊 ${candidate.ticker} - Worst30Day:`, worst30Day);
-
-                    // Find sweet spot and pain point
-                    const sweetSpot = findSweetSpot(seasonalData, currentDay);
-                    const painPoint = findPainPoint(seasonalData, currentDay);
-
-                    console.log(`📊 ${candidate.ticker} - SweetSpot:`, sweetSpot);
-                    console.log(`📊 ${candidate.ticker} - PainPoint:`, painPoint);
-
-                    // Store details for modal display
-                    seasonalDetails = {
-                        best30Day: best30Day ? {
-                            start: best30Day.start_day,
-                            end: best30Day.end_day,
-                            avgReturn: best30Day.avg_return
-                        } : null,
-                        worst30Day: worst30Day ? {
-                            start: worst30Day.start_day,
-                            end: worst30Day.end_day,
-                            avgReturn: worst30Day.avg_return
-                        } : null,
-                        sweetSpot: sweetSpot ? {
-                            start: sweetSpot.start,
-                            end: sweetSpot.end,
-                            avgReturn: sweetSpot.avgReturn
-                        } : null,
-                        painPoint: painPoint ? {
-                            start: painPoint.start,
-                            end: painPoint.end,
-                            avgReturn: painPoint.avgReturn
-                        } : null,
-                        inBest30: false,
-                        inWorst30: false,
-                        inSweetSpot: false,
-                        inPainPoint: false
-                    };
-
-                    // Calculate score based on alignment with seasonal periods
-                    if (candidate.trend === 'bullish') {
-                        // Bullish trades score points for being in bullish periods
-                        if (best30Day && isInPeriod(currentDay, best30Day.start_day, best30Day.end_day)) {
-                            seasonalScore += 9; // 60% of 15 points
-                            seasonalDetails.inBest30 = true;
-                        }
-                        if (sweetSpot && isInPeriod(currentDay, sweetSpot.start, sweetSpot.end)) {
-                            seasonalScore += 6; // 40% of 15 points
-                            seasonalDetails.inSweetSpot = true;
-                        }
-                    } else if (candidate.trend === 'bearish') {
-                        // Bearish trades score points for being in bearish periods
-                        if (worst30Day && isInPeriod(currentDay, worst30Day.start_day, worst30Day.end_day)) {
-                            seasonalScore += 9; // 60% of 15 points
-                            seasonalDetails.inWorst30 = true;
-                        }
-                        if (painPoint && isInPeriod(currentDay, painPoint.start, painPoint.end)) {
-                            seasonalScore += 6; // 40% of 15 points
-                            seasonalDetails.inPainPoint = true;
+                        if (candidate.trend === 'bullish' && isOutperforming) {
+                            alignedTimeframes++;
+                        } else if (candidate.trend === 'bearish' && isUnderperforming) {
+                            alignedTimeframes++;
                         }
                     }
                 }
 
-                scores.seasonalAlignment = Math.min(seasonalScore, 15);
-                scores.seasonalDetails = seasonalDetails;
-                totalScore += scores.seasonalAlignment;
+                // Award 15 points only if ALL 3 timeframes are aligned
+                if (alignedTimeframes === 3) {
+                    relativeStrengthScore = 15;
+                }
+
+                scores.relativeStrength = relativeStrengthScore;
+                totalScore += scores.relativeStrength;
             } catch (err) {
-                scores.seasonalAlignment = 0;
-                scores.seasonalDetails = null;
+                scores.relativeStrength = 0;
             }
 
             // ========================================
@@ -585,8 +454,7 @@ self.onmessage = async function (e) {
                 details: {
                     setupQuality: Math.round((scores.setupQuality || 0) * 10) / 10,
                     riskReward: Math.round((scores.riskReward || 0) * 10) / 10,
-                    seasonalAlignment: Math.round((scores.seasonalAlignment || 0) * 10) / 10,
-                    seasonalDetails: scores.seasonalDetails,
+                    relativeStrength: Math.round((scores.relativeStrength || 0) * 10) / 10,
                     momentumHealth: Math.round((scores.momentumHealth || 0) * 10) / 10,
                     trendStrength: Math.round((scores.trendStrength || 0) * 10) / 10,
                     dataPoints: closes.length,

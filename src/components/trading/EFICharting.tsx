@@ -1343,10 +1343,10 @@ const calculateSeasonalityProjection = async (
   try {
     console.log(`📊 Calculating seasonality projection for ${symbol} with ${yearsOfData} years`);
 
-    // Calculate date range
+    // Calculate date range - fetch 30 years max
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - yearsOfData);
+    startDate.setFullYear(endDate.getFullYear() - 30);
 
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
@@ -1378,11 +1378,11 @@ const calculateSeasonalityProjection = async (
       // Fetch historical data for symbol and SPY using bulk method
       const isSPY = symbol.toUpperCase() === 'SPY';
 
-      console.log(`📊 Fetching ${yearsOfData} years of historical data for ${symbol}`);
+      console.log(`📊 Fetching 30 years max of historical data for ${symbol} (will use ${yearsOfData} years)`);
 
       const [symbolResponse, spyResponse] = await Promise.all([
-        polygonService.getBulkHistoricalData(symbol, yearsOfData),
-        isSPY ? Promise.resolve(null) : polygonService.getBulkHistoricalData('SPY', yearsOfData)
+        polygonService.getBulkHistoricalData(symbol, 30),
+        isSPY ? Promise.resolve(null) : polygonService.getBulkHistoricalData('SPY', 30)
       ]);
 
       if (!symbolResponse || !symbolResponse.results) {
@@ -1404,10 +1404,26 @@ const calculateSeasonalityProjection = async (
         console.log(`📊 SPY data: ${spyResponse.results.length} points from ${spyFirstDate.toISOString().split('T')[0]} to ${spyLastDate.toISOString().split('T')[0]}`);
       }
 
+      // Filter to requested years
+      let filteredData = symbolResponse.results;
+      let filteredSpyData = spyResponse?.results || null;
+
+      if (yearsOfData && symbolResponse.results.length > 0) {
+        const dataEndDate = new Date(symbolResponse.results[symbolResponse.results.length - 1].t);
+        const cutoffDate = new Date(dataEndDate);
+        cutoffDate.setFullYear(dataEndDate.getFullYear() - yearsOfData);
+
+        filteredData = symbolResponse.results.filter(point => new Date(point.t) >= cutoffDate);
+        if (filteredSpyData) {
+          filteredSpyData = filteredSpyData.filter(point => new Date(point.t) >= cutoffDate);
+        }
+        console.log(`📊 Filtered to ${yearsOfData} years: ${filteredData.length} data points`);
+      }
+
       // Process data into daily seasonal format
       dailySeasonalData = processDailySeasonalData(
-        symbolResponse.results,
-        spyResponse?.results || null,
+        filteredData,
+        filteredSpyData,
         yearsOfData
       );
     }
@@ -1444,17 +1460,29 @@ const calculateSeasonalityProjection = async (
     const lastCandle = chartData[chartData.length - 1];
     let currentPrice = lastCandle.close;
 
-    console.log(`💰 Last candle price: $${currentPrice.toFixed(2)}`);
+    // Use the LAST CANDLE's date as the starting point, not "today"
+    const lastCandleDate = new Date(lastCandle.timestamp);
+    lastCandleDate.setHours(0, 0, 0, 0);
 
-    // Create projection for next 45 days
+    console.log(`💰 Last candle price: $${currentPrice.toFixed(2)}`);
+    console.log(`📅 Last candle date: ${lastCandleDate.toISOString().split('T')[0]}`);
+
+    // Create projection starting from LAST CANDLE DATE
     const projection: Array<{ date: Date, price: number }> = [];
     const projectionDays = 45;
 
     let projectedPrice = currentPrice;
 
-    for (let i = 0; i < projectionDays; i++) {
-      const futureDate = new Date(today);
-      futureDate.setDate(futureDate.getDate() + i + 1); // Start from tomorrow
+    // Add LAST CANDLE DATE as the first point (index 0)
+    projection.push({
+      date: new Date(lastCandleDate),
+      price: currentPrice
+    });
+
+    // Then add future days (1-44)
+    for (let i = 1; i < projectionDays; i++) {
+      const futureDate = new Date(lastCandleDate);
+      futureDate.setDate(futureDate.getDate() + i);
 
       const futureDayOfYear = getDayOfYear(futureDate);
 
@@ -1479,7 +1507,7 @@ const calculateSeasonalityProjection = async (
       }
     }
 
-    console.log(`✅ Generated ${projection.length} days of seasonal projection`);
+    console.log(`✅ Generated ${projection.length} days of seasonal projection (TODAY + ${projectionDays - 1} future days)`);
     console.log(`📈 Projection: Start $${currentPrice.toFixed(2)} → End $${projection[projection.length - 1].price.toFixed(2)}`);
 
     // Log detailed projection path
@@ -1487,10 +1515,10 @@ const calculateSeasonalityProjection = async (
     for (let i = 0; i < projection.length; i += 5) {
       const p = projection[i];
       const changeFromStart = ((p.price - currentPrice) / currentPrice) * 100;
-      console.log(`  Day ${i + 1}: $${p.price.toFixed(2)} (${changeFromStart > 0 ? '+' : ''}${changeFromStart.toFixed(2)}%)`);
+      console.log(`  Day ${i}: $${p.price.toFixed(2)} (${changeFromStart > 0 ? '+' : ''}${changeFromStart.toFixed(2)}%)`);
     }
     const finalChange = ((projection[projection.length - 1].price - currentPrice) / currentPrice) * 100;
-    console.log(`  Final (Day 45): $${projection[projection.length - 1].price.toFixed(2)} (${finalChange > 0 ? '+' : ''}${finalChange.toFixed(2)}%)`);
+    console.log(`  Final (Day ${projection.length - 1}): $${projection[projection.length - 1].price.toFixed(2)} (${finalChange > 0 ? '+' : ''}${finalChange.toFixed(2)}%)`);
 
     return projection;
 
@@ -1687,8 +1715,8 @@ const getOptionQuotes = async (optionSymbol: string) => {
   }
 };
 
-// Calculate IV from options chain using improved methodology - LIVE DATA ONLY
-const calculateIVFromOptionsChain = async (optionsResults: any[], price: number, timeToExpiry: number, label: string): Promise<number> => {
+// Calculate IV from options chain using direct Polygon IV - ATM STRIKE ONLY
+const calculateIVFromOptionsChain = async (optionsResults: any[], price: number, timeToExpiry: number, label: string, symbol: string): Promise<number> => {
   console.log(`${label} - Total options found:`, optionsResults.length);
   console.log(`${label} - Current stock price: $${price.toFixed(2)}`);
 
@@ -1696,82 +1724,57 @@ const calculateIVFromOptionsChain = async (optionsResults: any[], price: number,
     throw new Error(`No options found for ${label}`);
   }
 
-  // Determine if these are calls or puts to find OTM strikes
+  // Determine if these are calls or puts
   const isCall = optionsResults[0]?.contract_type === 'call';
 
-  // Get 5 OTM strikes based on option type (reduced from 10 for faster processing)
-  let otmStrikes = [];
+  // Get ATM strike: closest strike at or above price for calls, at or below for puts
+  let atmStrike;
   if (isCall) {
-    // For calls: OTM = strikes ABOVE current price
-    otmStrikes = [...new Set(optionsResults.map(opt => opt.strike_price))]
-      .filter(strike => strike > price)
-      .sort((a, b) => a - b) // Ascending order (closest to price first)
-      .slice(0, 5);
-    console.log(`${label} - First 5 OTM Call strikes (above $${price.toFixed(2)}):`, otmStrikes.join(', '));
+    // For calls: ATM = closest strike at or above current price
+    atmStrike = optionsResults
+      .filter(opt => opt.strike_price >= price)
+      .sort((a, b) => a.strike_price - b.strike_price)[0];
   } else {
-    // For puts: OTM = strikes BELOW current price
-    otmStrikes = [...new Set(optionsResults.map(opt => opt.strike_price))]
-      .filter(strike => strike < price)
-      .sort((a, b) => b - a) // Descending order (closest to price first)
-      .slice(0, 5);
-    console.log(`${label} - First 5 OTM Put strikes (below $${price.toFixed(2)}):`, otmStrikes.join(', '));
+    // For puts: ATM = closest strike at or below current price
+    atmStrike = optionsResults
+      .filter(opt => opt.strike_price <= price)
+      .sort((a, b) => b.strike_price - a.strike_price)[0];
   }
 
-  if (otmStrikes.length === 0) {
-    throw new Error(`No OTM options found for ${label}. Current price: $${price.toFixed(2)}`);
+  if (!atmStrike) {
+    throw new Error(`No ATM option found for ${label}. Current price: $${price.toFixed(2)}`);
   }
 
-  // Fetch all option quotes in parallel for speed
-  const quotePromises = otmStrikes.map(strike => {
-    const optionAtStrike = optionsResults.find(opt => opt.strike_price === strike);
-    if (optionAtStrike) {
-      return getOptionQuotes(optionAtStrike.ticker).then(quote => ({
-        strike,
-        quote,
-        optionType: optionAtStrike.contract_type
-      }));
+  console.log(`${label} - ATM Strike: $${atmStrike.strike_price}`);
+
+  // Fetch IV directly from Polygon snapshot endpoint
+  try {
+    const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${symbol}/${atmStrike.ticker}?apikey=${POLYGON_API_KEY}`;
+    const snapshotResponse = await fetch(snapshotUrl);
+
+    if (!snapshotResponse.ok) {
+      throw new Error(`Failed to fetch snapshot: ${snapshotResponse.status}`);
     }
-    return null;
-  });
 
-  const quoteResults = await Promise.allSettled(quotePromises.filter(p => p !== null));
-  const validIVs = [];
+    const snapshotData = await snapshotResponse.json();
 
-  // Process results
-  for (const result of quoteResults) {
-    if (result.status === 'fulfilled' && result.value) {
-      const { strike, quote, optionType } = result.value;
+    if (snapshotData?.results?.implied_volatility) {
+      const iv = snapshotData.results.implied_volatility;
+      console.log(`✓ ${label} - Direct Polygon IV: ${(iv * 100).toFixed(2)}%`);
 
-      if (quote && quote.price > 0) {
-        console.log(`${label} - Strike $${strike}: $${quote.price.toFixed(2)} (bid/ask: ${quote.bid}/${quote.ask})`);
-
-        const calculatedIV = estimateIVFromPrice(
-          price,
-          strike,
-          quote.price,
-          riskFreeRate,
-          timeToExpiry,
-          optionType === 'call'
-        );
-
-        // Only include reasonable IV values (5% to 100%)
-        if (calculatedIV >= 0.05 && calculatedIV <= 1.0) {
-          validIVs.push(calculatedIV);
-          console.log(`${label} - ? Strike $${strike} IV: ${(calculatedIV * 100).toFixed(2)}%`);
-        } else {
-          console.log(`${label} - ? Strike $${strike} IV out of range: ${(calculatedIV * 100).toFixed(2)}%`);
-        }
+      // Validate IV is reasonable (5% to 200%)
+      if (iv >= 0.05 && iv <= 2.0) {
+        return iv;
+      } else {
+        console.log(`${label} - IV out of range: ${(iv * 100).toFixed(2)}%`);
+        throw new Error(`IV out of reasonable range for ${label}`);
       }
+    } else {
+      throw new Error(`No implied_volatility in snapshot for ${label}`);
     }
-  }
-
-  // Calculate average from valid IVs
-  if (validIVs.length > 0) {
-    const avgIV = validIVs.reduce((a, b) => a + b) / validIVs.length;
-    console.log(`? ${label} Average IV: ${(avgIV * 100).toFixed(2)}% (from ${validIVs.length} strikes)`);
-    return avgIV;
-  } else {
-    throw new Error(`No valid IV calculations found for ${label}`);
+  } catch (error) {
+    console.error(`${label} - Error fetching direct IV:`, error);
+    throw new Error(`Could not fetch IV for ${label}: ${error}`);
   }
 };
 
@@ -1871,20 +1874,20 @@ const fetchMarketDataForExpectedRange = async (symbol: string, customDate?: stri
       // Weekly call and put in parallel
       calculateIVFromOptionsChain(
         weeklyOptionsData.results.filter((opt: any) => opt.contract_type === 'call'),
-        currentPrice, weeklyTimeToExpiry, 'Weekly Call'
+        currentPrice, weeklyTimeToExpiry, 'Weekly Call', symbol
       ),
       calculateIVFromOptionsChain(
         weeklyOptionsData.results.filter((opt: any) => opt.contract_type === 'put'),
-        currentPrice, weeklyTimeToExpiry, 'Weekly Put'
+        currentPrice, weeklyTimeToExpiry, 'Weekly Put', symbol
       ),
       // Monthly call and put in parallel
       calculateIVFromOptionsChain(
         monthlyOptionsData.results.filter((opt: any) => opt.contract_type === 'call'),
-        currentPrice, monthlyTimeToExpiry, 'Monthly Call'
+        currentPrice, monthlyTimeToExpiry, 'Monthly Call', symbol
       ),
       calculateIVFromOptionsChain(
         monthlyOptionsData.results.filter((opt: any) => opt.contract_type === 'put'),
-        currentPrice, monthlyTimeToExpiry, 'Monthly Put'
+        currentPrice, monthlyTimeToExpiry, 'Monthly Put', symbol
       )
     ];
 
@@ -1893,11 +1896,11 @@ const fetchMarketDataForExpectedRange = async (symbol: string, customDate?: stri
       ivCalculations.push(
         calculateIVFromOptionsChain(
           customOptionsData.results.filter((opt: any) => opt.contract_type === 'call'),
-          currentPrice, customTimeToExpiry, 'Custom Call'
+          currentPrice, customTimeToExpiry, 'Custom Call', symbol
         ),
         calculateIVFromOptionsChain(
           customOptionsData.results.filter((opt: any) => opt.contract_type === 'put'),
-          currentPrice, customTimeToExpiry, 'Custom Put'
+          currentPrice, customTimeToExpiry, 'Custom Put', symbol
         )
       );
     }
@@ -3480,6 +3483,15 @@ export default function TradingViewChart({
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchResults, setSearchResults] = useState<Array<{
+    ticker: string;
+    name: string;
+    market: string;
+    type: string;
+  }>>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchInputRef = useRef<HTMLDivElement>(null);
 
   // Benchmark mode state
   const [isBenchmarkMode, setIsBenchmarkMode] = useState(false);
@@ -7119,6 +7131,7 @@ export default function TradingViewChart({
 
   // Seasonal state
   const [isSeasonalDropdownOpen, setIsSeasonalDropdownOpen] = useState(false);
+  const [availableSeasonalYears, setAvailableSeasonalYears] = useState<number[]>([]);
 
   // Restore scroll positions for all sidebar panels on every render
   useLayoutEffect(() => {
@@ -7154,6 +7167,56 @@ export default function TradingViewChart({
   const [selectedSeasonalEvent, setSelectedSeasonalEvent] = useState<string | null>(null);
   const [seasonalEventData, setSeasonalEventData] = useState<Array<{ date: Date, price: number }> | null>(null);
   const [isEventDropdownOpen, setIsEventDropdownOpen] = useState(false);
+
+  // Calculate available seasonal years based on actual data
+  useEffect(() => {
+    const calculateAvailableYears = async () => {
+      try {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setFullYear(endDate.getFullYear() - 30);
+
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = endDate.toISOString().split('T')[0];
+
+        const response = await polygonService.getHistoricalData(symbol, startDateStr, endDateStr);
+
+        if (response?.results && response.results.length > 0) {
+          const firstDate = new Date(response.results[0].t);
+          const lastDate = new Date(response.results[response.results.length - 1].t);
+          const actualYearsSpan = (lastDate.getTime() - firstDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+          const maxYears = Math.floor(actualYearsSpan);
+
+          let yearOptions: number[] = [];
+
+          if (maxYears >= 10) {
+            yearOptions = [1, 3, 5, 10];
+            if (maxYears >= 15) yearOptions.push(15);
+            if (maxYears >= 20) yearOptions.push(20);
+            if (maxYears !== 20 && maxYears !== 15) yearOptions.push(maxYears);
+          } else if (maxYears >= 4) {
+            yearOptions = [1, 3];
+            if (maxYears >= 5) yearOptions.push(5);
+            if (maxYears !== 5 && maxYears !== 3) yearOptions.push(maxYears);
+          } else if (maxYears >= 3) {
+            yearOptions = [3];
+          } else if (maxYears >= 2) {
+            yearOptions = [2];
+          } else {
+            yearOptions = [1];
+          }
+
+          yearOptions = [...new Set(yearOptions)];
+          setAvailableSeasonalYears(yearOptions);
+        }
+      } catch (error) {
+        console.error('Error calculating available years:', error);
+        setAvailableSeasonalYears([10, 15, 20]); // Fallback
+      }
+    };
+
+    calculateAvailableYears();
+  }, [symbol]);
 
   // Event seasonal calculation with Polygon API
   const calculateEventSeasonal = useCallback(async (eventType: string, chartData: ChartDataPoint[]) => {
@@ -8271,12 +8334,67 @@ export default function TradingViewChart({
     if (expectedRangeLevels) {
       setExpectedRangeLevels(null);
     }
+
+    // Reset all seasonal projection data when symbol changes
+    setSeasonal20YData(null);
+    setSeasonal15YData(null);
+    setSeasonal10YData(null);
+    setSeasonalElectionData(null);
+    setSeasonalEventData(null);
+    setSeasonalProjectionData(null);
+
+    // Reload seasonal data if buttons are active
+    const reloadSeasonalData = async () => {
+      if (isSeasonal20YActive) {
+        const projection = await calculateSeasonalityProjection(symbol, 20, data);
+        setSeasonal20YData(projection);
+      }
+      if (isSeasonal15YActive) {
+        const projection = await calculateSeasonalityProjection(symbol, 15, data);
+        setSeasonal15YData(projection);
+      }
+      if (isSeasonal10YActive) {
+        const projection = await calculateSeasonalityProjection(symbol, 10, data);
+        setSeasonal10YData(projection);
+      }
+      if (isSeasonalElectionActive) {
+        const projection = await calculateSeasonalityProjection(symbol, 20, data, 'Election Year');
+        setSeasonalElectionData(projection);
+      }
+    };
+
+    if (data.length > 0 && (isSeasonal20YActive || isSeasonal15YActive || isSeasonal10YActive || isSeasonalElectionActive)) {
+      reloadSeasonalData();
+    }
+
+    // Reload expected range if it's active
+    if ((isWeeklyActive || isMonthlyActive || isCustomActive) && !isLoadingExpectedRange) {
+      setIsLoadingExpectedRange(true);
+      calculateExpectedRangeLevels(symbol).then(result => {
+        if (result) {
+          setExpectedRangeLevels(result.levels);
+        }
+        setIsLoadingExpectedRange(false);
+      });
+    }
   }, [symbol]);
 
   // Initialize searchQuery with symbol when component loads or symbol changes
   useEffect(() => {
     setSearchQuery(symbol);
   }, [symbol]);
+
+  // Close search results when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchInputRef.current && !searchInputRef.current.contains(event.target as Node)) {
+        setShowSearchResults(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // OLD regime loading removed - now using parallel prefetch on panel open
 
@@ -9109,11 +9227,6 @@ export default function TradingViewChart({
   const [error, setError] = useState<string | null>(null);
 
   // Chart interaction state
-  const [isDragging, _setIsDragging] = useState(false);
-  const setIsDragging = useCallback((value: boolean) => {
-    _setIsDragging(value);
-  }, []);
-
   const [crosshairPosition, setCrosshairPosition] = useState({ x: 0, y: 0 });
   const [priceRange, setPriceRange] = useState({ min: 0, max: 0 });
 
@@ -9122,16 +9235,10 @@ export default function TradingViewChart({
   const [manualPriceRange, setManualPriceRange] = useState<{ min: number; max: number } | null>(null);
   const manualPriceRangeRef = useRef<{ min: number; max: number } | null>(null); // For real-time drag updates
   const lastRenderedPriceRangeRef = useRef<{ min: number; max: number }>({ min: 0, max: 100 }); // Store actual rendered range
-  // Y-axis drag/pan removed - only zoom remains
 
   const [boxZoomStart, setBoxZoomStart] = useState<{ x: number; y: number } | null>(null);
   const [boxZoomEnd, setBoxZoomEnd] = useState<{ x: number; y: number } | null>(null);
   const [isBoxZooming, setIsBoxZooming] = useState(false);
-
-  // Momentum Scrolling State
-  const [lastMouseTimestamp, setLastMouseTimestamp] = useState(0);
-  const [velocity, setVelocity] = useState({ x: 0, y: 0 });
-  const [momentumAnimationId, setMomentumAnimationId] = useState<number | null>(null);
 
   // Y-axis drag to zoom state
   const [isDraggingYAxisZoom, setIsDraggingYAxisZoom] = useState(false);
@@ -9142,19 +9249,31 @@ export default function TradingViewChart({
   const [yAxisResizeStart, setYAxisResizeStart] = useState<{ y: number; priceRange: { min: number; max: number } } | null>(null);
   const [showYAxisResizeCursor, setShowYAxisResizeCursor] = useState(false);
 
-  // Track if this is the first frame of a new drag (to avoid jumps)
-  const [isFirstDragFrame, setIsFirstDragFrame] = useState(false);
-  const isFirstDragFrameRef = useRef(false); // Ref for synchronous updates
-
   // TradingView-style navigation state
   const [scrollOffset, setScrollOffset] = useState(9999999); // Start at end - will be corrected when data loads
   const [visibleCandleCount, setVisibleCandleCount] = useState(150); // Number of visible candles
 
-  // Mouse tracking for drag
-  const [lastMouseX, setLastMouseX] = useState(0);
-  const [lastMouseY, setLastMouseY] = useState(0);
-  const [dragStartX, setDragStartX] = useState(0);
-  const [dragStartOffset, setDragStartOffset] = useState(0);
+  // ============================================================================
+  // CHART DRAG & PAN — TRADINGVIEW-STYLE (NO TELEPORTS)
+  // ============================================================================
+  const dragRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    startScrollOffset: number;
+    startPriceRange: { min: number; max: number } | null;
+    startTimestamp: number;
+  }>({
+    active: false,
+    startX: 0,
+    startY: 0,
+    startScrollOffset: 0,
+    startPriceRange: null,
+    startTimestamp: 0
+  });
+
+  const velocityRef = useRef({ x: 0, y: 0 });
+  const momentumIdRef = useRef<number | null>(null);
 
   // Y-axis zoom state (TradingView-style price scaling)
   const [priceZoomLevel, setPriceZoomLevel] = useState(1.0); // 1.0 = auto-fit, >1 = zoomed in, <1 = zoomed out
@@ -9190,7 +9309,7 @@ export default function TradingViewChart({
   // TradingView-style color scheme (dynamic based on theme)
   const colors = {
     background: config.theme === 'dark' ? '#000000' : '#ffffff',
-    grid: config.theme === 'dark' ? '#1a1a1a' : '#e1e4e8',
+    grid: config.theme === 'dark' ? '#000000' : '#e1e4e8', // Pure black grid (invisible on black background)
     text: config.theme === 'dark' ? '#ffffff' : '#000000',
     textSecondary: config.theme === 'dark' ? '#999999' : '#6a737d',
     bullish: config.colors.bullish.body,
@@ -9283,124 +9402,106 @@ export default function TradingViewChart({
   const getFuturePeriods = useCallback((visibleCount: number): number => {
     // Return 100% of visible candles as right margin, minimum 5 candles
     return Math.max(5, Math.ceil(visibleCount * 1.0));
-  }, []); // ============================================================================
-  // TRADINGVIEW-STYLE MOMENTUM SCROLLING - EXACT IMPLEMENTATION
+  }, []);
+
+  // ============================================================================
+  // MOMENTUM (TradingView-style inertia)
   // ============================================================================
   const startMomentumAnimation = useCallback(() => {
-    if (momentumAnimationId) {
-      cancelAnimationFrame(momentumAnimationId);
-    }
+    if (momentumIdRef.current)
+      cancelAnimationFrame(momentumIdRef.current);
 
-    const animate = () => {
-      setVelocity(prevVelocity => {
-        // TradingView uses exponential decay: v = v * friction
-        const friction = 0.90; // TradingView-like friction factor
-        const threshold = 0.05; // Stop threshold
+    const step = () => {
+      velocityRef.current.x *= 0.9;
+      velocityRef.current.y *= 0.9;
 
-        const newVelocityX = Math.abs(prevVelocity.x) > threshold ? prevVelocity.x * friction : 0;
-        const newVelocityY = Math.abs(prevVelocity.y) > threshold ? prevVelocity.y * friction : 0;
+      const { x, y } = velocityRef.current;
 
-        // Apply X-axis velocity (horizontal momentum)
-        if (Math.abs(newVelocityX) > threshold) {
-          setScrollOffset(prevOffset => {
-            const Y_AXIS_WIDTH = 80;
-            const chartWidth = dimensions.width - Y_AXIS_WIDTH;
-            const pixelsPerCandle = chartWidth / visibleCandleCount;
+      if (Math.abs(x) < 0.05 && Math.abs(y) < 0.05) {
+        momentumIdRef.current = null;
+        return;
+      }
 
-            // Convert velocity (pixels per frame) to candle offset
-            const candlesPerFrame = newVelocityX / pixelsPerCandle;
-            const newOffset = prevOffset - candlesPerFrame;
-
-            const futurePeriods = getFuturePeriods(visibleCandleCount);
-            const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
-            return Math.max(0, Math.min(maxScrollOffset, newOffset));
-          });
-        }
-
-        // Apply Y-axis velocity (vertical momentum) - TradingView style
-        if (Math.abs(newVelocityY) > threshold && manualPriceRange) {
-          setManualPriceRange(prevRange => {
-            if (!prevRange) return prevRange;
-
-            const timeAxisHeight = 25;
-            const priceChartHeight = dimensions.height - timeAxisHeight;
-            const priceHeight = prevRange.max - prevRange.min;
-            const pricePerPixel = priceHeight / priceChartHeight;
-
-            // Apply velocity to price range
-            const priceShift = newVelocityY * pricePerPixel;
-
-            return {
-              min: prevRange.min + priceShift,
-              max: prevRange.max + priceShift
-            };
-          });
-        }
-
-        // Continue animation if still moving
-        if (Math.abs(newVelocityX) > threshold || Math.abs(newVelocityY) > threshold) {
-          const id = requestAnimationFrame(animate);
-          setMomentumAnimationId(id);
-          return { x: newVelocityX, y: newVelocityY };
-        } else {
-          setMomentumAnimationId(null);
-          return { x: 0, y: 0 };
-        }
+      // X momentum
+      setScrollOffset(prev => {
+        const Y_AXIS_WIDTH = 80;
+        const chartWidth = dimensions.width - Y_AXIS_WIDTH;
+        const pxPerCandle = chartWidth / visibleCandleCount;
+        const futurePeriods = getFuturePeriods(visibleCandleCount);
+        const maxOffset = data.length - visibleCandleCount + futurePeriods;
+        return Math.max(0, Math.min(maxOffset, prev - x / pxPerCandle));
       });
+
+      // Y momentum
+      setManualPriceRange(prev => {
+        if (!prev) return prev;
+        const priceSpan = prev.max - prev.min;
+        const pricePerPixel = priceSpan / (dimensions.height - 25);
+
+        return {
+          min: prev.min + y * pricePerPixel,
+          max: prev.max + y * pricePerPixel
+        };
+      });
+
+      momentumIdRef.current = requestAnimationFrame(step);
     };
 
-    const id = requestAnimationFrame(animate);
-    setMomentumAnimationId(id);
-  }, [momentumAnimationId, visibleCandleCount, data.length, dimensions.width, dimensions.height, getFuturePeriods, manualPriceRange]);
+    momentumIdRef.current = requestAnimationFrame(step);
+  }, [dimensions, visibleCandleCount, data.length, getFuturePeriods]);
 
   const stopMomentumAnimation = useCallback(() => {
-    if (momentumAnimationId) {
-      cancelAnimationFrame(momentumAnimationId);
-      setMomentumAnimationId(null);
+    if (momentumIdRef.current) {
+      cancelAnimationFrame(momentumIdRef.current);
+      momentumIdRef.current = null;
     }
-    setVelocity({ x: 0, y: 0 });
-  }, [momentumAnimationId]);
+    velocityRef.current = { x: 0, y: 0 };
+  }, []);
 
   // Fetch real-time price for current price display
   const fetchRealTimePrice = useCallback(async (sym: string) => {
     try {
-      // Use Polygon API directly for real-time price instead of custom endpoint
-      const polygonUrl = `https://api.polygon.io/v2/last/trade/${sym}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
-      const response = await fetch(polygonUrl);
+      // Get most recent minute bar to capture latest price including after-hours/pre-market
+      const today = new Date();
+      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+      const todayStr = today.toISOString().split('T')[0];
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      const recentUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/minute/${yesterdayStr}/${todayStr}?adjusted=true&sort=desc&limit=1&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+      const response = await fetch(recentUrl);
       const result = await response.json();
 
-      if (response.ok && result.status === 'OK' && result.results?.p) {
-        const livePrice = result.results.p; // Polygon's last trade price
+      if (response.ok && result.status === 'OK' && result.results && result.results.length > 0) {
+        const livePrice = result.results[0].c; // Most recent minute bar close (includes pre-market and after-hours)
         setCurrentPrice(livePrice);
 
-        // For price change calculation, use current dates - NOT HARDCODED
-        const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
-        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        // Get previous day's close using Polygon /prev endpoint for accurate day-over-day change
+        // This includes pre-market and after-hours moves: if prev close = $692, after-hours = $689, shows -$3
+        const prevDayUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+        try {
+          const prevResponse = await fetch(prevDayUrl);
+          if (prevResponse.ok) {
+            const prevResult = await prevResponse.json();
+            if (prevResult?.results && prevResult.results.length > 0) {
+              const previousClose = prevResult.results[0].c;
+              const change = livePrice - previousClose;
+              const changePercent = (change / previousClose) * 100;
 
-        const histUrl = createApiUrl('/api/historical-data', {
-          symbol: sym,
-          startDate: yesterdayStr,
-          endDate: todayStr,
-          timeframe: '1d',
-          _t: Date.now().toString()
-        });
-        const histResponse = await fetch(histUrl);
-        if (histResponse.ok) {
-          const histResult = await histResponse.json();
-          if (histResult?.results && histResult.results.length >= 2) {
-            const current = livePrice;
-            const previous = histResult.results[histResult.results.length - 2]?.c || current;
-            const change = current - previous;
-            const changePercent = ((change) / previous) * 100;
-            setPriceChange(change);
-            setPriceChangePercent(changePercent);
-            console.log(`?? CHANGE: ${sym} ${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent.toFixed(2)}%)`);
+              // Only update if we have valid data - preserves previous values
+              setPriceChange(change);
+              setPriceChangePercent(changePercent);
+            } else {
+              console.warn(`⚠️ No previous close data for ${sym} - keeping existing price change values`);
+            }
+          } else {
+            console.warn(`⚠️ Failed to fetch previous close for ${sym} - keeping existing price change values`);
           }
+        } catch (error) {
+          console.error(`❌ Failed to fetch previous day close for ${sym}:`, error);
+          // Don't reset price change on error - keep previous values
         }
       } else {
-        console.log(`?? No live trade data for ${sym}, trying last close price...`);
+        console.log(`⚠️ No live trade data for ${sym}, trying last close price...`);
 
         // Fallback: Try to get the most recent close price from daily data
         const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
@@ -9410,25 +9511,91 @@ export default function TradingViewChart({
 
           if (fallbackResult.status === 'OK' && fallbackResult.results?.[0]?.c) {
             const closePrice = fallbackResult.results[0].c;
-            console.log(`?? FALLBACK: Using previous close price for ${sym}: $${closePrice}`);
+            console.log(`📈 FALLBACK: Using previous close price for ${sym}: $${closePrice}`);
             setCurrentPrice(closePrice);
+            // Set change to 0 when using fallback close price (market closed, no intraday movement)
+            setPriceChange(0);
+            setPriceChangePercent(0);
           } else {
-            console.error(`? Failed to get fallback price for ${sym}:`, fallbackResult);
+            console.error(`❌ Failed to get fallback price for ${sym}:`, fallbackResult);
+            // Don't reset on error - keep previous values
           }
         } catch (fallbackError) {
-          console.error(`? Fallback price fetch failed for ${sym}:`, fallbackError);
+          console.error(`❌ Fallback price fetch failed for ${sym}:`, fallbackError);
+          // Don't reset on error - keep previous values
         }
       }
     } catch (error) {
-      console.error('? Real-time price fetch failed:', error);
+      console.error('❌ Real-time price fetch failed:', error);
+      // Don't reset price or change on error - keep previous values
       if (error instanceof Error) {
         if (error.message.includes('fetch')) {
-          console.error('?? Network connection issue - check if server is running on correct port');
+          console.error('⚠️ Network connection issue - check if server is running on correct port');
         } else if (error.message.includes('timeout')) {
-          console.error('?? Request timeout - API response too slow');
+          console.error('⚠️ Request timeout - API response too slow');
         }
       }
     }
+  }, []);
+
+  // Real-time ticker search
+  const searchTickers = useCallback(async (query: string) => {
+    if (query.length < 1) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    setSearchLoading(true);
+
+    try {
+      const response = await fetch(`/api/ticker-search?query=${encodeURIComponent(query)}`);
+      const data = await response.json();
+
+      if (data.success && data.results) {
+        setSearchResults(data.results);
+        setShowSearchResults(data.results.length > 0);
+      } else {
+        setSearchResults([]);
+        setShowSearchResults(false);
+      }
+    } catch (error) {
+      console.error('Ticker search error:', error);
+      setSearchResults([]);
+      setShowSearchResults(false);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  // Handle search input change with debouncing
+  const handleSearchInputChange = useCallback((value: string) => {
+    setSearchQuery(value.toUpperCase());
+
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Don't search if empty
+    if (value.length === 0) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    // Debounce search
+    searchTimeoutRef.current = setTimeout(() => {
+      searchTickers(value);
+    }, 50);
+  }, [searchTickers]);
+
+  // Select ticker from search results
+  const selectSearchResult = useCallback((ticker: string) => {
+    setSearchQuery(ticker);
+    setShowSearchResults(false);
+    setSearchResults([]);
+    handleSearch(ticker);
   }, []);
 
   // Search handler
@@ -9775,17 +9942,7 @@ export default function TradingViewChart({
     fetchRealTimePrice(symbol);
   }, [symbol, fetchRealTimePrice]);
 
-  // Calculate price change when data is loaded
-  useEffect(() => {
-    if (data.length >= 2 && currentPrice > 0) {
-      const latestCandle = data[data.length - 1];
-      const previousCandle = data[data.length - 2];
-      const change = currentPrice - previousCandle.close;
-      const changePercent = (change / previousCandle.close) * 100;
-      setPriceChange(change);
-      setPriceChangePercent(changePercent);
-    }
-  }, [data, currentPrice, symbol]);
+  // Price change calculation removed - now handled in fetchRealTimePrice using previous day's close
 
   // Set up live price updates every 5 seconds for live data
   useEffect(() => {
@@ -10417,11 +10574,28 @@ export default function TradingViewChart({
 
     visibleData.forEach((candle, index) => {
       const x = 40 + (index * candleSpacing);
-      const isMarket = isMarketHours(candle.timestamp);
 
-      if (!isMarket) {
-        // Draw gray background for pre-market and after-hours
-        ctx.fillStyle = colors.grid + '20'; // Semi-transparent gray
+      // Convert timestamp to ET (Eastern Time)
+      const date = new Date(candle.timestamp);
+      const etString = date.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+      const etDate = new Date(etString);
+      const hour = etDate.getHours();
+      const minute = etDate.getMinutes();
+      const totalMinutes = hour * 60 + minute;
+
+      // Market hours in ET: 9:30 AM - 4:00 PM ET (570 - 960 minutes)
+      const marketStart = 9 * 60 + 30; // 9:30 AM ET
+      const marketEnd = 16 * 60; // 4:00 PM ET
+      const preMarketStart = 4 * 60; // 4:00 AM ET
+      const afterHoursEnd = 20 * 60; // 8:00 PM ET (7:55 PM rounded up)
+
+      if (totalMinutes >= preMarketStart && totalMinutes < marketStart) {
+        // Pre-market: 4:00 AM ET - 9:30 AM ET - low opacity orange tint
+        ctx.fillStyle = 'rgba(255, 140, 60, 0.08)'; // Orange with 8% opacity
+        ctx.fillRect(x, 0, candleSpacing, height);
+      } else if (totalMinutes >= marketEnd && totalMinutes < afterHoursEnd) {
+        // After-hours: 4:00 PM ET - 8:00 PM ET - low opacity blue tint
+        ctx.fillStyle = 'rgba(100, 150, 200, 0.08)'; // Blue with 8% opacity
         ctx.fillRect(x, 0, candleSpacing, height);
       }
     });
@@ -10458,8 +10632,8 @@ export default function TradingViewChart({
     (ctx as any).mozImageSmoothingEnabled = false;
     (ctx as any).msImageSmoothingEnabled = false;
 
-    // Clear canvas with theme-appropriate background
-    ctx.fillStyle = colors.background;
+    // Clear canvas with pure black background (force override)
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
     // Calculate chart areas - reserve space for volume and time axis
@@ -10652,18 +10826,29 @@ export default function TradingViewChart({
 
     // Draw Expected Range lines on top of candlesticks (standalone button)
     if (isExpectedRangeActive && expectedRangeLevels) {
-      if (isWeeklyActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'weekly', visibleData, visibleCandleCount);
-      if (isMonthlyActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'monthly', visibleData, visibleCandleCount);
-      if (isCustomActive) renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'custom', visibleData, visibleCandleCount);
+      if (isWeeklyActive) {
+        renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'weekly', visibleData, visibleCandleCount);
+      }
+      if (isMonthlyActive) {
+        renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'monthly', visibleData, visibleCandleCount);
+      }
+      if (isCustomActive) {
+        renderExpectedRangeLines(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, expectedRangeLevels, 'custom', visibleData, visibleCandleCount);
+      }
     }
 
     // Draw Seasonal Projection lines on top of candlesticks
-    if (isSeasonalActive && visibleData && visibleData.length > 0) {
-      const lastVisibleCandle = visibleData[visibleData.length - 1];
-      const lastCandleTime = new Date(lastVisibleCandle.timestamp).getTime();
-      const lastCandlePrice = lastVisibleCandle.close;
-      const lastCandleIndex = visibleData.length - 1;
-      const lastCandleX = 40 + (lastCandleIndex * candleSpacing) + candleSpacing / 2;
+    if (isSeasonalActive && data && data.length > 0) {
+      // Use ABSOLUTE LAST DATA CANDLE, not last visible
+      const lastDataCandle = data[data.length - 1];
+      const lastDataIndex = data.length - 1;
+
+      // Calculate where the last data candle appears on screen
+      const lastDataPositionOnScreen = lastDataIndex - startIndex;
+      const lastCandleX = 40 + (lastDataPositionOnScreen * candleSpacing) + candleSpacing / 2;
+
+      const lastCandleTime = new Date(lastDataCandle.timestamp).getTime();
+      const lastCandlePrice = lastDataCandle.close;
       const lastCandleY = priceChartHeight - ((lastCandlePrice - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
 
       // Helper function to draw a seasonal projection line
@@ -10706,7 +10891,7 @@ export default function TradingViewChart({
         };
 
         console.log('🖌️ Drawing seasonal line with', projectionData.length, 'points, color:', color);
-        const lastCandleDate = new Date(lastVisibleCandle.timestamp);
+        const lastCandleDate = new Date(lastDataCandle.timestamp);
         lastCandleDate.setHours(0, 0, 0, 0);
 
         console.log('📍 Last candle date:', lastCandleDate.toISOString().split('T')[0]);
@@ -10714,112 +10899,56 @@ export default function TradingViewChart({
 
         ctx.save();
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.9;
 
         if (isDashed) {
           ctx.setLineDash([5, 5]);
         }
 
-        ctx.beginPath();
-        let firstPoint = true;
-        let eventX = 0;
-        let pointsDrawn = 0;
-
-        // Draw projection line with proper date-based positioning
+        // Calculate all points first for smooth curve
+        const points: Array<{ x: number; y: number }> = [];
         projectionData.forEach((point, index) => {
           const projDate = new Date(point.date);
           projDate.setHours(0, 0, 0, 0);
-
-          // Calculate trading days from last candle to this projection point
           const tradingDaysFromLast = countTradingDaysBetween(lastCandleDate, projDate);
-
-          // Calculate x position based on trading days
           const x = Math.round(lastCandleX + (tradingDaysFromLast * candleSpacing));
           const y = priceChartHeight - ((point.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
-
-          console.log(`  Point ${index}: date=${projDate.toISOString().split('T')[0]}, tradingDays=${tradingDaysFromLast}, x=${x}, y=${y}, price=${point.price.toFixed(2)}`);
-
-          // Always draw the line, canvas will clip
-          if (firstPoint) {
-            ctx.moveTo(x, y);
-            firstPoint = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
-          pointsDrawn++;
-
-          // Track event position - for earnings it's at index 10, others at index 5
-          const isEarningsEvent = eventLabel && eventLabel.toLowerCase().includes('earnings');
-          const expectedEventIndex = isEarningsEvent ? 10 : 5;
-          if (index === expectedEventIndex) {
-            eventX = x;
-          }
+          points.push({ x, y });
         });
 
-        if (pointsDrawn > 0) {
-          ctx.stroke();
-          console.log('✅ Line stroked with', pointsDrawn, 'points');
-        } else {
-          console.warn('⚠️ No points drawn!');
-        }
-        ctx.setLineDash([]); // Reset dash
-
-        // Draw vertical line at event date
-        if (eventX >= 40 && eventX <= chartWidth) {
-          ctx.save();
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
-          ctx.setLineDash([10, 5]);
-          ctx.globalAlpha = 0.6;
+        // Draw smooth curve using quadratic bezier
+        if (points.length > 0) {
           ctx.beginPath();
-          ctx.moveTo(eventX, 0);
-          ctx.lineTo(eventX, priceChartHeight);
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.restore();
+          ctx.moveTo(points[0].x, points[0].y);
 
-          // Label event name at top
-          if (eventLabel) {
-            ctx.save();
-            ctx.fillStyle = color;
-            ctx.font = 'bold 10px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(eventLabel.toUpperCase(), eventX, 10);
-            ctx.restore();
+          for (let i = 0; i < points.length - 1; i++) {
+            const currentPoint = points[i];
+            const nextPoint = points[i + 1];
+
+            if (i === points.length - 2) {
+              // Last segment - draw straight to end
+              ctx.lineTo(nextPoint.x, nextPoint.y);
+            } else {
+              // Use midpoint as control point for smooth curve
+              const midX = (currentPoint.x + nextPoint.x) / 2;
+              const midY = (currentPoint.y + nextPoint.y) / 2;
+              ctx.quadraticCurveTo(currentPoint.x, currentPoint.y, midX, midY);
+            }
           }
+
+          ctx.stroke();
+          console.log('✅ Smooth curve drawn with', points.length, 'points');
         }
 
-        // Draw numbered labels on each point
-        projectionData.forEach((point, index) => {
-          const projDate = new Date(point.date);
-          projDate.setHours(0, 0, 0, 0);
-          const tradingDaysFromLast = countTradingDaysBetween(lastCandleDate, projDate);
-          const x = Math.round(lastCandleX + (tradingDaysFromLast * candleSpacing));
-          const y = priceChartHeight - ((point.price - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight;
-
-          if (x >= 40 && x <= chartWidth && y >= 0 && y <= priceChartHeight) {
-            // Draw circle at point
-            ctx.beginPath();
-            ctx.arc(x, y, 3, 0, 2 * Math.PI);
-            ctx.fillStyle = color;
-            ctx.fill();
-
-            // Draw number label
-            ctx.fillStyle = color;
-            ctx.font = 'bold 11px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(String(index + 1), x, y - 12);
-          }
-        });
-
+        ctx.setLineDash([]);
         ctx.restore();
       };
 
       // Draw each active seasonal line with its color and style
       if (isSeasonal20YActive) drawSeasonalLine(seasonal20YData, '#FFFFFF', false); // Solid white
       if (isSeasonal15YActive) drawSeasonalLine(seasonal15YData, '#FFD700', false); // Solid yellow
-      if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#4169E1', false); // Solid blue
+      if (isSeasonal10YActive) drawSeasonalLine(seasonal10YData, '#00E5FF', false); // Bright cyan
       if (isSeasonalElectionActive) drawSeasonalLine(seasonalElectionData, '#9370DB', true); // Purple dashed
       if (isSeasonalEventActive) {
         console.log('🎨 Drawing event seasonal line, event:', selectedSeasonalEvent);
@@ -11096,7 +11225,7 @@ export default function TradingViewChart({
     }
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.length, dimensions.width, dimensions.height, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData, flowChartViewMode, flowChartHeight, isAnyIVHVActive, ivData, ivData.length, isIVLoading, showIVPanel, showIVIndicator, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivPanelHeight, hvWindow, activeIVPanelCount]); // Draw volume bars above the x-axis (TradingView style)
+  }, [data.length, dimensions.width, dimensions.height, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData, flowChartViewMode, flowChartHeight, isAnyIVHVActive, ivData, ivData.length, isIVLoading, showIVPanel, showIVIndicator, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivPanelHeight, hvWindow, activeIVPanelCount, config.chartType, config.showGrid, isExpectedRangeActive, expectedRangeLevels, isWeeklyActive, isMonthlyActive, isCustomActive, isSeasonalActive, seasonal20YData, seasonal15YData, seasonal10YData, seasonalElectionData, seasonalEventData, isGexActive, technalysisActive, technalysisFeatures, isRRGCandleActive, rrgMode, isExpansionLiquidationActive, drawings.length]); // Draw volume bars above the x-axis (TradingView style)
   const drawVolumeProfile = (
     ctx: CanvasRenderingContext2D,
     visibleData: ChartDataPoint[],
@@ -12395,59 +12524,86 @@ export default function TradingViewChart({
 
     const labelConfig = getOptimalLabelFormat(config.timeframe, visibleCandleCount, timeSpan);
 
+    // Track last label shown for smart display (prevent duplicates for all formats)
+    let lastLabelShown = '';
+
     // Format date based on adaptive format
     const formatDateLabel = (timestamp: number, format: string): string => {
       const date = new Date(timestamp);
+      let label = '';
 
       switch (format) {
         case 'time':
-          return date.toLocaleTimeString('en-US', {
+          label = date.toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
             hour12: true,
             timeZone: 'America/New_York'
           });
+          break;
         case 'datetime':
-          return date.toLocaleDateString('en-US', {
+          const dateStr = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             timeZone: 'America/New_York'
-          }) + ' ' + date.toLocaleTimeString('en-US', {
+          });
+          const timeStr = date.toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
             hour12: true,
             timeZone: 'America/New_York'
           });
+
+          // Show date + time only when day changes, otherwise just time
+          if (dateStr !== lastLabelShown) {
+            label = `${dateStr} ${timeStr}`;
+          } else {
+            label = timeStr;
+          }
+          lastLabelShown = dateStr;
+          return label;
         case 'date':
-          return date.toLocaleDateString('en-US', {
+          label = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             timeZone: 'America/New_York'
           });
+          break;
         case 'monthday':
-          return date.toLocaleDateString('en-US', {
+          label = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             timeZone: 'America/New_York'
           });
+          break;
         case 'monthyear':
-          return date.toLocaleDateString('en-US', {
+          label = date.toLocaleDateString('en-US', {
             month: 'short',
             year: 'numeric',
             timeZone: 'America/New_York'
           });
+          break;
         case 'year':
-          return date.toLocaleDateString('en-US', {
+          label = date.toLocaleDateString('en-US', {
             year: 'numeric',
             timeZone: 'America/New_York'
           }).split(',')[0];
+          break;
         default:
-          return date.toLocaleDateString('en-US', {
+          label = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             timeZone: 'America/New_York'
           });
       }
+
+      // Skip duplicate labels (except for 'time' and when transitioning days in 'datetime')
+      if (label === lastLabelShown && format !== 'time') {
+        return ''; // Return empty string to skip this duplicate label
+      }
+
+      lastLabelShown = label;
+      return label;
     };
 
     // Calculate how many labels we can fit - enhanced with overlap prevention
@@ -12479,6 +12635,9 @@ export default function TradingViewChart({
     };
 
     const addLabel = (x: number, text: string, isFuture: boolean = false) => {
+      // Skip empty labels (duplicates filtered out)
+      if (!text || text.trim() === '') return;
+
       if (canPlaceLabel(x, text)) {
         const textWidth = ctx.measureText(text).width;
         labelPositions.push({ x, width: textWidth, text });
@@ -12507,32 +12666,6 @@ export default function TradingViewChart({
 
     // Calculate if we're showing future area
     const startIndex = Math.max(0, Math.floor(scrollOffset));
-    const actualDataEnd = Math.min(allData.length, startIndex + visibleCandleCount);
-    const showingFutureArea = (startIndex + visibleCandleCount) > allData.length;
-    const futurePeriodsShown = showingFutureArea ? (startIndex + visibleCandleCount) - allData.length : 0;
-
-    // Helper function to calculate future timestamp
-    const getFutureTimestamp = (baseTimestamp: number, periodsAhead: number): number => {
-      const timeframe = config.timeframe;
-      let milliseconds = 0;
-
-      switch (timeframe) {
-        case '1m': milliseconds = 60 * 1000; break;
-        case '5m': milliseconds = 5 * 60 * 1000; break;
-        case '15m': milliseconds = 15 * 60 * 1000; break;
-        case '30m': milliseconds = 30 * 60 * 1000; break;
-        case '1h': milliseconds = 60 * 60 * 1000; break;
-        case '4h': milliseconds = 4 * 60 * 60 * 1000; break;
-        case '1d': milliseconds = 24 * 60 * 60 * 1000; break;
-        case '1w': milliseconds = 7 * 24 * 60 * 60 * 1000; break;
-        case '1mo': milliseconds = 30 * 24 * 60 * 60 * 1000; break;
-        case '1y': milliseconds = 365 * 24 * 60 * 60 * 1000; break;
-        default: milliseconds = 24 * 60 * 60 * 1000; break;
-      }
-
-      // Simple linear calculation - just add the time intervals
-      return baseTimestamp + (periodsAhead * milliseconds);
-    };
 
     // Draw labels for actual data with overlap prevention
     visibleData.forEach((candle, index) => {
@@ -12549,27 +12682,6 @@ export default function TradingViewChart({
       const x = 40 + (lastIndex * candleSpacing) + candleSpacing / 2;
       const timeLabel = formatDateLabel(visibleData[lastIndex].timestamp, labelConfig.format);
       addLabel(x, timeLabel, false);
-    }
-
-    // Draw future labels if we're showing future area - MUCH DENSER SPACING FOR FUTURE
-    if (showingFutureArea && futurePeriodsShown > 0 && allData.length > 0) {
-      const lastDataTimestamp = allData[allData.length - 1].timestamp;
-
-      // Use much smaller spacing for future area - show way more labels
-      const futureSpacing = Math.max(1, Math.floor(labelStep / 3)); // 3x denser than historical
-
-      // Calculate starting index for future labels
-      const futureStartOffset = visibleData.length > 0 ? 1 : (startIndex - allData.length + 1);
-
-      for (let i = futureStartOffset; i <= futurePeriodsShown; i++) {
-        if (i % futureSpacing === 0 || visibleData.length === 0) {
-          const futureIndexOnScreen = visibleData.length > 0 ? (visibleData.length + i - 1) : (i - futureStartOffset);
-          const x = 40 + (futureIndexOnScreen * candleSpacing) + candleSpacing / 2;
-          const futureTimestamp = getFutureTimestamp(lastDataTimestamp, startIndex - allData.length + i);
-          const timeLabel = formatDateLabel(futureTimestamp, labelConfig.format);
-          addLabel(x, timeLabel, true);
-        }
-      }
     }
 
     // Draw price alerts on the chart
@@ -12628,7 +12740,63 @@ export default function TradingViewChart({
       renderChart();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow, chartLayout, manualPriceRange]);
+  }, [dimensions.width, dimensions.height, data.length, scrollOffset, visibleCandleCount, isFlowChartActive, flowChartData.length, flowChartViewMode, flowChartHeight, showIVPanel, showCallIVLine, showPutIVLine, showNetIVLine, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator, ivData.length, hvWindow, chartLayout, manualPriceRange, config.chartType, config.showGrid, isExpectedRangeActive, expectedRangeLevels, isWeeklyActive, isMonthlyActive, isCustomActive, isSeasonalActive, isGexActive, technalysisActive, isRRGCandleActive, rrgMode, isExpansionLiquidationActive, drawings.length]);
+
+  // Re-render when Expected Range data arrives
+  useEffect(() => {
+    if (isExpectedRangeActive && expectedRangeLevels && chartLayout === '1x1') {
+      renderChart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expectedRangeLevels, isExpectedRangeActive, isWeeklyActive, isMonthlyActive, isCustomActive, chartLayout]);
+
+  // Re-render when Seasonal data arrives
+  useEffect(() => {
+    if (isSeasonalActive && seasonalProjectionData && seasonalProjectionData.length > 0 && chartLayout === '1x1') {
+      renderChart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonalProjectionData, isSeasonalActive, chartLayout]);
+
+  // Re-render when Technalysis is toggled
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [technalysisActive, technalysisFeatures, chartLayout]);
+
+  // Re-render when GEX data arrives
+  useEffect(() => {
+    if (isGexActive && (liveGexData || gexData) && chartLayout === '1x1') {
+      renderChart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveGexData, gexData, isGexActive, chartLayout]);
+
+  // Re-render when Technalysis features change
+  useEffect(() => {
+    if (technalysisActive && technalysisFeatures && chartLayout === '1x1') {
+      renderChart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [technalysisFeatures, technalysisActive, chartLayout]);
+
+  // Re-render when RRG Candle settings change
+  useEffect(() => {
+    if (chartLayout === '1x1') {
+      renderChart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rrgCandleColors, isRRGCandleActive, rrgMode, rrgLookbackPeriod, chartLayout]);
+
+  // Re-render when drawings change
+  useEffect(() => {
+    if (drawings && drawings.length > 0 && chartLayout === '1x1') {
+      renderChart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawings, chartLayout]);
 
   // TradingView-style interaction handlers
 
@@ -12853,15 +13021,47 @@ export default function TradingViewChart({
     }
 
     // Default chart panning behavior
-    setIsDragging(true);
-    setLastMouseX(x);
-    setDragStartX(x);
-    setDragStartOffset(scrollOffset);
+    const timeAxisHeight = 25;
+    const priceChartHeight = dimensions.height - timeAxisHeight;
+
+    if (y > priceChartHeight) {
+      // Click is below the chart (in time axis area) - don't allow dragging
+      return;
+    }
+
+    // Don't start chart drag if we're in Y-axis area (already handled above)
+    if (isOverYAxis) {
+      return;
+    }
+
+    // ============================================================================
+    // MOUSE DOWN - START DRAG
+    // ============================================================================
+    stopMomentumAnimation();
+
+    dragRef.current = {
+      active: true,
+      startX: x,
+      startY: y,
+      startScrollOffset: scrollOffset,
+      startPriceRange: manualPriceRange || lastRenderedPriceRangeRef.current,
+      startTimestamp: performance.now()
+    };
+
+    try {
+      if (e.pointerId !== undefined) {
+        canvas.setPointerCapture(e.pointerId);
+      }
+    } catch (err) {
+      // Pointer capture not available, continue without it
+    }
+
   }, [
     scrollOffset,
     dimensions, data, visibleCandleCount,
     screenToTimePriceCoordinates, screenToPrice, priceToScreenForDrawings,
     isAlertPlacementMode, alerts, newAlertPrice, showAlertDialog,
+    manualPriceRange, stopMomentumAnimation,
     isInYAxisArea, getCurrentPriceRange, manualPriceRange, setManualPriceRangeAndDisableAuto
   ]);
 
@@ -13226,27 +13426,21 @@ export default function TradingViewChart({
       return;
     }
 
-    // Stop any ongoing momentum animation when starting new interaction
+    // ============================================================================
+    // MOUSE DOWN - START DRAG
+    // ============================================================================
     stopMomentumAnimation();
 
-    // Initialize velocity tracking
-    const now = Date.now();
-    setLastMouseTimestamp(now);
+    dragRef.current = {
+      active: true,
+      startX: x,
+      startY: y,
+      startScrollOffset: scrollOffset,
+      startPriceRange: manualPriceRange || lastRenderedPriceRangeRef.current,
+      startTimestamp: performance.now()
+    };
 
-    // Start X-axis panning only
-    setIsDragging(true);
-    setLastMouseX(x);
-    setLastMouseY(y);
-    setDragStartX(x);
-    setDragStartOffset(scrollOffset);
-
-    // DON'T set manualPriceRangeRef here - only set it when user actually drags Y
-
-    // Mark this as first frame
-    setIsFirstDragFrame(true);
-    isFirstDragFrameRef.current = true;
-
-    // DON'T set manualPriceRange here - let it update only when user actually drags vertically
+    (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
 
   }, [drawings, detectDrawingHit, handleDrawingSelection, lastClickDrawing, lastClickTime, scrollOffset, data, visibleCandleCount, getCurrentPriceRange, manualPriceRange, stopMomentumAnimation, setManualPriceRangeAndDisableAuto, isOnYAxisBorder, isInYAxisArea]);
 
@@ -13291,10 +13485,10 @@ export default function TradingViewChart({
     const onBorder = isOnYAxisBorder(x, canvasWidth);
 
     // Update cursor when near Y-axis border
-    if (onBorder && !isDragging && !isResizingYAxis) {
+    if (onBorder && !dragRef.current.active && !isResizingYAxis) {
       setShowYAxisResizeCursor(true);
       canvas.style.cursor = 'ew-resize';
-    } else if (!isDragging && !isResizingYAxis) {
+    } else if (!dragRef.current.active && !isResizingYAxis) {
       setShowYAxisResizeCursor(false);
       canvas.style.cursor = config.crosshair ? 'crosshair' : 'default';
     }
@@ -13416,77 +13610,73 @@ export default function TradingViewChart({
     }
 
     // ============================================================================
-    // TRADINGVIEW-STYLE DRAG - X-AXIS ONLY
+    // MOUSE MOVE - CHART DRAG
     // ============================================================================
-    if (isDragging) {
-      // Skip first frame to avoid jump, but update positions so next frame has correct delta
-      if (isFirstDragFrameRef.current) {
-        setIsFirstDragFrame(false);
-        isFirstDragFrameRef.current = false;
-        setLastMouseX(x);
-        setLastMouseY(y);
-        return;
-      }
+    if (!dragRef.current.active) return;
 
-      // Track velocity for momentum scrolling
-      const now = Date.now();
-      const deltaTime = now - lastMouseTimestamp;
+    const {
+      startX,
+      startY,
+      startScrollOffset,
+      startPriceRange,
+      startTimestamp
+    } = dragRef.current;
 
-      // Calculate deltas for both X and Y
-      const deltaX = x - lastMouseX;
-      const deltaY = y - lastMouseY;
+    const dx = x - startX;
+    const dy = y - startY;
 
-      if (deltaTime > 0 && deltaTime < 100) {
-        const frameTime = 16.67;
-        const velocityX = (deltaX / deltaTime) * frameTime;
-        const velocityY = (deltaY / deltaTime) * frameTime;
-        setVelocity({ x: velocityX, y: velocityY });
-        setLastMouseTimestamp(now);
-      }
+    const now = performance.now();
+    const dt = Math.max(16, now - startTimestamp);
 
-      // X-axis dragging (time scroll)
-      if (deltaX !== 0) {
-        setScrollOffset(currentScrollOffset => {
-          const Y_AXIS_WIDTH = 80;
-          const chartWidth = dimensions.width - Y_AXIS_WIDTH;
-          const pixelsPerCandle = chartWidth / visibleCandleCount;
-          const candlesDragged = deltaX / pixelsPerCandle;
-          const newOffset = currentScrollOffset - candlesDragged;
-          const futurePeriods = getFuturePeriods(visibleCandleCount);
-          const maxScrollOffset = data.length - visibleCandleCount + futurePeriods;
-          const clampedOffset = Math.max(0, Math.min(maxScrollOffset, newOffset));
-          return clampedOffset;
-        });
-      }
+    // =====================
+    // X-AXIS PAN (TIME)
+    // =====================
+    const Y_AXIS_WIDTH = 80;
+    const chartWidth = dimensions.width - Y_AXIS_WIDTH;
+    const pixelsPerCandle = chartWidth / visibleCandleCount;
+    const candlesMoved = dx / pixelsPerCandle;
 
-      // Y-axis dragging (price panning) - simple vertical drag
-      if (deltaY !== 0 && !isDraggingYAxisZoom) {
-        // On first Y drag: get base from ref (if set) OR state OR last rendered range
-        const baseRange = manualPriceRangeRef.current || manualPriceRange || lastRenderedPriceRangeRef.current;
+    const futurePeriods = getFuturePeriods(visibleCandleCount);
+    const maxOffset = data.length - visibleCandleCount + futurePeriods;
 
-        const timeAxisHeight = 25;
-        const priceChartHeight = dimensions.height - timeAxisHeight;
-        const priceHeight = baseRange.max - baseRange.min;
-        const pricePerPixel = priceHeight / priceChartHeight;
-        const priceShift = deltaY * pricePerPixel;
+    const newScrollOffset = Math.max(
+      0,
+      Math.min(maxOffset, startScrollOffset - candlesMoved)
+    );
 
-        const newRange = {
-          min: baseRange.min + priceShift,
-          max: baseRange.max + priceShift
-        };
+    setScrollOffset(newScrollOffset);
 
-        // Update ref immediately for next frame (synchronous)
-        manualPriceRangeRef.current = newRange;
-        // Update state to trigger re-render
-        setManualPriceRange(newRange);
-        setIsAutoScale(false);
-      }
+    // =====================
+    // Y-AXIS PAN (PRICE)
+    // =====================
+    if (startPriceRange) {
+      const timeAxisHeight = 25;
+      const priceChartHeight = dimensions.height - timeAxisHeight;
 
-      setLastMouseX(x);
-      setLastMouseY(y);
-      return;
+      const priceSpan = startPriceRange.max - startPriceRange.min;
+      const pricePerPixel = priceSpan / priceChartHeight;
+      const priceShift = dy * pricePerPixel;
+
+      const newRange = {
+        min: startPriceRange.min + priceShift,
+        max: startPriceRange.max + priceShift
+      };
+
+      manualPriceRangeRef.current = newRange;
+      setManualPriceRange(newRange);
+      setIsAutoScale(false);
     }
-  }, [isDragging, isDraggingDrawing, selectedDrawing, lastMouseX, lastMouseY, visibleCandleCount, data, dimensions, priceRange, config.crosshair, isAutoScale, getFuturePeriods, config.timeframe, actualPriceChartHeight, seasonalProjectionData, screenToTimePriceCoordinates, setCrosshairInfo, setCrosshairPosition, isOnYAxisBorder, isResizingYAxis, yAxisResizeStart, isFirstDragFrame, scrollOffset, isDraggingYAxisZoom, yAxisZoomDragStart, setManualPriceRangeAndDisableAuto, getCurrentPriceRange, manualPriceRange, manualPriceRangeRef]);
+
+    // =====================
+    // VELOCITY (MOMENTUM)
+    // =====================
+    velocityRef.current = {
+      x: dx / dt * 16.67,
+      y: dy / dt * 16.67
+    };
+
+    return;
+  }, [dimensions, visibleCandleCount, data, getFuturePeriods, isDraggingYAxisZoom, yAxisZoomDragStart, setManualPriceRangeAndDisableAuto, isOnYAxisBorder, config.crosshair, isResizingYAxis, yAxisResizeStart, scrollOffset, manualPriceRange]);
 
   const handleMouseUp = useCallback(() => {
 
@@ -13540,18 +13730,25 @@ export default function TradingViewChart({
     }
 
     // ============================================================================
-    // TRADINGVIEW-STYLE MOMENTUM - Start if velocity is significant
+    // MOUSE UP - END DRAG & START MOMENTUM
     // ============================================================================
-    if (isDragging) {
-      const minMomentumVelocity = 0.5; // Minimum velocity to trigger momentum
-      if (Math.abs(velocity.x) > minMomentumVelocity || Math.abs(velocity.y) > minMomentumVelocity) {
-        console.log('🚀 Starting momentum animation:', velocity);
+    if (dragRef.current.active) {
+      dragRef.current.active = false;
+
+      try {
+        if (e.pointerId !== undefined) {
+          (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+        }
+      } catch (err) {
+        // Pointer capture not available, continue without it
+      }
+
+      const { x, y } = velocityRef.current;
+      if (Math.abs(x) > 0.4 || Math.abs(y) > 0.4) {
         startMomentumAnimation();
       }
     }
 
-
-    setIsDragging(false);
     setIsDraggingDrawing(false);
     setIsBoxZooming(false);
     setBoxZoomStart(null);
@@ -13571,7 +13768,7 @@ export default function TradingViewChart({
 
     // DON'T clear selectedDrawing here - it closes the Property Editor!
     // setSelectedDrawing(null);
-  }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, isDragging, velocity, startMomentumAnimation]);
+  }, [isBoxZooming, boxZoomStart, boxZoomEnd, dimensions, visibleCandleCount, scrollOffset, data.length, getCurrentPriceRange, setManualPriceRangeAndDisableAuto, startMomentumAnimation]);
 
   // Simple drawing rendering effect - COMPLETELY DISABLED to prevent conflicts with main TradingView drawing system
   useEffect(() => {
@@ -18306,98 +18503,13 @@ export default function TradingViewChart({
                         <span className="font-bold" style={{ color: '#4ECDC4', fontSize: '16px' }}>{selectedTradeForModal.details.riskReward?.toFixed(1) || 0}/20</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#95E1D3', fontSize: '15px' }}>Seasonal Alignment:</span>
-                        <span className="font-bold" style={{ color: '#95E1D3', fontSize: '16px' }}>{selectedTradeForModal.details.seasonalAlignment?.toFixed(1) || 0}/15</span>
+                        <span style={{ color: '#95E1D3', fontSize: '15px' }}>Relative Strength:</span>
+                        <span className="font-bold" style={{ color: '#95E1D3', fontSize: '16px' }}>{selectedTradeForModal.details.relativeStrength?.toFixed(1) || 0}/15</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#F38181', fontSize: '15px' }}>Momentum Health:</span>
                         <span className="font-bold" style={{ color: '#F38181', fontSize: '16px' }}>{selectedTradeForModal.details.momentumHealth?.toFixed(1) || 0}/20</span>
                       </div>
-                      {selectedTradeForModal.details.seasonalDetails && (
-                        <div className="col-span-2 p-4 rounded" style={{ background: '#0a0a0a', border: '1px solid #95E1D3' }}>
-                          <div className="text-sm font-semibold mb-3" style={{ color: '#95E1D3' }}>
-                            10-Year Seasonality Details
-                          </div>
-                          <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                            {selectedTradeForModal.details.seasonalDetails.best30Day && (
-                              <div className="p-3 rounded" style={{
-                                background: selectedTradeForModal.details.seasonalDetails.inBest30 ? '#001a00' : '#000000',
-                                border: selectedTradeForModal.details.seasonalDetails.inBest30 ? '1px solid #00ff00' : '1px solid #333'
-                              }}>
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span style={{ color: '#00ff00' }}>Best 30-Day</span>
-                                  {selectedTradeForModal.details.seasonalDetails.inBest30 && (
-                                    <span style={{ color: '#00ff00', fontSize: '16px' }}>✓</span>
-                                  )}
-                                </div>
-                                <div style={{ color: '#888' }}>
-                                  {selectedTradeForModal.details.seasonalDetails.best30Day.start} - {selectedTradeForModal.details.seasonalDetails.best30Day.end}
-                                </div>
-                                <div style={{ color: '#00ff00', fontWeight: 'bold' }}>
-                                  +{(selectedTradeForModal.details.seasonalDetails.best30Day.avgReturn || 0).toFixed(2)}%
-                                </div>
-                              </div>
-                            )}
-                            {selectedTradeForModal.details.seasonalDetails.worst30Day && (
-                              <div className="p-3 rounded" style={{
-                                background: selectedTradeForModal.details.seasonalDetails.inWorst30 ? '#1a0000' : '#000000',
-                                border: selectedTradeForModal.details.seasonalDetails.inWorst30 ? '1px solid #ff0000' : '1px solid #333'
-                              }}>
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span style={{ color: '#ff0000' }}>Worst 30-Day</span>
-                                  {selectedTradeForModal.details.seasonalDetails.inWorst30 && (
-                                    <span style={{ color: '#ff0000', fontSize: '16px' }}>✓</span>
-                                  )}
-                                </div>
-                                <div style={{ color: '#888' }}>
-                                  {selectedTradeForModal.details.seasonalDetails.worst30Day.start} - {selectedTradeForModal.details.seasonalDetails.worst30Day.end}
-                                </div>
-                                <div style={{ color: '#ff0000', fontWeight: 'bold' }}>
-                                  {(selectedTradeForModal.details.seasonalDetails.worst30Day.avgReturn || 0).toFixed(2)}%
-                                </div>
-                              </div>
-                            )}
-                            {selectedTradeForModal.details.seasonalDetails.sweetSpot && (
-                              <div className="p-3 rounded" style={{
-                                background: selectedTradeForModal.details.seasonalDetails.inSweetSpot ? '#001a00' : '#000000',
-                                border: selectedTradeForModal.details.seasonalDetails.inSweetSpot ? '1px solid #00ff00' : '1px solid #333'
-                              }}>
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span style={{ color: '#00ff00' }}>Sweet Spot</span>
-                                  {selectedTradeForModal.details.seasonalDetails.inSweetSpot && (
-                                    <span style={{ color: '#00ff00', fontSize: '16px' }}>✓</span>
-                                  )}
-                                </div>
-                                <div style={{ color: '#888' }}>
-                                  {selectedTradeForModal.details.seasonalDetails.sweetSpot.start} - {selectedTradeForModal.details.seasonalDetails.sweetSpot.end}
-                                </div>
-                                <div style={{ color: '#00ff00', fontWeight: 'bold' }}>
-                                  +{(selectedTradeForModal.details.seasonalDetails.sweetSpot.avgReturn || 0).toFixed(2)}%
-                                </div>
-                              </div>
-                            )}
-                            {selectedTradeForModal.details.seasonalDetails.painPoint && (
-                              <div className="p-3 rounded" style={{
-                                background: selectedTradeForModal.details.seasonalDetails.inPainPoint ? '#1a0000' : '#000000',
-                                border: selectedTradeForModal.details.seasonalDetails.inPainPoint ? '1px solid #ff0000' : '1px solid #333'
-                              }}>
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span style={{ color: '#ff0000' }}>Pain Point</span>
-                                  {selectedTradeForModal.details.seasonalDetails.inPainPoint && (
-                                    <span style={{ color: '#ff0000', fontSize: '16px' }}>✓</span>
-                                  )}
-                                </div>
-                                <div style={{ color: '#888' }}>
-                                  {selectedTradeForModal.details.seasonalDetails.painPoint.start} - {selectedTradeForModal.details.seasonalDetails.painPoint.end}
-                                </div>
-                                <div style={{ color: '#ff0000', fontWeight: 'bold' }}>
-                                  {(selectedTradeForModal.details.seasonalDetails.painPoint.avgReturn || 0).toFixed(2)}%
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
                       <div className="flex items-center col-span-2 justify-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#AA96DA', fontSize: '15px' }}>Trend Strength:</span>
                         <span className="font-bold ml-3" style={{ color: '#AA96DA', fontSize: '16px' }}>{selectedTradeForModal.details.trendStrength?.toFixed(1) || 0}/20</span>
@@ -18418,106 +18530,12 @@ export default function TradingViewChart({
                         <span className="font-bold" style={{ color: '#1E90FF', fontSize: '16px' }}>{selectedTradeForModal.details.retestQuality?.toFixed(1) || 0}</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#32CD32', fontSize: '15px' }}>Seasonal Alignment:</span>
-                        <span className="font-bold" style={{ color: '#32CD32', fontSize: '16px' }}>{selectedTradeForModal.details.seasonalAlignment?.toFixed(1) || 0}</span>
+                        <span style={{ color: '#32CD32', fontSize: '15px' }}>Relative Strength:</span>
+                        <span className="font-bold" style={{ color: '#32CD32', fontSize: '16px' }}>{selectedTradeForModal.details.relativeStrength?.toFixed(1) || 0}</span>
                       </div>
                       <div className="flex items-center col-span-2 justify-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#FF1493', fontSize: '15px' }}>Pullback Depth:</span>
                         <span className="font-bold ml-3" style={{ color: '#FF1493', fontSize: '16px' }}>{selectedTradeForModal.details.pullbackDepth?.toFixed(1) || 0}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Seasonal Period Details - Only show if not expanded inline */}
-                  {!expandedScoreComponent && selectedTradeForModal.details.seasonalDetails && (
-                    <div className="mt-5 pt-4 border-t border-gray-700">
-                      <div className="text-sm font-semibold mb-3" style={{ color: '#00FFFF' }}>
-                        10-Year Seasonality Analysis
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                        {/* Best 30-Day Period */}
-                        {selectedTradeForModal.details.seasonalDetails.best30Day && (
-                          <div className="p-3 rounded" style={{
-                            background: selectedTradeForModal.details.seasonalDetails.inBest30 ? '#001a00' : '#000000',
-                            border: selectedTradeForModal.details.seasonalDetails.inBest30 ? '1px solid #00ff00' : '1px solid #333'
-                          }}>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span style={{ color: '#00ff00' }}>Best 30-Day</span>
-                              {selectedTradeForModal.details.seasonalDetails.inBest30 && (
-                                <span style={{ color: '#00ff00', fontSize: '16px' }}>✓</span>
-                              )}
-                            </div>
-                            <div style={{ color: '#888' }}>
-                              {selectedTradeForModal.details.seasonalDetails.best30Day.start} - {selectedTradeForModal.details.seasonalDetails.best30Day.end}
-                            </div>
-                            <div style={{ color: '#00ff00', fontWeight: 'bold' }}>
-                              +{(selectedTradeForModal.details.seasonalDetails.best30Day.avgReturn || 0).toFixed(2)}%
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Worst 30-Day Period */}
-                        {selectedTradeForModal.details.seasonalDetails.worst30Day && (
-                          <div className="p-3 rounded" style={{
-                            background: selectedTradeForModal.details.seasonalDetails.inWorst30 ? '#1a0000' : '#000000',
-                            border: selectedTradeForModal.details.seasonalDetails.inWorst30 ? '1px solid #ff0000' : '1px solid #333'
-                          }}>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span style={{ color: '#ff0000' }}>Worst 30-Day</span>
-                              {selectedTradeForModal.details.seasonalDetails.inWorst30 && (
-                                <span style={{ color: '#ff0000', fontSize: '16px' }}>✓</span>
-                              )}
-                            </div>
-                            <div style={{ color: '#888' }}>
-                              {selectedTradeForModal.details.seasonalDetails.worst30Day.start} - {selectedTradeForModal.details.seasonalDetails.worst30Day.end}
-                            </div>
-                            <div style={{ color: '#ff0000', fontWeight: 'bold' }}>
-                              {(selectedTradeForModal.details.seasonalDetails.worst30Day.avgReturn || 0).toFixed(2)}%
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Sweet Spot (50-90 day best window) */}
-                        {selectedTradeForModal.details.seasonalDetails.sweetSpot && (
-                          <div className="p-3 rounded" style={{
-                            background: selectedTradeForModal.details.seasonalDetails.inSweetSpot ? '#001a00' : '#000000',
-                            border: selectedTradeForModal.details.seasonalDetails.inSweetSpot ? '1px solid #00ff00' : '1px solid #333'
-                          }}>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span style={{ color: '#00ff00' }}>Sweet Spot</span>
-                              {selectedTradeForModal.details.seasonalDetails.inSweetSpot && (
-                                <span style={{ color: '#00ff00', fontSize: '16px' }}>✓</span>
-                              )}
-                            </div>
-                            <div style={{ color: '#888' }}>
-                              {selectedTradeForModal.details.seasonalDetails.sweetSpot.start} - {selectedTradeForModal.details.seasonalDetails.sweetSpot.end}
-                            </div>
-                            <div style={{ color: '#00ff00', fontWeight: 'bold' }}>
-                              +{(selectedTradeForModal.details.seasonalDetails.sweetSpot.avgReturn || 0).toFixed(2)}%
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Pain Point (50-90 day worst window) */}
-                        {selectedTradeForModal.details.seasonalDetails.painPoint && (
-                          <div className="p-3 rounded" style={{
-                            background: selectedTradeForModal.details.seasonalDetails.inPainPoint ? '#1a0000' : '#000000',
-                            border: selectedTradeForModal.details.seasonalDetails.inPainPoint ? '1px solid #ff0000' : '1px solid #333'
-                          }}>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span style={{ color: '#ff0000' }}>Pain Point</span>
-                              {selectedTradeForModal.details.seasonalDetails.inPainPoint && (
-                                <span style={{ color: '#ff0000', fontSize: '16px' }}>✓</span>
-                              )}
-                            </div>
-                            <div style={{ color: '#888' }}>
-                              {selectedTradeForModal.details.seasonalDetails.painPoint.start} - {selectedTradeForModal.details.seasonalDetails.painPoint.end}
-                            </div>
-                            <div style={{ color: '#ff0000', fontWeight: 'bold' }}>
-                              {(selectedTradeForModal.details.seasonalDetails.painPoint.avgReturn || 0).toFixed(2)}%
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
                   )}
@@ -18852,31 +18870,151 @@ export default function TradingViewChart({
               {/* Left side: Symbol Search + Price + Controls */}
               <div className="flex items-center space-x-8 flex-shrink-0">
                 <div className="flex items-center space-x-3">
-                  <div className="relative flex items-center">
-                    <div className="search-bar-premium flex items-center space-x-2 px-3 py-2 rounded-md">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(128, 128, 128, 0.5)' }}>
-                        <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
-                        <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" />
-                      </svg>
+                  <div className="relative flex items-center" ref={searchInputRef}>
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      background: 'linear-gradient(145deg, #2a2a2a, #0a0a0a)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderTop: '1px solid rgba(255, 255, 255, 0.4)',
+                      borderRadius: '6px',
+                      padding: '8px 14px',
+                      gap: '8px',
+                      boxShadow: '0 4px 15px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.5)',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}>
                       <input
                         type="text"
                         value={searchQuery}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearchInputChange(e.target.value)}
                         onKeyPress={handleSearchKeyPress}
-                        className="bg-transparent border-0 outline-none w-28 text-lg font-bold"
+                        onFocus={() => searchQuery.length > 0 && searchResults.length > 0 && setShowSearchResults(true)}
+                        className="bg-transparent border-0 outline-none"
                         style={{
                           color: '#ffffff',
-                          textShadow: '0 0 5px rgba(128, 128, 128, 0.2), 0 1px 2px rgba(0, 0, 0, 0.8)',
-                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                          letterSpacing: '0.8px'
+                          fontSize: '16px',
+                          fontWeight: 'bold',
+                          fontFamily: 'monospace',
+                          letterSpacing: '1px',
+                          width: '100px'
                         }}
-                        placeholder={isBenchmarkMode ? `${benchmarkSymbol1}/${benchmarkSymbol2}` : (symbol || "Search...")}
+                        placeholder={isBenchmarkMode ? `${benchmarkSymbol1}/${benchmarkSymbol2}` : (symbol || "TICKER")}
                       />
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: '#666' }}>
-                        <path d="M12 5v14l7-7-7-7z" fill="currentColor" />
-                      </svg>
                     </div>
                   </div>
+
+                  {/* Search Results Dropdown - Using createPortal like other dropdowns */}
+                  {showSearchResults && createPortal(
+                    <div
+                      style={{
+                        position: 'fixed',
+                        top: searchInputRef.current ? searchInputRef.current.getBoundingClientRect().bottom + 8 : 0,
+                        left: searchInputRef.current ? searchInputRef.current.getBoundingClientRect().left : 0,
+                        zIndex: 100000,
+                        width: '320px',
+                        maxHeight: '384px',
+                        overflowY: 'auto',
+                        background: '#000000',
+                        border: '1px solid rgba(128, 128, 128, 0.3)',
+                        borderRadius: '8px',
+                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05)'
+                      }}
+                    >
+                      {searchLoading ? (
+                        <div className="p-4 text-center text-gray-400">
+                          <div className="inline-block animate-spin rounded-full h-5 w-5 border-2 border-gray-400 border-t-transparent"></div>
+                          <span className="ml-2">Searching...</span>
+                        </div>
+                      ) : searchResults.length > 0 ? (
+                        <>
+                          <div
+                            className="px-3 py-2 text-xs font-semibold uppercase tracking-wider sticky top-0 z-10"
+                            style={{
+                              color: '#ffffff',
+                              background: '#000000',
+                              borderBottom: '1px solid rgba(128, 128, 128, 0.2)'
+                            }}
+                          >
+                            Stocks
+                          </div>
+                          {searchResults.map((result) => {
+                            // Helper function to highlight matching text in orange
+                            const highlightMatch = (text: string, query: string) => {
+                              if (!query) return <>{text}</>;
+
+                              const upperText = text.toUpperCase();
+                              const upperQuery = query.toUpperCase();
+                              const index = upperText.indexOf(upperQuery);
+
+                              if (index === -1) return <>{text}</>;
+
+                              return (
+                                <>
+                                  <span style={{ color: '#ffffff' }}>{text.substring(0, index)}</span>
+                                  <span style={{ color: '#ff8500', fontWeight: 'bold' }}>{text.substring(index, index + query.length)}</span>
+                                  <span style={{ color: '#ffffff' }}>{text.substring(index + query.length)}</span>
+                                </>
+                              );
+                            };
+
+                            return (
+                              <div
+                                key={result.ticker}
+                                onClick={() => selectSearchResult(result.ticker)}
+                                className="px-4 py-3 cursor-pointer transition-all duration-150"
+                                style={{
+                                  borderBottom: '1px solid rgba(128, 128, 128, 0.1)'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(128, 128, 128, 0.15)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = 'transparent';
+                                }}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1 min-w-0">
+                                    <div
+                                      className="font-bold text-sm mb-1"
+                                      style={{
+                                        color: '#ffffff',
+                                        letterSpacing: '0.5px',
+                                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
+                                      }}
+                                    >
+                                      {highlightMatch(result.ticker, searchQuery)}
+                                    </div>
+                                    <div
+                                      className="text-xs truncate"
+                                      style={{
+                                        color: '#ffffff',
+                                        opacity: 0.9,
+                                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)'
+                                      }}
+                                    >
+                                      {result.name}
+                                    </div>
+                                  </div>
+                                  <div
+                                    className="ml-2 px-2 py-0.5 rounded text-xs font-medium"
+                                    style={{
+                                      background: 'rgba(0, 255, 0, 0.1)',
+                                      color: '#00ff00',
+                                      border: '1px solid #00ff00'
+                                    }}
+                                  >
+                                    {result.type === 'CS' ? 'Stock' : result.type}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </>
+                      ) : null}
+                    </div>,
+                    document.body
+                  )}
                 </div>
 
                 <div className="flex flex-col items-start space-y-1">
@@ -18884,8 +19022,7 @@ export default function TradingViewChart({
                     className="font-mono text-xl font-bold leading-tight"
                     style={{
                       color: '#ffffff',
-                      textShadow: '0 1px 2px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 255, 255, 0.2)',
-                      letterSpacing: '0.3px'
+                      letterSpacing: '0.5px'
                     }}
                   >
                     ${currentPrice.toFixed(2)}
@@ -18893,13 +19030,11 @@ export default function TradingViewChart({
                   <span
                     className="font-mono text-xs font-semibold px-2 py-0.5 rounded"
                     style={{
-                      color: priceChangePercent >= 0 ? '#10b981' : '#ef4444',
-                      background: priceChangePercent >= 0
-                        ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)'
-                        : 'linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%)',
-                      textShadow: `0 1px 1px rgba(0, 0, 0, 0.8), 0 0 6px ${priceChangePercent >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-                      border: `1px solid ${priceChangePercent >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-                      letterSpacing: '0.2px'
+                      color: priceChangePercent >= 0 ? '#00ff00' : '#ff0000',
+                      background: '#000000',
+                      border: priceChangePercent >= 0 ? '2px solid #00ff00' : '2px solid #ff0000',
+                      letterSpacing: '0.3px',
+                      fontWeight: 'bold'
                     }}
                   >
                     {priceChangePercent >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePercent.toFixed(2)}%)
@@ -19217,9 +19352,39 @@ export default function TradingViewChart({
                     }}
                   >
                     <span style={{ color: 'white' }}>EXPECTED RANGE</span>
-                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    {isExpectedRangeActive ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsWeeklyActive(false);
+                          setIsMonthlyActive(false);
+                          setIsCustomActive(false);
+                          setIsExpectedRangeActive(false);
+                          setExpectedRangeLevels(null);
+                        }}
+                        className="ml-1"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff8500',
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '0 4px',
+                          lineHeight: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Clear Expected Range"
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
                     {isLoadingExpectedRange && (
                       <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full"></div>
                     )}
@@ -19244,18 +19409,28 @@ export default function TradingViewChart({
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <button
                           onClick={() => {
-                            setIsWeeklyActive(!isWeeklyActive);
-                            if (!isWeeklyActive && !expectedRangeLevels && !isLoadingExpectedRange) {
+                            const newWeeklyState = !isWeeklyActive;
+                            setIsWeeklyActive(newWeeklyState);
+
+                            if (newWeeklyState && !expectedRangeLevels && !isLoadingExpectedRange) {
                               setIsLoadingExpectedRange(true);
                               calculateExpectedRangeLevels(symbol).then(result => {
                                 if (result) {
                                   setExpectedRangeLevels(result.levels);
                                 }
                                 setIsLoadingExpectedRange(false);
+                              }).catch(err => {
+                                console.error('Error calculating Expected Range:', err);
+                                setIsLoadingExpectedRange(false);
                               });
                             }
-                            if (!isWeeklyActive || isMonthlyActive || isCustomActive) setIsExpectedRangeActive(true);
-                            else if (isWeeklyActive && !isMonthlyActive && !isCustomActive) setIsExpectedRangeActive(false);
+
+                            // Update isExpectedRangeActive based on new state
+                            if (newWeeklyState || isMonthlyActive || isCustomActive) {
+                              setIsExpectedRangeActive(true);
+                            } else {
+                              setIsExpectedRangeActive(false);
+                            }
                             setIsExpectedRangeDropdownOpen(false);
                           }}
                           className={`btn-3d-carved ${isWeeklyActive ? 'active' : ''}`}
@@ -19272,8 +19447,10 @@ export default function TradingViewChart({
                         </button>
                         <button
                           onClick={() => {
-                            setIsMonthlyActive(!isMonthlyActive);
-                            if (!isMonthlyActive && !expectedRangeLevels && !isLoadingExpectedRange) {
+                            const newMonthlyState = !isMonthlyActive;
+                            setIsMonthlyActive(newMonthlyState);
+
+                            if (newMonthlyState && !expectedRangeLevels && !isLoadingExpectedRange) {
                               setIsLoadingExpectedRange(true);
                               calculateExpectedRangeLevels(symbol).then(result => {
                                 if (result) {
@@ -19282,8 +19459,13 @@ export default function TradingViewChart({
                                 setIsLoadingExpectedRange(false);
                               });
                             }
-                            if (!isMonthlyActive || isWeeklyActive || isCustomActive) setIsExpectedRangeActive(true);
-                            else if (isMonthlyActive && !isWeeklyActive && !isCustomActive) setIsExpectedRangeActive(false);
+
+                            // Update isExpectedRangeActive based on new state
+                            if (newMonthlyState || isWeeklyActive || isCustomActive) {
+                              setIsExpectedRangeActive(true);
+                            } else {
+                              setIsExpectedRangeActive(false);
+                            }
                             setIsExpectedRangeDropdownOpen(false);
                           }}
                           className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`}
@@ -19314,6 +19496,52 @@ export default function TradingViewChart({
                         >
                           Custom Range
                         </button>
+
+                        {/* Active Custom Range Display */}
+                        {isCustomActive && customExpirationDate && (
+                          <div style={{
+                            marginTop: '8px',
+                            padding: '8px 12px',
+                            background: '#000000',
+                            borderRadius: '4px',
+                            border: '1px solid rgba(255, 133, 0, 0.3)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px'
+                          }}>
+                            <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '600' }}>
+                              {customExpirationDate.split('-').slice(1).join('/') + '/' + customExpirationDate.split('-')[0]}
+                            </span>
+                            <button
+                              onClick={() => {
+                                setIsCustomActive(false);
+                                setCustomExpirationDate('');
+                                setPendingCustomDate('');
+                                if (!isWeeklyActive && !isMonthlyActive) {
+                                  setIsExpectedRangeActive(false);
+                                }
+                                renderChart();
+                              }}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#ff8500',
+                                fontSize: '16px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                padding: '0 4px',
+                                lineHeight: '1',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                              title="Remove custom range"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
 
                         {/* Custom Date Picker */}
                         {showCustomDatePicker && (
@@ -19414,9 +19642,43 @@ export default function TradingViewChart({
                     }}
                   >
                     <span>SEASONAL</span>
-                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    {isSeasonalActive ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsSeasonal20YActive(false);
+                          setIsSeasonal15YActive(false);
+                          setIsSeasonal10YActive(false);
+                          setIsSeasonalElectionActive(false);
+                          setIsSeasonalActive(false);
+                          setSeasonal20YData(null);
+                          setSeasonal15YData(null);
+                          setSeasonal10YData(null);
+                          setSelectedSeasonalEvent(null);
+                        }}
+                        className="ml-1"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff8500',
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '0 4px',
+                          lineHeight: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Clear Seasonal"
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
                   </button>
 
                   {/* Seasonal Dropdown */}
@@ -19436,105 +19698,82 @@ export default function TradingViewChart({
                       }}
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <button
-                          onClick={async () => {
-                            const newState = !isSeasonal20YActive;
-                            setIsSeasonal20YActive(newState);
+                        {availableSeasonalYears.map(years => (
+                          <button
+                            key={years}
+                            onClick={async () => {
+                              const stateKey = `isSeasonal${years}YActive`;
+                              const dataKey = `seasonal${years}YData`;
 
-                            if (newState) {
-                              // Load data if not already loaded
-                              if (!seasonal20YData) {
-                                setIsLoadingSeasonalProjection(true);
-                                const projection = await calculateSeasonalityProjection(symbol, 20, data);
-                                setSeasonal20YData(projection);
-                                setIsLoadingSeasonalProjection(false);
+                              // Toggle the specific year
+                              if (years === 20) {
+                                const newState = !isSeasonal20YActive;
+                                setIsSeasonal20YActive(newState);
+                                if (newState) {
+                                  if (!seasonal20YData) {
+                                    setIsLoadingSeasonalProjection(true);
+                                    const projection = await calculateSeasonalityProjection(symbol, 20, data);
+                                    setSeasonal20YData(projection);
+                                    setIsLoadingSeasonalProjection(false);
+                                  }
+                                  setIsSeasonalActive(true);
+                                } else {
+                                  if (!isSeasonal15YActive && !isSeasonal10YActive && !isSeasonalElectionActive) {
+                                    setIsSeasonalActive(false);
+                                  }
+                                }
+                              } else if (years === 15) {
+                                const newState = !isSeasonal15YActive;
+                                setIsSeasonal15YActive(newState);
+                                if (newState) {
+                                  if (!seasonal15YData) {
+                                    setIsLoadingSeasonalProjection(true);
+                                    const projection = await calculateSeasonalityProjection(symbol, 15, data);
+                                    setSeasonal15YData(projection);
+                                    setIsLoadingSeasonalProjection(false);
+                                  }
+                                  setIsSeasonalActive(true);
+                                } else {
+                                  if (!isSeasonal20YActive && !isSeasonal10YActive && !isSeasonalElectionActive) {
+                                    setIsSeasonalActive(false);
+                                  }
+                                }
+                              } else if (years === 10) {
+                                const newState = !isSeasonal10YActive;
+                                setIsSeasonal10YActive(newState);
+                                if (newState) {
+                                  if (!seasonal10YData) {
+                                    setIsLoadingSeasonalProjection(true);
+                                    const projection = await calculateSeasonalityProjection(symbol, 10, data);
+                                    setSeasonal10YData(projection);
+                                    setIsLoadingSeasonalProjection(false);
+                                  }
+                                  setIsSeasonalActive(true);
+                                } else {
+                                  if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonalElectionActive) {
+                                    setIsSeasonalActive(false);
+                                  }
+                                }
                               }
-                              setIsSeasonalActive(true);
-                            } else {
-                              // Check if any seasonal is still active
-                              if (!isSeasonal15YActive && !isSeasonal10YActive && !isSeasonalElectionActive) {
-                                setIsSeasonalActive(false);
-                              }
-                            }
-                          }}
-                          className={`btn-3d-carved ${isSeasonal20YActive ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%'
-                          }}
-                        >
-                          20 Y
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const newState = !isSeasonal15YActive;
-                            setIsSeasonal15YActive(newState);
-
-                            if (newState) {
-                              // Load data if not already loaded
-                              if (!seasonal15YData) {
-                                setIsLoadingSeasonalProjection(true);
-                                const projection = await calculateSeasonalityProjection(symbol, 15, data);
-                                setSeasonal15YData(projection);
-                                setIsLoadingSeasonalProjection(false);
-                              }
-                              setIsSeasonalActive(true);
-                            } else {
-                              // Check if any seasonal is still active
-                              if (!isSeasonal20YActive && !isSeasonal10YActive && !isSeasonalElectionActive) {
-                                setIsSeasonalActive(false);
-                              }
-                            }
-                          }}
-                          className={`btn-3d-carved ${isSeasonal15YActive ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%'
-                          }}
-                        >
-                          15 Y
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const newState = !isSeasonal10YActive;
-                            setIsSeasonal10YActive(newState);
-
-                            if (newState) {
-                              // Load data if not already loaded
-                              if (!seasonal10YData) {
-                                setIsLoadingSeasonalProjection(true);
-                                const projection = await calculateSeasonalityProjection(symbol, 10, data);
-                                setSeasonal10YData(projection);
-                                setIsLoadingSeasonalProjection(false);
-                              }
-                              setIsSeasonalActive(true);
-                            } else {
-                              // Check if any seasonal is still active
-                              if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonalElectionActive) {
-                                setIsSeasonalActive(false);
-                              }
-                            }
-                          }}
-                          className={`btn-3d-carved ${isSeasonal10YActive ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%'
-                          }}
-                        >
-                          10 Y
-                        </button>
+                            }}
+                            className={`btn-3d-carved ${(years === 20 && isSeasonal20YActive) ||
+                              (years === 15 && isSeasonal15YActive) ||
+                              (years === 10 && isSeasonal10YActive)
+                              ? 'active'
+                              : ''
+                              }`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%'
+                            }}
+                          >
+                            {years} Y
+                          </button>
+                        ))}
                         <button
                           onClick={async () => {
                             const newState = !isSeasonalElectionActive;
@@ -19727,9 +19966,37 @@ export default function TradingViewChart({
                     }}
                   >
                     <span>{isGexLoading ? `SCANNING ${gexProgress}%` : 'GEX'}</span>
-                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    {isGexActive ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsLiveGexActive(false);
+                          setIsOiGexActive(false);
+                          setIsGexActive(false);
+                        }}
+                        className="ml-1"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff8500',
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '0 4px',
+                          lineHeight: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Clear GEX"
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
                   </button>
 
                   {/* GEX Dropdown Menu - Using Portal */}
@@ -19821,9 +20088,39 @@ export default function TradingViewChart({
                     }}
                   >
                     <span>{isIVLoading ? `LOADING ${ivProgress}%` : 'IV & HV'}</span>
-                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    {isAnyIVHVActive ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsIVLineActive(false);
+                          setIsIVPercentileActive(false);
+                          setIsHV10DActive(false);
+                          setIsHV20DActive(false);
+                          setIsHV30DActive(false);
+                        }}
+                        className="ml-1"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff8500',
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '0 4px',
+                          lineHeight: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Clear IV & HV"
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
                     {isAnyIVHVActive && (
                       <div
                         className="absolute -top-1 -right-1 w-3 h-3 bg-orange-400 rounded-full"
@@ -20076,9 +20373,42 @@ export default function TradingViewChart({
                     }}
                   >
                     <span style={{ color: 'white' }}>TECHNALYSIS</span>
-                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    {technalysisActive ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTechnalysisActive(false);
+                          setTechnalysisFeatures({
+                            orderBlocks: false,
+                            fvg: false,
+                            liquidity: false,
+                            structure: false,
+                            premiumDiscount: false
+                          });
+                        }}
+                        className="ml-1"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff8500',
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '0 4px',
+                          lineHeight: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Clear Technalysis"
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
                     {technalysisActive && (
                       <div
                         className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
@@ -20243,10 +20573,39 @@ export default function TradingViewChart({
                   title="Live FlowMoves"
                 >
                   <span>Live FlowMoves {isFlowChartActive ? `(${flowMovesTimeframe})` : ''}</span>
-                  {isFlowChartActive && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>}
-                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                  {isFlowChartActive ? (
+                    <>
+                      <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsFlowChartActive(false);
+                          setFlowMovesTimeframe('1D');
+                        }}
+                        className="ml-1"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff8500',
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '0 4px',
+                          lineHeight: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Clear Live FlowMoves"
+                      >
+                        ×
+                      </button>
+                    </>
+                  ) : (
+                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  )}
                 </button>
 
                 {/* FlowMoves Timeframe Dropdown - Using Portal */}
@@ -20345,10 +20704,41 @@ export default function TradingViewChart({
                   title="RRG Candle - Color code candles by RRG quadrants"
                 >
                   <span>RRG Candle {isRRGCandleActive ? `(${rrgMode.toUpperCase()} ${rrgLookbackPeriod}d)` : ''}</span>
-                  {isRRGCandleActive && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>}
-                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                  {isRRGCandleActive ? (
+                    <>
+                      <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '8px' }}>✓</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsRRGCandleActive(false);
+                          setRrgCandleColors(new Map());
+                          setRrgMode('price');
+                          setRrgLookbackPeriod(10);
+                        }}
+                        className="ml-1"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff8500',
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '0 4px',
+                          lineHeight: '1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Clear RRG Candle"
+                      >
+                        ×
+                      </button>
+                    </>
+                  ) : (
+                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  )}
                 </button>
 
                 {/* RRG Dropdown Menu - Using Portal */}
@@ -21694,7 +22084,7 @@ export default function TradingViewChart({
                     tabIndex={0}
                     style={{
                       cursor: activeTool ? 'crosshair' :
-                        isDragging ? 'grabbing' : 'crosshair',
+                        dragRef.current.active ? 'grabbing' : 'crosshair',
                       transition: 'cursor 0.1s ease',
                       outline: 'none',
                       touchAction: 'none'

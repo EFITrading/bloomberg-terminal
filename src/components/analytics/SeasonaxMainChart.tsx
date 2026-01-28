@@ -3,873 +3,890 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 interface DailySeasonalData {
- dayOfYear: number;
- month: number;
- day: number;
- monthName: string;
- avgReturn: number;
- cumulativeReturn: number;
- occurrences: number;
- positiveYears: number;
- winningTrades: number;
- pattern: number;
- yearlyReturns: { [year: number]: number };
+    dayOfYear: number;
+    month: number;
+    day: number;
+    monthName: string;
+    avgReturn: number;
+    cumulativeReturn: number;
+    occurrences: number;
+    positiveYears: number;
+    winningTrades: number;
+    pattern: number;
+    yearlyReturns: { [year: number]: number };
 }
 
 interface SeasonalAnalysis {
- symbol: string;
- companyName: string;
- currency: string;
- period: string;
- dailyData: DailySeasonalData[];
- statistics: {
- totalReturn: number;
- annualizedReturn: number;
- volatility: number;
- sharpeRatio: number;
- maxDrawdown: number;
- winRate: number;
- avgWin: number;
- avgLoss: number;
- bestTrade: number;
- worstTrade: number;
- };
- patternReturns: { [year: number]: number };
+    symbol: string;
+    companyName: string;
+    currency: string;
+    period: string;
+    dailyData: DailySeasonalData[];
+    statistics: {
+        totalReturn: number;
+        annualizedReturn: number;
+        volatility: number;
+        sharpeRatio: number;
+        maxDrawdown: number;
+        winRate: number;
+        avgWin: number;
+        avgLoss: number;
+        bestTrade: number;
+        worstTrade: number;
+    };
+    patternReturns: { [year: number]: number };
 }
 
 interface ChartSettings {
- startDate: string;
- endDate: string;
- yearsOfData: number;
- showCumulative: boolean;
- showPatternReturns: boolean;
- selectedYears: number[];
- smoothing: boolean;
- detrend: boolean;
- showCurrentDate: boolean;
- comparisonSymbols: string[];
+    startDate: string;
+    endDate: string;
+    yearsOfData: number;
+    showCumulative: boolean;
+    showPatternReturns: boolean;
+    selectedYears: number[];
+    smoothing: boolean;
+    detrend: boolean;
+    showCurrentDate: boolean;
+    comparisonSymbols: string[];
 }
 
 interface SeasonaxMainChartProps {
- data: SeasonalAnalysis;
- comparisonData?: SeasonalAnalysis[];
- settings: ChartSettings;
- sweetSpotPeriod?: { startDay: number; endDay: number; period: string } | null;
- painPointPeriod?: { startDay: number; endDay: number; period: string } | null;
- selectedMonth?: number | null;
+    data: SeasonalAnalysis;
+    comparisonData?: SeasonalAnalysis[];
+    settings: ChartSettings;
+    sweetSpotPeriod?: { startDay: number; endDay: number; period: string } | null;
+    painPointPeriod?: { startDay: number; endDay: number; period: string } | null;
+    selectedMonth?: number | null;
 }
 
 // Helper function to smooth data - removes abnormal spikes/crashes
 const smoothData = (data: DailySeasonalData[]): DailySeasonalData[] => {
- if (data.length < 3) return data;
- 
- const smoothed = data.map((point, index) => {
- if (index === 0 || index === data.length - 1) return point;
- 
- const prev = data[index - 1];
- const next = data[index + 1];
- const smoothedReturn = (prev.cumulativeReturn + point.cumulativeReturn + next.cumulativeReturn) / 3;
- 
- return {
- ...point,
- cumulativeReturn: smoothedReturn
- };
- });
- 
- return smoothed;
+    if (data.length < 3) return data;
+
+    const smoothed = data.map((point, index) => {
+        if (index === 0 || index === data.length - 1) return point;
+
+        const prev = data[index - 1];
+        const next = data[index + 1];
+        const smoothedReturn = (prev.cumulativeReturn + point.cumulativeReturn + next.cumulativeReturn) / 3;
+
+        return {
+            ...point,
+            cumulativeReturn: smoothedReturn
+        };
+    });
+
+    return smoothed;
 };
 
 // Helper function to detrend data - removes overall trend
 const detrendData = (data: DailySeasonalData[]): DailySeasonalData[] => {
- if (data.length < 2) return data;
- 
- // Calculate linear trend
- let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
- const n = data.length;
- 
- data.forEach((point, index) => {
- const x = index;
- const y = point.cumulativeReturn;
- sumX += x;
- sumY += y;
- sumXY += x * y;
- sumXX += x * x;
- });
- 
- const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
- const intercept = (sumY - slope * sumX) / n;
- 
- // Remove trend from data
- const detrended = data.map((point, index) => {
- const trend = slope * index + intercept;
- return {
- ...point,
- cumulativeReturn: point.cumulativeReturn - trend
- };
- });
- 
- return detrended;
+    if (data.length < 2) return data;
+
+    // Calculate linear trend
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    const n = data.length;
+
+    data.forEach((point, index) => {
+        const x = index;
+        const y = point.cumulativeReturn;
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumXX += x * x;
+    });
+
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+
+    // Remove trend from data
+    const detrended = data.map((point, index) => {
+        const trend = slope * index + intercept;
+        return {
+            ...point,
+            cumulativeReturn: point.cumulativeReturn - trend
+        };
+    });
+
+    return detrended;
 };
 
 // Helper function to draw a seasonal line
 const drawSeasonalLine = (
- ctx: CanvasRenderingContext2D,
- dataPoints: DailySeasonalData[],
- containerWidth: number,
- containerHeight: number,
- padding: { top: number; right: number; bottom: number; left: number },
- chartWidth: number,
- chartHeight: number,
- paddedMin: number,
- paddedRange: number,
- color: string,
- lineWidth: number,
- symbol: string,
- isMonthlyView: boolean,
- allDataPoints: DailySeasonalData[],
- zoomLevel: number,
- panOffset: number
+    ctx: CanvasRenderingContext2D,
+    dataPoints: DailySeasonalData[],
+    containerWidth: number,
+    containerHeight: number,
+    padding: { top: number; right: number; bottom: number; left: number },
+    chartWidth: number,
+    chartHeight: number,
+    paddedMin: number,
+    paddedRange: number,
+    color: string,
+    lineWidth: number,
+    symbol: string,
+    isMonthlyView: boolean,
+    allDataPoints: DailySeasonalData[],
+    zoomLevel: number,
+    panOffset: number
 ) => {
- ctx.strokeStyle = color;
- ctx.lineWidth = lineWidth;
- ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
 
- // Calculate x position based on view mode with zoom and pan
- const getX = (dayData: DailySeasonalData) => {
- let baseX: number;
- if (isMonthlyView && allDataPoints.length > 0) {
- const firstDay = allDataPoints[0].dayOfYear;
- const lastDay = allDataPoints[allDataPoints.length - 1].dayOfYear;
- const dayRange = lastDay - firstDay + 1;
- baseX = ((dayData.dayOfYear - firstDay) / dayRange);
- } else {
- baseX = (dayData.dayOfYear / 365);
- }
- 
- // Apply zoom and pan
- const chartCenter = 0.5;
- const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
- return padding.left + zoomedX * chartWidth;
- };
+    // Calculate x position based on view mode with zoom and pan
+    const getX = (dayData: DailySeasonalData) => {
+        let baseX: number;
+        if (isMonthlyView && allDataPoints.length > 0) {
+            const firstDay = allDataPoints[0].dayOfYear;
+            const lastDay = allDataPoints[allDataPoints.length - 1].dayOfYear;
+            const dayRange = lastDay - firstDay + 1;
+            baseX = ((dayData.dayOfYear - firstDay) / dayRange);
+        } else {
+            baseX = (dayData.dayOfYear / 365);
+        }
 
- dataPoints.forEach((dayData, index) => {
- const x = getX(dayData);
- const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
- 
- if (index === 0) {
- ctx.moveTo(x, y);
- } else {
- ctx.lineTo(x, y);
- }
- });
- ctx.stroke();
- 
- // Symbol label at end of line removed to save space
+        // Apply zoom and pan
+        const chartCenter = 0.5;
+        const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+        return padding.left + zoomedX * chartWidth;
+    };
+
+    dataPoints.forEach((dayData, index) => {
+        const x = getX(dayData);
+        const y = containerHeight - padding.bottom - ((dayData.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+
+        if (index === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+    ctx.stroke();
+
+    // Symbol label at end of line removed to save space
 };
 
 const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings, sweetSpotPeriod, painPointPeriod, selectedMonth = null }) => {
- const canvasRef = useRef<HTMLCanvasElement>(null);
- const containerRef = useRef<HTMLDivElement>(null);
- const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
- const [zoomLevel, setZoomLevel] = useState(1);
- const [panOffset, setPanOffset] = useState(0);
- const [isDragging, setIsDragging] = useState(false);
- const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null);
- 
- useEffect(() => {
- console.log('SeasonaxMainChart useEffect triggered', { 
- hasData: !!data, 
- hasCanvas: !!canvasRef.current,
- comparisonCount: comparisonData.length
- });
- if (data && canvasRef.current) {
- console.log('Drawing charts with data:', data.symbol, 'dailyData length:', data.dailyData.length);
- drawCharts();
- }
- }, [data, comparisonData, settings]);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+    const [zoomLevel, setZoomLevel] = useState(1);
+    const [panOffset, setPanOffset] = useState(0);
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null);
 
- useEffect(() => {
- if (!containerRef.current) return;
+    useEffect(() => {
+        console.log('SeasonaxMainChart useEffect triggered', {
+            hasData: !!data,
+            hasCanvas: !!canvasRef.current,
+            comparisonCount: comparisonData.length
+        });
+        if (data && canvasRef.current && containerRef.current) {
+            // Check if container has valid dimensions before attempting to draw
+            const rect = containerRef.current.getBoundingClientRect();
+            if (rect.width > 100 && rect.height > 100) {
+                console.log('Drawing charts with data:', data.symbol, 'dailyData length:', data.dailyData.length);
+                drawCharts();
+            } else {
+                console.log('Deferring chart draw - container not ready:', rect.width, 'x', rect.height);
+                // Retry after a short delay to allow browser layout
+                const timer = setTimeout(() => {
+                    if (containerRef.current) {
+                        const newRect = containerRef.current.getBoundingClientRect();
+                        if (newRect.width > 100 && newRect.height > 100) {
+                            drawCharts();
+                        }
+                    }
+                }, 100);
+                return () => clearTimeout(timer);
+            }
+        }
+    }, [data, comparisonData, settings]);
 
- let resizeTimeout: NodeJS.Timeout;
- let isResizing = false;
- 
- const resizeObserver = new ResizeObserver((entries) => {
- // Prevent multiple rapid calls
- if (isResizing) return;
- isResizing = true;
- 
- // Clear previous timeout to debounce
- if (resizeTimeout) clearTimeout(resizeTimeout);
- 
- // Only trigger if container actually changed size
- const entry = entries[0];
- if (!entry) {
- isResizing = false;
- return;
- }
- 
- const { width, height } = entry.contentRect;
- 
- resizeTimeout = setTimeout(() => {
- try {
- // Only redraw if dimensions are reasonable and we have data
- if (data && canvasRef.current) {
- if (width > 100 && height > 100 && width < 5000 && height < 3000) {
- console.log(`Redrawing chart due to resize: ${width}x${height}`);
- drawCharts();
- } else {
- console.warn(`Skipping redraw - invalid dimensions: ${width}x${height}`);
- }
- }
- } catch (error) {
- console.error('Error during resize redraw:', error);
- } finally {
- isResizing = false;
- }
- }, 150);
- });
+    useEffect(() => {
+        if (!containerRef.current) return;
 
- try {
- resizeObserver.observe(containerRef.current);
- } catch (error) {
- console.error('Error setting up ResizeObserver:', error);
- isResizing = false;
- }
+        let resizeTimeout: NodeJS.Timeout;
+        let isResizing = false;
 
- return () => {
- if (resizeTimeout) clearTimeout(resizeTimeout);
- try {
- resizeObserver.disconnect();
- } catch (error) {
- console.error('Error disconnecting ResizeObserver:', error);
- }
- isResizing = false;
- };
- }, [data]);
+        const resizeObserver = new ResizeObserver((entries) => {
+            // Prevent multiple rapid calls
+            if (isResizing) return;
+            isResizing = true;
 
- useEffect(() => {
- const canvas = canvasRef.current;
- if (!canvas) return;
+            // Clear previous timeout to debounce
+            if (resizeTimeout) clearTimeout(resizeTimeout);
 
- const handleMouseMove = (e: MouseEvent) => {
- const rect = canvas.getBoundingClientRect();
- const x = e.clientX - rect.left;
- const y = e.clientY - rect.top;
- 
- if (isDragging && dragStart) {
- const deltaX = x - dragStart.x;
- const maxPan = (zoomLevel - 1) * 0.5;
- const newOffset = Math.max(-maxPan, Math.min(maxPan, dragStart.offset + deltaX / canvas.width));
- setPanOffset(newOffset);
- } else {
- setMousePos({ x, y });
- }
- };
+            // Only trigger if container actually changed size
+            const entry = entries[0];
+            if (!entry) {
+                isResizing = false;
+                return;
+            }
 
- const handleMouseDown = (e: MouseEvent) => {
- const rect = canvas.getBoundingClientRect();
- const x = e.clientX - rect.left;
- setIsDragging(true);
- setDragStart({ x, offset: panOffset });
- canvas.style.cursor = 'grabbing';
- };
+            const { width, height } = entry.contentRect;
 
- const handleMouseUp = () => {
- setIsDragging(false);
- setDragStart(null);
- canvas.style.cursor = 'grab';
- };
+            resizeTimeout = setTimeout(() => {
+                try {
+                    // Only redraw if dimensions are reasonable and we have data
+                    if (data && canvasRef.current) {
+                        if (width > 100 && height > 100 && width < 5000 && height < 3000) {
+                            console.log(`Redrawing chart due to resize: ${width}x${height}`);
+                            drawCharts();
+                        } else {
+                            console.warn(`Skipping redraw - invalid dimensions: ${width}x${height}`);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error during resize redraw:', error);
+                } finally {
+                    isResizing = false;
+                }
+            }, 150);
+        });
 
- const handleWheel = (e: WheelEvent) => {
- e.preventDefault();
- const zoomSpeed = 0.001;
- const delta = -e.deltaY * zoomSpeed;
- const newZoom = Math.max(1, Math.min(5, zoomLevel + delta));
- 
- if (newZoom === 1) {
- setPanOffset(0);
- }
- 
- setZoomLevel(newZoom);
- };
+        try {
+            resizeObserver.observe(containerRef.current);
+        } catch (error) {
+            console.error('Error setting up ResizeObserver:', error);
+            isResizing = false;
+        }
 
- const handleMouseLeave = () => {
- setMousePos(null);
- if (isDragging) {
- setIsDragging(false);
- setDragStart(null);
- canvas.style.cursor = 'grab';
- }
- };
+        return () => {
+            if (resizeTimeout) clearTimeout(resizeTimeout);
+            try {
+                resizeObserver.disconnect();
+            } catch (error) {
+                console.error('Error disconnecting ResizeObserver:', error);
+            }
+            isResizing = false;
+        };
+    }, [data]);
 
- canvas.addEventListener('mousemove', handleMouseMove);
- canvas.addEventListener('mousedown', handleMouseDown);
- canvas.addEventListener('mouseup', handleMouseUp);
- canvas.addEventListener('mouseleave', handleMouseLeave);
- canvas.addEventListener('wheel', handleWheel, { passive: false });
- canvas.style.cursor = 'grab';
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
 
- return () => {
- canvas.removeEventListener('mousemove', handleMouseMove);
- canvas.removeEventListener('mousedown', handleMouseDown);
- canvas.removeEventListener('mouseup', handleMouseUp);
- canvas.removeEventListener('mouseleave', handleMouseLeave);
- canvas.removeEventListener('wheel', handleWheel);
- };
- }, [isDragging, zoomLevel, panOffset, dragStart]);
+        const handleMouseMove = (e: MouseEvent) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
 
- useEffect(() => {
- if (data) {
- drawCharts();
- }
- }, [mousePos, zoomLevel, panOffset, data, comparisonData, settings]);
+            if (isDragging && dragStart) {
+                const deltaX = x - dragStart.x;
+                const maxPan = (zoomLevel - 1) * 0.5;
+                const newOffset = Math.max(-maxPan, Math.min(maxPan, dragStart.offset + deltaX / canvas.width));
+                setPanOffset(newOffset);
+            } else {
+                setMousePos({ x, y });
+            }
+        };
 
- const drawCharts = () => {
- drawMainSeasonalChart();
- };
+        const handleMouseDown = (e: MouseEvent) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            setIsDragging(true);
+            setDragStart({ x, offset: panOffset });
+            canvas.style.cursor = 'grabbing';
+        };
 
- const drawMainSeasonalChart = () => {
- const canvas = canvasRef.current;
- if (!canvas || !data) {
- console.log('drawMainSeasonalChart early return:', { hasCanvas: !!canvas, hasData: !!data });
- return;
- }
+        const handleMouseUp = () => {
+            setIsDragging(false);
+            setDragStart(null);
+            canvas.style.cursor = 'grab';
+        };
 
- const ctx = canvas.getContext('2d');
- if (!ctx) {
- console.log('No canvas context available');
- return;
- }
+        const handleWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            const zoomSpeed = 0.001;
+            const delta = -e.deltaY * zoomSpeed;
+            const newZoom = Math.max(1, Math.min(5, zoomLevel + delta));
 
- console.log('Starting to draw main seasonal chart for:', data.symbol);
+            if (newZoom === 1) {
+                setPanOffset(0);
+            }
 
- // Get full container size to utilize all available space
- const container = containerRef.current;
- if (!container) return;
- 
- const containerRect = container.getBoundingClientRect();
- const containerWidth = containerRect.width;
- const containerHeight = containerRect.height;
+            setZoomLevel(newZoom);
+        };
 
- // Prevent invalid dimensions - more strict checking
- if (containerWidth <= 100 || containerHeight <= 100 || 
- containerWidth > 5000 || containerHeight > 3000 ||
- !isFinite(containerWidth) || !isFinite(containerHeight)) {
- console.warn(`Invalid container dimensions: ${containerWidth}x${containerHeight}`);
- return;
- }
+        const handleMouseLeave = () => {
+            setMousePos(null);
+            if (isDragging) {
+                setIsDragging(false);
+                setDragStart(null);
+                canvas.style.cursor = 'grab';
+            }
+        };
 
- try {
- // Setup high-DPI rendering with full container dimensions
- const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2); // Cap at 2x for performance
- 
- // Set actual canvas size (scaled for high-DPI)
- canvas.width = Math.floor(containerWidth * devicePixelRatio);
- canvas.height = Math.floor(containerHeight * devicePixelRatio);
- 
- // Scale canvas back down using CSS with explicit dimensions
- canvas.style.width = Math.floor(containerWidth) + 'px';
- canvas.style.height = Math.floor(containerHeight) + 'px';
- 
- // Clear any existing content first
- ctx.clearRect(0, 0, canvas.width, canvas.height);
- 
- // Scale the drawing context for crisp rendering
- ctx.scale(devicePixelRatio, devicePixelRatio);
- 
- // Enable crisp rendering
- ctx.imageSmoothingEnabled = false;
+        canvas.addEventListener('mousemove', handleMouseMove);
+        canvas.addEventListener('mousedown', handleMouseDown);
+        canvas.addEventListener('mouseup', handleMouseUp);
+        canvas.addEventListener('mouseleave', handleMouseLeave);
+        canvas.addEventListener('wheel', handleWheel, { passive: false });
+        canvas.style.cursor = 'grab';
 
- // Clear canvas
- ctx.clearRect(0, 0, containerWidth, containerHeight);
+        return () => {
+            canvas.removeEventListener('mousemove', handleMouseMove);
+            canvas.removeEventListener('mousedown', handleMouseDown);
+            canvas.removeEventListener('mouseup', handleMouseUp);
+            canvas.removeEventListener('mouseleave', handleMouseLeave);
+            canvas.removeEventListener('wheel', handleWheel);
+        };
+    }, [isDragging, zoomLevel, panOffset, dragStart]);
 
- const padding = { top: 40, right: 8, bottom: 60, left: 60 };
- const chartWidth = containerWidth - padding.left - padding.right;
- const chartHeight = containerHeight - padding.top - padding.bottom;
+    useEffect(() => {
+        if (data) {
+            drawCharts();
+        }
+    }, [mousePos, zoomLevel, panOffset, data, comparisonData, settings]);
 
- // Process data based on settings
- let processedData = [...data.dailyData];
- 
- // Filter by selected month if specified
- if (selectedMonth !== null && selectedMonth !== undefined) {
- processedData = processedData.filter(d => d.month === selectedMonth);
- console.log(`Filtering to month ${selectedMonth}, data points:`, processedData.length);
- 
- // Recalculate cumulative returns for just this month
- if (processedData.length > 0) {
- let cumulative = 0;
- processedData = processedData.map(d => {
- cumulative += d.avgReturn;
- return { ...d, cumulativeReturn: cumulative };
- });
- }
- }
- 
- // Apply smoothing if enabled - removes abnormal pumps/crashes
- if (settings.smoothing) {
- processedData = smoothData(processedData);
- }
- 
- // Apply detrending if enabled - removes overall trend
- if (settings.detrend) {
- processedData = detrendData(processedData);
- }
+    const drawCharts = () => {
+        drawMainSeasonalChart();
+    };
 
- // Get data bounds from processed data and comparison data
- // Filter to only visible data points based on zoom and pan
- const getVisibleDataPoints = (data: DailySeasonalData[]) => {
- if (zoomLevel === 1) return data;
- 
- const chartCenter = 0.5;
- const visibleStart = Math.max(0, (0 - panOffset - chartCenter) / zoomLevel + chartCenter);
- const visibleEnd = Math.min(1, (1 - panOffset - chartCenter) / zoomLevel + chartCenter);
- 
- return data.filter(d => {
- const normalizedPos = d.dayOfYear / 365;
- return normalizedPos >= visibleStart && normalizedPos <= visibleEnd;
- });
- };
- 
- const visibleData = getVisibleDataPoints(processedData);
- let allCumulativeReturns = visibleData.length > 0 ? visibleData.map(d => d.cumulativeReturn) : processedData.map(d => d.cumulativeReturn);
- 
- // Include comparison data in bounds calculation
- comparisonData.forEach(compData => {
- if (compData && compData.dailyData) {
- let compProcessedData = compData.dailyData;
- 
- // Apply same processing as main data
- if (settings.smoothing) {
- compProcessedData = smoothData(compProcessedData);
- }
- if (settings.detrend) {
- compProcessedData = detrendData(compProcessedData);
- }
- 
- const visibleCompData = getVisibleDataPoints(compProcessedData);
- const compReturns = visibleCompData.length > 0 ? visibleCompData.map(d => d.cumulativeReturn) : compProcessedData.map(d => d.cumulativeReturn);
- allCumulativeReturns = allCumulativeReturns.concat(compReturns);
- }
- });
- 
- const minReturn = Math.min(...allCumulativeReturns);
- const maxReturn = Math.max(...allCumulativeReturns);
- const returnRange = maxReturn - minReturn;
- 
- // Add padding to range
- const paddedMin = minReturn - returnRange * 0.1;
- const paddedMax = maxReturn + returnRange * 0.1;
- const paddedRange = paddedMax - paddedMin;
+    const drawMainSeasonalChart = () => {
+        const canvas = canvasRef.current;
+        if (!canvas || !data) {
+            console.log('drawMainSeasonalChart early return:', { hasCanvas: !!canvas, hasData: !!data });
+            return;
+        }
 
- // Helper function to calculate X position with zoom and pan
- const getXPosition = (dataPoint: DailySeasonalData) => {
- let baseX: number;
- if (selectedMonth !== null && selectedMonth !== undefined && processedData.length > 0) {
- // Monthly view - scale to fit the month's data range
- const firstDay = processedData[0].dayOfYear;
- const lastDay = processedData[processedData.length - 1].dayOfYear;
- const dayRange = lastDay - firstDay + 1;
- baseX = ((dataPoint.dayOfYear - firstDay) / dayRange);
- } else {
- // Full year view - use standard scaling
- baseX = (dataPoint.dayOfYear / 365);
- }
- 
- // Apply zoom and pan
- const chartCenter = 0.5;
- const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
- return padding.left + zoomedX * chartWidth;
- };
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            console.log('No canvas context available');
+            return;
+        }
 
- // Draw background
- ctx.fillStyle = '#000000';
- ctx.fillRect(0, 0, containerWidth, containerHeight);
+        console.log('Starting to draw main seasonal chart for:', data.symbol);
 
- // Draw grid lines
- ctx.strokeStyle = '#333333';
- ctx.lineWidth = 1;
+        // Get full container size to utilize all available space
+        const container = containerRef.current;
+        if (!container) return;
 
- // Horizontal grid lines
- for (let i = 0; i <= 10; i++) {
- const y = padding.top + (i * chartHeight) / 10;
- ctx.beginPath();
- ctx.moveTo(padding.left, y);
- ctx.lineTo(containerWidth - padding.right, y);
- ctx.stroke();
- }
+        const containerRect = container.getBoundingClientRect();
+        const containerWidth = containerRect.width;
+        const containerHeight = containerRect.height;
 
- // Vertical grid lines (monthly)
- const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]; // Day of year for each month
- if (selectedMonth === null || selectedMonth === undefined) {
- monthStarts.forEach(dayOfYear => {
- const chartCenter = 0.5;
- const baseX = dayOfYear / 365;
- const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
- const x = padding.left + zoomedX * chartWidth;
- 
- // Only draw if within visible area
- if (x >= padding.left && x <= containerWidth - padding.right) {
- ctx.beginPath();
- ctx.moveTo(x, padding.top);
- ctx.lineTo(x, containerHeight - padding.bottom);
- ctx.stroke();
- }
- });
- }
+        // Prevent invalid dimensions - more strict checking
+        if (containerWidth <= 100 || containerHeight <= 100 ||
+            containerWidth > 5000 || containerHeight > 3000 ||
+            !isFinite(containerWidth) || !isFinite(containerHeight) ||
+            containerWidth === 0 || containerHeight === 0) {
+            console.warn(`Invalid container dimensions: ${containerWidth}x${containerHeight}`);
+            return;
+        }
 
- // Draw zero line
- const zeroY = containerHeight - padding.bottom - ((0 - paddedMin) / paddedRange) * chartHeight;
- ctx.strokeStyle = '#FF6600';
- ctx.lineWidth = 2;
- ctx.beginPath();
- ctx.moveTo(padding.left, zeroY);
- ctx.lineTo(containerWidth - padding.right, zeroY);
- ctx.stroke();
+        try {
+            // Setup high-DPI rendering with full container dimensions
+            const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2); // Cap at 2x for performance
 
- // Fill areas above and below zero line with the main seasonal data
- if (processedData && processedData.length > 0) {
- // Create separate filled regions for positive and negative areas
- // This ensures proper green/red shading even when line crosses zero
- 
- for (let i = 0; i < processedData.length - 1; i++) {
- const currentDay = processedData[i];
- const nextDay = processedData[i + 1];
- 
- const x1 = getXPosition(currentDay);
- const y1 = containerHeight - padding.bottom - ((currentDay.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
- const x2 = getXPosition(nextDay);
- const y2 = containerHeight - padding.bottom - ((nextDay.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
- 
- // Fill green for positive segments
- if (currentDay.cumulativeReturn >= 0 || nextDay.cumulativeReturn >= 0) {
- ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
- ctx.beginPath();
- 
- // Handle different cases for proper filling
- if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn >= 0) {
- // Both positive - fill entire segment
- ctx.moveTo(x1, zeroY);
- ctx.lineTo(x1, y1);
- ctx.lineTo(x2, y2);
- ctx.lineTo(x2, zeroY);
- ctx.closePath();
- ctx.fill();
- } else if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn < 0) {
- // Crosses from positive to negative - fill only positive part
- const crossX = x1 + (x2 - x1) * (currentDay.cumulativeReturn / (currentDay.cumulativeReturn - nextDay.cumulativeReturn));
- ctx.moveTo(x1, zeroY);
- ctx.lineTo(x1, y1);
- ctx.lineTo(crossX, zeroY);
- ctx.closePath();
- ctx.fill();
- } else if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn >= 0) {
- // Crosses from negative to positive - fill only positive part
- const crossX = x1 + (x2 - x1) * (-currentDay.cumulativeReturn / (nextDay.cumulativeReturn - currentDay.cumulativeReturn));
- ctx.moveTo(crossX, zeroY);
- ctx.lineTo(x2, y2);
- ctx.lineTo(x2, zeroY);
- ctx.closePath();
- ctx.fill();
- }
- }
- 
- // Fill red for negative segments
- if (currentDay.cumulativeReturn < 0 || nextDay.cumulativeReturn < 0) {
- ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
- ctx.beginPath();
- 
- // Handle different cases for proper filling
- if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn < 0) {
- // Both negative - fill entire segment
- ctx.moveTo(x1, zeroY);
- ctx.lineTo(x1, y1);
- ctx.lineTo(x2, y2);
- ctx.lineTo(x2, zeroY);
- ctx.closePath();
- ctx.fill();
- } else if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn < 0) {
- // Crosses from positive to negative - fill only negative part
- const crossX = x1 + (x2 - x1) * (currentDay.cumulativeReturn / (currentDay.cumulativeReturn - nextDay.cumulativeReturn));
- ctx.moveTo(crossX, zeroY);
- ctx.lineTo(x2, y2);
- ctx.lineTo(x2, zeroY);
- ctx.closePath();
- ctx.fill();
- } else if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn >= 0) {
- // Crosses from negative to positive - fill only negative part
- const crossX = x1 + (x2 - x1) * (-currentDay.cumulativeReturn / (nextDay.cumulativeReturn - currentDay.cumulativeReturn));
- ctx.moveTo(x1, zeroY);
- ctx.lineTo(x1, y1);
- ctx.lineTo(crossX, zeroY);
- ctx.closePath();
- ctx.fill();
- }
- }
- }
- }
+            // Set actual canvas size (scaled for high-DPI)
+            canvas.width = Math.floor(containerWidth * devicePixelRatio);
+            canvas.height = Math.floor(containerHeight * devicePixelRatio);
 
- // Draw main seasonal line with processed data
- const isMonthlyView = selectedMonth !== null && selectedMonth !== undefined;
- drawSeasonalLine(ctx, processedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, '#ffffff', 3, data.symbol, isMonthlyView, processedData, zoomLevel, panOffset);
+            // Scale canvas back down using CSS with explicit dimensions
+            canvas.style.width = Math.floor(containerWidth) + 'px';
+            canvas.style.height = Math.floor(containerHeight) + 'px';
 
- // Draw comparison lines
- const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000'];
- comparisonData.forEach((compData, index) => {
- if (compData && compData.dailyData) {
- let compProcessedData = compData.dailyData;
- 
- // Apply same processing as main data
- if (settings.smoothing) {
- compProcessedData = smoothData(compProcessedData);
- }
- if (settings.detrend) {
- compProcessedData = detrendData(compProcessedData);
- }
- 
- const color = comparisonColors[index % comparisonColors.length];
- drawSeasonalLine(ctx, compProcessedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, color, 2, compData.symbol, false, compProcessedData, zoomLevel, panOffset);
- }
- });
+            // Clear any existing content first
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
- // Draw Sweet Spot highlighting (green overlay)
- if (sweetSpotPeriod) {
- const startX = padding.left + (sweetSpotPeriod.startDay / 365) * chartWidth;
- const endX = padding.left + (sweetSpotPeriod.endDay / 365) * chartWidth;
- 
- ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; // Low opacity green
- ctx.fillRect(startX, padding.top, endX - startX, chartHeight);
- 
- // Add Sweet Spot label
- ctx.fillStyle = '#00FF00';
- ctx.font = 'bold 14px "Roboto Mono", monospace';
- ctx.textAlign = 'center';
- ctx.fillText('SWEET SPOT', (startX + endX) / 2, padding.top - 5);
- }
+            // Scale the drawing context for crisp rendering
+            ctx.scale(devicePixelRatio, devicePixelRatio);
 
- // Draw Pain Point highlighting (red overlay)
- if (painPointPeriod) {
- const startX = padding.left + (painPointPeriod.startDay / 365) * chartWidth;
- const endX = padding.left + (painPointPeriod.endDay / 365) * chartWidth;
- 
- ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; // Low opacity red
- ctx.fillRect(startX, padding.top, endX - startX, chartHeight);
- 
- // Add Pain Point label
- ctx.fillStyle = '#FF0000';
- ctx.font = 'bold 14px "Roboto Mono", monospace';
- ctx.textAlign = 'center';
- ctx.fillText('PAIN POINT', (startX + endX) / 2, padding.top - 5);
- }
+            // Enable crisp rendering
+            ctx.imageSmoothingEnabled = false;
 
- // Draw current date line if enabled and not in monthly view
- if (settings.showCurrentDate && (selectedMonth === null || selectedMonth === undefined)) {
- const currentDate = new Date();
- const startOfYear = new Date(currentDate.getFullYear(), 0, 1);
- const dayOfYear = Math.floor((currentDate.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
- 
- const currentDateX = padding.left + (dayOfYear / 365) * chartWidth;
- 
- ctx.strokeStyle = '#FF6600'; // Bloomberg Terminal orange color for current date
- ctx.lineWidth = 2;
- ctx.setLineDash([5, 5]); // Dashed line
- ctx.beginPath();
- ctx.moveTo(currentDateX, padding.top);
- ctx.lineTo(currentDateX, containerHeight - padding.bottom);
- ctx.stroke();
- ctx.setLineDash([]); // Reset line dash
- 
- // Add current date label - bigger and more visible
- ctx.fillStyle = '#FF6600';
- ctx.font = 'bold 20px "Roboto Mono", monospace';
- ctx.textAlign = 'center';
- ctx.fillText('TODAY', currentDateX, padding.top + 5);
- }
+            // Clear canvas
+            ctx.clearRect(0, 0, containerWidth, containerHeight);
 
- // Draw Y-axis labels - crispy white with % symbol and 30% smaller
- ctx.fillStyle = '#ffffff';
- ctx.font = 'bold 17px "Roboto Mono", monospace';
- ctx.textAlign = 'right';
- ctx.textBaseline = 'middle';
+            const padding = { top: 40, right: 8, bottom: 60, left: 60 };
+            const chartWidth = containerWidth - padding.left - padding.right;
+            const chartHeight = containerHeight - padding.top - padding.bottom;
 
- for (let i = 0; i <= 10; i++) {
- const value = paddedMax - (i * paddedRange) / 10;
- const y = padding.top + (i * chartHeight) / 10;
- ctx.fillText(value.toFixed(1) + '%', padding.left - 15, y);
- }
+            // Process data based on settings
+            let processedData = [...data.dailyData];
 
- // Draw X-axis labels
- ctx.fillStyle = '#ffffff';
- ctx.font = 'bold 17px "Roboto Mono", monospace';
- ctx.textAlign = 'center';
- ctx.textBaseline = 'top';
- 
- if (selectedMonth !== null && selectedMonth !== undefined && processedData.length > 0) {
- // For single month view, show day numbers
- const firstDay = processedData[0].dayOfYear;
- const lastDay = processedData[processedData.length - 1].dayOfYear;
- const dayRange = lastDay - firstDay + 1;
- 
- // Show every few days depending on chart width
- const labelInterval = Math.max(1, Math.floor(dayRange / 15));
- 
- processedData.forEach((dataPoint, index) => {
- if (index % labelInterval === 0 || index === processedData.length - 1) {
- const x = padding.left + ((dataPoint.dayOfYear - firstDay) / dayRange) * chartWidth;
- const monthNum = dataPoint.month + 1;
- const dayNum = dataPoint.day;
- ctx.fillText(`${monthNum}/${dayNum}`, x, containerHeight - padding.bottom + 15);
- }
- });
- } else {
- // Full year view - show month names
- const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
- 
- // Mobile detection: show only 4 months
- const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
- const monthsToShow = isMobile ? [0, 3, 6, 9] : Array.from({ length: 12 }, (_, i) => i); // Jan, Apr, Jul, Oct on mobile
- 
- monthStarts.forEach((dayOfYear, index) => {
- if (index < monthNames.length && monthsToShow.includes(index)) {
- const chartCenter = 0.5;
- const baseX = dayOfYear / 365;
- const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
- const x = padding.left + zoomedX * chartWidth;
- 
- // Only draw if within visible area
- if (x >= padding.left - 20 && x <= containerWidth - padding.right + 20) {
- ctx.fillText(monthNames[index], x, containerHeight - padding.bottom + 15);
- }
- }
- });
- }
+            // Filter by selected month if specified
+            if (selectedMonth !== null && selectedMonth !== undefined) {
+                processedData = processedData.filter(d => d.month === selectedMonth);
+                console.log(`Filtering to month ${selectedMonth}, data points:`, processedData.length);
 
- // Draw crosshair
- if (mousePos) {
- const { x: mouseX, y: mouseY } = mousePos;
- 
- // Check if mouse is within chart area
- if (mouseX >= padding.left && mouseX <= containerWidth - padding.right &&
- mouseY >= padding.top && mouseY <= containerHeight - padding.bottom) {
- 
- // Draw vertical line
- ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
- ctx.lineWidth = 1;
- ctx.setLineDash([5, 5]);
- ctx.beginPath();
- ctx.moveTo(mouseX, padding.top);
- ctx.lineTo(mouseX, containerHeight - padding.bottom);
- ctx.stroke();
- 
- // Draw horizontal line
- ctx.beginPath();
- ctx.moveTo(padding.left, mouseY);
- ctx.lineTo(containerWidth - padding.right, mouseY);
- ctx.stroke();
- ctx.setLineDash([]);
- 
- // Calculate date from mouse position accounting for zoom and pan
- const chartCenter = 0.5;
- const normalizedX = (mouseX - padding.left) / chartWidth;
- const unzoomedX = (normalizedX - panOffset - chartCenter) / zoomLevel + chartCenter;
- const dayOfYear = Math.round(unzoomedX * 365);
- const dataPoint = data.dailyData.find(d => Math.abs(d.dayOfYear - dayOfYear) < 2);
- 
- // Calculate percentage from mouse position using the padded range
- const percentage = paddedMax - ((mouseY - padding.top) / chartHeight) * paddedRange;
- 
- // Draw X-axis tooltip (date)
- if (dataPoint) {
- const dateText = `${dataPoint.monthName} ${dataPoint.day}`;
- ctx.font = '900 14px "JetBrains Mono", monospace';
- const textWidth = ctx.measureText(dateText).width;
- 
- ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
- ctx.fillRect(mouseX - textWidth / 2 - 6, containerHeight - padding.bottom + 2, textWidth + 12, 20);
- 
- ctx.fillStyle = '#ff6600';
- ctx.textAlign = 'center';
- ctx.fillText(dateText, mouseX, containerHeight - padding.bottom + 15);
- }
- 
- // Draw Y-axis tooltip (percentage)
- const percentText = `${percentage.toFixed(2)}%`;
- ctx.font = '900 14px "JetBrains Mono", monospace';
- const percentWidth = ctx.measureText(percentText).width;
- 
- ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
- ctx.fillRect(padding.left - percentWidth - 18, mouseY - 10, percentWidth + 12, 20);
- 
- ctx.fillStyle = '#ff6600';
- ctx.textAlign = 'right';
- ctx.fillText(percentText, padding.left - 8, mouseY + 4);
- }
- }
+                // Recalculate cumulative returns for just this month
+                if (processedData.length > 0) {
+                    let cumulative = 0;
+                    processedData = processedData.map(d => {
+                        cumulative += d.avgReturn;
+                        return { ...d, cumulativeReturn: cumulative };
+                    });
+                }
+            }
 
- } catch (error) {
- console.error('Error drawing main seasonal chart:', error);
- // Try to clear canvas on error to prevent corrupted display
- try {
- ctx.clearRect(0, 0, canvas.width, canvas.height);
- ctx.fillStyle = '#000000';
- ctx.fillRect(0, 0, containerWidth, containerHeight);
- } catch (clearError) {
- console.error('Error clearing canvas:', clearError);
- }
- }
- };
+            // Apply smoothing if enabled - removes abnormal pumps/crashes
+            if (settings.smoothing) {
+                processedData = smoothData(processedData);
+            }
 
- return (
- <div className="seasonax-main-chart" ref={containerRef} style={{ 
- width: '100%', 
- height: '100%', 
- minHeight: '650px',
- minWidth: '300px',
- position: 'relative',
- overflow: 'hidden'
- }}>
- <div className="main-chart-container" style={{ 
- width: '100%', 
- height: '100%', 
- position: 'relative' 
- }}>
- <canvas 
- ref={canvasRef} 
- className="seasonax-canvas"
- style={{
- position: 'absolute',
- top: 0,
- left: 0,
- width: '100%',
- height: '100%'
- }}
- />
- 
- {/* Chart Legend */}
- {(comparisonData.length > 0) && (
- <div className="chart-legend">
- <div className="legend-title">Symbols</div>
- <div className="legend-items">
- <div className="legend-item main">
- <div className="legend-color" style={{ backgroundColor: '#ffffff' }}></div>
- <div className="legend-label">{data.symbol}</div>
- </div>
- {comparisonData.map((compData, index) => {
- const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000'];
- const color = comparisonColors[index % comparisonColors.length];
- return (
- <div key={compData.symbol} className="legend-item comparison">
- <div className="legend-color" style={{ backgroundColor: color }}></div>
- <div className="legend-label">{compData.symbol}</div>
- </div>
- );
- })}
- </div>
- </div>
- )}
- </div>
- </div>
- );
+            // Apply detrending if enabled - removes overall trend
+            if (settings.detrend) {
+                processedData = detrendData(processedData);
+            }
+
+            // Get data bounds from processed data and comparison data
+            // Filter to only visible data points based on zoom and pan
+            const getVisibleDataPoints = (data: DailySeasonalData[]) => {
+                if (zoomLevel === 1) return data;
+
+                const chartCenter = 0.5;
+                const visibleStart = Math.max(0, (0 - panOffset - chartCenter) / zoomLevel + chartCenter);
+                const visibleEnd = Math.min(1, (1 - panOffset - chartCenter) / zoomLevel + chartCenter);
+
+                return data.filter(d => {
+                    const normalizedPos = d.dayOfYear / 365;
+                    return normalizedPos >= visibleStart && normalizedPos <= visibleEnd;
+                });
+            };
+
+            const visibleData = getVisibleDataPoints(processedData);
+            let allCumulativeReturns = visibleData.length > 0 ? visibleData.map(d => d.cumulativeReturn) : processedData.map(d => d.cumulativeReturn);
+
+            // Include comparison data in bounds calculation
+            comparisonData.forEach(compData => {
+                if (compData && compData.dailyData) {
+                    let compProcessedData = compData.dailyData;
+
+                    // Apply same processing as main data
+                    if (settings.smoothing) {
+                        compProcessedData = smoothData(compProcessedData);
+                    }
+                    if (settings.detrend) {
+                        compProcessedData = detrendData(compProcessedData);
+                    }
+
+                    const visibleCompData = getVisibleDataPoints(compProcessedData);
+                    const compReturns = visibleCompData.length > 0 ? visibleCompData.map(d => d.cumulativeReturn) : compProcessedData.map(d => d.cumulativeReturn);
+                    allCumulativeReturns = allCumulativeReturns.concat(compReturns);
+                }
+            });
+
+            const minReturn = Math.min(...allCumulativeReturns);
+            const maxReturn = Math.max(...allCumulativeReturns);
+            const returnRange = maxReturn - minReturn;
+
+            // Add padding to range
+            const paddedMin = minReturn - returnRange * 0.1;
+            const paddedMax = maxReturn + returnRange * 0.1;
+            const paddedRange = paddedMax - paddedMin;
+
+            // Helper function to calculate X position with zoom and pan
+            const getXPosition = (dataPoint: DailySeasonalData) => {
+                let baseX: number;
+                if (selectedMonth !== null && selectedMonth !== undefined && processedData.length > 0) {
+                    // Monthly view - scale to fit the month's data range
+                    const firstDay = processedData[0].dayOfYear;
+                    const lastDay = processedData[processedData.length - 1].dayOfYear;
+                    const dayRange = lastDay - firstDay + 1;
+                    baseX = ((dataPoint.dayOfYear - firstDay) / dayRange);
+                } else {
+                    // Full year view - use standard scaling
+                    baseX = (dataPoint.dayOfYear / 365);
+                }
+
+                // Apply zoom and pan
+                const chartCenter = 0.5;
+                const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+                return padding.left + zoomedX * chartWidth;
+            };
+
+            // Draw background
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, containerWidth, containerHeight);
+
+            // Draw grid lines
+            ctx.strokeStyle = '#333333';
+            ctx.lineWidth = 1;
+
+            // Horizontal grid lines
+            for (let i = 0; i <= 10; i++) {
+                const y = padding.top + (i * chartHeight) / 10;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(containerWidth - padding.right, y);
+                ctx.stroke();
+            }
+
+            // Vertical grid lines (monthly)
+            const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]; // Day of year for each month
+            if (selectedMonth === null || selectedMonth === undefined) {
+                monthStarts.forEach(dayOfYear => {
+                    const chartCenter = 0.5;
+                    const baseX = dayOfYear / 365;
+                    const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+                    const x = padding.left + zoomedX * chartWidth;
+
+                    // Only draw if within visible area
+                    if (x >= padding.left && x <= containerWidth - padding.right) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, padding.top);
+                        ctx.lineTo(x, containerHeight - padding.bottom);
+                        ctx.stroke();
+                    }
+                });
+            }
+
+            // Draw zero line
+            const zeroY = containerHeight - padding.bottom - ((0 - paddedMin) / paddedRange) * chartHeight;
+            ctx.strokeStyle = '#FF6600';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, zeroY);
+            ctx.lineTo(containerWidth - padding.right, zeroY);
+            ctx.stroke();
+
+            // Fill areas above and below zero line with the main seasonal data
+            if (processedData && processedData.length > 0) {
+                // Create separate filled regions for positive and negative areas
+                // This ensures proper green/red shading even when line crosses zero
+
+                for (let i = 0; i < processedData.length - 1; i++) {
+                    const currentDay = processedData[i];
+                    const nextDay = processedData[i + 1];
+
+                    const x1 = getXPosition(currentDay);
+                    const y1 = containerHeight - padding.bottom - ((currentDay.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+                    const x2 = getXPosition(nextDay);
+                    const y2 = containerHeight - padding.bottom - ((nextDay.cumulativeReturn - paddedMin) / paddedRange) * chartHeight;
+
+                    // Fill green for positive segments
+                    if (currentDay.cumulativeReturn >= 0 || nextDay.cumulativeReturn >= 0) {
+                        ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
+                        ctx.beginPath();
+
+                        // Handle different cases for proper filling
+                        if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn >= 0) {
+                            // Both positive - fill entire segment
+                            ctx.moveTo(x1, zeroY);
+                            ctx.lineTo(x1, y1);
+                            ctx.lineTo(x2, y2);
+                            ctx.lineTo(x2, zeroY);
+                            ctx.closePath();
+                            ctx.fill();
+                        } else if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn < 0) {
+                            // Crosses from positive to negative - fill only positive part
+                            const crossX = x1 + (x2 - x1) * (currentDay.cumulativeReturn / (currentDay.cumulativeReturn - nextDay.cumulativeReturn));
+                            ctx.moveTo(x1, zeroY);
+                            ctx.lineTo(x1, y1);
+                            ctx.lineTo(crossX, zeroY);
+                            ctx.closePath();
+                            ctx.fill();
+                        } else if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn >= 0) {
+                            // Crosses from negative to positive - fill only positive part
+                            const crossX = x1 + (x2 - x1) * (-currentDay.cumulativeReturn / (nextDay.cumulativeReturn - currentDay.cumulativeReturn));
+                            ctx.moveTo(crossX, zeroY);
+                            ctx.lineTo(x2, y2);
+                            ctx.lineTo(x2, zeroY);
+                            ctx.closePath();
+                            ctx.fill();
+                        }
+                    }
+
+                    // Fill red for negative segments
+                    if (currentDay.cumulativeReturn < 0 || nextDay.cumulativeReturn < 0) {
+                        ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
+                        ctx.beginPath();
+
+                        // Handle different cases for proper filling
+                        if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn < 0) {
+                            // Both negative - fill entire segment
+                            ctx.moveTo(x1, zeroY);
+                            ctx.lineTo(x1, y1);
+                            ctx.lineTo(x2, y2);
+                            ctx.lineTo(x2, zeroY);
+                            ctx.closePath();
+                            ctx.fill();
+                        } else if (currentDay.cumulativeReturn >= 0 && nextDay.cumulativeReturn < 0) {
+                            // Crosses from positive to negative - fill only negative part
+                            const crossX = x1 + (x2 - x1) * (currentDay.cumulativeReturn / (currentDay.cumulativeReturn - nextDay.cumulativeReturn));
+                            ctx.moveTo(crossX, zeroY);
+                            ctx.lineTo(x2, y2);
+                            ctx.lineTo(x2, zeroY);
+                            ctx.closePath();
+                            ctx.fill();
+                        } else if (currentDay.cumulativeReturn < 0 && nextDay.cumulativeReturn >= 0) {
+                            // Crosses from negative to positive - fill only negative part
+                            const crossX = x1 + (x2 - x1) * (-currentDay.cumulativeReturn / (nextDay.cumulativeReturn - currentDay.cumulativeReturn));
+                            ctx.moveTo(x1, zeroY);
+                            ctx.lineTo(x1, y1);
+                            ctx.lineTo(crossX, zeroY);
+                            ctx.closePath();
+                            ctx.fill();
+                        }
+                    }
+                }
+            }
+
+            // Draw main seasonal line with processed data
+            const isMonthlyView = selectedMonth !== null && selectedMonth !== undefined;
+            drawSeasonalLine(ctx, processedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, '#ffffff', 3, data.symbol, isMonthlyView, processedData, zoomLevel, panOffset);
+
+            // Draw comparison lines
+            const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000'];
+            comparisonData.forEach((compData, index) => {
+                if (compData && compData.dailyData) {
+                    let compProcessedData = compData.dailyData;
+
+                    // Apply same processing as main data
+                    if (settings.smoothing) {
+                        compProcessedData = smoothData(compProcessedData);
+                    }
+                    if (settings.detrend) {
+                        compProcessedData = detrendData(compProcessedData);
+                    }
+
+                    const color = comparisonColors[index % comparisonColors.length];
+                    drawSeasonalLine(ctx, compProcessedData, containerWidth, containerHeight, padding, chartWidth, chartHeight, paddedMin, paddedRange, color, 2, compData.symbol, false, compProcessedData, zoomLevel, panOffset);
+                }
+            });
+
+            // Draw Sweet Spot highlighting (green overlay)
+            if (sweetSpotPeriod) {
+                const startX = padding.left + (sweetSpotPeriod.startDay / 365) * chartWidth;
+                const endX = padding.left + (sweetSpotPeriod.endDay / 365) * chartWidth;
+
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; // Low opacity green
+                ctx.fillRect(startX, padding.top, endX - startX, chartHeight);
+
+                // Add Sweet Spot label
+                ctx.fillStyle = '#00FF00';
+                ctx.font = 'bold 14px "Roboto Mono", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('SWEET SPOT', (startX + endX) / 2, padding.top - 5);
+            }
+
+            // Draw Pain Point highlighting (red overlay)
+            if (painPointPeriod) {
+                const startX = padding.left + (painPointPeriod.startDay / 365) * chartWidth;
+                const endX = padding.left + (painPointPeriod.endDay / 365) * chartWidth;
+
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; // Low opacity red
+                ctx.fillRect(startX, padding.top, endX - startX, chartHeight);
+
+                // Add Pain Point label
+                ctx.fillStyle = '#FF0000';
+                ctx.font = 'bold 14px "Roboto Mono", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('PAIN POINT', (startX + endX) / 2, padding.top - 5);
+            }
+
+            // Draw current date line if enabled and not in monthly view
+            if (settings.showCurrentDate && (selectedMonth === null || selectedMonth === undefined)) {
+                const currentDate = new Date();
+                const startOfYear = new Date(currentDate.getFullYear(), 0, 1);
+                const dayOfYear = Math.floor((currentDate.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+                const currentDateX = padding.left + (dayOfYear / 365) * chartWidth;
+
+                ctx.strokeStyle = '#FF6600'; // Bloomberg Terminal orange color for current date
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]); // Dashed line
+                ctx.beginPath();
+                ctx.moveTo(currentDateX, padding.top);
+                ctx.lineTo(currentDateX, containerHeight - padding.bottom);
+                ctx.stroke();
+                ctx.setLineDash([]); // Reset line dash
+
+                // Add current date label - bigger and more visible
+                ctx.fillStyle = '#FF6600';
+                ctx.font = 'bold 20px "Roboto Mono", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('TODAY', currentDateX, padding.top + 5);
+            }
+
+            // Draw Y-axis labels - crispy white with % symbol and 30% smaller
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 17px "Roboto Mono", monospace';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+
+            for (let i = 0; i <= 10; i++) {
+                const value = paddedMax - (i * paddedRange) / 10;
+                const y = padding.top + (i * chartHeight) / 10;
+                ctx.fillText(value.toFixed(1) + '%', padding.left - 15, y);
+            }
+
+            // Draw X-axis labels
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 17px "Roboto Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+
+            if (selectedMonth !== null && selectedMonth !== undefined && processedData.length > 0) {
+                // For single month view, show day numbers
+                const firstDay = processedData[0].dayOfYear;
+                const lastDay = processedData[processedData.length - 1].dayOfYear;
+                const dayRange = lastDay - firstDay + 1;
+
+                // Show every few days depending on chart width
+                const labelInterval = Math.max(1, Math.floor(dayRange / 15));
+
+                processedData.forEach((dataPoint, index) => {
+                    if (index % labelInterval === 0 || index === processedData.length - 1) {
+                        const x = padding.left + ((dataPoint.dayOfYear - firstDay) / dayRange) * chartWidth;
+                        const monthNum = dataPoint.month + 1;
+                        const dayNum = dataPoint.day;
+                        ctx.fillText(`${monthNum}/${dayNum}`, x, containerHeight - padding.bottom + 15);
+                    }
+                });
+            } else {
+                // Full year view - show month names
+                const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+                // Mobile detection: show only 4 months
+                const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+                const monthsToShow = isMobile ? [0, 3, 6, 9] : Array.from({ length: 12 }, (_, i) => i); // Jan, Apr, Jul, Oct on mobile
+
+                monthStarts.forEach((dayOfYear, index) => {
+                    if (index < monthNames.length && monthsToShow.includes(index)) {
+                        const chartCenter = 0.5;
+                        const baseX = dayOfYear / 365;
+                        const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset;
+                        const x = padding.left + zoomedX * chartWidth;
+
+                        // Only draw if within visible area
+                        if (x >= padding.left - 20 && x <= containerWidth - padding.right + 20) {
+                            ctx.fillText(monthNames[index], x, containerHeight - padding.bottom + 15);
+                        }
+                    }
+                });
+            }
+
+            // Draw crosshair
+            if (mousePos) {
+                const { x: mouseX, y: mouseY } = mousePos;
+
+                // Check if mouse is within chart area
+                if (mouseX >= padding.left && mouseX <= containerWidth - padding.right &&
+                    mouseY >= padding.top && mouseY <= containerHeight - padding.bottom) {
+
+                    // Draw vertical line
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(mouseX, padding.top);
+                    ctx.lineTo(mouseX, containerHeight - padding.bottom);
+                    ctx.stroke();
+
+                    // Draw horizontal line
+                    ctx.beginPath();
+                    ctx.moveTo(padding.left, mouseY);
+                    ctx.lineTo(containerWidth - padding.right, mouseY);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Calculate date from mouse position accounting for zoom and pan
+                    const chartCenter = 0.5;
+                    const normalizedX = (mouseX - padding.left) / chartWidth;
+                    const unzoomedX = (normalizedX - panOffset - chartCenter) / zoomLevel + chartCenter;
+                    const dayOfYear = Math.round(unzoomedX * 365);
+                    const dataPoint = data.dailyData.find(d => Math.abs(d.dayOfYear - dayOfYear) < 2);
+
+                    // Calculate percentage from mouse position using the padded range
+                    const percentage = paddedMax - ((mouseY - padding.top) / chartHeight) * paddedRange;
+
+                    // Draw X-axis tooltip (date)
+                    if (dataPoint) {
+                        const dateText = `${dataPoint.monthName} ${dataPoint.day}`;
+                        ctx.font = '900 14px "JetBrains Mono", monospace';
+                        const textWidth = ctx.measureText(dateText).width;
+
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                        ctx.fillRect(mouseX - textWidth / 2 - 6, containerHeight - padding.bottom + 2, textWidth + 12, 20);
+
+                        ctx.fillStyle = '#ff6600';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(dateText, mouseX, containerHeight - padding.bottom + 15);
+                    }
+
+                    // Draw Y-axis tooltip (percentage)
+                    const percentText = `${percentage.toFixed(2)}%`;
+                    ctx.font = '900 14px "JetBrains Mono", monospace';
+                    const percentWidth = ctx.measureText(percentText).width;
+
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                    ctx.fillRect(padding.left - percentWidth - 18, mouseY - 10, percentWidth + 12, 20);
+
+                    ctx.fillStyle = '#ff6600';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(percentText, padding.left - 8, mouseY + 4);
+                }
+            }
+
+        } catch (error) {
+            console.error('Error drawing main seasonal chart:', error);
+            // Try to clear canvas on error to prevent corrupted display
+            try {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, containerWidth, containerHeight);
+            } catch (clearError) {
+                console.error('Error clearing canvas:', clearError);
+            }
+        }
+    };
+
+    return (
+        <div className="seasonax-main-chart" ref={containerRef} style={{
+            width: '100%',
+            height: '100%',
+            minHeight: '650px',
+            minWidth: '300px',
+            position: 'relative',
+            overflow: 'hidden'
+        }}>
+            <div className="main-chart-container" style={{
+                width: '100%',
+                height: '100%',
+                position: 'relative'
+            }}>
+                <canvas
+                    ref={canvasRef}
+                    className="seasonax-canvas"
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%'
+                    }}
+                />
+
+                {/* Chart Legend */}
+                {(comparisonData.length > 0) && (
+                    <div className="chart-legend">
+                        <div className="legend-title">Symbols</div>
+                        <div className="legend-items">
+                            <div className="legend-item main">
+                                <div className="legend-color" style={{ backgroundColor: '#ffffff' }}></div>
+                                <div className="legend-label">{data.symbol}</div>
+                            </div>
+                            {comparisonData.map((compData, index) => {
+                                const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000'];
+                                const color = comparisonColors[index % comparisonColors.length];
+                                return (
+                                    <div key={compData.symbol} className="legend-item comparison">
+                                        <div className="legend-color" style={{ backgroundColor: color }}></div>
+                                        <div className="legend-label">{compData.symbol}</div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 };
 
 export default SeasonaxMainChart;

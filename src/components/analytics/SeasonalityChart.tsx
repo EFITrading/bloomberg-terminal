@@ -133,6 +133,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
     const [monthlyViewActive, setMonthlyViewActive] = useState<boolean>(false);
     const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
     const [selectedMonthName, setSelectedMonthName] = useState<string>('');
+    const [availableYears, setAvailableYears] = useState<number[]>([1, 3, 5, 10, 15, 20]); // Dynamic based on actual data
     const [chartSettings, setChartSettings] = useState<ChartSettings>({
         startDate: '11 Oct',
         endDate: '6 Nov',
@@ -272,35 +273,43 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
         try {
             const cache = GlobalDataCache.getInstance();
 
-            // Calculate date range (max 20 years due to API limit)
-            const yearsToUse = yearsOverride ?? chartSettings.yearsOfData;
-            const yearsToFetch = Math.min(yearsToUse, 20);
-            const endDate = new Date();
-            const startDate = new Date();
-            startDate.setFullYear(endDate.getFullYear() - yearsToFetch);
+            // Get ticker details first to determine actual listing date
+            const cachedTicker = cache.get(GlobalDataCache.keys.TICKER_DETAILS(symbol));
+            let tickerDetails;
 
-            console.log(`Loading ${yearsToFetch} years of data for ${symbol}`);
+            if (cachedTicker) {
+                tickerDetails = cachedTicker;
+            } else {
+                tickerDetails = await polygonService.getTickerDetails(symbol);
+                if (tickerDetails) {
+                    cache.set(GlobalDataCache.keys.TICKER_DETAILS(symbol), tickerDetails);
+                }
+            }
+
+            // Determine actual start date - query maximum available data (30 years)
+            const endDate = new Date();
+            let startDate = new Date();
+
+            // Query for maximum 30 years of data (ignore unreliable listing dates)
+            // The API will return what's actually available, and we'll calculate years from that
+            startDate.setFullYear(endDate.getFullYear() - 30);
 
             const startDateStr = startDate.toISOString().split('T')[0];
             const endDateStr = endDate.toISOString().split('T')[0];
 
             // Check cache first for faster loading
-            let historicalResponse, spyResponse, tickerDetails;
+            let historicalResponse, spyResponse;
 
             const cachedHistorical = cache.get(GlobalDataCache.keys.HISTORICAL_DATA(symbol, startDateStr, endDateStr));
-            const cachedTicker = cache.get(GlobalDataCache.keys.TICKER_DETAILS(symbol));
 
-            if (cachedHistorical && cachedTicker) {
-                console.log(` Using cached data for ${symbol} - instant load!`);
+            if (cachedHistorical) {
                 historicalResponse = cachedHistorical;
-                tickerDetails = cachedTicker;
 
                 // For SPY comparison
                 if (symbol.toUpperCase() !== 'SPY') {
                     const cachedSPY = cache.get(GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr));
                     if (cachedSPY) {
                         spyResponse = cachedSPY;
-                        console.log(` Using cached SPY data for comparison - instant load!`);
                     } else {
                         spyResponse = await polygonService.getHistoricalData('SPY', startDateStr, endDateStr);
                         if (spyResponse) {
@@ -327,9 +336,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
                     ]);
                 }
 
-                // Get company details
-                tickerDetails = await polygonService.getTickerDetails(symbol);
-
                 // Cache the results for next time
                 if (historicalResponse) {
                     cache.set(GlobalDataCache.keys.HISTORICAL_DATA(symbol, startDateStr, endDateStr), historicalResponse);
@@ -337,18 +343,79 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
                 if (spyResponse) {
                     cache.set(GlobalDataCache.keys.HISTORICAL_DATA('SPY', startDateStr, endDateStr), spyResponse);
                 }
-                if (tickerDetails) {
-                    cache.set(GlobalDataCache.keys.TICKER_DETAILS(symbol), tickerDetails);
+            }
+
+            // Calculate actual years available from data
+            if (historicalResponse.results && historicalResponse.results.length > 0) {
+                const firstDate = new Date(historicalResponse.results[0].t);
+                const lastDate = new Date(historicalResponse.results[historicalResponse.results.length - 1].t);
+                const actualYearsSpan = (lastDate.getTime() - firstDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+                const maxYears = Math.floor(actualYearsSpan);
+
+                // Generate available year options based on actual data span
+                let yearOptions: number[] = [];
+
+                if (maxYears >= 10) {
+                    // For 10+ years: show 1, 3, 5, 10, 15 (if available), and actual max
+                    yearOptions = [1, 3, 5, 10];
+                    if (maxYears >= 15) yearOptions.push(15);
+                    if (maxYears !== 15) yearOptions.push(maxYears); // Only add max if different from 15
+                } else if (maxYears >= 4) {
+                    // For 4-9 years: show 1, 3, 5 (if available), and actual max
+                    yearOptions = [1, 3];
+                    if (maxYears >= 5) yearOptions.push(5);
+                    if (maxYears !== 5 && maxYears !== 3) yearOptions.push(maxYears); // Only if different
+                } else if (maxYears >= 3) {
+                    // For 3 years: show only 3
+                    yearOptions = [3];
+                } else if (maxYears >= 2) {
+                    // For 2 years: show only 2
+                    yearOptions = [2];
+                } else {
+                    // For 1 year or less: show only 1
+                    yearOptions = [1];
+                }
+
+                // Remove any duplicates just in case
+                yearOptions = [...new Set(yearOptions)];
+
+                setAvailableYears(yearOptions);
+
+                // Set default to maximum available years
+                if (chartSettings.yearsOfData !== maxYears) {
+                    setChartSettings(prev => ({ ...prev, yearsOfData: maxYears }));
                 }
             }
 
+            // Filter data based on selected years
+            let filteredData = historicalResponse.results;
+            let filteredSpyData = spyResponse?.results || null;
+
+            if (yearsOverride && historicalResponse.results && historicalResponse.results.length > 0) {
+                const endDate = new Date(historicalResponse.results[historicalResponse.results.length - 1].t);
+                const cutoffDate = new Date(endDate);
+                cutoffDate.setFullYear(endDate.getFullYear() - yearsOverride);
+
+                filteredData = historicalResponse.results.filter(point => new Date(point.t) >= cutoffDate);
+
+                if (filteredSpyData) {
+                    filteredSpyData = filteredSpyData.filter(point => new Date(point.t) >= cutoffDate);
+                }
+            }
+
+            // Calculate years actually used for processing
+            const actualYearsUsed = filteredData && filteredData.length > 0
+                ? Math.ceil((new Date(filteredData[filteredData.length - 1].t).getTime() -
+                    new Date(filteredData[0].t).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+                : (yearsOverride || 20);
+
             // Process data into daily seasonal format with or without SPY comparison
             const processedData = processDailySeasonalData(
-                historicalResponse.results,
-                spyResponse?.results || null,
+                filteredData,
+                filteredSpyData,
                 symbol,
                 tickerDetails?.name || symbol,
-                yearsToFetch
+                actualYearsUsed
             );
 
             setSeasonalData(processedData);
@@ -1137,6 +1204,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
                         onElectionModeToggle={handleElectionModeToggle}
                         hideCompareButton={true}
                         showOnlyElectionAndYear={true}
+                        availableYears={availableYears}
                     />
 
                     <div className="sweet-pain-buttons">

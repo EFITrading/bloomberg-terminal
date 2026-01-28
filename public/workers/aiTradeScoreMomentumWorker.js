@@ -808,87 +808,44 @@ async function scoreMomentumCandidate(candidate, prices, timeframeInfo) {
         }
     }
 
-    // 4. SEASONAL ALIGNMENT (10-year seasonality analysis) - weighted by timeframe
-    let seasonalAlignment = 0;
+    // 4. RELATIVE STRENGTH ALIGNMENT (weighted by timeframe)
+    let relativeStrength = 0;
 
     try {
-        // Fetch 10-year seasonality data
-        const seasonalData = await fetchSeasonalityData(symbol);
+        // Calculate relative performance over 3 timeframes: 5d (week), 13d, 21d (monthly)
+        const timeframes = [
+            { days: 5, name: 'week' },
+            { days: 13, name: '13d' },
+            { days: 21, name: 'monthly' }
+        ];
 
-        if (seasonalData) {
-            const currentDayOfYear = getDayOfYear(new Date());
+        let alignedTimeframes = 0;
 
-            // Check if in bullish 30-day period (60% weight)
-            const best30Day = seasonalData.spyComparison?.best30DayPeriod;
-            let inBullish30Day = false;
-            if (best30Day) {
-                const startDay = parseDayOfYear(best30Day.startDate);
-                const endDay = parseDayOfYear(best30Day.endDate);
-                inBullish30Day = isInPeriod(currentDayOfYear, startDay, endDay);
+        for (const tf of timeframes) {
+            if (closes.length >= tf.days + 1) {
+                const startPrice = closes[closes.length - tf.days - 1];
+                const endPrice = closes[closes.length - 1];
+                const stockReturn = ((endPrice - startPrice) / startPrice) * 100;
+
+                // Simplified: positive return = outperforming, negative = underperforming
+                const isOutperforming = stockReturn > 0;
+                const isUnderperforming = stockReturn < 0;
+
+                if (trend === 'bullish' && isOutperforming) {
+                    alignedTimeframes++;
+                } else if (trend === 'bearish' && isUnderperforming) {
+                    alignedTimeframes++;
+                }
             }
+        }
 
-            // Check if in worst 30-day period (60% weight)
-            const worst30Day = seasonalData.spyComparison?.worst30DayPeriod;
-            let inBearish30Day = false;
-            if (worst30Day) {
-                const startDay = parseDayOfYear(worst30Day.startDate);
-                const endDay = parseDayOfYear(worst30Day.endDate);
-                inBearish30Day = isInPeriod(currentDayOfYear, startDay, endDay);
-            }
-
-            // Check if in sweet spot (40% weight)
-            const sweetSpot = findSweetSpot(seasonalData.dailyData);
-            const inSweetSpot = isInPeriod(currentDayOfYear, sweetSpot.startDay, sweetSpot.endDay);
-
-            // Check if in pain point (40% weight)
-            const painPoint = findPainPoint(seasonalData.dailyData);
-            const inPainPoint = isInPeriod(currentDayOfYear, painPoint.startDay, painPoint.endDay);
-
-            // Calculate seasonal score based on trend alignment
-            if (trend === 'bullish') {
-                // Bullish trade gets points if in bullish seasonal periods
-                if (inBullish30Day) seasonalAlignment += timeframeConfig.weights.volume * 0.60; // 60% for best 30-day
-                if (inSweetSpot) seasonalAlignment += timeframeConfig.weights.volume * 0.40;    // 40% for sweet spot
-            } else if (trend === 'bearish') {
-                // Bearish trade gets points if in bearish seasonal periods
-                if (inBearish30Day) seasonalAlignment += timeframeConfig.weights.volume * 0.60; // 60% for worst 30-day
-                if (inPainPoint) seasonalAlignment += timeframeConfig.weights.volume * 0.40;    // 40% for pain point
-            }
-
-            // Store seasonal details for modal display (matching UI expected format)
-            var seasonalDetails = {
-                best30Day: best30Day ? {
-                    start: best30Day.startDate || '',
-                    end: best30Day.endDate || '',
-                    avgReturn: best30Day.avgReturn || 0
-                } : null,
-                worst30Day: worst30Day ? {
-                    start: worst30Day.startDate || '',
-                    end: worst30Day.endDate || '',
-                    avgReturn: worst30Day.avgReturn || 0
-                } : null,
-                sweetSpot: sweetSpot ? {
-                    start: formatDayOfYear(sweetSpot.startDay),
-                    end: formatDayOfYear(sweetSpot.endDay),
-                    avgReturn: sweetSpot.avgReturn || 0
-                } : null,
-                painPoint: painPoint ? {
-                    start: formatDayOfYear(painPoint.startDay),
-                    end: formatDayOfYear(painPoint.endDay),
-                    avgReturn: painPoint.avgReturn || 0
-                } : null,
-                inBest30: inBullish30Day,
-                inWorst30: inBearish30Day,
-                inSweetSpot: inSweetSpot,
-                inPainPoint: inPainPoint
-            };
-        } else {
-            var seasonalDetails = null;
+        // Award full points only if ALL 3 timeframes are aligned
+        if (alignedTimeframes === 3) {
+            relativeStrength = timeframeConfig.weights.volume;
         }
     } catch (error) {
-        console.error(`Seasonality error for ${symbol}:`, error.message);
-        seasonalAlignment = 0;
-        var seasonalDetails = null;
+        console.error(`Relative strength error for ${symbol}:`, error.message);
+        relativeStrength = 0;
     }
 
     // 5. PULLBACK DEPTH (weighted by timeframe)
@@ -916,7 +873,7 @@ async function scoreMomentumCandidate(candidate, prices, timeframeInfo) {
         else if (bounceFromLow < timeframeConfig.thresholds.maxPullback * 0.7) pullbackDepth += timeframeConfig.weights.pullback * 0.4;
     }
 
-    const totalScore = Math.min(100, supportStrength + resilience + retestQuality + seasonalAlignment + pullbackDepth);
+    const totalScore = Math.min(100, supportStrength + resilience + retestQuality + relativeStrength + pullbackDepth);
 
     return {
         ...candidate,
@@ -925,10 +882,9 @@ async function scoreMomentumCandidate(candidate, prices, timeframeInfo) {
             supportStrength: Math.round(supportStrength),
             resilience: Math.round(resilience),
             retestQuality: Math.round(retestQuality),
-            seasonalAlignment: Math.round(seasonalAlignment),
+            relativeStrength: Math.round(relativeStrength),
             pullbackDepth: Math.round(pullbackDepth),
-            currentPrice: currentPrice,
-            seasonalDetails: seasonalDetails
+            currentPrice: currentPrice
         },
         strategy: 'momentum'
     };

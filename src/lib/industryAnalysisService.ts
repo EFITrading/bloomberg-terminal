@@ -590,17 +590,9 @@ export class IndustryAnalysisService {
 
   // Analyze industry performance for a specific timeframe using bulk data
   static async analyzeTimeframe(days: number, timeframeName: string): Promise<TimeframeAnalysis> {
-    // Add timeout to prevent infinite hanging - increased for full dataset
-    const timeoutPromise = new Promise<TimeframeAnalysis>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`${timeframeName} analysis timeout - taking too long`));
-      }, 60000); // 60 second timeout per timeframe for full dataset
-    });
-
-    const analysisPromise = this.performTimeframeAnalysis(days, timeframeName);
-
+    // No timeout - let analysis complete naturally
     try {
-      return await Promise.race([analysisPromise, timeoutPromise]);
+      return await this.performTimeframeAnalysis(days, timeframeName);
     } catch (error) {
       console.error(` ${timeframeName} analysis failed:`, error);
       // Return empty analysis instead of hanging
