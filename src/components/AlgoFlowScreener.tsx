@@ -487,64 +487,59 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
         const expiry = trade.expiry.replace(/-/g, '').slice(2); // Convert 2025-10-10 to 251010
         const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
         const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-        const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+        const normalizeTickerForOptions = (ticker: string) => {
+          const specialCases: Record<string, string> = {
+            'BRK.B': 'BRK',
+            'BF.B': 'BF'
+          };
+          return specialCases[ticker] || ticker;
+        };
+        const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`;
 
-        // Parse trade time and get quote at exact trade timestamp
-        const tradeTime = new Date(trade.trade_timestamp);
-        const checkTimestamp = tradeTime.getTime() * 1000000; // Convert to nanoseconds
-
-        // Get quote at exact trade timestamp
-        const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+        // Use snapshot endpoint - same as Options Flow
+        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
 
         if (index === 0) {
-          console.log(`🔍 REAL API REQUEST: ${optionTicker}`, {
-            expiry: trade.expiry,
-            strike: trade.strike,
-            ticker: trade.underlying_ticker,
-            timestamp: checkTimestamp
-          });
+          console.log(`🔍 SNAPSHOT API REQUEST: ${optionTicker}`);
         }
 
-        const response = await fetch(quotesUrl);
+        const response = await fetch(snapshotUrl);
         const data = await response.json();
 
         if (index === 0) {
-          console.log(`📊 REAL API RESPONSE:`, data);
+          console.log(`📊 SNAPSHOT API RESPONSE:`, data);
         }
 
-        if (data.results && data.results.length > 0) {
-          const quote = data.results[0];
-          const bid = quote.bid_price;
-          const ask = quote.ask_price;
+        if (data.results && data.results.last_quote) {
+          const bid = data.results.last_quote.bid;
+          const ask = data.results.last_quote.ask;
           const fillPrice = trade.premium_per_contract;
 
           if (bid && ask && fillPrice) {
             let fillStyle = 'N/A';
-
-            // Calculate spread and midpoint
-            const spread = ask - bid;
             const midpoint = (bid + ask) / 2;
 
-            // Check for above ask (aggressive buying)
-            if (fillPrice > ask) {
-              fillStyle = 'AA'; // Above ask
-            }
-            // Check for below bid (aggressive selling)
-            else if (fillPrice < bid) {
-              fillStyle = 'BB'; // Below bid
-            }
-            // Midpoint rounding logic - round up to ask or down to bid
-            else {
-              // If fill is at midpoint or above, classify as Ask
-              if (fillPrice >= midpoint) {
-                fillStyle = 'A'; // At ask (midpoint rounds up)
-              } else {
-                fillStyle = 'B'; // At bid (below midpoint)
-              }
+            // Above Ask: Must be at least 1 cent above ask price
+            if (fillPrice >= ask + 0.01) {
+              fillStyle = 'AA';
+              // Below Bid: Must be at least 1 cent below bid price  
+            } else if (fillPrice <= bid - 0.01) {
+              fillStyle = 'BB';
+              // At Ask: Exactly at ask price
+            } else if (fillPrice === ask) {
+              fillStyle = 'A';
+              // At Bid: Exactly at bid price
+            } else if (fillPrice === bid) {
+              fillStyle = 'B';
+              // Between bid and ask: Use midpoint logic
+            } else if (fillPrice >= midpoint) {
+              fillStyle = 'A';
+            } else {
+              fillStyle = 'B';
             }
 
             if (index === 0) {
-              console.log(`✅ Fill style determined: ${fillStyle}`, { bid, ask, fillPrice, midpoint, spread });
+              console.log(`✅ Fill style determined: ${fillStyle}`, { bid, ask, fillPrice, midpoint });
             }
 
             return { ...trade, fill_style: fillStyle };
@@ -798,7 +793,7 @@ export default function AlgoFlowScreener() {
     const ticker = trades[0].underlying_ticker;
     const currentPrice = trades[0].spot_price;
 
-    // Convert to ProcessedTrade format - PRESERVE API CLASSIFICATION
+    // Convert to ProcessedTrade format - PRESERVE fill_style if it exists
     const processedTrades = trades.map(trade => ({
       ticker: trade.underlying_ticker + trade.strike + trade.expiry + (trade.type === 'call' ? 'C' : 'P'),
       underlying_ticker: trade.underlying_ticker,
@@ -816,7 +811,10 @@ export default function AlgoFlowScreener() {
       trade_timestamp: new Date(trade.trade_timestamp),
       trade_type: trade.trade_type, // PRESERVE from API
       moneyness: trade.moneyness,
-      days_to_expiry: trade.days_to_expiry
+      days_to_expiry: trade.days_to_expiry,
+      fill_style: (trade as any).fill_style, // PRESERVE fill_style from API
+      volume: (trade as any).volume, // PRESERVE volume
+      open_interest: (trade as any).open_interest // PRESERVE open_interest
     }));
 
     // YOUR REAL 8-TIER INSTITUTIONAL SYSTEM
@@ -861,16 +859,23 @@ export default function AlgoFlowScreener() {
     // Use API's classification directly instead of reclassifying
     const classifiedTrades = tieredTrades;
 
-    // BID/ASK EXECUTION ANALYSIS - Assign fill_style to ALL trades
-    const tradesWithExecution = classifiedTrades.map(trade => ({
-      ...trade,
-      fill_style: trade.total_premium >= 100000 ? 'A' : 'B', // Simple heuristic: large trades = aggressive
-      // Ensure volume and OI are preserved
-      volume: (trade as any).volume,
-      open_interest: (trade as any).open_interest
-    }));
+    // BID/ASK EXECUTION ANALYSIS - Only analyze trades WITHOUT fill_style
+    console.log('🚀 Checking which trades need bid/ask analysis...');
+    const tradesNeedingAnalysis = classifiedTrades.filter(t => !t.fill_style || t.fill_style === 'N/A');
+    const tradesWithExistingFillStyle = classifiedTrades.filter(t => t.fill_style && t.fill_style !== 'N/A');
 
-    console.log('🔍 TRADES WITH FILL_STYLE:', tradesWithExecution.slice(0, 3).map(t => ({
+    console.log(`📊 ${tradesWithExistingFillStyle.length} trades already have fill_style, ${tradesNeedingAnalysis.length} need analysis`);
+
+    let analyzedTrades = [];
+    if (tradesNeedingAnalysis.length > 0) {
+      console.log('🚀 Running bid/ask analysis for trades without fill_style...');
+      analyzedTrades = await analyzeBidAskExecutionLightning(tradesNeedingAnalysis);
+    }
+
+    // Combine trades: those with existing fill_style + newly analyzed trades
+    const tradesWithExecution = [...tradesWithExistingFillStyle, ...analyzedTrades];
+
+    console.log('🔍 TRADES WITH FILL_STYLE:', tradesWithExecution.slice(0, 5).map(t => ({
       ticker: t.underlying_ticker,
       premium: t.total_premium,
       fill_style: t.fill_style
@@ -1594,997 +1599,722 @@ export default function AlgoFlowScreener() {
     }
   };
 
+  // Gauge component
+  const GaugeChart = ({ value, max, label, color }: { value: number; max: number; label: string; color: string }) => {
+    const percentage = Math.min((Math.abs(value) / max) * 100, 100);
+    const rotation = (percentage / 100) * 180 - 90;
+
+    return (
+      <div className="flex flex-col items-center">
+        <div className="relative w-32 h-16 overflow-hidden">
+          <div className="absolute inset-0 border-4 border-white/10 rounded-t-full"></div>
+          <div
+            className="absolute bottom-0 left-1/2 w-1 h-16 origin-bottom transition-transform duration-500"
+            style={{
+              transform: `translateX(-50%) rotate(${rotation}deg)`,
+              background: color
+            }}
+          >
+            <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full`} style={{ background: color }}></div>
+          </div>
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-4 bg-white rounded-full border-2 border-black"></div>
+        </div>
+        <div className={`text-2xl font-black mt-2`} style={{ color }}>{value.toFixed(3)}</div>
+        <div className="text-xs text-white uppercase tracking-widest font-bold mt-1">{label}</div>
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-4 md:space-y-6 w-full max-w-none">
-      {/* Ticker Search - Mobile Optimized */}
-      <Card className="bg-black border-2 border-white/20 w-full max-w-none">
-        <CardContent className="p-3 md:p-6">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-center w-full">
-            <div className="flex-1 w-full">
-              <input
-                type="text"
-                value={ticker}
-                onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                onKeyPress={handleKeyPress}
-                placeholder="Enter Ticker Symbol"
-                className="w-full px-3 py-3 md:px-6 md:py-4 bg-black border-2 border-white/40 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 font-black text-base md:text-xl tracking-wider min-h-[52px]"
-                disabled={loading}
-              />
+    <div className="min-h-screen bg-black p-6">
+      {/* HEADER BAR */}
+      <div className="bg-black border-b border-white/20 pb-4 mb-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-white text-3xl font-black tracking-wider">ALGOFLOW INTELLIGENCE</h1>
+          <div className="flex items-center gap-4">
+            <input
+              type="text"
+              value={ticker}
+              onChange={(e) => setTicker(e.target.value.toUpperCase())}
+              onKeyPress={handleKeyPress}
+              placeholder="TICKER"
+              className="w-40 px-4 py-2 bg-black border border-white text-white placeholder-white/50 focus:outline-none focus:border-cyan-400 font-bold text-lg tracking-widest"
+              disabled={loading}
+            />
+            <select
+              value={scanTimeframe}
+              onChange={(e) => setScanTimeframe(e.target.value as '1D' | '3D' | '1W')}
+              className="px-4 py-2 bg-black border border-white text-white focus:outline-none focus:border-cyan-400 font-bold text-sm tracking-widest"
+              disabled={loading}
+            >
+              <option value="1D">1D</option>
+              <option value="3D">3D</option>
+              <option value="1W">1W</option>
+            </select>
+            <button
+              onClick={handleSearch}
+              disabled={loading || !ticker.trim()}
+              className="px-8 py-2 bg-white text-black font-black text-sm tracking-widest hover:bg-cyan-400 hover:text-black disabled:opacity-30 transition-all"
+            >
+              {loading ? 'SCANNING' : 'ANALYZE'}
+            </button>
+          </div>
+        </div>
+        {streamStatus && (
+          <div className="mt-2 text-xs text-cyan-400 font-bold tracking-wider">
+            {streamStatus}
+          </div>
+        )}
+        {error && (
+          <div className="mt-2 text-xs text-red-500 font-bold tracking-wider">
+            {error}
+          </div>
+        )}
+      </div>
+
+
+
+      {/* LOADING STATE */}
+      {isAnalyzing && flowData.length > 0 && (
+        <div className="bg-black border border-white/20 p-8">
+          <div className="flex items-center justify-center gap-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-cyan-400 border-t-transparent"></div>
+            <div className="text-white text-lg font-bold tracking-wider">
+              ANALYZING {flowData.length} TRADES
             </div>
-            <div className="w-full sm:w-auto">
-              <select
-                value={scanTimeframe}
-                onChange={(e) => setScanTimeframe(e.target.value as '1D' | '3D' | '1W')}
-                className="w-full px-3 py-3 md:px-4 md:py-4 bg-black border-2 border-white/40 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 font-black text-sm md:text-base tracking-wider min-h-[52px]"
-                disabled={loading}
-              >
-                <option value="1D">1 DAY</option>
-                <option value="3D">3 DAYS</option>
-                <option value="1W">1 WEEK</option>
-              </select>
+          </div>
+          {analysisProgress.total > 0 && (
+            <div className="mt-6">
+              <div className="flex justify-between text-xs text-white mb-2 font-bold tracking-wider">
+                <span>PROGRESS</span>
+                <span>{analysisProgress.current}/{analysisProgress.total}</span>
+              </div>
+              <div className="w-full bg-white/10 h-1">
+                <div
+                  className="bg-cyan-400 h-1 transition-all duration-300"
+                  style={{ width: `${(analysisProgress.current / analysisProgress.total) * 100}%` }}
+                ></div>
+              </div>
             </div>
-            <div className="w-full sm:w-auto min-w-0 sm:min-w-[200px]">
-              <button
-                onClick={handleSearch}
-                disabled={loading || !ticker.trim()}
-                className="w-full px-4 py-3 md:px-10 md:py-4 bg-black border-2 border-orange-500 text-orange-500 rounded-lg font-black text-sm md:text-lg tracking-wider hover:bg-orange-500 hover:text-black disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[52px]"
-              >
-                {loading ? (isAnalyzing ? 'ANALYZING...' : 'SCANNING...') : 'ANALYZE FLOW'}
-              </button>
+          )}
+        </div>
+      )}
+
+
+      {analysis && (
+        <div className="space-y-6">
+          {/* TICKER HEADER */}
+          <div className="bg-black border border-white p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <h2 className="text-white text-5xl font-black tracking-wider">{analysis.ticker}</h2>
+                <div className="text-white text-3xl font-black">${analysis.currentPrice.toFixed(2)}</div>
+                <div className={`px-4 py-1 border-2 font-black text-sm tracking-widest ${analysis.flowTrend === 'BULLISH' ? 'border-green-500 text-green-500' :
+                    analysis.flowTrend === 'BEARISH' ? 'border-red-500 text-red-500' :
+                      'border-yellow-500 text-yellow-500'
+                  }`}>
+                  {analysis.flowTrend}
+                </div>
+              </div>
             </div>
           </div>
 
-          {streamStatus && (
-            <div className="mt-3 text-sm text-white font-bold">
-              Status: <span className="text-orange-500">{streamStatus}</span>
+          {/* GAUGES SECTION */}
+          <div className="grid grid-cols-4 gap-6">
+            {/* AlgoFlow Score Gauge */}
+            <div className="bg-black border border-white p-6">
+              <GaugeChart
+                value={analysis.algoFlowScore}
+                max={1}
+                label="ALGOFLOW SCORE"
+                color={analysis.algoFlowScore > 0.3 ? '#10b981' : analysis.algoFlowScore < -0.3 ? '#ef4444' : '#eab308'}
+              />
             </div>
-          )}
 
-          {error && (
-            <div className="mt-3 text-sm text-red-400 font-bold">
-              {error}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-
-
-      {/* Analysis Results */}
-      {isAnalyzing && flowData.length > 0 && (
-        <Card className="bg-zinc-900/50 border-zinc-800">
-          <CardContent className="p-12 text-center">
-            <div className="flex items-center justify-center space-x-3">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-              <div className="text-blue-400 text-lg">
-                ULTRA-FAST parallel analysis of {flowData.length} trades...
-              </div>
-            </div>
-            <div className="text-zinc-500 text-sm mt-2">
-              Using intelligent sampling and parallel processing - seconds instead of hours!
-            </div>
-            {analysisProgress.total > 0 && (
-              <div className="mt-4">
-                <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                  <span>Progress</span>
-                  <span>{analysisProgress.current}/{analysisProgress.total} batches</span>
+            {/* Net Flow Gauge */}
+            <div className="bg-black border border-white p-6">
+              <div className="flex flex-col items-center">
+                <div className="text-5xl font-black mb-2" style={{ color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444' }}>
+                  {formatCurrency(analysis.netFlow)}
                 </div>
-                <div className="w-full bg-zinc-700 rounded-full h-2">
+                <div className="text-xs text-white uppercase tracking-widest font-bold">NET FLOW</div>
+                <div className="w-full h-2 bg-white/10 mt-4">
                   <div
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(analysisProgress.current / analysisProgress.total) * 100}%` }}
+                    className="h-2 transition-all"
+                    style={{
+                      width: `${Math.abs((analysis.netFlow / (analysis.totalCallPremium + analysis.totalPutPremium)) * 100)}%`,
+                      backgroundColor: analysis.netFlow >= 0 ? '#10b981' : '#ef4444'
+                    }}
                   ></div>
                 </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+            </div>
 
-      {(() => {
-        console.log(`🎯 TABLE RENDER CHECK: analysis exists?`, !!analysis);
-        if (analysis) {
-          console.log(`✅ ANALYSIS EXISTS - RENDERING TABLE with ${analysis.trades?.length || 0} trades`);
-        } else {
-          console.log(`❌ NO ANALYSIS - TABLE NOT RENDERING`);
-        }
-        return null;
-      })()}
+            {/* Sweeps vs Blocks */}
+            <div className="bg-black border border-white p-6">
+              <div className="flex flex-col items-center">
+                <div className="flex items-center justify-center gap-8 mb-4">
+                  <div className="text-center">
+                    <div className="text-4xl font-black text-yellow-500">{analysis.sweepCount}</div>
+                    <div className="text-xs text-white uppercase tracking-widest font-bold mt-1">SWEEPS</div>
+                  </div>
+                  <div className="text-white text-2xl font-black">VS</div>
+                  <div className="text-center">
+                    <div className="text-4xl font-black text-cyan-400">{analysis.blockCount}</div>
+                    <div className="text-xs text-white uppercase tracking-widest font-bold mt-1">BLOCKS</div>
+                  </div>
+                </div>
+                <div className="w-full h-2 bg-white/10 flex">
+                  <div
+                    className="h-2 bg-yellow-500"
+                    style={{ width: `${(analysis.sweepCount / (analysis.sweepCount + analysis.blockCount)) * 100}%` }}
+                  ></div>
+                  <div
+                    className="h-2 bg-cyan-400"
+                    style={{ width: `${(analysis.blockCount / (analysis.sweepCount + analysis.blockCount)) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
 
-      {analysis && (
-        <div className="grid grid-cols-1 gap-6">
-          {/* Bloomberg-Style Unified Header */}
-          <Card className="bg-black border-2 border-orange-500/50 w-full">
-            <CardContent className="p-6">
-              {/* Ticker Row */}
-              <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-orange-500/30">
-                <div className="flex items-center gap-4">
-                  <h2 className="text-white text-4xl font-black tracking-widest">{analysis.ticker}</h2>
-                  <div className="text-2xl text-white font-bold">
-                    ${analysis.currentPrice.toFixed(2)}
+            {/* P/C Ratio Gauge */}
+            <div className="bg-black border border-white p-6">
+              <div className="flex flex-col items-center">
+                <div className="text-5xl font-black text-white mb-2">{analysis.callPutRatio.toFixed(2)}</div>
+                <div className="text-xs text-white uppercase tracking-widest font-bold">P/C RATIO</div>
+                <div className="flex items-center gap-4 mt-4 w-full">
+                  <div className="flex-1">
+                    <div className="text-xs text-white uppercase tracking-widest font-bold mb-1">CALLS</div>
+                    <div className="h-8 bg-green-500 flex items-center justify-center">
+                      <span className="text-black font-black text-sm">{analysis.aggressiveCalls}</span>
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-xs text-white uppercase tracking-widest font-bold mb-1">PUTS</div>
+                    <div className="h-8 bg-red-500 flex items-center justify-center">
+                      <span className="text-black font-black text-sm">{analysis.aggressivePuts}</span>
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
 
-              {/* Row 1: Main Metrics */}
-              <div className="grid grid-cols-6 gap-4 mb-4">
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">AlgoFlow Score</div>
-                  <div className={`text-3xl font-black ${getScoreColor(analysis.algoFlowScore)}`}>
-                    {analysis.algoFlowScore.toFixed(3)}
-                  </div>
-                </div>
+          {/* PREMIUM METRICS */}
+          <div className="grid grid-cols-6 gap-4">
+            <div className="bg-black border border-white p-4">
+              <div className="text-xs text-white uppercase tracking-widest font-bold mb-2">CALLS PREMIUM</div>
+              <div className="text-2xl font-black text-green-500">{formatCurrency(analysis.totalCallPremium)}</div>
+            </div>
+            <div className="bg-black border border-white p-4">
+              <div className="text-xs text-white uppercase tracking-widest font-bold mb-2">PUTS PREMIUM</div>
+              <div className="text-2xl font-black text-red-500">{formatCurrency(analysis.totalPutPremium)}</div>
+            </div>
+            <div className="bg-black border border-white p-4">
+              <div className="text-xs text-white uppercase tracking-widest font-bold mb-2">TOTAL VOLUME</div>
+              <div className="text-2xl font-black text-white">{flowData.reduce((sum, trade) => sum + trade.trade_size, 0).toLocaleString()}</div>
+            </div>
+            <div className="bg-black border border-white p-4">
+              <div className="text-xs text-white uppercase tracking-widest font-bold mb-2">TIER 1</div>
+              <div className="text-2xl font-black text-red-500">{analysis.tier1Count}</div>
+            </div>
+            <div className="bg-black border border-white p-4">
+              <div className="text-xs text-white uppercase tracking-widest font-bold mb-2">TIER 2</div>
+              <div className="text-2xl font-black text-yellow-500">{analysis.tier2Count}</div>
+            </div>
+            <div className="bg-black border border-white p-4">
+              <div className="text-xs text-white uppercase tracking-widest font-bold mb-2">MINI</div>
+              <div className="text-2xl font-black text-white">{analysis.miniCount}</div>
+            </div>
+          </div>
 
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Net Flow</div>
-                  <div className={`text-2xl font-black ${analysis.netFlow >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {formatCurrency(analysis.netFlow)}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">P/C Ratio</div>
-                  <div className="text-2xl font-black text-white">
-                    {analysis.callPutRatio.toFixed(2)}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Total Volume</div>
-                  <div className="text-2xl font-black text-purple-400">
-                    {flowData.reduce((sum, trade) => sum + trade.trade_size, 0).toLocaleString()}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Sweeps</div>
-                  <div className="text-2xl font-black text-orange-400">
-                    {analysis.sweepCount}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Blocks</div>
-                  <div className="text-2xl font-black text-blue-400">
-                    {analysis.blockCount}
-                  </div>
+          {/* PREMIUM FLOW CHART */}
+          <div className="bg-black border border-white">
+            <div className="border-b border-white p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-white text-xl font-black tracking-wider">PREMIUM FLOW ANALYSIS</h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setChartTimeframe('1D')}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '1D'
+                        ? 'bg-white text-black'
+                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      }`}
+                  >
+                    1D
+                  </button>
+                  <button
+                    onClick={() => setChartTimeframe('3D')}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '3D'
+                        ? 'bg-white text-black'
+                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      }`}
+                  >
+                    3D
+                  </button>
+                  <button
+                    onClick={() => setChartTimeframe('1W')}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '1W'
+                        ? 'bg-white text-black'
+                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      }`}
+                  >
+                    1W
+                  </button>
+                  <div className="w-px bg-white mx-2"></div>
+                  <button
+                    onClick={() => setChartViewMode('detailed')}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'detailed'
+                        ? 'bg-cyan-400 text-black'
+                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      }`}
+                  >
+                    ALL
+                  </button>
+                  <button
+                    onClick={() => setChartViewMode('simplified')}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'simplified'
+                        ? 'bg-cyan-400 text-black'
+                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      }`}
+                  >
+                    BULL/BEAR
+                  </button>
+                  <button
+                    onClick={() => setChartViewMode('net')}
+                    className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'net'
+                        ? 'bg-cyan-400 text-black'
+                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      }`}
+                  >
+                    NET
+                  </button>
                 </div>
               </div>
-
-              {/* Row 2: Premium and Aggressive Trades */}
-              <div className="grid grid-cols-6 gap-4 mb-4">
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Calls Premium</div>
-                  <div className="text-xl font-black text-green-400">
-                    {formatCurrency(analysis.totalCallPremium)}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Puts Premium</div>
-                  <div className="text-xl font-black text-red-400">
-                    {formatCurrency(analysis.totalPutPremium)}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Aggressive Calls</div>
-                  <div className="text-xl font-black text-green-400">
-                    {analysis.aggressiveCalls}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Aggressive Puts</div>
-                  <div className="text-xl font-black text-red-400">
-                    {analysis.aggressivePuts}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Tier 1</div>
-                  <div className="text-xl font-black text-red-400">
-                    {analysis.tier1Count}
-                  </div>
-                </div>
-
-                <div className="bg-black p-4 rounded border-2 border-zinc-700">
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2 font-bold">Tier 2</div>
-                  <div className="text-xl font-black text-orange-400">
-                    {analysis.tier2Count}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Main Chart - Full Width */}
-          <div className="w-full space-y-6">
-
-            {/* AlgoFlow Premium Flow Chart - Mobile Optimized */}
-            <Card className="bg-black border-zinc-700 w-full">
-              <CardHeader className="pb-2 px-3 md:px-6 pt-3 md:pt-6">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-white text-base md:text-2xl font-bold leading-tight">
-                    Premium Flow Analysis
-                  </CardTitle>
-                  <div className="flex gap-2">
-                    {/* Timeframe Buttons */}
-                    <button
-                      onClick={() => setChartTimeframe('1D')}
-                      className={`px-4 py-2 rounded font-bold text-sm uppercase transition-all bg-black ${chartTimeframe === '1D'
-                        ? 'text-orange-500'
-                        : 'text-white'
-                        }`}
-                      style={{ opacity: 1 }}
-                    >
-                      1D
-                    </button>
-                    <button
-                      onClick={() => setChartTimeframe('3D')}
-                      className={`px-4 py-2 rounded font-bold text-sm uppercase transition-all bg-black ${chartTimeframe === '3D'
-                        ? 'text-orange-500'
-                        : 'text-white'
-                        }`}
-                      style={{ opacity: 1 }}
-                    >
-                      3D
-                    </button>
-                    <button
-                      onClick={() => setChartTimeframe('1W')}
-                      className={`px-4 py-2 rounded font-bold text-sm uppercase transition-all bg-black ${chartTimeframe === '1W'
-                        ? 'text-orange-500'
-                        : 'text-white'
-                        }`}
-                      style={{ opacity: 1 }}
-                    >
-                      1W
-                    </button>
-
-                    {/* View Mode Buttons */}
-                    <button
-                      onClick={() => setChartViewMode('detailed')}
-                      className={`px-4 py-2 rounded font-bold text-sm uppercase transition-all bg-black ${chartViewMode === 'detailed'
-                        ? 'text-orange-500'
-                        : 'text-white'
-                        }`}
-                      style={{ opacity: 1 }}
-                    >
-                      ALL
-                    </button>
-                    <button
-                      onClick={() => setChartViewMode('simplified')}
-                      className={`px-4 py-2 rounded font-bold text-sm uppercase transition-all bg-black ${chartViewMode === 'simplified'
-                        ? 'text-orange-500'
-                        : 'text-white'
-                        }`}
-                      style={{ opacity: 1 }}
-                    >
-                      Bull/Bear
-                    </button>
-                    <button
-                      onClick={() => setChartViewMode('net')}
-                      className={`px-4 py-2 rounded font-bold text-sm uppercase transition-all bg-black ${chartViewMode === 'net'
-                        ? 'text-orange-500'
-                        : 'text-white'
-                        }`}
-                      style={{ opacity: 1 }}
-                    >
-                      Net Flow
-                    </button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="bg-black p-2 md:p-4">
-                <div className="h-[300px] md:h-[400px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={analysis.chartData}>
-                      <XAxis
-                        dataKey="timeLabel"
-                        stroke="#fff"
-                        tick={{ fill: '#fff', fontSize: 12 }}
-                        height={40}
-                        domain={['dataMin', 'dataMax']}
-                        allowDataOverflow={false}
-                      />
-                      <YAxis
-                        stroke="#fff"
-                        tick={{ fill: '#fff', fontSize: 16 }}
-                        tickFormatter={(value) => {
-                          const absValue = Math.abs(value);
-                          const sign = value < 0 ? '-' : '';
-                          if (absValue >= 1000000) {
-                            return `${sign}$${(absValue / 1000000).toFixed(1)}M`;
-                          } else if (absValue >= 1000) {
-                            return `${sign}$${(absValue / 1000).toFixed(0)}K`;
-                          }
-                          return `${sign}$${absValue}`;
-                        }}
-                      />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '4px' }}
-                        labelStyle={{ color: '#fff' }}
-                        formatter={(value: any) => {
-                          const num = Number(value);
-                          const absNum = Math.abs(num);
-                          const sign = num < 0 ? '-' : '';
-                          if (absNum >= 1000000) {
-                            return `${sign}$${(absNum / 1000000).toFixed(2)}M`;
-                          } else if (absNum >= 1000) {
-                            return `${sign}$${(absNum / 1000).toFixed(1)}K`;
-                          }
-                          return `${sign}$${absNum.toLocaleString()}`;
-                        }}
-                      />
-                      <Legend
-                        wrapperStyle={{ color: '#fff' }}
-                        iconType="line"
-                      />
-
-                      {chartViewMode === 'detailed' ? (
-                        <>
-                          <Line
-                            type="monotone"
-                            dataKey="callsPlus"
-                            stroke="#00FF00"
-                            strokeWidth={2}
-                            name="Bullish Calls"
-                            dot={false}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="callsMinus"
-                            stroke="#0066FF"
-                            strokeWidth={2}
-                            name="Bearish Calls"
-                            dot={false}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="putsPlus"
-                            stroke="#FF8800"
-                            strokeWidth={2}
-                            name="Bullish Puts"
-                            dot={false}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="putsMinus"
-                            stroke="#FF0000"
-                            strokeWidth={2}
-                            name="Bearish Puts"
-                            dot={false}
-                          />
-                        </>
-                      ) : chartViewMode === 'simplified' ? (
-                        <>
-                          <Line
-                            type="monotone"
-                            dataKey="bullishTotal"
-                            stroke="#00FF00"
-                            strokeWidth={3}
-                            name="Bullish Flow"
-                            dot={false}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="bearishTotal"
-                            stroke="#FF0000"
-                            strokeWidth={3}
-                            name="Bearish Flow"
-                            dot={false}
-                          />
-                        </>
-                      ) : (
-                        <Line
-                          type="monotone"
-                          dataKey="netFlow"
-                          stroke="#10b981"
-                          strokeWidth={3}
-                          strokeOpacity={1}
-                          name="Net Flow"
-                          dot={false}
-                          segment={(props: any) => {
-                            const { points } = props;
-                            if (!points || points.length < 2) return null;
-                            const [start, end] = points;
-                            const isNegative = start.payload.netFlow < 0 || end.payload.netFlow < 0;
-                            return (
-                              <path
-                                d={`M ${start.x},${start.y} L ${end.x},${end.y}`}
-                                stroke={isNegative ? '#ef4444' : '#10b981'}
-                                strokeWidth={3}
-                                fill="none"
-                                opacity={1}
-                              />
-                            );
-                          }}
-                        />
-                      )}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* AlgoFlow Trades Table - Mobile Optimized */}
-            <Card className="bg-black border-2 border-white/20 w-full">
-              <CardHeader className="bg-black border-b-2 border-white/20 px-3 md:px-6 py-3 md:py-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 w-full">
-                  <CardTitle className="text-lg md:text-3xl font-black tracking-wider text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
-                    ALGO FLOW TRADES
-                  </CardTitle>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowMobileDetails(!showMobileDetails)}
-                      className="md:hidden px-3 py-2 bg-white/10 text-white rounded-lg text-xs font-medium hover:bg-white/20 transition-colors"
-                    >
-                      {showMobileDetails ? 'Hide Details' : 'Show Details'}
-                    </button>
-                  </div>
-                </div>
-              </CardHeader>
-
-              {/* Filter Indicators */}
-              {(selectedStrike !== null || selectedExpiry !== null) && (
-                <div className="bg-blue-900/30 border-b border-blue-500/30 px-4 py-2 flex items-center justify-between">
-                  <div className="text-blue-400 text-sm flex items-center gap-4">
-                    {selectedStrike !== null && (
-                      <span>
-                        <span className="font-medium">Strike:</span> ${selectedStrike}
-                      </span>
-                    )}
-                    {selectedExpiry !== null && (
-                      <span>
-                        <span className="font-medium">Expiry:</span> {selectedExpiry.split('T')[0]}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    {selectedStrike !== null && (
-                      <button
-                        onClick={() => setSelectedStrike(null)}
-                        className="text-blue-400 hover:text-white text-sm underline"
-                      >
-                        Clear Strike
-                      </button>
-                    )}
-                    {selectedExpiry !== null && (
-                      <button
-                        onClick={() => setSelectedExpiry(null)}
-                        className="text-green-400 hover:text-white text-sm underline"
-                      >
-                        Clear Expiry
-                      </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setSelectedStrike(null);
-                        setSelectedExpiry(null);
+            </div>
+            <div className="p-4 bg-black">
+              <div className="h-[400px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={analysis.chartData}>
+                    <XAxis
+                      dataKey="timeLabel"
+                      stroke="#fff"
+                      tick={{ fill: '#fff', fontSize: 11, fontWeight: 'bold' }}
+                      height={40}
+                    />
+                    <YAxis
+                      stroke="#fff"
+                      tick={{ fill: '#fff', fontSize: 12, fontWeight: 'bold' }}
+                      tickFormatter={(value) => {
+                        const absValue = Math.abs(value);
+                        const sign = value < 0 ? '-' : '';
+                        if (absValue >= 1000000) return `${sign}$${(absValue / 1000000).toFixed(1)}M`;
+                        if (absValue >= 1000) return `${sign}$${(absValue / 1000).toFixed(0)}K`;
+                        return `${sign}$${absValue}`;
                       }}
-                      className="text-white hover:text-gray-300 text-sm underline font-medium"
-                    >
-                      Clear All
-                    </button>
-                  </div>
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#000',
+                        border: '1px solid #fff',
+                        fontWeight: 'bold',
+                        fontSize: '12px'
+                      }}
+                      labelStyle={{ color: '#fff', fontWeight: 'bold' }}
+                      formatter={(value: any) => {
+                        const num = Number(value);
+                        const absNum = Math.abs(num);
+                        const sign = num < 0 ? '-' : '';
+                        if (absNum >= 1000000) return `${sign}$${(absNum / 1000000).toFixed(2)}M`;
+                        if (absNum >= 1000) return `${sign}$${(absNum / 1000).toFixed(1)}K`;
+                        return `${sign}$${absNum.toLocaleString()}`;
+                      }}
+                    />
+                    <Legend
+                      wrapperStyle={{ color: '#fff', fontWeight: 'bold' }}
+                      iconType="line"
+                    />
+
+                    {chartViewMode === 'detailed' ? (
+                      <>
+                        <Line type="monotone" dataKey="callsPlus" stroke="#10b981" strokeWidth={2} name="BULLISH CALLS" dot={false} />
+                        <Line type="monotone" dataKey="callsMinus" stroke="#3b82f6" strokeWidth={2} name="BEARISH CALLS" dot={false} />
+                        <Line type="monotone" dataKey="putsPlus" stroke="#f59e0b" strokeWidth={2} name="BULLISH PUTS" dot={false} />
+                        <Line type="monotone" dataKey="putsMinus" stroke="#ef4444" strokeWidth={2} name="BEARISH PUTS" dot={false} />
+                      </>
+                    ) : chartViewMode === 'simplified' ? (
+                      <>
+                        <Line type="monotone" dataKey="bullishTotal" stroke="#10b981" strokeWidth={3} name="BULLISH FLOW" dot={false} />
+                        <Line type="monotone" dataKey="bearishTotal" stroke="#ef4444" strokeWidth={3} name="BEARISH FLOW" dot={false} />
+                      </>
+                    ) : (
+                      <Line
+                        type="monotone"
+                        dataKey="netFlow"
+                        stroke="#10b981"
+                        strokeWidth={3}
+                        name="NET FLOW"
+                        dot={false}
+                        segment={(props: any) => {
+                          const { points } = props;
+                          if (!points || points.length < 2) return null;
+                          const [start, end] = points;
+                          const isNegative = start.payload.netFlow < 0 || end.payload.netFlow < 0;
+                          return (
+                            <path
+                              d={`M ${start.x},${start.y} L ${end.x},${end.y}`}
+                              stroke={isNegative ? '#ef4444' : '#10b981'}
+                              strokeWidth={3}
+                              fill="none"
+                            />
+                          );
+                        }}
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* TRADES TABLE */}
+          <div className="bg-black border border-white">
+            <div className="border-b border-white p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-white text-xl font-black tracking-wider">ALGOFLOW TRADES</h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowMobileDetails(!showMobileDetails)}
+                    className="md:hidden px-3 py-1 bg-white text-black text-xs font-black tracking-wider hover:bg-cyan-400"
+                  >
+                    {showMobileDetails ? 'HIDE' : 'SHOW'}
+                  </button>
                 </div>
-              )}
+              </div>
+            </div>
 
-              <CardContent className="bg-black p-0">
-                {/* Mobile Card View */}
-                <div className="block md:hidden">
+            {/* Filter Indicators */}
+            {(selectedStrike !== null || selectedExpiry !== null) && (
+              <div className="bg-cyan-400/10 border-b border-cyan-400/30 p-3 flex items-center justify-between">
+                <div className="text-cyan-400 text-xs font-bold tracking-wider flex items-center gap-4">
+                  {selectedStrike !== null && (
+                    <span>STRIKE: ${selectedStrike}</span>
+                  )}
+                  {selectedExpiry !== null && (
+                    <span>EXPIRY: {selectedExpiry.split('T')[0]}</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {selectedStrike !== null && (
+                    <button
+                      onClick={() => setSelectedStrike(null)}
+                      className="text-cyan-400 hover:text-white text-xs font-bold tracking-wider"
+                    >
+                      CLEAR STRIKE
+                    </button>
+                  )}
+                  {selectedExpiry !== null && (
+                    <button
+                      onClick={() => setSelectedExpiry(null)}
+                      className="text-cyan-400 hover:text-white text-xs font-bold tracking-wider"
+                    >
+                      CLEAR EXPIRY
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setSelectedStrike(null);
+                      setSelectedExpiry(null);
+                    }}
+                    className="text-white hover:text-cyan-400 text-xs font-black tracking-wider"
+                  >
+                    CLEAR ALL
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-black overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead className="bg-black sticky top-0 z-10 border-b border-white">
+                  <tr>
+                    <th
+                      className="text-left p-3 text-white font-black text-xs tracking-widest cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => {
+                        if (sortColumn === 'trade_timestamp') {
+                          setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortColumn('trade_timestamp');
+                          setSortDirection('desc');
+                        }
+                      }}
+                    >
+                      TIME {sortColumn === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th
+                      className="text-left p-3 text-white font-black text-xs tracking-widest cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => {
+                        if (sortColumn === 'underlying_ticker') {
+                          setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortColumn('underlying_ticker');
+                          setSortDirection('asc');
+                        }
+                      }}
+                    >
+                      SYMBOL {sortColumn === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="text-left p-3 text-white font-black text-xs tracking-widest">TYPE</th>
+                    <th
+                      className="text-left p-3 text-white font-black text-xs tracking-widest cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => {
+                        if (sortColumn === 'strike') {
+                          setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortColumn('strike');
+                          setSortDirection('desc');
+                        }
+                      }}
+                    >
+                      STRIKE {sortColumn === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th
+                      className="text-left p-3 text-white font-black text-base tracking-widest cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => {
+                        if (sortColumn === 'trade_size') {
+                          setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortColumn('trade_size');
+                          setSortDirection('desc');
+                        }
+                      }}
+                    >
+                      PURCHASE {sortColumn === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th
+                      className="text-left p-3 text-white font-black text-base tracking-widest cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => {
+                        if (sortColumn === 'total_premium') {
+                          setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortColumn('total_premium');
+                          setSortDirection('desc');
+                        }
+                      }}
+                    >
+                      PREMIUM {sortColumn === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="text-left p-3 text-white font-black text-base tracking-widest">SPOT</th>
+                    <th className="text-left p-3 text-white font-black text-base tracking-widest">EXPIRY</th>
+                    <th className="text-left p-3 text-white font-black text-base tracking-widest">VOL/OI</th>
+                    <th className="text-left p-3 text-white font-black text-base tracking-widest">LIVE OI</th>
+                    <th className="text-left p-3 text-white font-black text-base tracking-widest">STYLE</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-black">
                   {(() => {
-                    // Get trades to display
                     let tradesToDisplay = analysis?.trades || flowData;
-
-                    // Filter by selected strike price if one is selected
                     if (selectedStrike !== null) {
                       tradesToDisplay = tradesToDisplay.filter(trade => trade.strike === selectedStrike);
                     }
-
-                    // Filter by selected expiry date if one is selected
                     if (selectedExpiry !== null) {
                       tradesToDisplay = tradesToDisplay.filter(trade => trade.expiry === selectedExpiry);
                     }
-
-                    // Sort trades
                     const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
                       let aVal = a[sortColumn];
                       let bVal = b[sortColumn];
-
-                      // Handle timestamp sorting
                       if (sortColumn === 'trade_timestamp') {
                         aVal = new Date(aVal).getTime();
                         bVal = new Date(bVal).getTime();
                       }
-
                       if (sortDirection === 'asc') {
                         return aVal > bVal ? 1 : -1;
                       } else {
                         return aVal < bVal ? 1 : -1;
                       }
                     });
-
-                    // Paginate trades
                     const startIndex = (currentPage - 1) * TRADES_PER_PAGE;
                     const endIndex = startIndex + TRADES_PER_PAGE;
                     const paginatedTrades = sortedTrades.slice(startIndex, endIndex);
 
                     return paginatedTrades.map((trade, idx) => {
-                      const tradeTypeColors = {
-                        'SWEEP': 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold',
-                        'BLOCK': 'bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold',
-                        'MINI': 'bg-gradient-to-r from-gray-500 to-gray-600 text-white font-bold',
-                        'MULTI-LEG': 'bg-gradient-to-r from-purple-500 to-purple-600 text-white font-bold'
+                      const tradeTypeColors: Record<string, string> = {
+                        'SWEEP': 'text-[rgb(255,215,0)]',
+                        'BLOCK': 'text-[rgb(0,153,255)]',
+                        'MINI': 'text-[rgb(0,255,94)]',
+                        'MULTI-LEG': 'text-[rgb(168,85,247)]'
                       };
-
                       const fillColors: Record<string, string> = {
-                        'A': 'text-green-400 font-bold',
-                        'B': 'text-red-400 font-bold',
-                        'AA': 'text-green-300 font-bold',
-                        'BB': 'text-red-300 font-bold',
-                        'N/A': 'text-gray-500'
+                        'A': 'text-green-500',
+                        'B': 'text-red-500',
+                        'AA': 'text-green-400',
+                        'BB': 'text-red-400',
+                        'N/A': 'text-white/30'
                       };
-
-                      const isExpanded = expandedRows.has(idx);
 
                       return (
-                        <div key={idx} className="border-b border-white/10 bg-black hover:bg-white/5 transition-colors w-full">
-                          <div
-                            className="p-3 cursor-pointer w-full"
-                            onClick={() => {
-                              const newExpanded = new Set(expandedRows);
-                              if (isExpanded) {
-                                newExpanded.delete(idx);
-                              } else {
-                                newExpanded.add(idx);
-                              }
-                              setExpandedRows(newExpanded);
-                            }}
-                          >
-                            {/* Primary Info Row */}
-                            <div className="flex justify-between items-start mb-2 w-full">
-                              <div className="flex flex-col flex-1 min-w-0">
-                                <div className="flex items-center gap-1 mb-1">
-                                  <span className="text-white font-bold text-base truncate">{trade.underlying_ticker}</span>
-                                  <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${trade.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
-                                    {trade.type.toUpperCase()}
-                                  </span>
-                                </div>
-                                <div className="text-white/70 text-xs">
-                                  {(scanTimeframe === '3D' || scanTimeframe === '1W')
-                                    ? new Date(trade.trade_timestamp).toLocaleString('en-US', {
-                                      month: 'numeric',
-                                      day: 'numeric',
-                                      hour: 'numeric',
-                                      minute: '2-digit',
-                                      second: '2-digit',
-                                      timeZone: 'America/New_York'
-                                    })
-                                    : new Date(trade.trade_timestamp).toLocaleTimeString('en-US', {
-                                      hour: 'numeric',
-                                      minute: '2-digit',
-                                      second: '2-digit',
-                                      timeZone: 'America/New_York'
-                                    })
-                                  }
-                                </div>
-                              </div>
-                              <div className="text-right flex-shrink-0">
-                                <div className="text-white font-bold text-base">
-                                  ${trade.total_premium.toLocaleString()}
-                                </div>
-                                <div className="text-white/70 text-xs">
-                                  <button
-                                    onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)}
-                                    className={`hover:text-blue-400 transition-colors underline ${selectedStrike === trade.strike ? 'text-blue-400 font-bold' : ''}`}
-                                  >
-                                    ${trade.strike} Strike
-                                  </button>
-                                </div>
-                              </div>
+                        <tr key={idx} className="border-b border-white/10 hover:bg-white/5 transition-colors">
+                          <td className="p-3 text-white text-base font-bold">
+                            {(scanTimeframe === '3D' || scanTimeframe === '1W')
+                              ? new Date(trade.trade_timestamp).toLocaleString('en-US', {
+                                month: 'numeric',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                timeZone: 'America/New_York'
+                              })
+                              : new Date(trade.trade_timestamp).toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                timeZone: 'America/New_York'
+                              })
+                            }
+                          </td>
+                          <td className="p-3 text-white text-lg font-black tracking-wider">{trade.underlying_ticker}</td>
+                          <td className="p-3">
+                            <span className={`text-base font-black tracking-wider ${trade.type === 'call' ? 'text-[rgb(0,255,94)]' : 'text-[rgb(255,0,0)]'
+                              }`}>
+                              {trade.type.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <button
+                              onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)}
+                              className={`text-white text-lg font-bold hover:text-cyan-400 transition-colors ${selectedStrike === trade.strike ? 'text-cyan-400' : ''
+                                }`}
+                            >
+                              ${trade.strike}
+                            </button>
+                          </td>
+                          <td className="p-3 text-white text-lg font-bold">
+                            {trade.trade_size.toLocaleString()}@${trade.premium_per_contract.toFixed(2)}
+                            <span className={`ml-2 text-base font-black ${fillColors[trade.fill_style || 'N/A']}`}>
+                              {trade.fill_style || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-white text-lg font-bold">${trade.total_premium.toLocaleString()}</td>
+                          <td className="p-3 text-white text-base font-bold">${trade.spot_price?.toFixed(2) || 'N/A'}</td>
+                          <td className="p-3">
+                            <button
+                              onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)}
+                              className={`text-white text-base font-bold hover:text-cyan-400 transition-colors ${selectedExpiry === trade.expiry ? 'text-cyan-400' : ''
+                                }`}
+                            >
+                              {trade.expiry.split('T')[0]}
+                            </button>
+                          </td>
+                          <td className="p-3">
+                            <div className="text-base font-bold">
+                              <div className="text-[rgb(0,153,255)]">V: {trade.volume?.toLocaleString() || 'N/A'}</div>
+                              <div className="text-[rgb(0,255,94)]">O: {trade.open_interest?.toLocaleString() || 'N/A'}</div>
                             </div>
-
-                            {/* Secondary Info */}
-                            <div className="flex justify-between items-center text-xs">
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <span className="text-white truncate">
-                                  {trade.trade_size.toLocaleString()} contracts
-                                </span>
-                                <span className={`px-1.5 py-0.5 rounded text-xs ${tradeTypeColors[trade.trade_type as keyof typeof tradeTypeColors] || tradeTypeColors['MINI']}`}>
-                                  {trade.trade_type || 'MINI'}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                <span className={fillColors[trade.fill_style || 'N/A']}>
-                                  {trade.fill_style || 'N/A'}
-                                </span>
-                                <span className="text-white/50">
-                                  {isExpanded ? '▼' : '▶'}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Expanded Details */}
-                            {(isExpanded || showMobileDetails) && (
-                              <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                  <div>
-                                    <div className="text-white/50 text-xs uppercase">Premium/Contract</div>
-                                    <div className="text-white font-medium">${trade.premium_per_contract.toFixed(2)}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-white/50 text-xs uppercase">Spot Price</div>
-                                    <div className="text-white font-medium">${trade.spot_price?.toFixed(2) || 'N/A'}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-white/50 text-xs uppercase">Expiry</div>
-                                    <div className="text-white font-medium">
-                                      <button
-                                        onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)}
-                                        className={`hover:text-green-400 transition-colors underline ${selectedExpiry === trade.expiry ? 'text-green-400 font-bold' : ''}`}
-                                      >
-                                        {trade.expiry.split('T')[0]}
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-white/50 text-xs uppercase">Vol/OI</div>
-                                    <div className="font-medium">
-                                      <div className="text-blue-400">Vol: {trade.volume?.toLocaleString() || 'N/A'}</div>
-                                      <div className="text-green-400">OI: {trade.open_interest?.toLocaleString() || 'N/A'}</div>
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-white/50 text-xs uppercase">Live OI</div>
-                                    <div className="text-yellow-400 font-medium">
-                                      {(() => {
-                                        const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
-                                        const originalOI = trade.open_interest || 0;
-                                        const allTrades = analysis?.trades || flowData || [];
-                                        const liveOI = calculateLiveOI(originalOI, allTrades, contractKey);
-                                        const change = liveOI - originalOI;
-                                        const changeText = change > 0 ? `+${change}` : change < 0 ? `${change}` : '±0';
-                                        return `${liveOI.toLocaleString()} (${changeText})`;
-                                      })()}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                          </td>
+                          <td className="p-3 text-yellow-500 text-base font-bold">
+                            {(() => {
+                              const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
+                              const originalOI = trade.open_interest || 0;
+                              const allTrades = analysis?.trades || flowData || [];
+                              const liveOI = calculateLiveOI(originalOI, allTrades, contractKey);
+                              const change = liveOI - originalOI;
+                              const changeText = change > 0 ? `+${change}` : change < 0 ? `${change}` : '±0';
+                              return `${liveOI.toLocaleString()} (${changeText})`;
+                            })()}
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-3 py-1 text-base font-black tracking-wider ${tradeTypeColors[trade.trade_type as keyof typeof tradeTypeColors] || tradeTypeColors['MINI']}`}>
+                              {trade.trade_type || 'MINI'}
+                            </span>
+                          </td>
+                        </tr>
                       );
                     });
                   })()}
-                </div>
+                </tbody>
+              </table>
+            </div>
 
-                {/* Desktop Table View */}
-                <div className="hidden md:block overflow-x-auto">
-                  <table className="w-full border-collapse">
-                    <thead className="bg-black sticky top-0 z-10">
-                      <tr className="border-b-2 border-white">
-                        <th
-                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
-                          onClick={() => {
-                            if (sortColumn === 'trade_timestamp') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortColumn('trade_timestamp');
-                              setSortDirection('desc');
-                            }
-                          }}
+            {/* PAGINATION */}
+            {(() => {
+              const tradesToDisplay = analysis?.trades || flowData;
+              const totalPages = Math.ceil(tradesToDisplay.length / TRADES_PER_PAGE);
+
+              if (totalPages > 1) {
+                return (
+                  <div className="border-t border-white p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-white text-xs font-bold tracking-wider">
+                        SHOWING {((currentPage - 1) * TRADES_PER_PAGE) + 1} - {Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} OF {tradesToDisplay.length}
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <button
+                          onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                          disabled={currentPage === 1}
+                          className="px-4 py-1 bg-white text-black font-black text-xs tracking-wider hover:bg-cyan-400 disabled:opacity-30 disabled:cursor-not-allowed"
                         >
-                          TIME {sortColumn === 'trade_timestamp' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </th>
-                        <th
-                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
-                          onClick={() => {
-                            if (sortColumn === 'underlying_ticker') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                          PREV
+                        </button>
+                        <div className="flex gap-1">
+                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                            let pageNum;
+                            if (totalPages <= 5) {
+                              pageNum = i + 1;
+                            } else if (currentPage <= 3) {
+                              pageNum = i + 1;
+                            } else if (currentPage >= totalPages - 2) {
+                              pageNum = totalPages - 4 + i;
                             } else {
-                              setSortColumn('underlying_ticker');
-                              setSortDirection('asc');
+                              pageNum = currentPage - 2 + i;
                             }
-                          }}
-                        >
-                          SYMBOL {sortColumn === 'underlying_ticker' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </th>
-                        <th className="text-left p-4 text-white font-black text-base tracking-wider">TYPE</th>
-                        <th
-                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
-                          onClick={() => {
-                            if (sortColumn === 'strike') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortColumn('strike');
-                              setSortDirection('desc');
-                            }
-                          }}
-                        >
-                          STRIKE {sortColumn === 'strike' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </th>
-                        <th
-                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
-                          onClick={() => {
-                            if (sortColumn === 'trade_size') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortColumn('trade_size');
-                              setSortDirection('desc');
-                            }
-                          }}
-                        >
-                          CONTRACT {sortColumn === 'trade_size' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </th>
-                        <th
-                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
-                          onClick={() => {
-                            if (sortColumn === 'total_premium') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortColumn('total_premium');
-                              setSortDirection('desc');
-                            }
-                          }}
-                        >
-                          PREMIUM {sortColumn === 'total_premium' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </th>
-                        <th
-                          className="text-left p-4 text-white font-black text-base tracking-wider cursor-pointer hover:text-blue-400 transition-colors"
-                          onClick={() => {
-                            if (sortColumn === 'spot_price') {
-                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                            } else {
-                              setSortColumn('spot_price');
-                              setSortDirection('desc');
-                            }
-                          }}
-                        >
-                          SPOT {sortColumn === 'spot_price' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </th>
-                        <th className="text-left p-4 text-white font-black text-base tracking-wider">EXPIRY</th>
-                        <th className="text-left p-4 text-white font-black text-base tracking-wider">VOL/OI</th>
-                        <th className="text-left p-4 text-white font-black text-base tracking-wider">LIVE OI</th>
-                        <th className="text-left p-4 text-white font-black text-base tracking-wider">STYLE</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-black">
-                      {(() => {
-                        // Get trades to display
-                        let tradesToDisplay = analysis?.trades || flowData;
 
-                        // Filter by selected strike price if one is selected
-                        if (selectedStrike !== null) {
-                          tradesToDisplay = tradesToDisplay.filter(trade => trade.strike === selectedStrike);
-                        }
-
-                        // Filter by selected expiry date if one is selected
-                        if (selectedExpiry !== null) {
-                          tradesToDisplay = tradesToDisplay.filter(trade => trade.expiry === selectedExpiry);
-                        }
-
-                        // Sort trades
-                        const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
-                          let aVal = a[sortColumn];
-                          let bVal = b[sortColumn];
-
-                          // Handle timestamp sorting
-                          if (sortColumn === 'trade_timestamp') {
-                            aVal = new Date(aVal).getTime();
-                            bVal = new Date(bVal).getTime();
-                          }
-
-                          if (sortDirection === 'asc') {
-                            return aVal > bVal ? 1 : -1;
-                          } else {
-                            return aVal < bVal ? 1 : -1;
-                          }
-                        });
-
-                        // Paginate trades
-                        const startIndex = (currentPage - 1) * TRADES_PER_PAGE;
-                        const endIndex = startIndex + TRADES_PER_PAGE;
-                        const paginatedTrades = sortedTrades.slice(startIndex, endIndex);
-
-                        return paginatedTrades.map((trade, idx) => {
-                          // DEBUG: Log the actual trade data for the first few trades
-                          if (idx < 3) {
-                            console.log(`🔍 TABLE RENDER TRADE ${idx}:`, {
-                              ticker: trade.ticker,
-                              volume: trade.volume,
-                              open_interest: trade.open_interest,
-                              hasVolume: trade.hasOwnProperty('volume'),
-                              hasOI: trade.hasOwnProperty('open_interest')
-                            });
-                          }
-
-                          const tradeTypeColors = {
-                            'SWEEP': 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-bold',
-                            'BLOCK': 'bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold',
-                            'MINI': 'bg-gradient-to-r from-gray-500 to-gray-600 text-white font-bold',
-
-                          };
-
-                          // Fill style colors
-                          const fillColors: Record<string, string> = {
-                            'A': 'text-green-400 font-bold',
-                            'B': 'text-red-400 font-bold',
-                            'AA': 'text-green-300 font-bold',
-                            'BB': 'text-red-300 font-bold',
-                            'N/A': 'text-gray-500'
-                          };
-
-                          return (
-                            <tr key={idx} className="border-b border-white/10 hover:bg-white/5 transition-colors">
-                              <td className="p-4 text-white font-medium">
-                                {new Date(trade.trade_timestamp).toLocaleTimeString('en-US', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  second: '2-digit',
-                                  timeZone: 'America/New_York'
-                                })}
-                              </td>
-                              <td className="p-4 text-white font-bold text-base">{trade.underlying_ticker}</td>
-                              <td className="p-4">
-                                <span className={`px-3 py-1.5 rounded-md ${trade.type === 'call' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'} font-bold text-sm`}>
-                                  {trade.type.toUpperCase()}
-                                </span>
-                              </td>
-                              <td className="p-4 text-white font-bold">
-                                <button
-                                  onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)}
-                                  className={`hover:text-blue-400 transition-colors underline ${selectedStrike === trade.strike ? 'text-blue-400 font-bold' : ''}`}
-                                >
-                                  ${trade.strike}
-                                </button>
-                              </td>
-                              <td className="p-4 text-white font-bold">
-                                {trade.trade_size.toLocaleString()} @${trade.premium_per_contract.toFixed(2)} <span className={fillColors[trade.fill_style || 'N/A']}>{trade.fill_style || 'N/A'}</span>
-                              </td>
-                              <td className="p-4 text-white font-bold">${trade.total_premium.toLocaleString()}</td>
-                              <td className="p-4 text-white font-bold">${trade.spot_price?.toFixed(2) || 'N/A'}</td>
-                              <td className="p-4 text-white">
-                                <button
-                                  onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)}
-                                  className={`hover:text-green-400 transition-colors underline ${selectedExpiry === trade.expiry ? 'text-green-400 font-bold' : ''}`}
-                                >
-                                  {trade.expiry.split('T')[0]}
-                                </button>
-                              </td>
-                              <td className="p-4 font-bold">
-                                <div className="flex flex-col text-sm">
-                                  <div className="text-blue-400">Vol: {trade.volume?.toLocaleString() || 'N/A'}</div>
-                                  <div className="text-green-400">OI: {trade.open_interest?.toLocaleString() || 'N/A'}</div>
-                                </div>
-                                {idx < 3 && (() => {
-                                  console.log(`🏷️ VOL/OI DEBUG - Trade ${idx}:`, {
-                                    ticker: trade.ticker,
-                                    volume: trade.volume,
-                                    open_interest: trade.open_interest,
-                                    hasVolume: !!trade.volume,
-                                    hasOI: !!trade.open_interest
-                                  });
-                                  return null;
-                                })()}
-                              </td>
-                              <td className="p-4 text-white">
-                                {(() => {
-                                  // Calculate Live OI for this contract
-                                  const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
-                                  const originalOI = trade.open_interest || 0;
-                                  const allTrades = analysis?.trades || flowData || [];
-                                  const liveOI = calculateLiveOI(originalOI, allTrades, contractKey);
-
-                                  // Show change indicator
-                                  const change = liveOI - originalOI;
-                                  const changeColor = change > 0 ? 'text-green-400' : change < 0 ? 'text-red-400' : 'text-gray-400';
-                                  const changeText = change > 0 ? `+${change.toLocaleString()}` : change < 0 ? change.toLocaleString() : '±0';
-
-                                  return (
-                                    <div className="text-sm">
-                                      <div className="text-yellow-400 font-bold">{liveOI.toLocaleString()}</div>
-                                      <div className={`text-xs ${changeColor}`}>({changeText})</div>
-                                    </div>
-                                  );
-                                })()}
-                              </td>
-                              <td className="p-4">
-                                <span className={`px-3 py-1.5 rounded-md ${tradeTypeColors[trade.trade_type as keyof typeof tradeTypeColors] || tradeTypeColors['MINI']} text-sm`}>
-                                  {trade.trade_type || 'MINI'}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                  </table>
-
-                  {/* Pagination Controls - Mobile Optimized */}
-                  {(() => {
-                    const tradesToDisplay = analysis?.trades || flowData;
-                    const totalPages = Math.ceil(tradesToDisplay.length / TRADES_PER_PAGE);
-
-                    if (totalPages > 1) {
-                      return (
-                        <div className="border-t-2 border-white/20 p-4 md:p-4">
-                          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
-                            <div className="text-white text-sm text-center sm:text-left">
-                              Showing {((currentPage - 1) * TRADES_PER_PAGE) + 1} to {Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} of {tradesToDisplay.length} trades
-                            </div>
-                            <div className="flex gap-2 items-center">
+                            return (
                               <button
-                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                                disabled={currentPage === 1}
-                                className="px-3 py-2 bg-white/10 text-white rounded hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium min-h-[40px]"
+                                key={pageNum}
+                                onClick={() => setCurrentPage(pageNum)}
+                                className={`px-3 py-1 text-xs font-black tracking-wider ${currentPage === pageNum
+                                    ? 'bg-cyan-400 text-black'
+                                    : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                                  }`}
                               >
-                                Prev
+                                {pageNum}
                               </button>
-                              <div className="flex gap-1">
-                                {Array.from({ length: Math.min(window.innerWidth < 640 ? 3 : 5, totalPages) }, (_, i) => {
-                                  let pageNum;
-                                  const maxButtons = window.innerWidth < 640 ? 3 : 5;
-                                  if (totalPages <= maxButtons) {
-                                    pageNum = i + 1;
-                                  } else if (currentPage <= Math.floor(maxButtons / 2) + 1) {
-                                    pageNum = i + 1;
-                                  } else if (currentPage >= totalPages - Math.floor(maxButtons / 2)) {
-                                    pageNum = totalPages - maxButtons + 1 + i;
-                                  } else {
-                                    pageNum = currentPage - Math.floor(maxButtons / 2) + i;
-                                  }
-
-                                  return (
-                                    <button
-                                      key={pageNum}
-                                      onClick={() => setCurrentPage(pageNum)}
-                                      className={`px-3 py-2 rounded text-sm font-medium min-h-[40px] min-w-[40px] ${currentPage === pageNum ? 'bg-blue-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                                    >
-                                      {pageNum}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <button
-                                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                                disabled={currentPage === totalPages}
-                                className="px-3 py-2 bg-white/10 text-white rounded hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium min-h-[40px]"
-                              >
-                                Next
-                              </button>
-                            </div>
-                          </div>
+                            );
+                          })}
                         </div>
-                      );
-                    }
-                    return null;
-                  })()}
-
-                  {flowData.length === 0 && (
-                    <div className="p-12 text-center text-white/50 text-lg">
-                      No trades found. Search for a ticker to see algo flow trades.
+                        <button
+                          onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                          disabled={currentPage === totalPages}
+                          className="px-4 py-1 bg-white text-black font-black text-xs tracking-wider hover:bg-cyan-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          NEXT
+                        </button>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {flowData.length === 0 && (
+              <div className="p-12 text-center text-white text-lg font-bold tracking-wider">
+                NO TRADES FOUND. SEARCH FOR A TICKER TO SEE ALGOFLOW TRADES.
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* No Results State */}
+      {/* NO RESULTS STATE */}
       {!loading && !isAnalyzing && !analysis && searchTicker && (
-        <Card className="bg-zinc-900/50 border-zinc-800">
-          <CardContent className="p-12 text-center">
-            <div className="text-zinc-400 text-lg">
-              No flow data found for {searchTicker}
-            </div>
-            <div className="text-zinc-500 text-sm mt-2">
-              Try a different ticker or check if the market is open
-            </div>
-          </CardContent>
-        </Card>
+        <div className="bg-black border border-white p-12 text-center">
+          <div className="text-white text-lg font-bold tracking-wider">
+            NO FLOW DATA FOUND FOR {searchTicker}
+          </div>
+          <div className="text-white/50 text-sm font-bold tracking-wider mt-2">
+            TRY A DIFFERENT TICKER OR CHECK IF THE MARKET IS OPEN
+          </div>
+        </div>
       )}
     </div>
   );

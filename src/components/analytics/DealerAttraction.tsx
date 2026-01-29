@@ -3801,6 +3801,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [flowGexByStrikeByExpiration, setFlowGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number } } }>({});
   const [showGEX, setShowGEX] = useState(typeof window !== 'undefined' && window.innerWidth < 768 ? true : false);
   const [showDealer, setShowDealer] = useState(false);
+  const [duoMode, setDuoMode] = useState(false);
   const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX');
   const [showFlowGEX, setShowFlowGEX] = useState(false);
   const [showHistoricalGEX, setShowHistoricalGEX] = useState(true); // Historical GEX Timeline - always on
@@ -3955,32 +3956,78 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           });
           setLiveOIProgress(70); // 70% - trades enriched
 
-          // Step 3: Detect fill styles (copied from AlgoFlow)
-          const tradesWithFillStyle = enrichedTrades.map(trade => {
-            const volume = trade.volume || 0;
-            const tradeSize = trade.trade_size || 0;
-            const oi = trade.open_interest || 0;
+          // Step 3: Detect fill styles using REAL bid/ask analysis (exact AlgoFlowScreener logic)
+          console.log(`🚀 Running bid/ask analysis for ${enrichedTrades.length} trades`);
+          const BATCH_SIZE = 20;
+          const tradesWithFillStyle = [];
 
-            // Fill style logic from AlgoFlow
-            let fillStyle = 'N/A';
-
-            if (tradeSize > oi * 0.5) {
-              fillStyle = 'AA'; // Aggressive opening
-            } else if (tradeSize > volume * 0.3) {
-              fillStyle = 'A'; // Opening
-            } else if (tradeSize > oi * 0.1) {
-              fillStyle = 'BB'; // Block opening
-            } else {
-              fillStyle = 'B'; // Likely closing
-            }
-
-            return {
-              ...trade,
-              fill_style: fillStyle
+          const normalizeTickerForOptions = (ticker: string) => {
+            const specialCases: Record<string, string> = {
+              'BRK.B': 'BRK',
+              'BF.B': 'BF'
             };
-          });
+            return specialCases[ticker] || ticker;
+          };
 
-          console.log(`✅ Enriched ${tradesWithFillStyle.length} trades with volume/OI and fill_style`);
+          for (let i = 0; i < enrichedTrades.length; i += BATCH_SIZE) {
+            const batch = enrichedTrades.slice(i, i + BATCH_SIZE);
+
+            const batchPromises = batch.map(async (trade) => {
+              try {
+                const expiry = trade.expiry.replace(/-/g, '').slice(2);
+                const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+                const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+                const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`;
+
+                const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+
+                const response = await fetch(snapshotUrl);
+                const data = await response.json();
+
+                if (data.results && data.results.last_quote) {
+                  const bid = data.results.last_quote.bid;
+                  const ask = data.results.last_quote.ask;
+                  const fillPrice = trade.premium_per_contract;
+
+                  if (bid && ask && fillPrice) {
+                    let fillStyle = 'N/A';
+                    const midpoint = (bid + ask) / 2;
+
+                    if (fillPrice >= ask + 0.01) {
+                      fillStyle = 'AA';
+                    } else if (fillPrice <= bid - 0.01) {
+                      fillStyle = 'BB';
+                    } else if (fillPrice === ask) {
+                      fillStyle = 'A';
+                    } else if (fillPrice === bid) {
+                      fillStyle = 'B';
+                    } else if (fillPrice >= midpoint) {
+                      fillStyle = 'A';
+                    } else {
+                      fillStyle = 'B';
+                    }
+
+                    return { ...trade, fill_style: fillStyle };
+                  }
+                }
+
+                return { ...trade, fill_style: 'N/A' };
+              } catch (error) {
+                return { ...trade, fill_style: 'N/A' };
+              }
+            });
+
+            const batchResults = await Promise.all(batchPromises);
+            tradesWithFillStyle.push(...batchResults);
+
+            // Update progress during fill style analysis
+            const progressPercent = Math.round((i + BATCH_SIZE) / enrichedTrades.length * 10);
+            setLiveOIProgress(70 + progressPercent);
+
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+
+          console.log(`✅ Analyzed ${tradesWithFillStyle.length} trades with REAL bid/ask fill_style`);
           setLiveOIProgress(80); // 80% - fill styles calculated
 
           // Store trades data for Flow Map
@@ -6685,6 +6732,27 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           {/* Display Toggle Checkboxes */}
                           <div className="flex items-center gap-4">
                             <div className="flex items-center gap-6">
+                              {/* DUO Button - Desktop Only */}
+                              <button
+                                onClick={() => {
+                                  const newDuoMode = !duoMode;
+                                  setDuoMode(newDuoMode);
+                                  if (newDuoMode) {
+                                    setShowGEX(true);
+                                    setShowDealer(true);
+                                  } else {
+                                    setShowGEX(false);
+                                    setShowDealer(false);
+                                  }
+                                }}
+                                className={`hidden md:block relative px-4 py-1.5 rounded transition-all duration-300 overflow-hidden ${duoMode
+                                  ? 'bg-gradient-to-b from-lime-500/25 via-black to-lime-900/30 border border-lime-400/70 shadow-[0_0_15px_rgba(132,204,22,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
+                                  : 'bg-gradient-to-b from-black/80 via-black to-black/90 border border-white/10 hover:border-lime-500/40 hover:shadow-[0_0_10px_rgba(132,204,22,0.2)]'}`}
+                              >
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-transparent pointer-events-none"></div>
+                                <span className={`relative z-10 text-xs font-bold uppercase tracking-wider transition-all ${duoMode ? 'text-lime-300 drop-shadow-[0_0_8px_rgba(163,230,53,0.6)]' : 'text-lime-400'}`}>DUO</span>
+                              </button>
+
                               {/* NORMAL (GEX) Checkbox */}
                               <div className={`relative flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-300 overflow-hidden ${showGEX
                                 ? 'bg-gradient-to-b from-emerald-500/25 via-black to-emerald-900/30 border border-emerald-400/70 shadow-[0_0_15px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.15)]'
@@ -7091,18 +7159,37 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                     key={selectedTicker}
                     ticker={selectedTicker}
                     date={(() => {
-                      // Get current date in Eastern Time (ET)
+                      // Get current time in ET
                       const now = new Date();
-                      const etDateStr = now.toLocaleDateString('en-US', {
+
+                      // Get ET time components
+                      const etFormatter = new Intl.DateTimeFormat('en-US', {
                         timeZone: 'America/New_York',
                         year: 'numeric',
                         month: '2-digit',
-                        day: '2-digit'
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
                       });
 
-                      // Parse MM/DD/YYYY format
-                      const [month, day, year] = etDateStr.split('/');
-                      const today = new Date(Number(year), Number(month) - 1, Number(day));
+                      const parts = etFormatter.formatToParts(now);
+                      let year = parts.find(p => p.type === 'year')!.value;
+                      let month = parts.find(p => p.type === 'month')!.value;
+                      let day = parts.find(p => p.type === 'day')!.value;
+                      const hour = parseInt(parts.find(p => p.type === 'hour')!.value);
+
+                      // If it's before 9:30 AM ET, use previous day's data (since market hasn't opened yet)
+                      if (hour < 9 || (hour === 9 && parseInt(parts.find(p => p.type === 'minute')!.value) < 30)) {
+                        const yesterday = new Date(`${year}-${month}-${day}`);
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        year = yesterday.getFullYear().toString();
+                        month = String(yesterday.getMonth() + 1).padStart(2, '0');
+                        day = String(yesterday.getDate()).padStart(2, '0');
+                      }
+
+                      // Create date object using the ET date components
+                      const today = new Date(`${year}-${month}-${day}T12:00:00`);
                       const dayOfWeek = today.getDay();
 
                       // If Saturday (6), go back 1 day. If Sunday (0), go back 2 days.
@@ -7956,6 +8043,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       } else if (showOI && activeTableCount === 2) {
                         // OI + 2 tables: each table gets 895px
                         tableWidths.push('895px', '895px');
+                      } else if (!showOI && activeTableCount === 2 && duoMode) {
+                        // DUO MODE: 2 tables fit in width of 1 table - each gets 540px (1080px total / 2)
+                        tableWidths.push('540px', '540px');
                       } else if (!showOI && activeTableCount === 2) {
                         // 2 tables only: split 1775px between 2 tables (1775 - 1px gap = 1774 / 2 = 887px each)
                         tableWidths.push('887px', '887px');
@@ -7979,12 +8069,24 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         return undefined;
                       };
 
-                      // Mobile expiration splitting: show fewer expirations per table to fit on screen
+                      // Mobile/Duo expiration splitting: show fewer expirations per table to fit on screen
                       const mobileStrikeWidth = isMobile ? 45 : workbenchStrikeWidth;
-                      const mobileExpWidth = isMobile ? 82 : 90;
+                      let mobileExpWidth = isMobile ? 82 : 90;
+
+                      // Duo mode adjustment: ONLY when duo button is active AND both tables are showing
+                      if (duoMode && showGEX && showDealer && !isMobile) {
+                        mobileExpWidth = 70;
+                      }
+
                       let table1Expirations = expirations;
                       let table2Expirations = expirations;
                       let table3Expirations = expirations;
+
+                      // Duo mode on desktop: limit to 6 expirations per table to fit side-by-side
+                      if (duoMode && showGEX && showDealer && !isMobile) {
+                        table1Expirations = expirations.slice(0, 6);
+                        table2Expirations = expirations.slice(0, 6);
+                      }
 
                       if (isMobile) {
                         if (activeTableCount === 3) {

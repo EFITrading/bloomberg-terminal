@@ -287,439 +287,439 @@ class SeasonalScreenerService {
 
                console.log(` SPY data loaded: ${spyData.results.length} data points`);
 
-          const stocksToProcess = TOP500_BY_MARKET_CAP.slice(startOffset, startOffset + actualMaxStocks);
+               const stocksToProcess = TOP500_BY_MARKET_CAP.slice(startOffset, startOffset + actualMaxStocks);
 
-          console.log(` Processing ALL ${stocksToProcess.length} companies in PARALLEL - NO LIMITS!`);
+               console.log(` Processing ALL ${stocksToProcess.length} companies in PARALLEL - NO LIMITS!`);
 
-          // Process everything at once
-          const allPromises = stocksToProcess.map(async (stock: StockListItem) => {
-               try {
-                    // Skip if we've already processed this symbol
-                    if (seenSymbols.has(stock.symbol)) {
-                         console.log(` Skipping duplicate symbol: ${stock.symbol}`);
-                         return;
-                    }
-                    seenSymbols.add(stock.symbol);
+               // Process everything at once
+               const allPromises = stocksToProcess.map(async (stock: StockListItem) => {
+                    try {
+                         // Skip if we've already processed this symbol
+                         if (seenSymbols.has(stock.symbol)) {
+                              console.log(` Skipping duplicate symbol: ${stock.symbol}`);
+                              return;
+                         }
+                         seenSymbols.add(stock.symbol);
 
-                    console.log(` Getting bulk data for ${stock.symbol}...`);
+                         console.log(` Getting bulk data for ${stock.symbol}...`);
 
-                    // Use bulk historical data request
-                    const stockData = await this.polygonService.getBulkHistoricalData(stock.symbol, 30);
-                    if (!stockData?.results?.length) {
-                         console.warn(` No bulk data for ${stock.symbol}`);
-                         return;
-                    }
-
-                    console.log(` ${stock.symbol}: ${stockData.results.length} data points`);
-
-                    // Process the seasonal analysis
-                    const analysis = this.processDailySeasonalData(
-                         stockData.results,
-                         spyData.results,
-                         stock.symbol,
-                         stock.name,
-                         years
-                    );
-
-                    if (analysis) {
-                         let bestOpportunity: SeasonalOpportunity | null = null;
-
-                         // Check bullish seasonal (best 30-day period)
-                         if (analysis.spyComparison?.best30DayPeriod) {
-                              const bullish = analysis.spyComparison.best30DayPeriod;
-                              if (this.isSeasonalCurrentlyActive(bullish.startDate)) {
-                                   bestOpportunity = {
-                                        symbol: stock.symbol,
-                                        companyName: stock.name,
-                                        sentiment: 'Bullish',
-                                        period: bullish.period,
-                                        startDate: bullish.startDate,
-                                        endDate: bullish.endDate,
-                                        averageReturn: bullish.return,
-                                        winRate: analysis.statistics.winRate,
-                                        years: analysis.statistics.yearsOfData,
-                                        daysUntilStart: this.parseSeasonalDate(bullish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
-                                        isCurrentlyActive: true
-                                   };
-                                   console.log(` Found BULLISH seasonal for ${stock.symbol}: ${bullish.period} (+${bullish.return.toFixed(2)}%)`);
-                              }
+                         // Use bulk historical data request
+                         const stockData = await this.polygonService.getBulkHistoricalData(stock.symbol, 30);
+                         if (!stockData?.results?.length) {
+                              console.warn(` No bulk data for ${stock.symbol}`);
+                              return;
                          }
 
-                         // Check bearish seasonal (worst 30-day period)
-                         if (analysis.spyComparison?.worst30DayPeriod) {
-                              const bearish = analysis.spyComparison.worst30DayPeriod;
-                              if (this.isSeasonalCurrentlyActive(bearish.startDate)) {
-                                   const bearishOpportunity: SeasonalOpportunity = {
-                                        symbol: stock.symbol,
-                                        companyName: stock.name,
-                                        sentiment: 'Bearish',
-                                        period: bearish.period,
-                                        startDate: bearish.startDate,
-                                        endDate: bearish.endDate,
-                                        averageReturn: bearish.return,
-                                        winRate: 100 - analysis.statistics.winRate, // Inverse for bearish
-                                        years: analysis.statistics.yearsOfData,
-                                        daysUntilStart: this.parseSeasonalDate(bearish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
-                                        isCurrentlyActive: true
-                                   };
+                         console.log(` ${stock.symbol}: ${stockData.results.length} data points`);
 
-                                   // Only use bearish if no bullish found, or if bearish is much stronger
-                                   if (!bestOpportunity || Math.abs(bearish.return) > Math.abs(bestOpportunity.averageReturn) * 1.5) {
-                                        bestOpportunity = bearishOpportunity;
+                         // Process the seasonal analysis
+                         const analysis = this.processDailySeasonalData(
+                              stockData.results,
+                              spyData.results,
+                              stock.symbol,
+                              stock.name,
+                              years
+                         );
+
+                         if (analysis) {
+                              let bestOpportunity: SeasonalOpportunity | null = null;
+
+                              // Check bullish seasonal (best 30-day period)
+                              if (analysis.spyComparison?.best30DayPeriod) {
+                                   const bullish = analysis.spyComparison.best30DayPeriod;
+                                   if (this.isSeasonalCurrentlyActive(bullish.startDate)) {
+                                        bestOpportunity = {
+                                             symbol: stock.symbol,
+                                             companyName: stock.name,
+                                             sentiment: 'Bullish',
+                                             period: bullish.period,
+                                             startDate: bullish.startDate,
+                                             endDate: bullish.endDate,
+                                             averageReturn: bullish.return,
+                                             winRate: analysis.statistics.winRate,
+                                             years: analysis.statistics.yearsOfData,
+                                             daysUntilStart: this.parseSeasonalDate(bullish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
+                                             isCurrentlyActive: true
+                                        };
+                                        console.log(` Found BULLISH seasonal for ${stock.symbol}: ${bullish.period} (+${bullish.return.toFixed(2)}%)`);
+                                   }
+                              }
+
+                              // Check bearish seasonal (worst 30-day period)
+                              if (analysis.spyComparison?.worst30DayPeriod) {
+                                   const bearish = analysis.spyComparison.worst30DayPeriod;
+                                   if (this.isSeasonalCurrentlyActive(bearish.startDate)) {
+                                        const bearishOpportunity: SeasonalOpportunity = {
+                                             symbol: stock.symbol,
+                                             companyName: stock.name,
+                                             sentiment: 'Bearish',
+                                             period: bearish.period,
+                                             startDate: bearish.startDate,
+                                             endDate: bearish.endDate,
+                                             averageReturn: bearish.return,
+                                             winRate: 100 - analysis.statistics.winRate, // Inverse for bearish
+                                             years: analysis.statistics.yearsOfData,
+                                             daysUntilStart: this.parseSeasonalDate(bearish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
+                                             isCurrentlyActive: true
+                                        };
+
+                                        // Only use bearish if no bullish found, or if bearish is much stronger
+                                        if (!bestOpportunity || Math.abs(bearish.return) > Math.abs(bestOpportunity.averageReturn) * 1.5) {
+                                             bestOpportunity = bearishOpportunity;
+                                             console.log(` Found BEARISH seasonal for ${stock.symbol}: ${bearish.period} (${bearish.return.toFixed(2)}%)`);
+                                        }
+                                   }
+                              }
+
+                              // Only add the best opportunity for this symbol
+                              if (bestOpportunity) {
+                                   opportunities.push(bestOpportunity);
+                              }
+                         }
+                    } catch (error) {
+                         console.warn(` Failed to process ${stock.symbol}:`, error);
+                    }
+               });
+
+               // Wait for ALL requests to complete at once - NO BATCHING!
+               await Promise.all(allPromises);
+
+               // Remove any remaining duplicates by symbol (safety check)
+               const uniqueOpportunities = opportunities.filter((opportunity, index, array) =>
+                    array.findIndex(o => o.symbol === opportunity.symbol) === index
+               );
+
+               // Sort by absolute return (strongest signals first)
+               uniqueOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+
+               console.log(` Bulk screening complete! Found ${uniqueOpportunities.length} unique seasonal opportunities`);
+               console.log(` Bullish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bullish').length}`);
+               console.log(` Bearish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bearish').length}`);
+
+               return uniqueOpportunities;
+
+          } catch (error) {
+               console.error('? Bulk screening failed:', error);
+
+               // Try to return partial results if we have any
+               if (opportunities.length > 0) {
+                    console.log(`?? Returning ${opportunities.length} partial results despite error`);
+                    return opportunities;
+               }
+
+               // No fallback data - throw the error to be handled by the API layer
+               throw error;
+          }
+     }
+
+     // Mock data method removed - no fallback data
+
+     // Fallback method with smaller batches
+     async screenSeasonalOpportunitiesBatched(years: number = 15): Promise<SeasonalOpportunity[]> {
+          const opportunities: SeasonalOpportunity[] = [];
+          console.log(` Starting seasonal screening of ${TOP500_BY_MARKET_CAP.length} top market cap companies...`);
+
+          // Process stocks in smaller batches
+          const batchSize = 10;
+          for (let i = 0; i < TOP500_BY_MARKET_CAP.length; i += batchSize) {
+               const batch = TOP500_BY_MARKET_CAP.slice(i, i + batchSize);
+
+               console.log(` Processing batch ${Math.floor(i / batchSize) + 1}: ${batch.map((s: StockListItem) => s.symbol).join(', ')}`);
+
+               const batchPromises = batch.map(async (stock: StockListItem) => {
+                    try {
+                         console.log(` Analyzing ${stock.symbol} (${stock.name})...`);
+
+                         // Use the existing seasonal analysis logic
+                         const analysis = await this.analyzeStockSeasonality(stock.symbol, stock.name, years);
+
+                         if (analysis) {
+                              // Check bullish seasonal (best 30-day period)
+                              if (analysis.spyComparison?.best30DayPeriod) {
+                                   const bullish = analysis.spyComparison.best30DayPeriod;
+                                   if (this.isSeasonalCurrentlyActive(bullish.startDate)) {
+                                        opportunities.push({
+                                             symbol: stock.symbol,
+                                             companyName: stock.name,
+                                             sentiment: 'Bullish',
+                                             period: bullish.period,
+                                             startDate: bullish.startDate,
+                                             endDate: bullish.endDate,
+                                             averageReturn: bullish.return,
+                                             winRate: analysis.statistics.winRate,
+                                             years: analysis.statistics.yearsOfData,
+                                             daysUntilStart: this.parseSeasonalDate(bullish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
+                                             isCurrentlyActive: true
+                                        });
+                                        console.log(` Found BULLISH seasonal for ${stock.symbol}: ${bullish.period} (+${bullish.return.toFixed(2)}%)`);
+                                   }
+                              }
+
+                              // Check bearish seasonal (worst 30-day period)
+                              if (analysis.spyComparison?.worst30DayPeriod) {
+                                   const bearish = analysis.spyComparison.worst30DayPeriod;
+                                   if (this.isSeasonalCurrentlyActive(bearish.startDate)) {
+                                        opportunities.push({
+                                             symbol: stock.symbol,
+                                             companyName: stock.name,
+                                             sentiment: 'Bearish',
+                                             period: bearish.period,
+                                             startDate: bearish.startDate,
+                                             endDate: bearish.endDate,
+                                             averageReturn: bearish.return,
+                                             winRate: 100 - analysis.statistics.winRate, // Inverse for bearish
+                                             years: analysis.statistics.yearsOfData,
+                                             daysUntilStart: this.parseSeasonalDate(bearish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
+                                             isCurrentlyActive: true
+                                        });
                                         console.log(` Found BEARISH seasonal for ${stock.symbol}: ${bearish.period} (${bearish.return.toFixed(2)}%)`);
                                    }
                               }
                          }
-
-                         // Only add the best opportunity for this symbol
-                         if (bestOpportunity) {
-                              opportunities.push(bestOpportunity);
-                         }
+                    } catch (error) {
+                         console.warn(` Failed to analyze ${stock.symbol}:`, error);
                     }
-               } catch (error) {
-                    console.warn(` Failed to process ${stock.symbol}:`, error);
+               });
+
+               await Promise.all(batchPromises);
+
+               // Add delay between batches to respect rate limits
+               if (i + batchSize < TOP500_BY_MARKET_CAP.length) {
+                    console.log(' Waiting 2 seconds before next batch...');
+                    await new Promise(resolve => setTimeout(resolve, 2000));
                }
-          });
-
-          // Wait for ALL requests to complete at once - NO BATCHING!
-          await Promise.all(allPromises);
-
-          // Remove any remaining duplicates by symbol (safety check)
-          const uniqueOpportunities = opportunities.filter((opportunity, index, array) =>
-               array.findIndex(o => o.symbol === opportunity.symbol) === index
-          );
+          }
 
           // Sort by absolute return (strongest signals first)
-          uniqueOpportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+          opportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
 
-          console.log(` Bulk screening complete! Found ${uniqueOpportunities.length} unique seasonal opportunities`);
-          console.log(` Bullish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bullish').length}`);
-          console.log(` Bearish opportunities: ${uniqueOpportunities.filter(o => o.sentiment === 'Bearish').length}`);
+          console.log(` Batched screening complete! Found ${opportunities.length} active seasonal opportunities`);
 
-          return uniqueOpportunities;
-
-     } catch(error) {
-          console.error('? Bulk screening failed:', error);
-
-          // Try to return partial results if we have any
-          if (opportunities.length > 0) {
-               console.log(`?? Returning ${opportunities.length} partial results despite error`);
-               return opportunities;
-          }
-
-          // No fallback data - throw the error to be handled by the API layer
-          throw error;
+          return opportunities;
      }
- }
 
- // Mock data method removed - no fallback data
-
- // Fallback method with smaller batches
- async screenSeasonalOpportunitiesBatched(years: number = 15): Promise < SeasonalOpportunity[] > {
-     const opportunities: SeasonalOpportunity[] = [];
-     console.log(` Starting seasonal screening of ${TOP500_BY_MARKET_CAP.length} top market cap companies...`);
-
-     // Process stocks in smaller batches
-     const batchSize = 10;
-     for(let i = 0; i <TOP500_BY_MARKET_CAP.length; i += batchSize) {
-     const batch = TOP500_BY_MARKET_CAP.slice(i, i + batchSize);
-
-     console.log(` Processing batch ${Math.floor(i / batchSize) + 1}: ${batch.map((s: StockListItem) => s.symbol).join(', ')}`);
-
-     const batchPromises = batch.map(async (stock: StockListItem) => {
+     // Process stock data from bulk response
+     private async processBulkStockData(stockData: any[], spyData: any[], symbol: string, companyName: string, years: number) {
           try {
-               console.log(` Analyzing ${stock.symbol} (${stock.name})...`);
-
-               // Use the existing seasonal analysis logic
-               const analysis = await this.analyzeStockSeasonality(stock.symbol, stock.name, years);
-
-               if (analysis) {
-                    // Check bullish seasonal (best 30-day period)
-                    if (analysis.spyComparison?.best30DayPeriod) {
-                         const bullish = analysis.spyComparison.best30DayPeriod;
-                         if (this.isSeasonalCurrentlyActive(bullish.startDate)) {
-                              opportunities.push({
-                                   symbol: stock.symbol,
-                                   companyName: stock.name,
-                                   sentiment: 'Bullish',
-                                   period: bullish.period,
-                                   startDate: bullish.startDate,
-                                   endDate: bullish.endDate,
-                                   averageReturn: bullish.return,
-                                   winRate: analysis.statistics.winRate,
-                                   years: analysis.statistics.yearsOfData,
-                                   daysUntilStart: this.parseSeasonalDate(bullish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
-                                   isCurrentlyActive: true
-                              });
-                              console.log(` Found BULLISH seasonal for ${stock.symbol}: ${bullish.period} (+${bullish.return.toFixed(2)}%)`);
-                         }
-                    }
-
-                    // Check bearish seasonal (worst 30-day period)
-                    if (analysis.spyComparison?.worst30DayPeriod) {
-                         const bearish = analysis.spyComparison.worst30DayPeriod;
-                         if (this.isSeasonalCurrentlyActive(bearish.startDate)) {
-                              opportunities.push({
-                                   symbol: stock.symbol,
-                                   companyName: stock.name,
-                                   sentiment: 'Bearish',
-                                   period: bearish.period,
-                                   startDate: bearish.startDate,
-                                   endDate: bearish.endDate,
-                                   averageReturn: bearish.return,
-                                   winRate: 100 - analysis.statistics.winRate, // Inverse for bearish
-                                   years: analysis.statistics.yearsOfData,
-                                   daysUntilStart: this.parseSeasonalDate(bearish.startDate) - this.getDayOfYear(new Date('2025-09-04')),
-                                   isCurrentlyActive: true
-                              });
-                              console.log(` Found BEARISH seasonal for ${stock.symbol}: ${bearish.period} (${bearish.return.toFixed(2)}%)`);
-                         }
-                    }
+               if (!stockData?.length || !spyData?.length) {
+                    return null;
                }
-          } catch (error) {
-               console.warn(` Failed to analyze ${stock.symbol}:`, error);
-          }
-     });
 
-     await Promise.all(batchPromises);
-
-     // Add delay between batches to respect rate limits
-     if (i + batchSize < TOP500_BY_MARKET_CAP.length) {
-          console.log(' Waiting 2 seconds before next batch...');
-          await new Promise(resolve => setTimeout(resolve, 2000));
-     }
-}
-
-// Sort by absolute return (strongest signals first)
-opportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
-
-console.log(` Batched screening complete! Found ${opportunities.length} active seasonal opportunities`);
-
-return opportunities;
- }
-
- // Process stock data from bulk response
- private async processBulkStockData(stockData: any[], spyData: any[], symbol: string, companyName: string, years: number) {
-     try {
-          if (!stockData?.length || !spyData?.length) {
-               return null;
-          }
-
-          // Use the same processDailySeasonalData logic
-          return this.processDailySeasonalData(
-               stockData,
-               spyData,
-               symbol,
-               companyName,
-               years
-          );
-     } catch (error) {
-          console.error(`Error processing bulk data for ${symbol}:`, error);
-          return null;
-     }
-}
-
- // Reuse the existing seasonal analysis logic
- private async analyzeStockSeasonality(symbol: string, companyName: string, years: number) {
-     try {
-          // Calculate date range
-          const endDate = new Date();
-          const startDate = new Date();
-          startDate.setFullYear(endDate.getFullYear() - years);
-
-          // Fetch historical data for stock and SPY
-          const [historicalResponse, spyResponse] = await Promise.all([
-               this.polygonService.getHistoricalData(
+               // Use the same processDailySeasonalData logic
+               return this.processDailySeasonalData(
+                    stockData,
+                    spyData,
                     symbol,
-                    startDate.toISOString().split('T')[0],
-                    endDate.toISOString().split('T')[0]
-               ),
-               this.polygonService.getHistoricalData(
-                    'SPY',
-                    startDate.toISOString().split('T')[0],
-                    endDate.toISOString().split('T')[0]
-               )
-          ]);
-
-          if (!historicalResponse?.results?.length || !spyResponse?.results?.length) {
+                    companyName,
+                    years
+               );
+          } catch (error) {
+               console.error(`Error processing bulk data for ${symbol}:`, error);
                return null;
           }
+     }
 
-          // Use the same processDailySeasonalData logic from SeasonalityChart
-          return this.processDailySeasonalData(
-               historicalResponse.results,
-               spyResponse.results,
+     // Reuse the existing seasonal analysis logic
+     private async analyzeStockSeasonality(symbol: string, companyName: string, years: number) {
+          try {
+               // Calculate date range
+               const endDate = new Date();
+               const startDate = new Date();
+               startDate.setFullYear(endDate.getFullYear() - years);
+
+               // Fetch historical data for stock and SPY
+               const [historicalResponse, spyResponse] = await Promise.all([
+                    this.polygonService.getHistoricalData(
+                         symbol,
+                         startDate.toISOString().split('T')[0],
+                         endDate.toISOString().split('T')[0]
+                    ),
+                    this.polygonService.getHistoricalData(
+                         'SPY',
+                         startDate.toISOString().split('T')[0],
+                         endDate.toISOString().split('T')[0]
+                    )
+               ]);
+
+               if (!historicalResponse?.results?.length || !spyResponse?.results?.length) {
+                    return null;
+               }
+
+               // Use the same processDailySeasonalData logic from SeasonalityChart
+               return this.processDailySeasonalData(
+                    historicalResponse.results,
+                    spyResponse.results,
+                    symbol,
+                    companyName,
+                    years
+               );
+          } catch (error) {
+               console.error(`Error analyzing ${symbol}:`, error);
+               return null;
+          }
+     }
+
+     // Copy of the processDailySeasonalData method from SeasonalityChart
+     private processDailySeasonalData(data: any[], spyData: any[], symbol: string, companyName: string, years: number) {
+          // Group data by day of year
+          const dailyGroups: { [dayOfYear: number]: { date: Date; return: number; year: number }[] } = {};
+          const yearlyReturns: { [year: number]: number } = {};
+
+          // Create SPY lookup map for faster access
+          const spyLookup: { [timestamp: number]: any } = {};
+          spyData.forEach(item => {
+               spyLookup[item.t] = item;
+          });
+
+          // Process historical data into daily returns
+          for (let i = 1; i < data.length; i++) {
+               const currentItem = data[i];
+               const previousItem = data[i - 1];
+               const date = new Date(currentItem.t);
+               const year = date.getFullYear();
+               const dayOfYear = this.getDayOfYear(date);
+
+               // Calculate stock return
+               const stockReturn = ((currentItem.c - previousItem.c) / previousItem.c) * 100;
+
+               // Calculate relative performance vs SPY
+               const currentSpy = spyLookup[currentItem.t];
+               const previousSpy = spyLookup[previousItem.t];
+
+               if (!currentSpy || !previousSpy) continue;
+
+               const spyReturn = ((currentSpy.c - previousSpy.c) / previousSpy.c) * 100;
+               const finalReturn = stockReturn - spyReturn; // Relative to SPY
+
+               if (!dailyGroups[dayOfYear]) {
+                    dailyGroups[dayOfYear] = [];
+               }
+
+               dailyGroups[dayOfYear].push({
+                    date,
+                    return: finalReturn,
+                    year
+               });
+
+               if (!yearlyReturns[year]) {
+                    yearlyReturns[year] = 0;
+               }
+               yearlyReturns[year] += finalReturn;
+          }
+
+          // Calculate daily seasonal data
+          const dailyData: any[] = [];
+
+          // Process each day of year (1-365)
+          for (let dayOfYear = 1; dayOfYear <= 365; dayOfYear++) {
+               const dayData = dailyGroups[dayOfYear] || [];
+
+               if (dayData.length === 0) continue;
+
+               const returns = dayData.map(d => d.return);
+               const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
+               const positiveReturns = returns.filter(ret => ret > 0).length;
+
+               // Get representative date for this day of year
+               const representativeDate = new Date(2024, 0, dayOfYear); // Use 2024 as base year
+
+               dailyData.push({
+                    dayOfYear,
+                    month: representativeDate.getMonth() + 1,
+                    day: representativeDate.getDate(),
+                    monthName: representativeDate.toLocaleDateString('en-US', { month: 'short' }),
+                    avgReturn,
+                    occurrences: dayData.length,
+                    positiveYears: positiveReturns,
+                    pattern: (positiveReturns / dayData.length) * 100
+               });
+          }
+
+          // Calculate overall statistics
+          const allReturns = Object.values(yearlyReturns);
+          const winningYears = allReturns.filter(ret => ret > 0).length;
+          const totalTrades = allReturns.length;
+          const winRate = (winningYears / totalTrades) * 100;
+
+          // Analyze 30-day seasonal patterns
+          const analyze30DayPatterns = (dailyData: any[]) => {
+               const windowSize = 30;
+               let bestPeriod = { startDay: 1, endDay: 30, avgReturn: -999, period: '', startDate: '', endDate: '' };
+               let worstPeriod = { startDay: 1, endDay: 30, avgReturn: 999, period: '', startDate: '', endDate: '' };
+
+               // Slide through the year to find 30-day windows
+               for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+                    const endDay = startDay + windowSize - 1;
+                    const windowData = dailyData.filter(d => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
+
+                    if (windowData.length >= 25) { // Ensure we have enough data points
+                         const windowReturn = windowData.reduce((sum, d) => sum + d.avgReturn, 0);
+                         const avgWindowReturn = windowReturn / windowData.length;
+
+                         // Check for best period
+                         if (avgWindowReturn > bestPeriod.avgReturn) {
+                              const startDataPoint = dailyData.find(d => d.dayOfYear === startDay);
+                              const endDataPoint = dailyData.find(d => d.dayOfYear === endDay);
+
+                              if (startDataPoint && endDataPoint) {
+                                   bestPeriod = {
+                                        startDay,
+                                        endDay,
+                                        avgReturn: avgWindowReturn,
+                                        period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day}`,
+                                        startDate: `${startDataPoint.monthName} ${startDataPoint.day}`,
+                                        endDate: `${endDataPoint.monthName} ${endDataPoint.day}`
+                                   };
+                              }
+                         }
+
+                         // Check for worst period
+                         if (avgWindowReturn < worstPeriod.avgReturn) {
+                              const startDataPoint = dailyData.find(d => d.dayOfYear === startDay);
+                              const endDataPoint = dailyData.find(d => d.dayOfYear === endDay);
+
+                              if (startDataPoint && endDataPoint) {
+                                   worstPeriod = {
+                                        startDay,
+                                        endDay,
+                                        avgReturn: avgWindowReturn,
+                                        period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day}`,
+                                        startDate: `${startDataPoint.monthName} ${startDataPoint.day}`,
+                                        endDate: `${endDataPoint.monthName} ${endDataPoint.day}`
+                                   };
+                              }
+                         }
+                    }
+               }
+
+               return { bestPeriod, worstPeriod };
+          };
+
+          const { bestPeriod, worstPeriod } = analyze30DayPatterns(dailyData);
+
+          return {
                symbol,
                companyName,
-               years
-          );
-     } catch (error) {
-          console.error(`Error analyzing ${symbol}:`, error);
-          return null;
-     }
-}
-
- // Copy of the processDailySeasonalData method from SeasonalityChart
- private processDailySeasonalData(data: any[], spyData: any[], symbol: string, companyName: string, years: number) {
-     // Group data by day of year
-     const dailyGroups: { [dayOfYear: number]: { date: Date; return: number; year: number }[] } = {};
-     const yearlyReturns: { [year: number]: number } = {};
-
-     // Create SPY lookup map for faster access
-     const spyLookup: { [timestamp: number]: any } = {};
-     spyData.forEach(item => {
-          spyLookup[item.t] = item;
-     });
-
-     // Process historical data into daily returns
-     for (let i = 1; i < data.length; i++) {
-          const currentItem = data[i];
-          const previousItem = data[i - 1];
-          const date = new Date(currentItem.t);
-          const year = date.getFullYear();
-          const dayOfYear = this.getDayOfYear(date);
-
-          // Calculate stock return
-          const stockReturn = ((currentItem.c - previousItem.c) / previousItem.c) * 100;
-
-          // Calculate relative performance vs SPY
-          const currentSpy = spyLookup[currentItem.t];
-          const previousSpy = spyLookup[previousItem.t];
-
-          if (!currentSpy || !previousSpy) continue;
-
-          const spyReturn = ((currentSpy.c - previousSpy.c) / previousSpy.c) * 100;
-          const finalReturn = stockReturn - spyReturn; // Relative to SPY
-
-          if (!dailyGroups[dayOfYear]) {
-               dailyGroups[dayOfYear] = [];
-          }
-
-          dailyGroups[dayOfYear].push({
-               date,
-               return: finalReturn,
-               year
-          });
-
-          if (!yearlyReturns[year]) {
-               yearlyReturns[year] = 0;
-          }
-          yearlyReturns[year] += finalReturn;
-     }
-
-     // Calculate daily seasonal data
-     const dailyData: any[] = [];
-
-     // Process each day of year (1-365)
-     for (let dayOfYear = 1; dayOfYear <= 365; dayOfYear++) {
-          const dayData = dailyGroups[dayOfYear] || [];
-
-          if (dayData.length === 0) continue;
-
-          const returns = dayData.map(d => d.return);
-          const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
-          const positiveReturns = returns.filter(ret => ret > 0).length;
-
-          // Get representative date for this day of year
-          const representativeDate = new Date(2024, 0, dayOfYear); // Use 2024 as base year
-
-          dailyData.push({
-               dayOfYear,
-               month: representativeDate.getMonth() + 1,
-               day: representativeDate.getDate(),
-               monthName: representativeDate.toLocaleDateString('en-US', { month: 'short' }),
-               avgReturn,
-               occurrences: dayData.length,
-               positiveYears: positiveReturns,
-               pattern: (positiveReturns / dayData.length) * 100
-          });
-     }
-
-     // Calculate overall statistics
-     const allReturns = Object.values(yearlyReturns);
-     const winningYears = allReturns.filter(ret => ret > 0).length;
-     const totalTrades = allReturns.length;
-     const winRate = (winningYears / totalTrades) * 100;
-
-     // Analyze 30-day seasonal patterns
-     const analyze30DayPatterns = (dailyData: any[]) => {
-          const windowSize = 30;
-          let bestPeriod = { startDay: 1, endDay: 30, avgReturn: -999, period: '', startDate: '', endDate: '' };
-          let worstPeriod = { startDay: 1, endDay: 30, avgReturn: 999, period: '', startDate: '', endDate: '' };
-
-          // Slide through the year to find 30-day windows
-          for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
-               const endDay = startDay + windowSize - 1;
-               const windowData = dailyData.filter(d => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
-
-               if (windowData.length >= 25) { // Ensure we have enough data points
-                    const windowReturn = windowData.reduce((sum, d) => sum + d.avgReturn, 0);
-                    const avgWindowReturn = windowReturn / windowData.length;
-
-                    // Check for best period
-                    if (avgWindowReturn > bestPeriod.avgReturn) {
-                         const startDataPoint = dailyData.find(d => d.dayOfYear === startDay);
-                         const endDataPoint = dailyData.find(d => d.dayOfYear === endDay);
-
-                         if (startDataPoint && endDataPoint) {
-                              bestPeriod = {
-                                   startDay,
-                                   endDay,
-                                   avgReturn: avgWindowReturn,
-                                   period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day}`,
-                                   startDate: `${startDataPoint.monthName} ${startDataPoint.day}`,
-                                   endDate: `${endDataPoint.monthName} ${endDataPoint.day}`
-                              };
-                         }
-                    }
-
-                    // Check for worst period
-                    if (avgWindowReturn < worstPeriod.avgReturn) {
-                         const startDataPoint = dailyData.find(d => d.dayOfYear === startDay);
-                         const endDataPoint = dailyData.find(d => d.dayOfYear === endDay);
-
-                         if (startDataPoint && endDataPoint) {
-                              worstPeriod = {
-                                   startDay,
-                                   endDay,
-                                   avgReturn: avgWindowReturn,
-                                   period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day}`,
-                                   startDate: `${startDataPoint.monthName} ${startDataPoint.day}`,
-                                   endDate: `${endDataPoint.monthName} ${endDataPoint.day}`
-                              };
-                         }
-                    }
-               }
-          }
-
-          return { bestPeriod, worstPeriod };
-     };
-
-     const { bestPeriod, worstPeriod } = analyze30DayPatterns(dailyData);
-
-     return {
-          symbol,
-          companyName,
-          statistics: {
-               winRate,
-               yearsOfData: years
-          },
-          spyComparison: {
-               best30DayPeriod: {
-                    period: bestPeriod.period,
-                    return: bestPeriod.avgReturn * 30, // Convert daily average to 30-day period return
-                    startDate: bestPeriod.startDate,
-                    endDate: bestPeriod.endDate
+               statistics: {
+                    winRate,
+                    yearsOfData: years
                },
-               worst30DayPeriod: {
-                    period: worstPeriod.period,
-                    return: worstPeriod.avgReturn * 30, // Convert daily average to 30-day period return
-                    startDate: worstPeriod.startDate,
-                    endDate: worstPeriod.endDate
+               spyComparison: {
+                    best30DayPeriod: {
+                         period: bestPeriod.period,
+                         return: bestPeriod.avgReturn * 30, // Convert daily average to 30-day period return
+                         startDate: bestPeriod.startDate,
+                         endDate: bestPeriod.endDate
+                    },
+                    worst30DayPeriod: {
+                         period: worstPeriod.period,
+                         return: worstPeriod.avgReturn * 30, // Convert daily average to 30-day period return
+                         startDate: worstPeriod.startDate,
+                         endDate: worstPeriod.endDate
+                    }
                }
-          }
-     };
-}
+          };
+     }
 }
 
 export default SeasonalScreenerService;

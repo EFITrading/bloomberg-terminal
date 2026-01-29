@@ -14581,9 +14581,9 @@ export default function TradingViewChart({
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, pdTimeframe, stableSymbols]);
 
-    // Fetch data for Tracking tab
+    // Fetch data for Tracking tab - auto-fetch on mount and when timeframe changes
     useEffect(() => {
-      if (activeTab === 'Tracking' && !trackingFetchedRef.current && !trackingLoading) {
+      if (!trackingFetchedRef.current && !trackingLoading) {
         trackingFetchedRef.current = true;
         setTrackingLoading(true);
 
@@ -14652,10 +14652,21 @@ export default function TradingViewChart({
                   const previousDayClose = dailyData.results[1].c;
                   const changePercent = ((currentPrice - previousDayClose) / previousDayClose) * 100;
 
-                  const sparklineData = intradayResults.map((bar: any) => ({
-                    time: bar.t,
-                    price: bar.c
-                  }));
+                  const sparklineData = intradayResults.map((bar: any) => {
+                    // Pre-calculate ET time for shading to avoid expensive toLocaleString during render
+                    const date = new Date(bar.t);
+                    const etString = date.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+                    const etDate = new Date(etString);
+                    const hour = etDate.getHours();
+                    const minute = etDate.getMinutes();
+                    const totalMinutes = hour * 60 + minute;
+
+                    return {
+                      time: bar.t,
+                      price: bar.c,
+                      etMinutes: totalMinutes // Pre-calculated for performance
+                    };
+                  });
 
                   console.log(`✓ ${symbol}: Loaded ${sparklineData.length} 1-minute bars`);
 
@@ -14785,7 +14796,7 @@ export default function TradingViewChart({
 
         fetchAllData();
       }
-    }, [activeTab, trackingLoading, trackingTimeframe]);
+    }, [trackingLoading, trackingTimeframe]);
 
     // For Watchlist tab, show Markets symbols; otherwise use activeTab
     const symbolKey = activeTab === 'Watchlist' ? 'Markets' : activeTab;
@@ -15564,8 +15575,69 @@ export default function TradingViewChart({
                                         ? padding + ((maxPrice - data.previousDayClose) / priceRange) * chartHeight
                                         : null;
 
+                                      // Only show shading for 1D timeframe (intraday data)
+                                      const showShading = trackingTimeframe === '1D';
+
+                                      // Pre-calculate shading zones to avoid creating hundreds of rect elements
+                                      const shadingZones: Array<{ x: number; width: number; color: string }> = [];
+                                      if (showShading) {
+                                        let currentZone: { start: number; color: string } | null = null;
+
+                                        data.sparklineData.forEach((point: any, i: number) => {
+                                          // Use pre-calculated ET minutes for performance
+                                          const totalMinutes = point.etMinutes || 0;
+
+                                          const marketStart = 9 * 60 + 30;
+                                          const marketEnd = 16 * 60;
+                                          const preMarketStart = 4 * 60;
+                                          const afterHoursEnd = 20 * 60;
+
+                                          let fillColor: string | null = null;
+                                          if (totalMinutes >= preMarketStart && totalMinutes < marketStart) {
+                                            fillColor = 'rgba(255, 165, 0, 0.12)';
+                                          } else if (totalMinutes >= marketEnd && totalMinutes < afterHoursEnd) {
+                                            fillColor = 'rgba(0, 174, 239, 0.12)';
+                                          }
+
+                                          if (fillColor) {
+                                            if (!currentZone || currentZone.color !== fillColor) {
+                                              if (currentZone !== null) {
+                                                const x = (currentZone.start / (data.sparklineData.length - 1)) * 200;
+                                                const endX = (i / (data.sparklineData.length - 1)) * 200;
+                                                shadingZones.push({ x, width: endX - x, color: currentZone.color });
+                                              }
+                                              currentZone = { start: i, color: fillColor };
+                                            }
+                                          } else if (currentZone !== null) {
+                                            const x = (currentZone.start / (data.sparklineData.length - 1)) * 200;
+                                            const endX = (i / (data.sparklineData.length - 1)) * 200;
+                                            shadingZones.push({ x, width: endX - x, color: currentZone.color });
+                                            currentZone = null;
+                                          }
+                                        });
+
+                                        // Finalize any remaining zone
+                                        if (currentZone !== null) {
+                                          const zone = currentZone as unknown as { start: number; color: string };
+                                          const x = (zone.start / (data.sparklineData.length - 1)) * 200;
+                                          shadingZones.push({ x, width: 200 - x, color: zone.color });
+                                        }
+                                      }
+
                                       return (
                                         <>
+                                          {/* Market hours background shading - optimized */}
+                                          {shadingZones.map((zone, idx) => (
+                                            <rect
+                                              key={`shade-${idx}`}
+                                              x={zone.x}
+                                              y="0"
+                                              width={zone.width}
+                                              height="50"
+                                              fill={zone.color}
+                                            />
+                                          ))}
+
                                           {/* Previous day close line */}
                                           {prevDayY !== null && (
                                             <line
@@ -15597,29 +15669,58 @@ export default function TradingViewChart({
                                   </svg>
 
                                   {/* X-Axis Time Labels */}
-                                  <div className="flex justify-between mt-2 px-1">
+                                  <div className="relative mt-2 px-1" style={{ height: '14px' }}>
                                     {data.sparklineData.length > 0 && (() => {
-                                      const firstPoint = data.sparklineData[0];
-                                      const lastPoint = data.sparklineData[data.sparklineData.length - 1];
-
                                       if (trackingTimeframe === '1D') {
-                                        const formatTime = (timestamp: number) => {
-                                          const date = new Date(timestamp);
-                                          return date.toLocaleTimeString('en-US', {
-                                            hour: 'numeric',
-                                            minute: '2-digit',
-                                            hour12: true,
-                                            timeZone: 'America/New_York'
-                                          });
-                                        };
+                                        // For 1D intraday, position labels at actual market open (9:30 AM) and close (4:00 PM)
+                                        // Find the data points closest to 9:30 AM and 4:00 PM using pre-calculated ET minutes
+                                        let marketOpenIndex = -1;
+                                        let marketCloseIndex = -1;
+
+                                        data.sparklineData.forEach((point: any, i: number) => {
+                                          const totalMinutes = point.etMinutes || 0;
+
+                                          // Market open: 9:30 AM ET (570 minutes)
+                                          if (marketOpenIndex === -1 && totalMinutes >= 9 * 60 + 30) {
+                                            marketOpenIndex = i;
+                                          }
+                                          // Market close: 4:00 PM ET (960 minutes)
+                                          if (totalMinutes >= 16 * 60) {
+                                            marketCloseIndex = i;
+                                          }
+                                        });
+
+                                        // Calculate positions as percentage
+                                        const openPercent = marketOpenIndex >= 0
+                                          ? (marketOpenIndex / (data.sparklineData.length - 1)) * 100
+                                          : 0;
+                                        const closePercent = marketCloseIndex >= 0
+                                          ? (marketCloseIndex / (data.sparklineData.length - 1)) * 100
+                                          : 100;
 
                                         return (
                                           <>
-                                            <span className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatTime(firstPoint.time)}</span>
-                                            <span className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatTime(lastPoint.time)}</span>
+                                            {marketOpenIndex >= 0 && (
+                                              <span
+                                                className="absolute md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold"
+                                                style={{ left: `${openPercent}%`, transform: 'translateX(-50%)' }}
+                                              >
+                                                9:30 AM
+                                              </span>
+                                            )}
+                                            {marketCloseIndex >= 0 && (
+                                              <span
+                                                className="absolute md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold"
+                                                style={{ left: `${closePercent}%`, transform: 'translateX(-50%)' }}
+                                              >
+                                                4:00 PM
+                                              </span>
+                                            )}
                                           </>
                                         );
                                       } else {
+                                        const firstPoint = data.sparklineData[0];
+                                        const lastPoint = data.sparklineData[data.sparklineData.length - 1];
                                         const formatDate = (timestamp: number) => {
                                           const date = new Date(timestamp);
                                           return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/New_York' });
@@ -15627,8 +15728,8 @@ export default function TradingViewChart({
 
                                         return (
                                           <>
-                                            <span className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatDate(firstPoint.time)}</span>
-                                            <span className="md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatDate(lastPoint.time)}</span>
+                                            <span className="absolute left-0 md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatDate(firstPoint.time)}</span>
+                                            <span className="absolute right-0 md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">{formatDate(lastPoint.time)}</span>
                                           </>
                                         );
                                       }
@@ -20953,21 +21054,26 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'trendline' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'trendline' ? '2px solid #FF8500' : '1px solid #444',
-                    color: 'white',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'trendline' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : '#000',
+                    border: currentDrawingTool === 'trendline' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
+                    color: currentDrawingTool === 'trendline' ? '#000' : '#fff',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'trendline' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Trendline"
                 >
                   <TbLine className="w-5 h-5" />
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Trend</span>
                 </button>
 
                 <button
@@ -20976,21 +21082,26 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'horizontal' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'horizontal' ? '2px solid #FF8500' : '1px solid #444',
-                    color: 'white',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'horizontal' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : '#000',
+                    border: currentDrawingTool === 'horizontal' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
+                    color: currentDrawingTool === 'horizontal' ? '#000' : '#fff',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'horizontal' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Horizontal Line"
                 >
                   <TbMinus className="w-5 h-5" />
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>H-Line</span>
                 </button>
 
                 <button
@@ -20999,21 +21110,26 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'vertical' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'vertical' ? '2px solid #FF8500' : '1px solid #444',
-                    color: 'white',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'vertical' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : '#000',
+                    border: currentDrawingTool === 'vertical' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
+                    color: currentDrawingTool === 'vertical' ? '#000' : '#fff',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'vertical' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Vertical Line"
                 >
                   <TbArrowsVertical className="w-5 h-5" />
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>V-Line</span>
                 </button>
 
                 <button
@@ -21022,17 +21138,21 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'parallelChannel' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'parallelChannel' ? '2px solid #FF8500' : '1px solid #444',
-                    color: 'white',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'parallelChannel' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : '#000',
+                    border: currentDrawingTool === 'parallelChannel' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
+                    color: currentDrawingTool === 'parallelChannel' ? '#000' : '#fff',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'parallelChannel' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Parallel Channel"
                 >
@@ -21040,6 +21160,7 @@ export default function TradingViewChart({
                     <line x1="3" y1="6" x2="21" y2="6" />
                     <line x1="3" y1="18" x2="21" y2="18" />
                   </svg>
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Channel</span>
                 </button>
 
                 <button
@@ -21048,23 +21169,28 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'rectangle' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'rectangle' ? '2px solid #FF8500' : '1px solid #444',
-                    color: 'white',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'rectangle' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : '#000',
+                    border: currentDrawingTool === 'rectangle' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
+                    color: currentDrawingTool === 'rectangle' ? '#000' : '#fff',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'rectangle' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Rectangle"
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="4" y="6" width="16" height="12" />
                   </svg>
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Box</span>
                 </button>
 
                 <button
@@ -21073,23 +21199,28 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'buyZone' ? 'rgba(34, 197, 94, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'buyZone' ? '2px solid #22c55e' : '1px solid #444',
-                    color: '#22c55e',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'buyZone' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                    border: currentDrawingTool === 'buyZone' ? '2px solid #22c55e' : '2px solid rgba(34, 197, 94, 0.3)',
+                    color: currentDrawingTool === 'buyZone' ? '#000' : '#22c55e',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'buyZone' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Buy Zone"
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="#22c55e" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill={currentDrawingTool === 'buyZone' ? '#000' : '#22c55e'} stroke={currentDrawingTool === 'buyZone' ? '#000' : '#22c55e'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="4" y="6" width="16" height="12" />
                   </svg>
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Buy</span>
                 </button>
 
                 <button
@@ -21098,23 +21229,28 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'sellZone' ? 'rgba(239, 68, 68, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'sellZone' ? '2px solid #ef4444' : '1px solid #444',
-                    color: '#ef4444',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'sellZone' ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : '#000',
+                    border: currentDrawingTool === 'sellZone' ? '2px solid #ef4444' : '2px solid rgba(239, 68, 68, 0.3)',
+                    color: currentDrawingTool === 'sellZone' ? '#000' : '#ef4444',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'sellZone' ? '0 0 15px rgba(239, 68, 68, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Sell Zone"
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="#ef4444" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill={currentDrawingTool === 'sellZone' ? '#000' : '#ef4444'} stroke={currentDrawingTool === 'sellZone' ? '#000' : '#ef4444'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="4" y="6" width="16" height="12" />
                   </svg>
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Sell</span>
                 </button>
 
                 <button
@@ -21123,17 +21259,21 @@ export default function TradingViewChart({
                   }}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'priceRange' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'priceRange' ? '2px solid #FF8500' : '1px solid #444',
-                    color: 'white',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'priceRange' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : '#000',
+                    border: currentDrawingTool === 'priceRange' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
+                    color: currentDrawingTool === 'priceRange' ? '#000' : '#fff',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'priceRange' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Price Range"
                 >
@@ -21142,23 +21282,28 @@ export default function TradingViewChart({
                     <line x1="12" y1="6" x2="12" y2="18" />
                     <line x1="4" y1="18" x2="20" y2="18" />
                   </svg>
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Range</span>
                 </button>
 
                 <button
                   onClick={() => setCurrentDrawingTool(currentDrawingTool === 'brush' ? 'select' : 'brush')}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'brush' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'brush' ? '2px solid #FF8500' : '1px solid #444',
-                    color: 'white',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'brush' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : '#000',
+                    border: currentDrawingTool === 'brush' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
+                    color: currentDrawingTool === 'brush' ? '#000' : '#fff',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'brush' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Brush Tool"
                 >
@@ -21166,23 +21311,28 @@ export default function TradingViewChart({
                     <path d="M9.06 11.9l8.07-8.06a1.5 1.5 0 1 1 2.12 2.12l-8.06 8.08" />
                     <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
                   </svg>
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Brush</span>
                 </button>
 
                 <button
                   onClick={() => setCurrentDrawingTool(currentDrawingTool === 'text' ? 'select' : 'text')}
                   className="btn-3d-carved"
                   style={{
-                    padding: '8px',
+                    padding: '8px 10px',
                     fontWeight: '600',
                     fontSize: '14px',
-                    borderRadius: '4px',
-                    background: currentDrawingTool === 'text' ? 'rgba(255, 133, 0, 0.3) !important' : 'transparent',
-                    border: currentDrawingTool === 'text' ? '2px solid #FF8500' : '1px solid #444',
-                    color: 'white',
+                    borderRadius: '6px',
+                    background: currentDrawingTool === 'text' ? 'linear-gradient(135deg, #FF8500 0%, #e67300 100%)' : '#000',
+                    border: currentDrawingTool === 'text' ? '2px solid #FF8500' : '2px solid rgba(255,255,255,0.1)',
+                    color: currentDrawingTool === 'text' ? '#000' : '#fff',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: currentDrawingTool === 'text' ? '0 0 15px rgba(255, 133, 0, 0.5)' : 'none',
+                    transition: 'all 0.2s ease'
                   }}
                   title="Text Note Tool"
                 >
@@ -21191,9 +21341,10 @@ export default function TradingViewChart({
                     <line x1="9" y1="20" x2="15" y2="20" />
                     <line x1="12" y1="4" x2="12" y2="20" />
                   </svg>
+                  <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Text</span>
                 </button>
 
-                <div style={{ width: '1px', height: '32px', background: '#444', margin: '0 6px' }} />
+                <div style={{ width: '1px', height: '50px', background: 'rgba(255,255,255,0.2)', margin: '0 6px' }} />
 
                 <button
                   onClick={() => setIsDrawingToolLocked(!isDrawingToolLocked)}
@@ -21758,6 +21909,9 @@ export default function TradingViewChart({
                   { id: 'rrg', icon: TbChartDots, label: 'RRG', accent: 'rose' }
                 ].map((item, index) => {
                   const IconComponent = item.icon;
+
+                  // Determine if this button is loading
+                  const isLoading = false; // Loading animations removed
                   const accentColors: { [key: string]: string } = {
                     blue: '#3B82F6',
                     emerald: '#10B981',
@@ -21905,7 +22059,6 @@ export default function TradingViewChart({
                         >
                           <IconComponent strokeWidth={isActive ? 3 : 2.5} />
                         </span>
-
                         {/* Label with premium typography */}
                         <span
                           className="relative text-[10px] font-bold uppercase tracking-[0.15em] transition-all duration-500 hidden md:block"
@@ -22583,7 +22736,8 @@ export default function TradingViewChart({
           {/* Sidebar Panels */}
           {activeSidebarPanel && (
             <div
-              className={`fixed top-38 md:top-45 bottom-4 left-0 md:left-[100px] w-full md:w-[1200px] bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
+              className={`fixed top-38 md:top-45 bottom-4 left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
+              style={{ maxWidth: activeSidebarPanel === 'liquid' ? 'fit-content' : '1200px' }}
               data-sidebar-panel={activeSidebarPanel}
             >
               {/* Sidebar panel debugging */}

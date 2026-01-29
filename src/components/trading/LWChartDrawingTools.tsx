@@ -1628,19 +1628,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                     <button
                         onClick={() => setCurrentTool('select')}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'select' ? '#22c55e' : 'transparent',
-                            color: currentTool === 'select' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            padding: '8px 10px',
+                            background: currentTool === 'select' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                            color: currentTool === 'select' ? '#000' : '#fff',
+                            border: currentTool === 'select' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'select' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Select"
                     >
                         <TbSelector size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Select</span>
                     </button>
 
                     <button
@@ -1649,19 +1654,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'trendline' ? '#22c55e' : 'transparent',
-                            color: currentTool === 'trendline' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            padding: '8px 10px',
+                            background: currentTool === 'trendline' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                            color: currentTool === 'trendline' ? '#000' : '#fff',
+                            border: currentTool === 'trendline' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'trendline' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Trendline"
                     >
                         <TbLine size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Trend</span>
                     </button>
 
                     <button
@@ -1670,19 +1680,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'horizontal' ? '#22c55e' : 'transparent',
-                            color: currentTool === 'horizontal' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            padding: '8px 10px',
+                            background: currentTool === 'horizontal' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                            color: currentTool === 'horizontal' ? '#000' : '#fff',
+                            border: currentTool === 'horizontal' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'horizontal' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Horizontal Line"
                     >
                         <TbMinus size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>H-Line</span>
                     </button>
 
                     <button
@@ -1691,19 +1706,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'vertical' ? '#22c55e' : 'transparent',
-                            color: currentTool === 'vertical' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            padding: '8px 10px',
+                            background: currentTool === 'vertical' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                            color: currentTool === 'vertical' ? '#000' : '#fff',
+                            border: currentTool === 'vertical' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'vertical' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Vertical Line"
                     >
                         <TbArrowsVertical size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>V-Line</span>
                     </button>
 
                     <button
@@ -1712,19 +1732,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'ray' ? '#22c55e' : 'transparent',
-                            color: currentTool === 'ray' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            padding: '8px 10px',
+                            background: currentTool === 'ray' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                            color: currentTool === 'ray' ? '#000' : '#fff',
+                            border: currentTool === 'ray' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'ray' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Ray"
                     >
                         <TbArrowUpRight size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Ray</span>
                     </button>
 
                     <button
@@ -1733,19 +1758,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'rectangle' ? '#22c55e' : 'transparent',
-                            color: currentTool === 'rectangle' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            padding: '8px 10px',
+                            background: currentTool === 'rectangle' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                            color: currentTool === 'rectangle' ? '#000' : '#fff',
+                            border: currentTool === 'rectangle' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'rectangle' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Rectangle"
                     >
                         <TbSquare size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Box</span>
                     </button>
 
                     <button
@@ -1754,19 +1784,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'text' ? '#22c55e' : 'transparent',
-                            color: currentTool === 'text' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            padding: '8px 10px',
+                            background: currentTool === 'text' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                            color: currentTool === 'text' ? '#000' : '#fff',
+                            border: currentTool === 'text' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'text' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Text"
                     >
                         <TbTextSize size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Text</span>
                     </button>
 
                     <button
@@ -1775,19 +1810,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'parallelChannel' ? '#22c55e' : 'transparent',
-                            color: currentTool === 'parallelChannel' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            padding: '8px 10px',
+                            background: currentTool === 'parallelChannel' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
+                            color: currentTool === 'parallelChannel' ? '#000' : '#fff',
+                            border: currentTool === 'parallelChannel' ? '2px solid #22c55e' : '2px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'parallelChannel' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Parallel Channel"
                     >
                         <TbLayout size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Channel</span>
                     </button>
 
                     <button
@@ -1796,19 +1836,24 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'buyZone' ? '#22c55e' : 'transparent',
+                            padding: '8px 10px',
+                            background: currentTool === 'buyZone' ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : '#000',
                             color: currentTool === 'buyZone' ? '#000' : '#22c55e',
-                            border: '1px solid #22c55e',
-                            borderRadius: '4px',
+                            border: currentTool === 'buyZone' ? '2px solid #22c55e' : '2px solid rgba(34, 197, 94, 0.3)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'buyZone' ? '0 0 15px rgba(34, 197, 94, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Buy Zone"
                     >
                         <FiTrendingUp size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Buy</span>
                     </button>
 
                     <button
@@ -1817,22 +1862,27 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             setCurrentPoints([])
                         }}
                         style={{
-                            padding: '8px',
-                            background: currentTool === 'sellZone' ? '#ef4444' : 'transparent',
+                            padding: '8px 10px',
+                            background: currentTool === 'sellZone' ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : '#000',
                             color: currentTool === 'sellZone' ? '#000' : '#ef4444',
-                            border: '1px solid #ef4444',
-                            borderRadius: '4px',
+                            border: currentTool === 'sellZone' ? '2px solid #ef4444' : '2px solid rgba(239, 68, 68, 0.3)',
+                            borderRadius: '6px',
                             cursor: 'pointer',
                             display: 'flex',
+                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: currentTool === 'sellZone' ? '0 0 15px rgba(239, 68, 68, 0.5)' : 'none',
+                            transition: 'all 0.2s ease',
                         }}
                         title="Sell Zone"
                     >
                         <FiTrendingDown size={18} />
+                        <span style={{ fontSize: '9px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Sell</span>
                     </button>
 
-                    <div style={{ width: '1px', height: '24px', background: '#22c55e', margin: '0 4px' }} />
+                    <div style={{ width: '1px', height: '40px', background: 'rgba(34, 197, 94, 0.3)', margin: '0 4px' }} />
 
                     {/* Color Picker */}
                     <input

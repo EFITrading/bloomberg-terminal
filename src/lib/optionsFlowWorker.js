@@ -587,13 +587,57 @@ if (parentPort) {
 
                      console.log(` Worker ${workerIndex}: Completed batch with ${results.length} total trades`);
 
-                     // Send results back to main thread
-                     parentPort.postMessage({
-                            success: true,
-                            trades: results,
-                            workerIndex: workerIndex,
-                            processedTickers: batch.length
-                     });
+                     // Send results back to main thread in chunks to avoid size limits
+                     try {
+                            const CHUNK_SIZE = 10000; // Send 10k trades at a time
+
+                            if (results.length > CHUNK_SIZE) {
+                                   console.log(` Worker ${workerIndex}: Sending ${results.length} trades in chunks of ${CHUNK_SIZE}...`);
+
+                                   for (let i = 0; i < results.length; i += CHUNK_SIZE) {
+                                          const chunk = results.slice(i, i + CHUNK_SIZE);
+                                          const isLastChunk = i + CHUNK_SIZE >= results.length;
+
+                                          console.log(` Worker ${workerIndex}: Sending chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(results.length / CHUNK_SIZE)} (${chunk.length} trades)`);
+
+                                          parentPort.postMessage({
+                                                 success: !isLastChunk ? 'partial' : true,
+                                                 trades: chunk,
+                                                 workerIndex: workerIndex,
+                                                 processedTickers: batch.length,
+                                                 chunkInfo: {
+                                                        current: Math.floor(i / CHUNK_SIZE) + 1,
+                                                        total: Math.ceil(results.length / CHUNK_SIZE),
+                                                        isLast: isLastChunk
+                                                 }
+                                          });
+
+                                          // Small delay between chunks to prevent overwhelming the main thread
+                                          if (!isLastChunk) {
+                                                 await new Promise(resolve => setTimeout(resolve, 50));
+                                          }
+                                   }
+
+                                   console.log(` Worker ${workerIndex}: ✅ All chunks sent successfully`);
+                            } else {
+                                   // Small batch, send all at once
+                                   console.log(` Worker ${workerIndex}: Sending all ${results.length} trades in single message`);
+                                   parentPort.postMessage({
+                                          success: true,
+                                          trades: results,
+                                          workerIndex: workerIndex,
+                                          processedTickers: batch.length
+                                   });
+                            }
+                     } catch (sendError) {
+                            console.error(` Worker ${workerIndex}: ❌ Error sending results:`, sendError.message);
+                            console.error(` Worker ${workerIndex}: Stack trace:`, sendError.stack);
+                            parentPort.postMessage({
+                                   success: false,
+                                   error: `Failed to send results: ${sendError.message}`,
+                                   workerIndex: workerIndex
+                            });
+                     }
               }
 
               // Start processing

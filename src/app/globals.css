@@ -840,6 +840,8 @@ body {
     pointer-events: none;
 }
 
+/* DISABLED - Using inline styles in Navigation.tsx instead */
+/*
 .nav-link {
     padding: 14px 28px;
     color: #ffffff;
@@ -982,6 +984,7 @@ body {
             transparent);
     box-shadow: 0 0 8px rgba(255, 102, 0, 0.4);
 }
+*/
 
 .nav-right {
     display: flex;

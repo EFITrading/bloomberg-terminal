@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useMarketRegime } from '@/contexts/MarketRegimeContext';
 import FearGreedGauge from './FearGreedGauge';
 import LoginModal from '@/components/LoginModal';
+import TickerScroller from './TickerScroller';
 
 
 
@@ -70,41 +71,147 @@ export default function Navigation() {
 
   return (
     <>
-      <nav className="nav">
-        <div className="nav-main">
+      <nav className="nav" style={{
+        background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 100%)',
+        borderBottom: '1px solid rgba(255, 133, 0, 0.3)',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 133, 0, 0.1)',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Animated background accent */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          background: 'linear-gradient(90deg, transparent, #FF8500, transparent)',
+          animation: 'shimmer 3s infinite',
+          opacity: 0.6
+        }} />
+
+        <div className="nav-main" style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 24px',
+          height: '90px',
+          position: 'relative',
+          zIndex: 1
+        }}>
           <div className="nav-brand">
             <Link
               href="/"
               style={{ textDecoration: 'none', color: 'inherit' }}
             >
-              <div className="logo-text-container">
-                <div className="logo-text-main">
-                  <span className="logo-evolving">EVOLVING</span>
-                  <span className="logo-finance">FINANCE</span>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: '8px'
+                }}>
+                  <span style={{
+                    fontSize: '22px',
+                    fontWeight: '800',
+                    letterSpacing: '1.5px',
+                    background: 'linear-gradient(135deg, #FFFFFF 0%, #999999 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    textShadow: '0 0 20px rgba(255, 255, 255, 0.3)'
+                  }}>EVOLVING</span>
+                  <span style={{
+                    fontSize: '22px',
+                    fontWeight: '800',
+                    letterSpacing: '1.5px',
+                    background: 'linear-gradient(135deg, #FF8500 0%, #FFB800 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    textShadow: '0 0 20px rgba(255, 133, 0, 0.5)'
+                  }}>FINANCE</span>
                 </div>
-                <div className="logo-underline"></div>
-                <div className="logo-institute">INSTITUTE</div>
+                <div style={{
+                  height: '2px',
+                  background: 'linear-gradient(90deg, #FF8500 0%, #FFB800 50%, #FF8500 100%)',
+                  borderRadius: '2px',
+                  boxShadow: '0 0 10px rgba(255, 133, 0, 0.5)'
+                }} />
+                <div style={{
+                  fontSize: '9px',
+                  fontWeight: '700',
+                  letterSpacing: '3px',
+                  color: '#999',
+                  textAlign: 'center',
+                  marginTop: '2px'
+                }}>INSTITUTE</div>
               </div>
             </Link>
           </div>
 
           {/* Desktop Navigation */}
-          <div className="nav-center desktop-nav">
-            {navLinks.map((link) => (
-              <a
-                key={link.path}
-                href={link.path}
-                className={`nav-link ${pathname === link.path ? 'active' : ''}`}
-                onClick={(e) => {
-                  // Allow default navigation behavior
-                }}
-              >
-                {link.name}
-              </a>
-            ))}
+          <div style={{
+            display: 'flex',
+            gap: '6px',
+            alignItems: 'center',
+            background: '#000000',
+            padding: '8px',
+            borderRadius: '12px',
+            border: '1px solid rgba(255, 165, 0, 0.3)'
+          }}>
+            {navLinks.map((link) => {
+              const isActive = pathname === link.path;
+              return (
+                <Link
+                  key={link.path}
+                  href={link.path}
+                  style={{
+                    padding: '14px 28px',
+                    fontSize: '14px',
+                    fontWeight: '700',
+                    letterSpacing: '0.8px',
+                    textTransform: 'uppercase',
+                    color: isActive ? '#FFA500' : '#FFFFFF',
+                    background: isActive ? '#000000' : 'transparent',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    display: 'inline-block',
+                    border: isActive ? '2px solid #FFA500' : '1px solid rgba(255, 165, 0, 0.3)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    transform: 'scale(1) translateY(0)',
+                    boxShadow: isActive ? '0 4px 12px rgba(255, 165, 0, 0.4)' : 'none'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.transform = 'scale(1.08) translateY(-3px)';
+                      e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.8), 0 0 0 2px #FFA500';
+                      e.currentTarget.style.borderColor = '#FFA500';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.transform = 'scale(1) translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                      e.currentTarget.style.borderColor = 'rgba(255, 165, 0, 0.3)';
+                    }
+                  }}
+                >
+                  <span style={{ color: isActive ? '#FFA500' : '#FFFFFF' }}>
+                    {link.name}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
 
-          <div className="nav-right">
+          <div className="nav-right" style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px'
+          }}>
             {/* Mobile Menu Button */}
             <button
               className="mobile-menu-btn"
@@ -166,10 +273,23 @@ export default function Navigation() {
             </button>
 
             {/* Desktop Status and Auth */}
-            <div className="desktop-nav-right">
+            <div className="desktop-nav-right" style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px'
+            }}>
               {/* Fear & Greed Gauge */}
               {regimes.length > 0 && (
-                <div style={{ display: 'flex', gap: '8px', marginRight: '12px', alignItems: 'center' }}>
+                <div style={{
+                  display: 'flex',
+                  gap: '12px',
+                  alignItems: 'center',
+                  padding: '8px 16px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  backdropFilter: 'blur(10px)'
+                }}>
                   <FearGreedGauge regimes={regimes} />
                 </div>
               )}
@@ -314,31 +434,73 @@ export default function Navigation() {
                     session?.user?.image ? (
                       <button
                         onClick={() => router.push('/account')}
-                        className="flex items-center justify-center"
                         style={{
                           background: 'transparent',
                           border: 'none',
                           padding: '0',
-                          cursor: 'pointer'
+                          cursor: 'pointer',
+                          position: 'relative'
                         }}
                       >
-                        <img
-                          src={session.user.image}
-                          alt="Profile"
-                          className="w-10 h-10 rounded-full border-2 border-gray-600 hover:border-gray-400 transition-all duration-300"
-                          style={{
-                            boxShadow: '0 0 8px rgba(0, 0, 0, 0.4)'
+                        <div style={{
+                          width: '42px',
+                          height: '42px',
+                          borderRadius: '50%',
+                          border: '2px solid rgba(255, 133, 0, 0.5)',
+                          padding: '2px',
+                          background: 'linear-gradient(135deg, rgba(255, 133, 0, 0.1) 0%, rgba(255, 184, 0, 0.1) 100%)',
+                          boxShadow: '0 0 20px rgba(255, 133, 0, 0.3)',
+                          transition: 'all 0.3s ease'
+                        }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow = '0 0 30px rgba(255, 133, 0, 0.6)';
+                            e.currentTarget.style.borderColor = 'rgba(255, 133, 0, 0.8)';
                           }}
-                        />
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = '0 0 20px rgba(255, 133, 0, 0.3)';
+                            e.currentTarget.style.borderColor = 'rgba(255, 133, 0, 0.5)';
+                          }}
+                        >
+                          <img
+                            src={session.user.image}
+                            alt="Profile"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              borderRadius: '50%',
+                              objectFit: 'cover'
+                            }}
+                          />
+                        </div>
                       </button>
                     ) : (
                       <button
-                        className="btn-login"
                         onClick={() => router.push('/account')}
                         style={{
-                          background: 'linear-gradient(135deg, #FF6600 0%, #FF8833 100%)',
+                          background: 'linear-gradient(135deg, #FF8500 0%, #FFB800 100%)',
+                          border: '1px solid rgba(255, 184, 0, 0.5)',
+                          color: '#000',
+                          padding: '12px 28px',
+                          borderRadius: '10px',
+                          fontSize: '14px',
+                          fontWeight: '700',
+                          letterSpacing: '1px',
+                          textTransform: 'uppercase',
+                          cursor: 'pointer',
+                          boxShadow: '0 4px 15px rgba(255, 133, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                          transition: 'all 0.3s ease',
+                          position: 'relative',
+                          overflow: 'hidden',
                           minWidth: '100px',
                           whiteSpace: 'nowrap'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.boxShadow = '0 6px 20px rgba(255, 133, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '0 4px 15px rgba(255, 133, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)';
                         }}
                       >
                         Member
@@ -346,13 +508,34 @@ export default function Navigation() {
                     )
                   ) : (
                     <button
-                      className="btn-login"
                       onClick={() => {
                         setIsLoginModalOpen(true);
                       }}
                       style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '2px solid rgba(255, 133, 0, 0.3)',
+                        color: '#FF8500',
+                        padding: '12px 28px',
+                        borderRadius: '10px',
+                        fontSize: '14px',
+                        fontWeight: '700',
+                        letterSpacing: '1px',
+                        textTransform: 'uppercase',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
                         minWidth: '100px',
-                        whiteSpace: 'nowrap'
+                        whiteSpace: 'nowrap',
+                        backdropFilter: 'blur(10px)'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 133, 0, 0.1)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 133, 0, 0.6)';
+                        e.currentTarget.style.boxShadow = '0 0 20px rgba(255, 133, 0, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 133, 0, 0.3)';
+                        e.currentTarget.style.boxShadow = 'none';
                       }}
                     >
                       Login
@@ -489,6 +672,7 @@ export default function Navigation() {
           </div>
         </div>
       </div>
+      <TickerScroller />
     </>
   );
 }

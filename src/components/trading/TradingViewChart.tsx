@@ -543,8 +543,8 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
             className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${activeTab === tab.id
-                ? 'text-[#2962ff] border-b-2 border-[#2962ff] bg-[#1e222d]'
-                : 'text-[#868993] hover:text-white'
+              ? 'text-[#2962ff] border-b-2 border-[#2962ff] bg-[#1e222d]'
+              : 'text-[#868993] hover:text-white'
               }`}
           >
             <span className="mr-1">{tab.icon}</span>
@@ -811,8 +811,8 @@ const DrawingPropertiesPanel: React.FC<DrawingPropertiesPanelProps> = ({
                     key={align.value}
                     onClick={() => updateText({ textAlign: align.value as any })}
                     className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${(selectedDrawing.richText?.textAlign || 'left') === align.value
-                        ? 'bg-[#2962ff] text-white'
-                        : 'bg-[#1e222d] text-[#868993] hover:text-white'
+                      ? 'bg-[#2962ff] text-white'
+                      : 'bg-[#1e222d] text-[#868993] hover:text-white'
                       }`}
                   >
                     {align.icon}
@@ -2978,7 +2978,14 @@ export default function TradingViewChart({
     };
 
     eventSource.onerror = (error) => {
-      console.error('❌ EventSource error:', error);
+      // Check if this is normal completion (readyState 2 = CLOSED)
+      if (eventSource.readyState === 2) {
+        console.log('ℹ️ GEX stream closed after completion');
+        eventSource.close();
+        return;
+      }
+
+      console.error('❌ GEX EventSource connection error:', error);
       eventSource.close();
       setIsGexLoading(false);
       setGexProgress(0);
@@ -3120,7 +3127,14 @@ export default function TradingViewChart({
       };
 
       eventSource.onerror = (error) => {
-        console.error('❌ FlowMoves EventSource error:', error);
+        // Check if this is normal completion (readyState 2 = CLOSED)
+        if (eventSource.readyState === 2) {
+          console.log('ℹ️ FlowMoves stream closed after completion');
+          eventSource.close();
+          return;
+        }
+
+        console.error('❌ FlowMoves EventSource connection error:', error);
         eventSource.close();
       };
     } catch (error) {
@@ -9137,8 +9151,8 @@ export default function TradingViewChart({
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`flex-1 px-4 py-2 text-sm font-black uppercase tracking-widest border-r-2 border-blue-900/30 last:border-r-0 transition-all duration-300 ${activeTab === tab
-                    ? 'bg-gradient-to-br from-blue-950/80 via-blue-900/70 to-blue-950/80 text-gray-200 border-b-4 border-b-lime-500/50'
-                    : 'bg-gradient-to-br from-blue-950/40 via-blue-900/30 to-blue-950/40 text-gray-400 hover:text-gray-300 hover:bg-blue-900/50'
+                  ? 'bg-gradient-to-br from-blue-950/80 via-blue-900/70 to-blue-950/80 text-gray-200 border-b-4 border-b-lime-500/50'
+                  : 'bg-gradient-to-br from-blue-950/40 via-blue-900/30 to-blue-950/40 text-gray-400 hover:text-gray-300 hover:bg-blue-900/50'
                   }`}
               >
                 {tab}
@@ -10120,8 +10134,8 @@ export default function TradingViewChart({
                             key={channel.id}
                             onClick={() => setActiveTab(channel.id)}
                             className={`w-full flex items-center space-x-4 px-4 py-3 rounded-lg text-left transition-all duration-300 group shadow-sm ${activeTab === channel.id
-                                ? 'bg-gradient-to-r from-gray-700 to-gray-600 text-white shadow-lg scale-105 border border-blue-400/50'
-                                : 'bg-black/60 text-gray-300 hover:bg-black/80 hover:text-white hover:scale-102 border border-gray-700/50'
+                              ? 'bg-gradient-to-r from-gray-700 to-gray-600 text-white shadow-lg scale-105 border border-blue-400/50'
+                              : 'bg-black/60 text-gray-300 hover:bg-black/80 hover:text-white hover:scale-102 border border-gray-700/50'
                               }`}
                           >
                             <span className="text-lg font-semibold text-white">
@@ -10276,8 +10290,8 @@ export default function TradingViewChart({
                       type="submit"
                       disabled={!currentMessage.trim()}
                       className={`group p-3 rounded-2xl transition-all duration-200 relative overflow-hidden ${currentMessage.trim()
-                          ? 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg hover:shadow-blue-500/25 transform hover:scale-105'
-                          : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                        ? 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg hover:shadow-blue-500/25 transform hover:scale-105'
+                        : 'bg-gray-700 text-gray-400 cursor-not-allowed'
                         }`}
                       title="Send message"
                     >
@@ -11424,8 +11438,8 @@ export default function TradingViewChart({
                 <button
                   onClick={() => setConfig(prev => ({ ...prev, theme: 'dark' }))}
                   className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'dark'
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                      : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+                    : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
                     }`}
                 >
                   🌙 Dark
@@ -11433,8 +11447,8 @@ export default function TradingViewChart({
                 <button
                   onClick={() => setConfig(prev => ({ ...prev, theme: 'light' }))}
                   className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${config.theme === 'light'
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                      : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+                    : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700'
                     }`}
                 >
                   ☀️ Light
@@ -12092,8 +12106,8 @@ export default function TradingViewChart({
           <button
             onClick={() => setMagnetMode(!magnetMode)}
             className={`px-3 py-1.5 text-xs rounded transition-colors ${magnetMode
-                ? 'bg-[#2962ff] text-white'
-                : 'bg-[#1e222d] text-[#868993] hover:text-white'
+              ? 'bg-[#2962ff] text-white'
+              : 'bg-[#1e222d] text-[#868993] hover:text-white'
               }`}
             title="Magnet Mode - Snap to OHLC values"
           >
@@ -12104,8 +12118,8 @@ export default function TradingViewChart({
           <button
             onClick={() => setShowDrawingHandles(!showDrawingHandles)}
             className={`px-3 py-1.5 text-xs rounded transition-colors ${showDrawingHandles
-                ? 'bg-[#2962ff] text-white'
-                : 'bg-[#1e222d] text-[#868993] hover:text-white'
+              ? 'bg-[#2962ff] text-white'
+              : 'bg-[#1e222d] text-[#868993] hover:text-white'
               }`}
             title="Show/Hide Drawing Handles"
           >
@@ -12208,8 +12222,8 @@ export default function TradingViewChart({
                           key={color}
                           onClick={() => updateHorizontalRayStyle(selectedRay, { color })}
                           className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${ray.color === color
-                              ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
-                              : 'border-gray-600 hover:border-gray-400'
+                            ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
+                            : 'border-gray-600 hover:border-gray-400'
                             }`}
                           style={{ backgroundColor: color }}
                           title={`Select ${color}`}
@@ -12231,8 +12245,8 @@ export default function TradingViewChart({
                           key={type}
                           onClick={() => updateHorizontalRayStyle(selectedRay, { lineStyle: type as any })}
                           className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${ray.lineStyle === type
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
                             }`}
                           title={title}
                         >
@@ -12251,8 +12265,8 @@ export default function TradingViewChart({
                           key={thickness}
                           onClick={() => updateHorizontalRayStyle(selectedRay, { lineWidth: thickness })}
                           className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${ray.lineWidth === thickness
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
                             }`}
                           title={`${thickness}px thickness`}
                         >
@@ -12341,8 +12355,8 @@ export default function TradingViewChart({
                             );
                           }}
                           className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 ${channel.color === color
-                              ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
-                              : 'border-gray-600 hover:border-gray-400'
+                            ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
+                            : 'border-gray-600 hover:border-gray-400'
                             }`}
                           style={{ backgroundColor: color }}
                           title={`Select ${color}`}
@@ -12372,8 +12386,8 @@ export default function TradingViewChart({
                             );
                           }}
                           className={`px-3 py-3 text-sm rounded-lg font-mono transition-all ${channel.lineStyle === type
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
                             }`}
                           title={title}
                         >
@@ -12400,8 +12414,8 @@ export default function TradingViewChart({
                             );
                           }}
                           className={`px-4 py-3 text-sm rounded-lg font-semibold transition-all ${channel.lineWidth === thickness
-                              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
-                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
+                            ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400 ring-opacity-50'
+                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-600'
                             }`}
                           title={`${thickness}px thickness`}
                         >
@@ -12461,8 +12475,8 @@ export default function TradingViewChart({
                                 );
                               }}
                               className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-105 relative overflow-hidden ${channel.fillColor === color
-                                  ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
-                                  : 'border-gray-600 hover:border-gray-400'
+                                ? 'border-white shadow-lg ring-2 ring-white ring-opacity-50'
+                                : 'border-gray-600 hover:border-gray-400'
                                 }`}
                               style={{ backgroundColor: baseColors[idx] }}
                               title={`Fill with ${baseColors[idx]}`}

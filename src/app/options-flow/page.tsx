@@ -548,32 +548,39 @@ export default function OptionsFlowPage() {
 
         // Check if this is just a normal close after completion
         if (eventSource.readyState === 2) { // CLOSED state
-          console.log('ℹ️ Stream closed normally');
+          console.log('ℹ️ Stream closed normally after completion');
           eventSource.close();
           setStreamingStatus('');
           setLoading(false);
           return;
         }
 
-        // Simplified error handling - don't spam logs
-        console.warn('⚠️ EventSource connection issue - closing stream');
+        // Check if stream is connecting (readyState 0) - this is a real connection error
+        if (eventSource.readyState === 0) {
+          console.warn('⚠️ EventSource connection failed during initial connection');
+          eventSource.close();
 
-        eventSource.close();
-
-        // Only retry once on connection failure
-        if (currentRetry === 0 && eventSource.readyState === 0) {
-          console.log('🔄 Retrying connection once...');
-          setRetryCount(1);
-          setTimeout(() => {
-            fetchOptionsFlowStreaming(1);
-          }, 2000);
-        } else {
-          // Don't retry multiple times - just fail gracefully
-          setStreamError('Stream connection unavailable');
-          setStreamingStatus('');
-          setLoading(false);
-          console.log('ℹ️ Stream closed, data fetching complete');
+          // Only retry once on connection failure
+          if (currentRetry === 0) {
+            console.log('🔄 Retrying connection once...');
+            setRetryCount(1);
+            setTimeout(() => {
+              fetchOptionsFlowStreaming(1);
+            }, 2000);
+          } else {
+            setStreamError('Stream connection unavailable');
+            setStreamingStatus('');
+            setLoading(false);
+          }
+          return;
         }
+
+        // For any other case (readyState 1 - OPEN), this is likely normal completion
+        // The browser fires onerror when the server closes the stream after sending 'complete'
+        console.log('ℹ️ Stream connection closed (data transfer complete)');
+        eventSource.close();
+        setStreamingStatus('');
+        setLoading(false);
       };
 
     } catch (error) {
