@@ -2589,3 +2589,19 @@ h1 {
         height: 2px;
     }
 }
+
+/* =================================================================
+   TICKER SCROLLER RESPONSIVE BEHAVIOR
+   ================================================================= */
+/* Hide ticker scroller on mobile devices, show on desktop only */
+@media (max-width: 1024px) {
+    .ticker-scroller-container {
+        display: none !important;
+    }
+}
+
+@media (min-width: 1025px) {
+    .ticker-scroller-container {
+        display: flex !important;
+    }
+}

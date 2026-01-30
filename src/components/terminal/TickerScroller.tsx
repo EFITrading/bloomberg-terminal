@@ -41,116 +41,212 @@ export default function TickerScroller() {
     const [afterHoursMovers, setAfterHoursMovers] = useState<{ gainers: MoverData[], losers: MoverData[] }>({ gainers: [], losers: [] });
     const [moversLoading, setMoversLoading] = useState(false);
 
-    // Fetch Pre-Market Movers (current day 4AM-9:30AM)
+    // Fetch Pre-Market Movers (current day 4AM-9:30AM ET)
     useEffect(() => {
-        const fetchPreMarketMovers = async () => {
-            setMoversLoading(true);
-            try {
-                // Use snapshot endpoint - gets ALL tickers in ONE call
-                const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
-                const response = await fetch(url);
+        // Delay scan to let main dashboard load first
+        const initialDelay = setTimeout(() => {
+            const fetchPreMarketMovers = async () => {
+                setMoversLoading(true);
+                try {
+                    // Use explicit date to avoid timezone issues
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, '0');
+                    const day = String(now.getDate()).padStart(2, '0');
+                    const todayStr = `${year}-${month}-${day}`;
 
-                if (!response.ok) {
-                    setMoversLoading(false);
-                    return;
-                }
+                    // Pre-market: 4AM - 9:30AM ET = 9AM - 2:30PM UTC
+                    const preMarketStart = new Date(todayStr + 'T09:00:00Z');
+                    const preMarketEnd = new Date(todayStr + 'T14:30:00Z');
 
-                const data = await response.json();
-                const results: MoverData[] = [];
+                    const results: MoverData[] = [];
+                    let totalSymbolsChecked = 0;
+                    let symbolsWithData = 0;
 
-                if (data.tickers) {
-                    for (const ticker of data.tickers) {
-                        if (!TOP_1800_SYMBOLS.includes(ticker.ticker)) continue;
+                    // Helper to add delay
+                    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-                        if (ticker.prevDay?.c && ticker.todaysChangePerc !== undefined) {
-                            const changePercent = ticker.todaysChangePerc;
-                            const price = ticker.lastTrade?.p || ticker.prevDay.c;
-                            const change = price - ticker.prevDay.c;
+                    // Process with controlled concurrency - max 3 requests at a time
+                    const concurrencyLimit = 3;
+                    const delayBetweenRequests = 200; // 200ms between each request
 
-                            if (Math.abs(changePercent) > 0.5) {
-                                results.push({
-                                    symbol: ticker.ticker,
-                                    price,
-                                    change,
-                                    changePercent,
-                                    hasPreMarket: true,
-                                    hasAfterHours: false
-                                });
+                    const fetchSymbol = async (symbol: string): Promise<MoverData | null> => {
+                        totalSymbolsChecked++;
+                        try {
+                            const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${preMarketStart.getTime()}/${preMarketEnd.getTime()}?adjusted=true&sort=asc&limit=5000&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+                            const response = await fetch(url);
+                            await delay(delayBetweenRequests); // Rate limit after each request
+
+                            if (!response.ok) {
+                                return null;
                             }
+
+                            const data = await response.json();
+
+                            if (data.results && data.results.length >= 2) {
+                                symbolsWithData++;
+                                const firstBar = data.results[0];
+                                const lastBar = data.results[data.results.length - 1];
+
+                                const priceChange = lastBar.c - firstBar.o;
+                                const changePercent = (priceChange / firstBar.o) * 100;
+
+                                if (Math.abs(changePercent) > 0.5) {
+                                    return {
+                                        symbol: symbol,
+                                        price: lastBar.c,
+                                        change: priceChange,
+                                        changePercent,
+                                        hasPreMarket: true,
+                                        hasAfterHours: false
+                                    };
+                                }
+                            }
+                            return null;
+                        } catch (err) {
+                            return null;
                         }
+                    };
+
+                    // Process symbols with concurrency control
+                    for (let i = 0; i < TOP_1800_SYMBOLS.length; i += concurrencyLimit) {
+                        const chunk = TOP_1800_SYMBOLS.slice(i, i + concurrencyLimit);
+                        const chunkResults = await Promise.all(chunk.map(fetchSymbol));
+                        const validResults = chunkResults.filter((r): r is MoverData => r !== null);
+                        results.push(...validResults);
                     }
+
+                    // Deduplicate by symbol (keep first occurrence)
+                    const deduped = results.filter((item, index, self) =>
+                        index === self.findIndex(t => t.symbol === item.symbol)
+                    );
+
+                    const sortedByChange = [...deduped].sort((a, b) => b.changePercent - a.changePercent);
+
+                    const gainers = sortedByChange.slice(0, 10);
+                    const losers = sortedByChange.slice(-10).reverse();
+
+                    setPreMarketMovers({ gainers, losers });
+
+                } catch (error) {
+                    // Silent error handling
+                } finally {
+                    setMoversLoading(false);
                 }
+            };
 
-                const sortedByChange = [...results].sort((a, b) => b.changePercent - a.changePercent);
+            fetchPreMarketMovers();
+            const interval = setInterval(fetchPreMarketMovers, 300000); // Every 5 minutes
+            return () => {
+                clearInterval(interval);
+            };
+        }, 180000); // Wait 3 minutes for industry analysis and market regime to fully load
 
-                setPreMarketMovers({
-                    gainers: sortedByChange.slice(0, 10),
-                    losers: sortedByChange.slice(-10).reverse()
-                });
-
-            } catch (error) {
-                // Silent error
-            } finally {
-                setMoversLoading(false);
-            }
-        };
-
-        fetchPreMarketMovers();
-        const interval = setInterval(fetchPreMarketMovers, 300000);
-        return () => clearInterval(interval);
+        return () => clearTimeout(initialDelay);
     }, []);
 
-    // Fetch After-Hours Movers (previous trading day market close to 7:55PM)
+    // Fetch After-Hours Movers (4PM-7:55PM ET)
     useEffect(() => {
-        const fetchAfterHoursMovers = async () => {
-            try {
-                // Use snapshot endpoint - gets ALL tickers in ONE call
-                const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
-                const response = await fetch(url);
+        // Delay scan to let main dashboard load first
+        const initialDelay = setTimeout(() => {
+            const fetchAfterHoursMovers = async () => {
+                try {
+                    // Use explicit date to avoid timezone issues
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, '0');
+                    const day = String(now.getDate()).padStart(2, '0');
+                    const todayStr = `${year}-${month}-${day}`;
 
-                if (!response.ok) return;
+                    // After-hours: 4PM - 7:55PM ET = 9PM - 12:55AM UTC (next day)
+                    const marketClose = new Date(todayStr + 'T21:00:00Z');
+                    const nextDay = new Date(now);
+                    nextDay.setDate(nextDay.getDate() + 1);
+                    const nextDayStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+                    const afterHoursEnd = new Date(nextDayStr + 'T00:55:00Z');
 
-                const data = await response.json();
-                const results: MoverData[] = [];
+                    const results: MoverData[] = [];
+                    let totalSymbolsChecked = 0;
+                    let symbolsWithData = 0;
 
-                if (data.tickers) {
-                    for (const ticker of data.tickers) {
-                        if (!TOP_1800_SYMBOLS.includes(ticker.ticker)) continue;
+                    // Helper to add delay
+                    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-                        if (ticker.prevDay?.c && ticker.todaysChangePerc !== undefined) {
-                            const changePercent = ticker.todaysChangePerc;
-                            const price = ticker.lastTrade?.p || ticker.prevDay.c;
-                            const change = price - ticker.prevDay.c;
+                    // Process with controlled concurrency - max 3 requests at a time
+                    const concurrencyLimit = 3;
+                    const delayBetweenRequests = 200; // 200ms between each request
 
-                            if (Math.abs(changePercent) > 0.5) {
-                                results.push({
-                                    symbol: ticker.ticker,
-                                    price,
-                                    change,
-                                    changePercent,
-                                    hasPreMarket: false,
-                                    hasAfterHours: true
-                                });
+                    const fetchSymbol = async (symbol: string): Promise<MoverData | null> => {
+                        totalSymbolsChecked++;
+                        try {
+                            const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${marketClose.getTime()}/${afterHoursEnd.getTime()}?adjusted=true&sort=asc&limit=5000&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+                            const response = await fetch(url);
+                            await delay(delayBetweenRequests); // Rate limit after each request
+
+                            if (!response.ok) {
+                                return null;
                             }
+
+                            const data = await response.json();
+
+                            if (data.results && data.results.length >= 2) {
+                                symbolsWithData++;
+                                const firstBar = data.results[0];
+                                const lastBar = data.results[data.results.length - 1];
+
+                                const priceChange = lastBar.c - firstBar.o;
+                                const changePercent = (priceChange / firstBar.o) * 100;
+
+                                if (Math.abs(changePercent) > 0.5) {
+                                    return {
+                                        symbol: symbol,
+                                        price: lastBar.c,
+                                        change: priceChange,
+                                        changePercent,
+                                        hasPreMarket: false,
+                                        hasAfterHours: true
+                                    };
+                                }
+                            }
+                            return null;
+                        } catch (err) {
+                            return null;
                         }
+                    };
+
+                    // Process symbols with concurrency control
+                    for (let i = 0; i < TOP_1800_SYMBOLS.length; i += concurrencyLimit) {
+                        const chunk = TOP_1800_SYMBOLS.slice(i, i + concurrencyLimit);
+                        const chunkResults = await Promise.all(chunk.map(fetchSymbol));
+                        const validResults = chunkResults.filter((r): r is MoverData => r !== null);
+                        results.push(...validResults);
                     }
+
+                    // Deduplicate by symbol (keep first occurrence)
+                    const deduped = results.filter((item, index, self) =>
+                        index === self.findIndex(t => t.symbol === item.symbol)
+                    );
+
+                    const sortedByChange = [...deduped].sort((a, b) => b.changePercent - a.changePercent);
+
+                    const gainers = sortedByChange.slice(0, 10);
+                    const losers = sortedByChange.slice(-10).reverse();
+
+                    setAfterHoursMovers({ gainers, losers });
+
+                } catch (error) {
+                    // Silent error handling
                 }
+            };
 
-                const sortedByChange = [...results].sort((a, b) => b.changePercent - a.changePercent);
+            fetchAfterHoursMovers();
+            const interval = setInterval(fetchAfterHoursMovers, 300000); // Every 5 minutes
+            return () => {
+                clearInterval(interval);
+            };
+        }, 180000); // Wait 3 minutes for industry analysis and market regime to fully load
 
-                setAfterHoursMovers({
-                    gainers: sortedByChange.slice(0, 10),
-                    losers: sortedByChange.slice(-10).reverse()
-                });
-
-            } catch (error) {
-                // Silent error
-            }
-        };
-
-        fetchAfterHoursMovers();
-        const interval = setInterval(fetchAfterHoursMovers, 300000);
-        return () => clearInterval(interval);
+        return () => clearTimeout(initialDelay);
     }, []);
 
     useEffect(() => {
@@ -221,7 +317,7 @@ export default function TickerScroller() {
 
     return (
         <>
-            <div style={{
+            <div className="ticker-scroller-container" style={{
                 width: '100%',
                 background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
                 borderBottom: '1px solid rgba(255, 165, 0, 0.2)',
@@ -449,7 +545,7 @@ export default function TickerScroller() {
                                     </div>
                                     <div style={{ padding: '6px' }}>
                                         {preMarketMovers.gainers.slice(0, 10).map((mover, idx) => (
-                                            <div key={mover.symbol} style={{
+                                            <div key={`pm-gainer-${mover.symbol}`} style={{
                                                 display: 'flex',
                                                 justifyContent: 'space-between',
                                                 alignItems: 'center',
@@ -529,7 +625,7 @@ export default function TickerScroller() {
                                     </div>
                                     <div style={{ padding: '6px' }}>
                                         {preMarketMovers.losers.slice(0, 10).map((mover, idx) => (
-                                            <div key={mover.symbol} style={{
+                                            <div key={`pm-loser-${mover.symbol}`} style={{
                                                 display: 'flex',
                                                 justifyContent: 'space-between',
                                                 alignItems: 'center',
@@ -689,7 +785,7 @@ export default function TickerScroller() {
                                     </div>
                                     <div style={{ padding: '6px' }}>
                                         {afterHoursMovers.gainers.slice(0, 10).map((mover, idx) => (
-                                            <div key={mover.symbol} style={{
+                                            <div key={`ah-gainer-${mover.symbol}`} style={{
                                                 display: 'flex',
                                                 justifyContent: 'space-between',
                                                 alignItems: 'center',
@@ -769,7 +865,7 @@ export default function TickerScroller() {
                                     </div>
                                     <div style={{ padding: '6px' }}>
                                         {afterHoursMovers.losers.slice(0, 10).map((mover, idx) => (
-                                            <div key={mover.symbol} style={{
+                                            <div key={`ah-loser-${mover.symbol}`} style={{
                                                 display: 'flex',
                                                 justifyContent: 'space-between',
                                                 alignItems: 'center',

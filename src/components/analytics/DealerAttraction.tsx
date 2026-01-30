@@ -3799,9 +3799,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [analysisType, setAnalysisType] = useState<'GEX'>('GEX'); // Gamma Exposure by default
   const [vexByStrikeByExpiration, setVexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVega?: number, putVega?: number } } }>({});
   const [flowGexByStrikeByExpiration, setFlowGexByStrikeByExpiration] = useState<{ [expiration: string]: { [strike: number]: { call: number, put: number, callOI: number, putOI: number, callVolume: number, putVolume: number } } }>({});
-  const [showGEX, setShowGEX] = useState(typeof window !== 'undefined' && window.innerWidth < 768 ? true : false);
-  const [showDealer, setShowDealer] = useState(false);
-  const [duoMode, setDuoMode] = useState(false);
+  // Desktop: Duo mode (both showGEX and showDealer true) | Mobile: Normal + Dealer (both true)
+  const [showGEX, setShowGEX] = useState(true);
+  const [showDealer, setShowDealer] = useState(true);
+  const [duoMode, setDuoMode] = useState(typeof window !== 'undefined' && window.innerWidth >= 768 ? true : false);
   const [gexMode, setGexMode] = useState<'Net GEX' | 'Net Dealer'>('Net GEX');
   const [showFlowGEX, setShowFlowGEX] = useState(false);
   const [showHistoricalGEX, setShowHistoricalGEX] = useState(true); // Historical GEX Timeline - always on
@@ -4360,6 +4361,18 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const [otmFilter, setOtmFilter] = useState<'1%' | '2%' | '3%' | '5%' | '8%' | '10%' | '15%' | '20%' | '25%' | '40%' | '50%' | '100%'>('2%');
   const [progress, setProgress] = useState(0);
 
+  // Update OTM filter based on selected ticker
+  useEffect(() => {
+    if (selectedTicker) {
+      const ticker = selectedTicker.toUpperCase();
+      // For SPY and QQQ, use 2% default; for all others use 20%
+      if (ticker === 'SPY' || ticker === 'QQQ') {
+        setOtmFilter('2%');
+      } else {
+        setOtmFilter('20%');
+      }
+    }
+  }, [selectedTicker]);
 
   // Helper function to get strike range based on OTM filter
   const getStrikeRange = (price: number) => {
@@ -6431,10 +6444,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           </select>
                         </div>
 
-                        {/* Bloomberg Theme Toggle Button */}
+                        {/* Bloomberg Theme Toggle Button - Hidden (BB mode is default) */}
                         <button
                           onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                          className={`flex items-center justify-center px-2 font-black text-xs transition-all rounded ${useBloombergTheme
+                          className={`hidden flex items-center justify-center px-2 font-black text-xs transition-all rounded ${useBloombergTheme
                             ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
                             : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
                             }`}
@@ -6447,6 +6460,25 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         >
                           BB
                         </button>
+
+                        {/* Historical GEX Button - Mobile only, hidden when ODTRIO is active */}
+                        {!showODTRIO && (
+                          <button
+                            onClick={() => setShowHistoricalGEX(!showHistoricalGEX)}
+                            className={`md:hidden flex items-center justify-center px-2 font-black text-xs transition-all rounded ${showHistoricalGEX
+                              ? 'bg-blue-500 text-white border-2 border-blue-400 hover:bg-blue-400'
+                              : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-blue-500 hover:text-blue-500'
+                              }`}
+                            style={{
+                              height: '36px',
+                              minWidth: '90px',
+                              boxShadow: showHistoricalGEX ? '0 0 10px rgba(59, 130, 246, 0.5)' : 'none'
+                            }}
+                            title="Toggle Historical GEX Scrubber"
+                          >
+                            HISTORICAL
+                          </button>
+                        )}
 
                         {/* ODTRIO Button - Flow Map style with blue text - Desktop only */}
                         <button
@@ -6936,10 +6968,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         </div>
                       </div>
 
-                      {/* Bloomberg Theme Toggle Button */}
+                      {/* Bloomberg Theme Toggle Button - Hidden (BB mode is default) */}
                       <button
                         onClick={() => setUseBloombergTheme(!useBloombergTheme)}
-                        className={`flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${useBloombergTheme
+                        className={`hidden flex items-center gap-2 px-4 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-200 ${useBloombergTheme
                           ? 'bg-amber-500 text-black border-2 border-amber-400 hover:bg-amber-400'
                           : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-amber-500 hover:text-amber-500'
                           }`}
@@ -7152,8 +7184,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             <>
               {/* Dealer Attraction Legend - Only show when Live OI mode is active */}
 
-              {/* GEX Timeline Scrubber - Always visible when ticker selected, but hide when OI mode is active */}
-              {!showODTRIO && selectedTicker && !showOI && (
+              {/* GEX Timeline Scrubber - Show when showHistoricalGEX is true, ticker selected, and not in OI or ODTRIO mode */}
+              {showHistoricalGEX && !showODTRIO && selectedTicker && !showOI && (
                 <div className="px-4 pb-4">
                   <GEXTimelineScrubber
                     key={selectedTicker}

@@ -102,6 +102,7 @@ import RRGAnalytics from '../analytics/RRGAnalytics';
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics';
 import SeasonalityChart from '../analytics/SeasonalityChart';
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns';
+import AlmanacDailyChart from '../analytics/AlmanacDailyChart';
 import SeasonaxLanding from '../seasonax/SeasonaxLanding';
 import LWChartDrawingTools from './LWChartDrawingTools';
 
@@ -4788,6 +4789,7 @@ export default function TradingViewChart({
   const [seasonalWorst30Day, setSeasonalWorst30Day] = useState<any>(null);
   const [seasonalSweetSpotActive, setSeasonalSweetSpotActive] = useState(false);
   const [seasonalPainPointActive, setSeasonalPainPointActive] = useState(false);
+  const [seasonalShowMonthly, setSeasonalShowMonthly] = useState(false);
   const [seasonalData, setSeasonalData] = useState<any>(null);
   const [seasonalLoading, setSeasonalLoading] = useState(false);
   const [seasonalScanStarted, setSeasonalScanStarted] = useState(false);
@@ -18929,7 +18931,8 @@ export default function TradingViewChart({
               boxShadow: 'inset 0 1px 0 rgba(128, 128, 128, 0.1)',
               backdropFilter: 'none',
               overflow: 'hidden',
-              zIndex: 10000
+              zIndex: 10000,
+              display: (typeof window !== 'undefined' && window.innerWidth <= 768 && activeSidebarPanel) ? 'none' : 'flex'
             }}
           >
             {/* Premium Gray Border Animation */}
@@ -18967,7 +18970,12 @@ export default function TradingViewChart({
             </div>
 
             {/* Symbol and Price Info */}
-            <div className="flex items-center w-full relative z-10">
+            <div
+              className="flex items-center w-full relative z-10"
+              style={{
+                display: (typeof window !== 'undefined' && window.innerWidth <= 768 && activeSidebarPanel) ? 'none' : 'flex'
+              }}
+            >
               {/* Left side: Symbol Search + Price + Controls */}
               <div className="flex items-center space-x-8 flex-shrink-0">
                 <div className="flex items-center space-x-3">
@@ -21932,11 +21940,14 @@ export default function TradingViewChart({
                   const isActive = activeSidebarPanel === item.id;
 
                   return (
-                    <div key={item.id} className="flex flex-col items-center w-full px-2 mb-2">
+                    <div key={item.id} className="flex flex-col items-center w-full px-2" style={{
+                      marginBottom: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0' : '0.5rem'
+                    }}>
                       <button
-                        className="group relative w-full md:py-8 py-4 flex flex-col items-center justify-center md:gap-2.5 gap-1
- transition-all duration-500 ease-out active:scale-95 rounded-lg overflow-hidden backdrop-blur-xl"
+                        className="group relative w-full flex flex-col items-center justify-center transition-all duration-500 ease-out active:scale-95 rounded-lg overflow-hidden backdrop-blur-xl"
                         style={{
+                          padding: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.38rem 0' : '0.95rem 0',
+                          gap: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.25rem' : '0.5rem',
                           background: isActive
                             ? `linear-gradient(135deg, 
                                 ${accentColors[item.accent]}18 0%, 
@@ -22008,7 +22019,7 @@ export default function TradingViewChart({
                         title={item.label}
                       >
                         {/* Mobile label above icon */}
-                        <span className="md:hidden text-[8px] font-bold uppercase tracking-tight relative z-10" style={{ color: isActive ? accentColors[item.accent] : '#FFFFFF' }}>
+                        <span className="md:hidden text-[7px] font-bold uppercase tracking-tight relative z-10" style={{ color: isActive ? accentColors[item.accent] : '#FFFFFF' }}>
                           {item.label}
                         </span>
                         {/* Premium glass overlay with color tint */}
@@ -22736,8 +22747,12 @@ export default function TradingViewChart({
           {/* Sidebar Panels */}
           {activeSidebarPanel && (
             <div
-              className={`fixed top-38 md:top-45 bottom-4 left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
-              style={{ maxWidth: activeSidebarPanel === 'liquid' ? 'fit-content' : '1200px' }}
+              className={`fixed left-0 md:left-[100px] w-full bg-[#0a0a0a] border-r border-[#1a1a1a] shadow-2xl z-40 transform transition-transform duration-300 ease-out rounded-lg ${activeSidebarPanel === 'trades' ? '' : 'overflow-hidden'}`}
+              style={{
+                maxWidth: activeSidebarPanel === 'liquid' ? 'fit-content' : '1200px',
+                top: typeof window !== 'undefined' && window.innerWidth <= 768 ? '85px' : '180px',
+                bottom: '16px'
+              }}
               data-sidebar-panel={activeSidebarPanel}
             >
               {/* Sidebar panel debugging */}
@@ -23630,7 +23645,7 @@ export default function TradingViewChart({
                           `}</style>
 
                           {/* Row 1: Controls */}
-                          <div style={{
+                          <div className="seasonality-controls-row-1" style={{
                             display: 'flex',
                             alignItems: 'center',
                             gap: '12px',
@@ -23662,6 +23677,7 @@ export default function TradingViewChart({
 
                             {/* Compare Button */}
                             <button
+                              className="compare-btn-mobile"
                               onClick={() => {
                                 // TODO: Implement compare functionality
                                 console.log('Compare clicked');
@@ -23695,21 +23711,21 @@ export default function TradingViewChart({
                               value={seasonalElectionMode}
                               onChange={(e) => setSeasonalElectionMode(e.target.value)}
                               style={{
-                                padding: '8px 12px',
+                                padding: '9.6px 14.4px',
                                 background: '#0a0a0a',
                                 border: '1px solid rgba(255, 107, 0, 0.4)',
                                 borderRadius: '3px',
                                 color: '#fff',
-                                fontSize: '12px',
+                                fontSize: '14.4px',
                                 fontWeight: '600',
-                                maxWidth: '140px'
+                                minWidth: typeof window !== 'undefined' && window.innerWidth > 768 ? '180px' : '100px'
                               }}
                             >
-                              <option>Normal Mode</option>
-                              <option>Election Year</option>
-                              <option>Post-Election</option>
-                              <option>Mid-Term</option>
-                              <option>Pre-Election</option>
+                              <option value="Normal">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Normal Mode' : 'Normal'}</option>
+                              <option value="Election">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Election Year' : 'Election'}</option>
+                              <option value="Post">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Post Election' : 'Post'}</option>
+                              <option value="Midterm">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Midterm' : 'Midterm'}</option>
+                              <option value="Pre">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Pre Election' : 'Pre'}</option>
                             </select>
 
                             {/* Year Selector */}
@@ -23717,225 +23733,379 @@ export default function TradingViewChart({
                               value={seasonalYears}
                               onChange={(e) => setSeasonalYears(Number(e.target.value))}
                               style={{
-                                padding: '8px 12px',
+                                padding: '9.6px 14.4px',
                                 background: '#0a0a0a',
                                 border: '1px solid rgba(255, 107, 0, 0.4)',
                                 borderRadius: '3px',
                                 color: '#fff',
-                                fontSize: '12px',
+                                fontSize: '14.4px',
                                 fontWeight: '600',
-                                maxWidth: '130px'
+                                minWidth: typeof window !== 'undefined' && window.innerWidth > 768 ? '144px' : '70px'
                               }}
                             >
-                              <option value={5}>5 Years</option>
-                              <option value={10}>10 Years</option>
-                              <option value={15}>15 Years</option>
-                              <option value={20}>20 Years (Max)</option>
+                              {availableSeasonalYears.length > 0 ? (
+                                availableSeasonalYears.map(years => (
+                                  <option key={years} value={years}>
+                                    {typeof window !== 'undefined' && window.innerWidth > 768
+                                      ? `${years} ${years === 1 ? 'Year' : 'Years'}`
+                                      : `${years}Y`
+                                    }
+                                  </option>
+                                ))
+                              ) : (
+                                <>
+                                  <option value={5}>{typeof window !== 'undefined' && window.innerWidth > 768 ? '5 Years' : '5Y'}</option>
+                                  <option value={10}>{typeof window !== 'undefined' && window.innerWidth > 768 ? '10 Years' : '10Y'}</option>
+                                  <option value={15}>{typeof window !== 'undefined' && window.innerWidth > 768 ? '15 Years' : '15Y'}</option>
+                                  <option value={20}>{typeof window !== 'undefined' && window.innerWidth > 768 ? '20 Years' : '20Y'}</option>
+                                </>
+                              )}
                             </select>
 
-                            {/* Sweet Spot Button */}
+                            {/* Sweet Spot Button - Desktop Only */}
+                            {typeof window !== 'undefined' && window.innerWidth > 768 && (
+                              <button
+                                className="sweet-spot-btn-desktop"
+                                onClick={() => {
+                                  const newState = !seasonalSweetSpotActive;
+                                  setSeasonalSweetSpotActive(newState);
+
+                                  // Trigger sweet spot calculation in the chart below
+                                  const chartContainer = document.querySelector('.seasonality-custom-panel .seasonax-container');
+                                  if (chartContainer) {
+                                    const sweetSpotBtn = chartContainer.querySelector('.sweet-spot-btn') as HTMLButtonElement;
+                                    if (sweetSpotBtn) sweetSpotBtn.click();
+                                  }
+                                }}
+                                style={{
+                                  padding: '9.6px 19.2px',
+                                  background: seasonalSweetSpotActive
+                                    ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
+                                    : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
+                                  border: seasonalSweetSpotActive
+                                    ? '1px solid rgba(0, 255, 100, 0.8)'
+                                    : '1px solid rgba(0, 255, 100, 0.4)',
+                                  borderRadius: '3px',
+                                  color: '#00ff66',
+                                  fontSize: '13.2px',
+                                  fontWeight: '700',
+                                  textTransform: 'uppercase',
+                                  cursor: 'pointer',
+                                  letterSpacing: '0.5px',
+                                  transition: 'all 0.2s ease',
+                                  boxShadow: seasonalSweetSpotActive ? '0 0 15px rgba(0, 255, 100, 0.4)' : 'none'
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!seasonalSweetSpotActive) {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #006d00 0%, #003600 100%)';
+                                    e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!seasonalSweetSpotActive) {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #004d00 0%, #002600 100%)';
+                                    e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)';
+                                  }
+                                }}>
+                                {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
+                              </button>
+                            )}
+
+                            {/* Pain Point Button - Desktop Only */}
+                            {typeof window !== 'undefined' && window.innerWidth > 768 && (
+                              <button
+                                className="pain-point-btn-desktop"
+                                onClick={() => {
+                                  const newState = !seasonalPainPointActive;
+                                  setSeasonalPainPointActive(newState);
+
+                                  // Trigger pain point calculation in the chart below
+                                  const chartContainer = document.querySelector('.seasonality-custom-panel .seasonax-container');
+                                  if (chartContainer) {
+                                    const painPointBtn = chartContainer.querySelector('.pain-point-btn') as HTMLButtonElement;
+                                    if (painPointBtn) painPointBtn.click();
+                                  }
+                                }}
+                                style={{
+                                  padding: '9.6px 19.2px',
+                                  background: seasonalPainPointActive
+                                    ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
+                                    : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
+                                  border: seasonalPainPointActive
+                                    ? '1px solid rgba(255, 0, 0, 0.8)'
+                                    : '1px solid rgba(255, 0, 0, 0.4)',
+                                  borderRadius: '3px',
+                                  color: '#ff0044',
+                                  fontSize: '13.2px',
+                                  fontWeight: '700',
+                                  textTransform: 'uppercase',
+                                  cursor: 'pointer',
+                                  letterSpacing: '0.5px',
+                                  transition: 'all 0.2s ease',
+                                  boxShadow: seasonalPainPointActive ? '0 0 15px rgba(255, 0, 0, 0.4)' : 'none'
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!seasonalPainPointActive) {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #6d0000 0%, #360000 100%)';
+                                    e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!seasonalPainPointActive) {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #4d0000 0%, #260000 100%)';
+                                    e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)';
+                                  }
+                                }}>
+                                {seasonalPainPointActive ? '✓ ' : ''}Pain Point
+                              </button>
+                            )}
+
+                            {/* Month Button */}
                             <button
-                              onClick={() => {
-                                const newState = !seasonalSweetSpotActive;
-                                setSeasonalSweetSpotActive(newState);
-
-                                // Trigger sweet spot calculation in the chart below
-                                const chartContainer = document.querySelector('.seasonality-custom-panel .seasonax-container');
-                                if (chartContainer) {
-                                  const sweetSpotBtn = chartContainer.querySelector('.sweet-spot-btn') as HTMLButtonElement;
-                                  if (sweetSpotBtn) sweetSpotBtn.click();
-                                }
-                              }}
+                              className="month-btn-mobile"
+                              onClick={() => setSeasonalShowMonthly(!seasonalShowMonthly)}
                               style={{
-                                padding: '8px 16px',
-                                background: seasonalSweetSpotActive
-                                  ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
-                                  : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
-                                border: seasonalSweetSpotActive
-                                  ? '1px solid rgba(0, 255, 100, 0.8)'
-                                  : '1px solid rgba(0, 255, 100, 0.4)',
+                                padding: '8px 12px',
+                                background: seasonalShowMonthly
+                                  ? '#ff6b00'
+                                  : '#0a0a0a',
+                                border: '1px solid rgba(255, 107, 0, 0.4)',
                                 borderRadius: '3px',
-                                color: '#00ff66',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                textTransform: 'uppercase',
+                                color: seasonalShowMonthly ? '#000' : '#fff',
+                                fontSize: '12px',
+                                fontWeight: '600',
                                 cursor: 'pointer',
-                                letterSpacing: '0.5px',
-                                transition: 'all 0.2s ease',
-                                boxShadow: seasonalSweetSpotActive ? '0 0 15px rgba(0, 255, 100, 0.4)' : 'none'
+                                transition: 'all 0.2s ease'
                               }}
-                              onMouseEnter={(e) => {
-                                if (!seasonalSweetSpotActive) {
-                                  e.currentTarget.style.background = 'linear-gradient(135deg, #006d00 0%, #003600 100%)';
-                                  e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (!seasonalSweetSpotActive) {
-                                  e.currentTarget.style.background = 'linear-gradient(135deg, #004d00 0%, #002600 100%)';
-                                  e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)';
-                                }
-                              }}>
-                              {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
-                            </button>
-
-                            {/* Pain Point Button */}
-                            <button
-                              onClick={() => {
-                                const newState = !seasonalPainPointActive;
-                                setSeasonalPainPointActive(newState);
-
-                                // Trigger pain point calculation in the chart below
-                                const chartContainer = document.querySelector('.seasonality-custom-panel .seasonax-container');
-                                if (chartContainer) {
-                                  const painPointBtn = chartContainer.querySelector('.pain-point-btn') as HTMLButtonElement;
-                                  if (painPointBtn) painPointBtn.click();
-                                }
-                              }}
-                              style={{
-                                padding: '8px 16px',
-                                background: seasonalPainPointActive
-                                  ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
-                                  : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
-                                border: seasonalPainPointActive
-                                  ? '1px solid rgba(255, 0, 0, 0.8)'
-                                  : '1px solid rgba(255, 0, 0, 0.4)',
-                                borderRadius: '3px',
-                                color: '#ff0044',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                textTransform: 'uppercase',
-                                cursor: 'pointer',
-                                letterSpacing: '0.5px',
-                                transition: 'all 0.2s ease',
-                                boxShadow: seasonalPainPointActive ? '0 0 15px rgba(255, 0, 0, 0.4)' : 'none'
-                              }}
-                              onMouseEnter={(e) => {
-                                if (!seasonalPainPointActive) {
-                                  e.currentTarget.style.background = 'linear-gradient(135deg, #6d0000 0%, #360000 100%)';
-                                  e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (!seasonalPainPointActive) {
-                                  e.currentTarget.style.background = 'linear-gradient(135deg, #4d0000 0%, #260000 100%)';
-                                  e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)';
-                                }
-                              }}>
-                              {seasonalPainPointActive ? '✓ ' : ''}Pain Point
+                            >
+                              Month
                             </button>
                           </div>
 
-                          {/* Row 2: Monthly Returns */}
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            marginBottom: '16px',
-                            padding: '6px 16px',
-                            background: 'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
-                            border: '1px solid rgba(255, 107, 0, 0.3)',
-                            borderRadius: '4px',
-                            boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
-                          }}>
-                            {/* Bullish 30-Day */}
-                            <div style={{
-                              padding: '6px 12px',
-                              background: 'linear-gradient(135deg, #002600 0%, #001300 100%)',
-                              border: '1px solid rgba(0, 255, 100, 0.4)',
-                              borderRadius: '3px',
-                              textAlign: 'center',
-                              minWidth: '100px'
+                          {/* Row 2: Bullish 30D, Monthly Returns, Bearish 30D */}
+                          {/* Hide on mobile when Month button is active */}
+                          {(!seasonalShowMonthly || (typeof window !== 'undefined' && window.innerWidth > 768)) && (
+                            <div className="seasonality-monthly-row" style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              marginBottom: '16px',
+                              padding: '6px 16px',
+                              background: 'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
+                              border: '1px solid rgba(255, 107, 0, 0.3)',
+                              borderRadius: '4px',
+                              boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
                             }}>
-                              <div style={{ fontSize: '9px', color: '#00ff66', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BULLISH</div>
-                              <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>
-                                {seasonalBest30Day ? seasonalBest30Day.period.replace(' - ', ' - ') : 'Loading...'}
-                              </div>
-                              <div style={{ fontSize: '12px', color: '#00ff66', fontWeight: '700', marginTop: '2px' }}>
-                                {seasonalBest30Day ? `+${seasonalBest30Day.return.toFixed(2)}%` : '--'}
-                              </div>
-                            </div>
+                              {/* Sweet Spot Button - Mobile Only */}
+                              {typeof window !== 'undefined' && window.innerWidth <= 768 && (
+                                <button
+                                  className="sweet-spot-btn-mobile"
+                                  onClick={() => {
+                                    const newState = !seasonalSweetSpotActive;
+                                    setSeasonalSweetSpotActive(newState);
 
-                            {/* 12 Monthly Returns */}
-                            {seasonalMonthlyData && seasonalMonthlyData.map((monthData, i) => {
-                              const ret = monthData.outperformance;
-                              const isPositive = ret > 0;
-                              const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-                              return (
-                                <div key={monthData.month} style={{
-                                  padding: '6px 8px',
-                                  background: '#0a0a0a',
-                                  border: `1px solid ${isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)'}`,
-                                  borderRadius: '3px',
-                                  textAlign: 'center',
-                                  minWidth: '60px',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.2s ease'
-                                }}
+                                    // Trigger sweet spot calculation in the chart below
+                                    const chartContainer = document.querySelector('.seasonality-custom-panel .seasonax-container');
+                                    if (chartContainer) {
+                                      const sweetSpotBtn = chartContainer.querySelector('.sweet-spot-btn') as HTMLButtonElement;
+                                      if (sweetSpotBtn) sweetSpotBtn.click();
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '8px 12px',
+                                    background: seasonalSweetSpotActive
+                                      ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
+                                      : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
+                                    border: seasonalSweetSpotActive
+                                      ? '1px solid rgba(0, 255, 100, 0.8)'
+                                      : '1px solid rgba(0, 255, 100, 0.4)',
+                                    borderRadius: '3px',
+                                    color: '#00ff66',
+                                    fontSize: '10px',
+                                    fontWeight: '700',
+                                    textTransform: 'uppercase',
+                                    cursor: 'pointer',
+                                    letterSpacing: '0.5px',
+                                    transition: 'all 0.2s ease',
+                                    boxShadow: seasonalSweetSpotActive ? '0 0 15px rgba(0, 255, 100, 0.4)' : 'none',
+                                    flex: 1
+                                  }}
                                   onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = '#1a1a1a';
-                                    e.currentTarget.style.borderColor = isPositive ? 'rgba(0, 255, 100, 0.5)' : 'rgba(255, 0, 0, 0.5)';
+                                    if (!seasonalSweetSpotActive) {
+                                      e.currentTarget.style.background = 'linear-gradient(135deg, #006d00 0%, #003600 100%)';
+                                      e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)';
+                                    }
                                   }}
                                   onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = '#0a0a0a';
-                                    e.currentTarget.style.borderColor = isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)';
+                                    if (!seasonalSweetSpotActive) {
+                                      e.currentTarget.style.background = 'linear-gradient(135deg, #004d00 0%, #002600 100%)';
+                                      e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)';
+                                    }
                                   }}>
-                                  <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '2px', opacity: 1 }}>{monthNames[i]}</div>
-                                  <div style={{ fontSize: '11px', color: isPositive ? '#00ff66' : '#ff0044', fontWeight: '700' }}>
-                                    {isPositive ? '+' : ''}{ret.toFixed(2)}%
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            {!seasonalMonthlyData && ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].map((month) => (
-                              <div key={month} style={{
-                                padding: '6px 8px',
-                                background: '#0a0a0a',
-                                border: '1px solid rgba(100, 100, 100, 0.3)',
+                                  {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
+                                </button>
+                              )}
+
+                              {/* Bullish 30-Day */}
+                              <div className="bullish-30-day-mobile" style={{
+                                padding: '6px 12px',
+                                background: 'linear-gradient(135deg, #002600 0%, #001300 100%)',
+                                border: '1px solid rgba(0, 255, 100, 0.4)',
                                 borderRadius: '3px',
                                 textAlign: 'center',
-                                minWidth: '60px'
+                                minWidth: '100px',
+                                flex: 1
                               }}>
-                                <div style={{ fontSize: '9px', color: '#666', fontWeight: '700', marginBottom: '2px' }}>{month}</div>
-                                <div style={{ fontSize: '11px', color: '#666', fontWeight: '700' }}>--</div>
+                                <div style={{ fontSize: '9px', color: '#00ff66', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BULLISH</div>
+                                <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>
+                                  {seasonalBest30Day ? seasonalBest30Day.period.replace(' - ', ' - ') : 'Loading...'}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#00ff66', fontWeight: '700', marginTop: '2px' }}>
+                                  {seasonalBest30Day ? `+${seasonalBest30Day.return.toFixed(2)}%` : '--'}
+                                </div>
                               </div>
-                            ))}
 
-                            {/* Bearish 30-Day */}
-                            <div style={{
-                              padding: '6px 12px',
-                              background: 'linear-gradient(135deg, #260000 0%, #130000 100%)',
-                              border: '1px solid rgba(255, 0, 0, 0.4)',
-                              borderRadius: '3px',
-                              textAlign: 'center',
-                              minWidth: '100px'
-                            }}>
-                              <div style={{ fontSize: '9px', color: '#ff0044', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BEARISH</div>
-                              <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>
-                                {seasonalWorst30Day ? seasonalWorst30Day.period.replace(' - ', ' - ') : 'Loading...'}
+                              {/* 12 Monthly Returns */}
+                              {seasonalMonthlyData && seasonalMonthlyData.map((monthData, i) => {
+                                const ret = monthData.outperformance;
+                                const isPositive = ret > 0;
+                                const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                                return (
+                                  <div key={monthData.month} className="monthly-return-box" style={{
+                                    padding: '6px 8px',
+                                    background: '#0a0a0a',
+                                    border: `1px solid ${isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)'}`,
+                                    borderRadius: '3px',
+                                    textAlign: 'center',
+                                    minWidth: '60px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = '#1a1a1a';
+                                      e.currentTarget.style.borderColor = isPositive ? 'rgba(0, 255, 100, 0.5)' : 'rgba(255, 0, 0, 0.5)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = '#0a0a0a';
+                                      e.currentTarget.style.borderColor = isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)';
+                                    }}>
+                                    <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '2px', opacity: 1 }}>{monthNames[i]}</div>
+                                    <div style={{ fontSize: '11px', color: isPositive ? '#00ff66' : '#ff0044', fontWeight: '700' }}>
+                                      {isPositive ? '+' : ''}{ret.toFixed(2)}%
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {!seasonalMonthlyData && ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].map((month) => (
+                                <div key={month} className="monthly-return-box" style={{
+                                  padding: '6px 8px',
+                                  background: '#0a0a0a',
+                                  border: '1px solid rgba(100, 100, 100, 0.3)',
+                                  borderRadius: '3px',
+                                  textAlign: 'center',
+                                  minWidth: '60px'
+                                }}>
+                                  <div style={{ fontSize: '9px', color: '#666', fontWeight: '700', marginBottom: '2px' }}>{month}</div>
+                                  <div style={{ fontSize: '11px', color: '#666', fontWeight: '700' }}>--</div>
+                                </div>
+                              ))}
+
+                              {/* Bearish 30-Day */}
+                              <div className="bearish-30-day-mobile" style={{
+                                padding: '6px 12px',
+                                background: 'linear-gradient(135deg, #260000 0%, #130000 100%)',
+                                border: '1px solid rgba(255, 0, 0, 0.4)',
+                                borderRadius: '3px',
+                                textAlign: 'center',
+                                minWidth: '100px',
+                                flex: 1
+                              }}>
+                                <div style={{ fontSize: '9px', color: '#ff0044', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BEARISH</div>
+                                <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>
+                                  {seasonalWorst30Day ? seasonalWorst30Day.period.replace(' - ', ' - ') : 'Loading...'}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#ff0044', fontWeight: '700', marginTop: '2px' }}>
+                                  {seasonalWorst30Day ? `${seasonalWorst30Day.return.toFixed(2)}%` : '--'}
+                                </div>
                               </div>
-                              <div style={{ fontSize: '12px', color: '#ff0044', fontWeight: '700', marginTop: '2px' }}>
-                                {seasonalWorst30Day ? `${seasonalWorst30Day.return.toFixed(2)}%` : '--'}
-                              </div>
+
+                              {/* Pain Point Button - Mobile Only */}
+                              {typeof window !== 'undefined' && window.innerWidth <= 768 && (
+                                <button
+                                  className="pain-point-btn-mobile"
+                                  onClick={() => {
+                                    const newState = !seasonalPainPointActive;
+                                    setSeasonalPainPointActive(newState);
+
+                                    // Trigger pain point calculation in the chart below
+                                    const chartContainer = document.querySelector('.seasonality-custom-panel .seasonax-container');
+                                    if (chartContainer) {
+                                      const painPointBtn = chartContainer.querySelector('.pain-point-btn') as HTMLButtonElement;
+                                      if (painPointBtn) painPointBtn.click();
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '8px 12px',
+                                    background: seasonalPainPointActive
+                                      ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
+                                      : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
+                                    border: seasonalPainPointActive
+                                      ? '1px solid rgba(255, 0, 0, 0.8)'
+                                      : '1px solid rgba(255, 0, 0, 0.4)',
+                                    borderRadius: '3px',
+                                    color: '#ff0044',
+                                    fontSize: '10px',
+                                    fontWeight: '700',
+                                    textTransform: 'uppercase',
+                                    cursor: 'pointer',
+                                    letterSpacing: '0.5px',
+                                    transition: 'all 0.2s ease',
+                                    boxShadow: seasonalPainPointActive ? '0 0 15px rgba(255, 0, 0, 0.4)' : 'none',
+                                    flex: 1
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!seasonalPainPointActive) {
+                                      e.currentTarget.style.background = 'linear-gradient(135deg, #6d0000 0%, #360000 100%)';
+                                      e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)';
+                                    }
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!seasonalPainPointActive) {
+                                      e.currentTarget.style.background = 'linear-gradient(135deg, #4d0000 0%, #260000 100%)';
+                                      e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)';
+                                    }
+                                  }}>
+                                  {seasonalPainPointActive ? '✓ ' : ''}Pain Point
+                                </button>
+                              )}
                             </div>
-                          </div>
+                          )}
 
-                          {/* Seasonality Chart - Let it render with built-in almanac */}
-                          <div className="seasonality-custom-panel" style={{ minHeight: '450px', overflow: 'auto', background: '#000', borderRadius: '4px', border: '1px solid rgba(255, 107, 0, 0.2)', marginTop: '8px', paddingTop: '10px' }}>
-                            <SeasonalityChart
-                              initialSymbol={seasonalSymbol}
-                              autoStart={true}
-                              hideControls={false}
-                              onSymbolChange={(symbol) => setSeasonalSymbol(symbol)}
-                              externalElectionMode={seasonalElectionMode}
-                              externalYears={seasonalYears}
-                              onMonthlyDataLoaded={(monthlyData, best30Day, worst30Day) => {
-                                setSeasonalMonthlyData(monthlyData);
-                                setSeasonalBest30Day(best30Day);
-                                setSeasonalWorst30Day(worst30Day);
-                              }}
-                            />
-                          </div>
+                          {/* Conditionally render either Monthly Chart or Seasonality Chart - MOBILE ONLY */}
+                          {seasonalShowMonthly && typeof window !== 'undefined' && window.innerWidth <= 768 ? (
+                            <div className="seasonality-custom-panel" style={{ minHeight: '450px', overflow: 'auto', background: '#000', borderRadius: '4px', border: '1px solid rgba(255, 107, 0, 0.2)', marginTop: '0px', paddingTop: '10px' }}>
+                              <AlmanacDailyChart
+                                symbol={seasonalSymbol}
+                                viewMode="daily"
+                              />
+                            </div>
+                          ) : (
+                            <div className="seasonality-custom-panel" style={{ minHeight: '450px', overflow: 'auto', background: '#000', borderRadius: '4px', border: '1px solid rgba(255, 107, 0, 0.2)', marginTop: '0px', paddingTop: '10px' }}>
+                              <SeasonalityChart
+                                initialSymbol={seasonalSymbol}
+                                autoStart={true}
+                                hideControls={false}
+                                onSymbolChange={(symbol) => setSeasonalSymbol(symbol)}
+                                externalElectionMode={seasonalElectionMode}
+                                externalYears={seasonalYears}
+                                onMonthlyDataLoaded={(monthlyData, best30Day, worst30Day) => {
+                                  setSeasonalMonthlyData(monthlyData);
+                                  setSeasonalBest30Day(best30Day);
+                                  setSeasonalWorst30Day(worst30Day);
+                                }}
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
                       {calendarTab === 'Screener' && (

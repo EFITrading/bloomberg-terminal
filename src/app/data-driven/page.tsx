@@ -39,8 +39,8 @@ export default function DataDriven() {
           </TabsContent>
 
           <TabsContent value="monthly" className="mobile-tab-content">
-            <AlmanacDailyChart 
-              month={new Date().getMonth()} 
+            <AlmanacDailyChart
+              month={new Date().getMonth()}
               showPostElection={true}
               symbol="SPY"
             />

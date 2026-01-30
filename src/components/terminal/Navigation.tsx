@@ -152,7 +152,7 @@ export default function Navigation() {
           </div>
 
           {/* Desktop Navigation */}
-          <div style={{
+          <div className="nav-center" style={{
             display: 'flex',
             gap: '6px',
             alignItems: 'center',

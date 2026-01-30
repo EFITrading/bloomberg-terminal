@@ -1035,39 +1035,79 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     ctx.textAlign = 'center';
 
     const xAxisY = height - PADDING.bottom + 35; // Position labels in the 70px bottom padding
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
 
     if (showEventPerformance && eventPerformanceData.length > 0) {
-      // For event performance, show every other date to avoid crowding
-      eventPerformanceData.forEach((point, i) => {
-        if (i % 2 === 0 || i === eventPerformanceData.length - 1) {
+      // For event performance
+      if (isMobile) {
+        // Mobile: Show only 3 dates (start, middle, end)
+        const indices = [0, Math.floor(eventPerformanceData.length / 2), eventPerformanceData.length - 1];
+        indices.forEach(i => {
+          const point = eventPerformanceData[i];
           const x = getEventX(i, eventPerformanceData.length);
-          // Only draw if X is within visible chart bounds
           if (x >= PADDING.left && x <= width - PADDING.right) {
             const dateStr = `${point.date.getMonth() + 1}/${point.date.getDate()}`;
             ctx.fillText(dateStr, x, xAxisY);
           }
-        }
-      });
+        });
+      } else {
+        // Desktop: Show every other date
+        eventPerformanceData.forEach((point, i) => {
+          if (i % 2 === 0 || i === eventPerformanceData.length - 1) {
+            const x = getEventX(i, eventPerformanceData.length);
+            if (x >= PADDING.left && x <= width - PADDING.right) {
+              const dateStr = `${point.date.getMonth() + 1}/${point.date.getDate()}`;
+              ctx.fillText(dateStr, x, xAxisY);
+            }
+          }
+        });
+      }
     } else if (showPatternPerformance && patternPerformanceData.length > 0) {
-      // For pattern performance, show day numbers
+      // For pattern performance
       const firstPattern = patternPerformanceData[0];
-      firstPattern.data.forEach((point, i) => {
-        if (i % 5 === 0 || i === firstPattern.data.length - 1) {
+      if (isMobile) {
+        // Mobile: Show only 3 days (start, middle, end)
+        const indices = [0, Math.floor(firstPattern.data.length / 2), firstPattern.data.length - 1];
+        indices.forEach(i => {
           const x = getEventX(i, firstPattern.data.length);
           if (x >= PADDING.left && x <= width - PADDING.right) {
             ctx.fillText(`Day ${i}`, x, xAxisY);
           }
-        }
-      });
+        });
+      } else {
+        // Desktop: Show every 5th day
+        firstPattern.data.forEach((point, i) => {
+          if (i % 5 === 0 || i === firstPattern.data.length - 1) {
+            const x = getEventX(i, firstPattern.data.length);
+            if (x >= PADDING.left && x <= width - PADDING.right) {
+              ctx.fillText(`Day ${i}`, x, xAxisY);
+            }
+          }
+        });
+      }
     } else {
-      // For seasonal data, show dates at regular intervals
-      const step = maxTradingDays > 15 ? 2 : 1;
-      seasonalData[0]?.dailyData.forEach((point, i) => {
-        if (i % step === 0 || i === seasonalData[0].dailyData.length - 1) {
-          const x = getX(point.tradingDay);
-          ctx.fillText(point.date, x, xAxisY);
-        }
-      });
+      // For seasonal data
+      if (isMobile) {
+        // Mobile: Show only 3 dates (start, middle, end)
+        const dailyData = seasonalData[0]?.dailyData || [];
+        const indices = [0, Math.floor(dailyData.length / 2), dailyData.length - 1];
+        indices.forEach(i => {
+          const point = dailyData[i];
+          if (point) {
+            const x = getX(point.tradingDay);
+            ctx.fillText(point.date, x, xAxisY);
+          }
+        });
+      } else {
+        // Desktop: Show dates at regular intervals
+        const step = maxTradingDays > 15 ? 2 : 1;
+        seasonalData[0]?.dailyData.forEach((point, i) => {
+          if (i % step === 0 || i === seasonalData[0].dailyData.length - 1) {
+            const x = getX(point.tradingDay);
+            ctx.fillText(point.date, x, xAxisY);
+          }
+        });
+      }
     }
 
     // Draw crosshair
@@ -1136,7 +1176,175 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   return (
     <div className="almanac-daily-chart" style={{ position: 'relative', overflow: 'visible' }}>
       <div className="chart-header-row" style={{ position: 'relative', zIndex: 5000, overflow: 'visible' }}>
-        <div className="chart-controls-row">
+
+        {/* Mobile Controls - Complete Redesign */}
+        <div className="almanac-mobile-controls">
+          {/* Row 1: Monthly, Chart, Calendar, Table */}
+          <div className="almanac-mobile-row-1">
+            <select
+              value={selectedMonth}
+              onChange={(e) => {
+                const newMonth = parseInt(e.target.value);
+                setSelectedMonth(newMonth);
+                onMonthChange?.(newMonth);
+              }}
+              className="almanac-mobile-select"
+            >
+              {MONTH_NAMES.map((name, i) => (
+                <option key={i} value={i}>{name}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => setActiveView('chart')}
+              className={`almanac-mobile-btn ${activeView === 'chart' ? 'active' : ''}`}
+            >
+              Chart
+            </button>
+
+            <button
+              onClick={() => setActiveView('calendar')}
+              className={`almanac-mobile-btn ${activeView === 'calendar' ? 'active' : ''}`}
+            >
+              Calendar
+            </button>
+
+            <button
+              onClick={() => setActiveView('table')}
+              className={`almanac-mobile-btn ${activeView === 'table' ? 'active' : ''}`}
+            >
+              Table
+            </button>
+          </div>
+
+          {/* Row 2: Solid/Dashed, Events, Patterns */}
+          <div className="almanac-mobile-row-2">
+            <button
+              onClick={() => {
+                setShowRecentYears(!showRecentYears);
+                setShowPostElectionYears(!showPostElectionYears);
+              }}
+              className="almanac-mobile-btn"
+            >
+              {showRecentYears && showPostElectionYears ? 'Both' :
+                showRecentYears ? 'Solid' :
+                  showPostElectionYears ? 'Dashed' : 'None'}
+            </button>
+
+            <select
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === 'none') {
+                  setSelectedEvent(null);
+                  setShowEventPerformance(false);
+                  setEventPerformanceData([]);
+                } else {
+                  setSelectedEvent(value);
+                  setShowEventPerformance(true);
+                  calculateEventPerformance(value);
+                }
+              }}
+              className="almanac-mobile-select"
+              value={selectedEvent || 'none'}
+            >
+              <option value="none">Event</option>
+              <optgroup label="HOLIDAYS">
+                <option value="thanksgiving">Thanksgiving</option>
+                <option value="christmas">Christmas</option>
+                <option value="newyear">New Year</option>
+                <option value="presidentsday">Presidents Day</option>
+                <option value="mlkday">MLK Day</option>
+                <option value="memorialday">Memorial Day</option>
+                <option value="july4th">July 4th</option>
+                <option value="laborday">Labor Day</option>
+              </optgroup>
+              <optgroup label="FOMC MEETINGS">
+                <option value="fomc-march">FOMC March</option>
+                <option value="fomc-june">FOMC June</option>
+                <option value="fomc-september">FOMC September</option>
+                <option value="fomc-december">FOMC December</option>
+              </optgroup>
+              <optgroup label="QUAD WITCHING">
+                <option value="quad-witching-mar">Quad Witching Mar</option>
+                <option value="quad-witching-jun">Quad Witching Jun</option>
+                <option value="quad-witching-sep">Quad Witching Sep</option>
+                <option value="quad-witching-dec">Quad Witching Dec</option>
+              </optgroup>
+            </select>
+
+            <select
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === 'none') {
+                  setSelectedPattern([]);
+                  setShowPatternPerformance(false);
+                  setPatternPerformanceData([]);
+                } else {
+                  const patternMap: { [key: string]: { id: string, label: string } } = {
+                    '52week-high-cooldown': { id: '52week-high-cooldown', label: '52W High (90d Cooldown)' },
+                    '52week-high-annual': { id: '52week-high-annual', label: '52W High (Annual)' },
+                    '52week-low-cooldown': { id: '52week-low-cooldown', label: '52W Low (90d Cooldown)' },
+                    '52week-low-annual': { id: '52week-low-annual', label: '52W Low (Annual)' },
+                    'move-8-11-up-cooldown': { id: 'move-8-11-up-cooldown', label: '8-11% UP (90d Cooldown)' },
+                    'move-8-11-up-annual': { id: 'move-8-11-up-annual', label: '8-11% UP (Annual)' },
+                    'move-8-11-down-cooldown': { id: 'move-8-11-down-cooldown', label: '8-11% DOWN (90d Cooldown)' },
+                    'move-8-11-down-annual': { id: 'move-8-11-down-annual', label: '8-11% DOWN (Annual)' },
+                    'move-18-22-up-cooldown': { id: 'move-18-22-up-cooldown', label: '18-22% UP (90d Cooldown)' },
+                    'move-18-22-up-annual': { id: 'move-18-22-up-annual', label: '18-22% UP (Annual)' },
+                    'move-18-22-down-cooldown': { id: 'move-18-22-down-cooldown', label: '18-22% DOWN (90d Cooldown)' },
+                    'move-18-22-down-annual': { id: 'move-18-22-down-annual', label: '18-22% DOWN (Annual)' }
+                  };
+                  const pattern = patternMap[value];
+                  if (pattern) {
+                    setSelectedPattern([pattern.label]);
+                    setShowPatternPerformance(true);
+                    setShowEventPerformance(false);
+                    calculatePatternPerformance(pattern.id, pattern.label, symbol);
+                  }
+                }
+              }}
+              className="almanac-mobile-select"
+              value={
+                selectedPattern[0] === '52W High (90d Cooldown)' ? '52week-high-cooldown' :
+                  selectedPattern[0] === '52W High (Annual)' ? '52week-high-annual' :
+                    selectedPattern[0] === '52W Low (90d Cooldown)' ? '52week-low-cooldown' :
+                      selectedPattern[0] === '52W Low (Annual)' ? '52week-low-annual' :
+                        selectedPattern[0] === '8-11% UP (90d Cooldown)' ? 'move-8-11-up-cooldown' :
+                          selectedPattern[0] === '8-11% UP (Annual)' ? 'move-8-11-up-annual' :
+                            selectedPattern[0] === '8-11% DOWN (90d Cooldown)' ? 'move-8-11-down-cooldown' :
+                              selectedPattern[0] === '8-11% DOWN (Annual)' ? 'move-8-11-down-annual' :
+                                selectedPattern[0] === '18-22% UP (90d Cooldown)' ? 'move-18-22-up-cooldown' :
+                                  selectedPattern[0] === '18-22% UP (Annual)' ? 'move-18-22-up-annual' :
+                                    selectedPattern[0] === '18-22% DOWN (90d Cooldown)' ? 'move-18-22-down-cooldown' :
+                                      selectedPattern[0] === '18-22% DOWN (Annual)' ? 'move-18-22-down-annual' :
+                                        'none'
+              }
+            >
+              <option value="none">Pattern</option>
+              <optgroup label="52-WEEK BREAKOUTS">
+                <option value="52week-high-cooldown">52W High (90d)</option>
+                <option value="52week-high-annual">52W High (Annual)</option>
+                <option value="52week-low-cooldown">52W Low (90d)</option>
+                <option value="52week-low-annual">52W Low (Annual)</option>
+              </optgroup>
+              <optgroup label="8-11% MOVES">
+                <option value="move-8-11-up-cooldown">8-11% UP (90d)</option>
+                <option value="move-8-11-up-annual">8-11% UP (Annual)</option>
+                <option value="move-8-11-down-cooldown">8-11% DOWN (90d)</option>
+                <option value="move-8-11-down-annual">8-11% DOWN (Annual)</option>
+              </optgroup>
+              <optgroup label="18-22% MOVES">
+                <option value="move-18-22-up-cooldown">18-22% UP (90d)</option>
+                <option value="move-18-22-up-annual">18-22% UP (Annual)</option>
+                <option value="move-18-22-down-cooldown">18-22% DOWN (90d)</option>
+                <option value="move-18-22-down-annual">18-22% DOWN (Annual)</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+
+        {/* Desktop: All controls in one row */}
+        <div className="chart-controls-row chart-controls-desktop">
           <select
             value={selectedMonth}
             onChange={(e) => {
@@ -1151,8 +1359,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             ))}
           </select>
 
+          {/* Desktop: Chart/Calendar/Table Buttons */}
           <button
-            className={`toggle-btn ${activeView === 'chart' ? 'active' : ''}`}
+            className={`toggle-btn desktop-only-btn ${activeView === 'chart' ? 'active' : ''}`}
             onClick={() => setActiveView('chart')}
             style={{ marginLeft: '12px' }}
           >
@@ -1160,7 +1369,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           </button>
 
           <button
-            className={`toggle-btn ${activeView === 'calendar' ? 'active' : ''}`}
+            className={`toggle-btn desktop-only-btn ${activeView === 'calendar' ? 'active' : ''}`}
             onClick={() => setActiveView('calendar')}
             style={{ marginLeft: '8px' }}
           >
@@ -1168,14 +1377,15 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           </button>
 
           <button
-            className={`toggle-btn ${activeView === 'table' ? 'active' : ''}`}
+            className={`toggle-btn desktop-only-btn ${activeView === 'table' ? 'active' : ''}`}
             onClick={() => setActiveView(activeView === 'table' ? 'chart' : 'table')}
             style={{ marginLeft: '8px' }}
           >
             SeasonalTable
           </button>
 
-          <div style={{ position: 'relative', display: 'inline-block' }}>
+          {/* Desktop: Events Dropdown */}
+          <div className="desktop-only-btn" style={{ position: 'relative', display: 'inline-block' }}>
             <button
               className={`toggle-btn ${showEventPerformance ? 'active' : ''}`}
               onClick={() => setIsEventsDropdownOpen(!isEventsDropdownOpen)}
@@ -1659,7 +1869,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           </div>
         </div>
 
-        <div className="chart-legend-inline" style={{ marginLeft: '250px' }}>
+        <div className="chart-legend-inline desktop-only-btn" style={{ marginLeft: '250px' }}>
           <div className="toggle-buttons">
             <button
               className={`toggle-btn ${showRecentYears ? 'active' : ''}`}
@@ -1708,7 +1918,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
         {activeView === 'chart' && <canvas ref={canvasRef} />}
         {activeView === 'calendar' && (
-          <div style={{ width: '100%', overflow: 'auto', padding: '20px' }}>
+          <div style={{ width: '100%', overflow: 'auto', padding: typeof window !== 'undefined' && window.innerWidth <= 768 ? '8px' : '20px' }}>
             <style>{`
               .almanac-daily-chart .calendar-grid {
                 display: block !important;
@@ -1774,7 +1984,14 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             <AlmanacCalendar month={selectedMonth} year={new Date().getFullYear()} symbol={symbol} />
           </div>
         )}
-        {activeView === 'table' && <WeeklyScanTable />}
+        {activeView === 'table' && (
+          <div style={{
+            padding: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0' : 'inherit',
+            margin: typeof window !== 'undefined' && window.innerWidth <= 768 ? '-20px 0 0 0' : '0'
+          }}>
+            <WeeklyScanTable />
+          </div>
+        )}
       </div>
 
       {activeView === 'chart' && (
