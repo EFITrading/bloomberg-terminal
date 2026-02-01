@@ -11212,7 +11212,7 @@ export default function TradingViewChart({
     }
 
     // Draw volume bars above the time axis (TradingView style)
-    drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + actualFlowChartHeight + actualEventPanelHeight + actualIVPanelHeight, visibleCandleCount, volumeAreaHeight, timeAxisHeight, config);
+    drawVolumeProfile(ctx, visibleData, chartWidth, priceChartHeight + actualFlowChartHeight + actualEventPanelHeight + actualIVPanelHeight, visibleCandleCount, width, volumeAreaHeight, timeAxisHeight, config);
 
     // Draw time axis at the bottom
     drawTimeAxis(ctx, width, height, visibleData, chartWidth, visibleCandleCount, scrollOffset, data);
@@ -11234,6 +11234,7 @@ export default function TradingViewChart({
     chartWidth: number,
     priceChartHeight: number,
     visibleCandleCount: number,
+    width: number,
     volumeAreaHeight: number = 80,
     timeAxisHeight: number = 25,
     config: ChartConfig
@@ -11241,9 +11242,12 @@ export default function TradingViewChart({
     // Early return if no data or no volume data
     if (!visibleData.length) return;
 
-    // Calculate volume profile area - dedicated space between price chart and time axis
-    const volumeStartY = priceChartHeight + 20; // Start 20px lower
-    const volumeEndY = priceChartHeight + volumeAreaHeight - 5; // End 5px higher
+    // Detect mobile device
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
+    // Calculate volume profile area - mobile gets 25px more upward adjustment
+    const volumeStartY = isMobile ? priceChartHeight - 75 : priceChartHeight - 50;
+    const volumeEndY = isMobile ? priceChartHeight + volumeAreaHeight - 100 : priceChartHeight + volumeAreaHeight - 75;
 
     // Draw subtle volume background area (reduced height)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
@@ -11289,39 +11293,40 @@ export default function TradingViewChart({
       ctx.fillRect(x, barY, Math.round(candleWidth), volumeHeight);
     });
 
-    // Draw volume scale labels on the right
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px Arial';
+    // Draw volume scale labels on the right - match price Y-axis styling
+    ctx.fillStyle = config.axisStyle.yAxis.textColor;
+    ctx.font = `bold ${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     ctx.textAlign = 'left';
     ctx.globalAlpha = 1.0;
 
-    // Draw volume labels (3 levels: 0, 50%, 100%)
+    // Draw volume labels (3 levels: 0, 50%, 100%) - strictly within volume area only
     for (let i = 0; i <= 2; i++) {
       const volumeLevel = (maxVolume / 2) * i;
       const y = volumeEndY - (i * volumeAreaHeight / 2);
 
-      // Format volume for display
-      let volumeText = '';
-      if (volumeLevel >= 1000000) {
-        volumeText = `${(volumeLevel / 1000000).toFixed(1)}M`;
-      } else if (volumeLevel >= 1000) {
-        volumeText = `${(volumeLevel / 1000).toFixed(1)}K`;
-      } else {
-        volumeText = volumeLevel.toFixed(0);
+      // Only draw if Y position is within the volume area bounds
+      if (y >= volumeStartY && y <= volumeEndY + 20) {
+        // Format volume for display
+        let volumeText = '';
+        if (volumeLevel >= 1000000) {
+          volumeText = `${(volumeLevel / 1000000).toFixed(1)}M`;
+        } else if (volumeLevel >= 1000) {
+          volumeText = `${(volumeLevel / 1000).toFixed(1)}K`;
+        } else {
+          volumeText = volumeLevel.toFixed(0);
+        }
+
+        // Position volume labels at same X position as price labels for alignment
+        ctx.fillText(volumeText, width - 85, y + 4);
+
+        // Draw tick mark aligned with price Y-axis ticks
+        ctx.strokeStyle = colors.grid;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(width - 90, y);
+        ctx.lineTo(width - 85, y);
+        ctx.stroke();
       }
-
-      // Position volume labels even MORE RIGHT 
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'right';
-      ctx.fillText(volumeText, chartWidth + 80, y + 6); // Much further beyond chart edge
-
-      // Draw tick mark at edge
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(chartWidth - 10, y);
-      ctx.lineTo(chartWidth - 5, y);
-      ctx.stroke();
     }
 
     // Remove volume label - text removed for cleaner look
@@ -12421,13 +12426,17 @@ export default function TradingViewChart({
     ctx.font = `bold ${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     ctx.textAlign = 'left';
 
-    const chartArea = height - 25; // Reserve 25px at bottom for time labels
+    // Only draw in the actual price chart area - add extra bottom padding to prevent overlap with volume
+    const chartArea = height; // This is priceChartHeight - already excludes volume/time
     const steps = 10;
+    const topPadding = 20;
+    const bottomPadding = 100; // Increased to prevent any overlap with volume area
+    const usableHeight = chartArea - topPadding - bottomPadding;
 
     for (let i = 0; i <= steps; i++) {
       const ratio = i / steps;
       const price = minPrice + (maxPrice - minPrice) * (1 - ratio);
-      const y = 20 + ((chartArea - 40) / steps) * i;
+      const y = topPadding + (usableHeight / steps) * i;
 
       // Draw price label with more left margin
       ctx.fillText(`$${price.toFixed(2)}`, width - 85, y + 4);
@@ -12647,15 +12656,21 @@ export default function TradingViewChart({
         // Set appropriate color
         ctx.fillStyle = isFuture ? 'rgba(255, 255, 255, 0.6)' : config.axisStyle.xAxis.textColor;
 
+        // Detect mobile device for x-axis positioning
+        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+        const labelY = isMobile ? height - 105 : height - 80;
+        const tickStartY = isMobile ? height - 122 : height - 97;
+        const tickEndY = isMobile ? height - 117 : height - 92;
+
         // Draw the label below volume bars
-        ctx.fillText(text, x, height - 10);
+        ctx.fillText(text, x, labelY);
 
         // Draw tick mark
         ctx.strokeStyle = isFuture ? 'rgba(255, 255, 255, 0.3)' : colors.grid;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(x, height - 27);
-        ctx.lineTo(x, height - 22);
+        ctx.moveTo(x, tickStartY);
+        ctx.lineTo(x, tickEndY);
         ctx.stroke();
       }
     };
@@ -17124,7 +17139,7 @@ export default function TradingViewChart({
 
                     <div className="relative z-10 flex flex-col items-center justify-center">
                       <div className="font-black tracking-wider" style={{
-                        fontSize: isMobile ? '0.85rem' : '1.1rem',
+                        fontSize: isMobile ? (tab === 'Quarterly' ? '0.68rem' : '0.85rem') : '1.1rem',
                         color: isActive ? config.color : '#ffffff',
                         textShadow: 'none',
                         letterSpacing: '0.1em',
@@ -17204,7 +17219,7 @@ export default function TradingViewChart({
                       textShadow: 'none',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      ALL
+                      {window.innerWidth < 768 ? 'ANALYSIS' : 'ALL'}
                     </span>
                   </div>
                 </button>
@@ -17300,7 +17315,7 @@ export default function TradingViewChart({
                       textShadow: 'none',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {window.innerWidth < 768 ? 'PICKS' : 'INDUSTRY PICKS'}
+                      {window.innerWidth < 768 ? 'INDUSTRY PICK' : 'INDUSTRY PICKS'}
                     </span>
                   </div>
                 </button>
@@ -17472,7 +17487,7 @@ export default function TradingViewChart({
 
                             const tickerColor = isGold ? '#FFD700' :
                               isPurple ? '#8A2BE2' :
-                                isBlue ? '#1E90FF' :
+                                isBlue ? '#00FFFF' :
                                   isPink ? '#FF69B4' : '#ffffff';
                             const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
 
@@ -17496,8 +17511,8 @@ export default function TradingViewChart({
                               cardBorder = '2px solid rgba(138, 43, 226, 0.6)';
                               cardShadow = '0 4px 12px rgba(138, 43, 226, 0.4), inset 0 1px 0 rgba(138, 43, 226, 0.2)';
                             } else if (isBlue) {
-                              cardBorder = '2px solid rgba(30, 144, 255, 0.6)';
-                              cardShadow = '0 4px 12px rgba(30, 144, 255, 0.4), inset 0 1px 0 rgba(30, 144, 255, 0.2)';
+                              cardBorder = '2px solid rgba(0, 255, 255, 0.6)';
+                              cardShadow = '0 4px 12px rgba(0, 255, 255, 0.4), inset 0 1px 0 rgba(0, 255, 255, 0.2)';
                             } else if (isPink) {
                               cardBorder = '2px solid rgba(255, 105, 180, 0.6)';
                               cardShadow = '0 4px 12px rgba(255, 105, 180, 0.4), inset 0 1px 0 rgba(255, 105, 180, 0.2)';
@@ -17525,12 +17540,16 @@ export default function TradingViewChart({
                                     <div className="flex items-center gap-2">
                                       <div className="w-1 h-8 rounded-full" style={{ background: tabColor }} />
                                       <div className="flex flex-col">
-                                        <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
+                                        <div className="text-xs font-bold uppercase tracking-wide" style={{
+                                          color: tabColor,
+                                          fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.525rem' : '0.75rem'
+                                        }}>
                                           {tradeTab === 'life' ? 'Weekly' : tradeTab === 'developing' ? 'Monthly' : tradeTab === 'momentum' ? 'Quarterly' : 'Leap'}
                                         </div>
                                         <div className="text-[0.65rem] font-medium uppercase tracking-wide" style={{
                                           color: '#ffffff',
-                                          marginTop: '2px'
+                                          marginTop: '2px',
+                                          fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.455rem' : '0.65rem'
                                         }}>
                                           {isBlue || isPink ? 'Momentum' : 'Quality'}
                                         </div>
@@ -17540,9 +17559,9 @@ export default function TradingViewChart({
                                     {/* Symbol in center */}
                                     <div className="flex-1 text-center flex items-center justify-center gap-2">
                                       <span className="font-black tracking-tight" style={{
-                                        fontSize: '1.5rem',
+                                        fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem',
                                         background: isGold ? 'linear-gradient(135deg, #FFD700, #FFA500)' :
-                                          isBlue ? 'linear-gradient(135deg, #1E90FF, #4169E1)' :
+                                          isBlue ? 'linear-gradient(135deg, #00FFFF, #00CED1)' :
                                             isPink ? 'linear-gradient(135deg, #FF69B4, #FF1493)' :
                                               'linear-gradient(135deg, #A855F7, #D946EF)',
                                         WebkitBackgroundClip: 'text',
@@ -17557,7 +17576,7 @@ export default function TradingViewChart({
                                     {/* Score and Watchlist Button */}
                                     <div className="flex items-center gap-2">
                                       <span className="font-black tabular-nums" style={{
-                                        fontSize: '1.5rem',
+                                        fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem',
                                         color: '#00ff00',
                                         fontFamily: 'system-ui, -apple-system, sans-serif',
                                         opacity: 1
@@ -17654,60 +17673,61 @@ export default function TradingViewChart({
                                   </div>
 
                                   {/* Industry */}
-                                  <div className="text-xs text-orange-400 mb-3 text-center font-bold">
-                                    {trade.industry}
+                                  <div className="mb-2">
+                                    <div className="text-xs text-orange-400 text-center font-bold">
+                                      {trade.industry}
+                                    </div>
                                   </div>
 
                                   {/* Trade Info */}
-                                  <div className="flex items-center justify-center gap-2 mb-3 text-xs">
+                                  <div className="text-xs text-center text-orange-400 mb-3 font-bold">
                                     <span className="font-bold text-white">${trade.strike?.toFixed(0)}</span>
-                                    <span className="font-bold" style={{ color: '#10b981' }}>{trade.optionType?.toUpperCase()}</span>
-                                    <span className="text-orange-400 font-bold">
+                                    {' '}<span style={{ color: '#10b981' }} className="font-semibold">{trade.optionType?.toUpperCase()}</span>
+                                    {' • '}
+                                    <span className="text-white">
                                       {trade.expiration ? new Date(trade.expiration + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''}
                                     </span>
                                   </div>
 
                                   {/* Metrics Grid */}
-                                  <div className="grid grid-cols-3 gap-2 text-xs pt-3" style={{
-                                    borderTop: '1px solid rgba(16, 185, 129, 0.1)'
-                                  }}>
+                                  <div className="grid grid-cols-3 gap-2 text-xs mb-2">
                                     <div className="text-center">
-                                      <div className="text-orange-400 mb-1 font-bold">Price</div>
-                                      <div className="text-white font-mono font-bold text-xs">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Price</div>
+                                      <div className="text-white font-mono font-bold">
                                         ${typeof trade.contractPrice === 'number' ? trade.contractPrice.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
                                     <div className="text-center">
-                                      <div className="text-orange-400 mb-1 font-bold">IV</div>
-                                      <div className="text-white font-mono font-bold text-xs">
+                                      <div className="text-orange-400 mb-0.5 font-bold">IV</div>
+                                      <div className="text-white font-mono font-bold">
                                         {trade.impliedVolatility || 'N/A'}%
                                       </div>
                                     </div>
                                     <div className="text-center">
-                                      <div className="text-orange-400 mb-1 font-bold">Decay</div>
-                                      <div className="text-white font-mono font-bold text-xs">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Decay</div>
+                                      <div className="text-white font-mono font-bold">
                                         ${typeof trade.thetaDecay === 'number' ? trade.thetaDecay.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
                                   </div>
 
                                   {/* Targets */}
-                                  <div className="grid grid-cols-3 gap-2 text-xs mt-2">
+                                  <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-800">
                                     <div className="text-center">
-                                      <div className="text-orange-400 mb-1 font-bold">Target 1</div>
-                                      <div className="text-green-400 font-mono font-bold text-xs">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Target 1</div>
+                                      <div className="text-green-400 font-mono font-bold">
                                         ${typeof trade.stockTarget80 === 'number' ? trade.stockTarget80.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
                                     <div className="text-center">
-                                      <div className="text-orange-400 mb-1 font-bold">Target 2</div>
-                                      <div className="text-green-400 font-mono font-bold text-xs">
+                                      <div className="text-orange-400 mb-0.5 font-bold">Target 2</div>
+                                      <div className="text-green-400 font-mono font-bold">
                                         ${typeof trade.stockTarget90 === 'number' ? trade.stockTarget90.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
                                     <div className="text-center">
-                                      <div className="text-orange-400 mb-1 font-bold">Stop Loss</div>
-                                      <div className="text-red-400 font-mono font-bold text-xs">
+                                      <div className="text-orange-400 mb-0.5 font-bold">{typeof window !== 'undefined' && window.innerWidth <= 768 ? 'Stop' : 'Stop Loss'}</div>
+                                      <div className="text-red-400 font-mono font-bold">
                                         ${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}
                                       </div>
                                     </div>
@@ -17752,7 +17772,7 @@ export default function TradingViewChart({
 
                             const tickerColor = isGold ? '#FFD700' :
                               isPurple ? '#8A2BE2' :
-                                isBlue ? '#1E90FF' :
+                                isBlue ? '#00FFFF' :
                                   isPink ? '#FF69B4' : '#ffffff';
                             const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
 
@@ -17776,8 +17796,8 @@ export default function TradingViewChart({
                               cardBorder = '2px solid rgba(138, 43, 226, 0.6)';
                               cardShadow = '0 4px 12px rgba(138, 43, 226, 0.4), inset 0 1px 0 rgba(138, 43, 226, 0.2)';
                             } else if (isBlue) {
-                              cardBorder = '2px solid rgba(30, 144, 255, 0.6)';
-                              cardShadow = '0 4px 12px rgba(30, 144, 255, 0.4), inset 0 1px 0 rgba(30, 144, 255, 0.2)';
+                              cardBorder = '2px solid rgba(0, 255, 255, 0.6)';
+                              cardShadow = '0 4px 12px rgba(0, 255, 255, 0.4), inset 0 1px 0 rgba(0, 255, 255, 0.2)';
                             } else if (isPink) {
                               cardBorder = '2px solid rgba(255, 105, 180, 0.6)';
                               cardShadow = '0 4px 12px rgba(255, 105, 180, 0.4), inset 0 1px 0 rgba(255, 105, 180, 0.2)';
@@ -17805,12 +17825,16 @@ export default function TradingViewChart({
                                     <div className="flex items-center gap-2">
                                       <div className="w-1 h-8 rounded-full" style={{ background: tabColor }} />
                                       <div className="flex flex-col">
-                                        <div className="text-xs font-bold uppercase tracking-wide" style={{ color: tabColor }}>
+                                        <div className="text-xs font-bold uppercase tracking-wide" style={{
+                                          color: tabColor,
+                                          fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.525rem' : '0.75rem'
+                                        }}>
                                           {tradeTab === 'life' ? 'Weekly' : tradeTab === 'developing' ? 'Monthly' : tradeTab === 'momentum' ? 'Quarterly' : 'Leap'}
                                         </div>
                                         <div className="text-[0.65rem] font-medium uppercase tracking-wide" style={{
                                           color: '#ffffff',
-                                          marginTop: '2px'
+                                          marginTop: '2px',
+                                          fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.455rem' : '0.65rem'
                                         }}>
                                           {isBlue || isPink ? 'Momentum' : 'Quality'}
                                         </div>
@@ -17820,9 +17844,9 @@ export default function TradingViewChart({
                                     {/* Symbol in center */}
                                     <div className="flex-1 text-center flex items-center justify-center gap-2">
                                       <span className="font-black tracking-tight" style={{
-                                        fontSize: '1.5rem',
+                                        fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem',
                                         background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' :
-                                          isBlue ? 'linear-gradient(135deg, #1E90FF 0%, #4169E1 50%, #1E90FF 100%)' :
+                                          isBlue ? 'linear-gradient(135deg, #00FFFF 0%, #00CED1 50%, #00FFFF 100%)' :
                                             isPink ? 'linear-gradient(135deg, #FF69B4 0%, #FF1493 50%, #FF69B4 100%)' :
                                               'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
                                         WebkitBackgroundClip: 'text',
@@ -17837,15 +17861,13 @@ export default function TradingViewChart({
 
                                     {/* Score and Watchlist Button */}
                                     <div className="flex items-center gap-2">
-                                      <span className="font-black tracking-tight" style={{
-                                        fontSize: '1.5rem',
+                                      <span className="font-black tabular-nums" style={{
+                                        fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem',
                                         color: '#ff0000',
                                         fontFamily: 'system-ui, -apple-system, sans-serif',
                                         opacity: 1
                                       }}>
-                                        {window.innerWidth < 768
-                                          ? (typeof trade.score === 'number' ? Math.round(trade.score) : 'N/A')
-                                          : (typeof trade.score === 'number' ? trade.score.toFixed(1) : 'N/A')}
+                                        {Math.round(trade.score)}
                                       </span>
                                       <button
                                         onClick={(e) => {
@@ -17987,7 +18009,7 @@ export default function TradingViewChart({
                                       </div>
                                     </div>
                                     <div className="text-center">
-                                      <div className="text-orange-400 mb-0.5 font-bold">Stop Loss</div>
+                                      <div className="text-orange-400 mb-0.5 font-bold">{typeof window !== 'undefined' && window.innerWidth <= 768 ? 'Stop' : 'Stop Loss'}</div>
                                       <div className="text-red-400 font-mono font-bold">
                                         ${typeof trade.stopLoss === 'number' ? trade.stopLoss.toFixed(2) : 'N/A'}
                                       </div>
@@ -18027,9 +18049,19 @@ export default function TradingViewChart({
                         </div>
                       )}
 
-                      <div className="grid grid-cols-2 gap-6" style={{ opacity: isCalculatingTrades ? 0.3 : 1 }}>
+                      <div className="grid grid-cols-2 gap-6" style={{
+                        opacity: isCalculatingTrades ? 0.3 : 1,
+                        maxWidth: typeof window !== 'undefined' && window.innerWidth <= 768 ? '100%' : '100%',
+                        width: typeof window !== 'undefined' && window.innerWidth <= 768 ? '100%' : 'auto',
+                        margin: '0',
+                        padding: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0 0.5rem' : '0',
+                        gap: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.5rem' : '1.5rem',
+                        gridTemplateColumns: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1fr 1fr' : '1fr 1fr'
+                      }}>
                         {/* Premium Bullish Industries Section */}
-                        <div>
+                        <div style={{
+                          overflow: 'hidden'
+                        }}>
                           <div className="flex items-center justify-between mb-4 pb-3 border-b" style={{ borderColor: '#00ff00' }}>
                             <h3 className="flex items-center justify-center flex-1">
                               <span className="font-black uppercase tracking-wider" style={{ color: '#00ff00', fontSize: '1rem' }}>
@@ -18073,7 +18105,13 @@ export default function TradingViewChart({
                                         {industry.symbol}
                                       </span>
                                     </div>
-                                    <div className="text-xs mt-1 font-bold uppercase tracking-wide" style={{ color: '#ff6600' }}>
+                                    <div className="text-xs mt-1 font-bold uppercase tracking-wide" style={{
+                                      color: '#ff6600',
+                                      fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.6rem' : '0.75rem',
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
+                                    }}>
                                       {industry.name}
                                     </div>
                                   </div>
@@ -18109,9 +18147,9 @@ export default function TradingViewChart({
                                           borderColor = '#8A2BE2';
                                           symbolColor = '#8A2BE2';
                                         } else if (isBlue) {
-                                          bgColor = 'rgba(30, 144, 255, 0.1)';
-                                          borderColor = '#1E90FF';
-                                          symbolColor = '#1E90FF';
+                                          bgColor = 'rgba(0, 255, 255, 0.1)';
+                                          borderColor = '#00FFFF';
+                                          symbolColor = '#00FFFF';
                                         } else if (isPink) {
                                           bgColor = 'rgba(255, 105, 180, 0.1)';
                                           borderColor = '#FF69B4';
@@ -18140,10 +18178,16 @@ export default function TradingViewChart({
                                               }
                                             }}
                                           >
-                                            <span className="font-mono font-bold" style={{ color: symbolColor, fontSize: '0.875rem' }}>
+                                            <span className="font-mono font-bold" style={{
+                                              color: symbolColor,
+                                              fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.79625rem' : '0.875rem'
+                                            }}>
                                               {stock.symbol}
                                             </span>
-                                            <span className="font-mono font-black" style={{ color: '#00ff00', fontSize: '0.875rem' }}>
+                                            <span className="font-mono font-black" style={{
+                                              color: '#00ff00',
+                                              fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.79625rem' : '0.875rem'
+                                            }}>
                                               +{stock.relativePerformance.toFixed(1)}%
                                             </span>
                                           </div>
@@ -18164,7 +18208,9 @@ export default function TradingViewChart({
                         </div>
 
                         {/* Premium Bearish Industries Section */}
-                        <div>
+                        <div style={{
+                          overflow: 'hidden'
+                        }}>
                           <div className="flex items-center justify-between mb-4 pb-3 border-b" style={{ borderColor: '#ff0000' }}>
                             <h3 className="flex items-center justify-center flex-1">
                               <span className="font-black uppercase tracking-wider" style={{ color: '#ff0000', fontSize: '1rem' }}>
@@ -18208,7 +18254,13 @@ export default function TradingViewChart({
                                         {industry.symbol}
                                       </span>
                                     </div>
-                                    <div className="text-xs mt-1 font-bold uppercase tracking-wide" style={{ color: '#ff6600' }}>
+                                    <div className="text-xs mt-1 font-bold uppercase tracking-wide" style={{
+                                      color: '#ff6600',
+                                      fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.6rem' : '0.75rem',
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
+                                    }}>
                                       {industry.name}
                                     </div>
                                   </div>
@@ -18244,9 +18296,9 @@ export default function TradingViewChart({
                                           borderColor = '#8A2BE2';
                                           symbolColor = '#8A2BE2';
                                         } else if (isBlue) {
-                                          bgColor = 'rgba(30, 144, 255, 0.1)';
-                                          borderColor = '#1E90FF';
-                                          symbolColor = '#1E90FF';
+                                          bgColor = 'rgba(0, 255, 255, 0.1)';
+                                          borderColor = '#00FFFF';
+                                          symbolColor = '#00FFFF';
                                         } else if (isPink) {
                                           bgColor = 'rgba(255, 105, 180, 0.1)';
                                           borderColor = '#FF69B4';
@@ -18275,10 +18327,16 @@ export default function TradingViewChart({
                                               }
                                             }}
                                           >
-                                            <span className="font-mono font-bold" style={{ color: symbolColor, fontSize: '0.875rem' }}>
+                                            <span className="font-mono font-bold" style={{
+                                              color: symbolColor,
+                                              fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.79625rem' : '0.875rem'
+                                            }}>
                                               {stock.symbol}
                                             </span>
-                                            <span className="font-mono font-black" style={{ color: '#ff0000', fontSize: '0.875rem' }}>
+                                            <span className="font-mono font-black" style={{
+                                              color: '#ff0000',
+                                              fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.79625rem' : '0.875rem'
+                                            }}>
                                               {stock.relativePerformance.toFixed(1)}%
                                             </span>
                                           </div>
@@ -18345,7 +18403,7 @@ export default function TradingViewChart({
                         background: '#000000',
                         color: selectedTradeForModal.highlightType === 'gold' ? '#FFD700' :
                           selectedTradeForModal.highlightType === 'purple' ? '#8A2BE2' :
-                            selectedTradeForModal.highlightType === 'blue' ? '#1E90FF' :
+                            selectedTradeForModal.highlightType === 'blue' ? '#00FFFF' :
                               selectedTradeForModal.highlightType === 'pink' ? '#FF69B4' : '#ffffff'
                       }}
                     >
@@ -18629,8 +18687,8 @@ export default function TradingViewChart({
                         <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.resilience?.toFixed(1) || 0}</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#1E90FF', fontSize: '15px' }}>Retest Quality:</span>
-                        <span className="font-bold" style={{ color: '#1E90FF', fontSize: '16px' }}>{selectedTradeForModal.details.retestQuality?.toFixed(1) || 0}</span>
+                        <span style={{ color: '#00FFFF', fontSize: '15px' }}>Retest Quality:</span>
+                        <span className="font-bold" style={{ color: '#00FFFF', fontSize: '16px' }}>{selectedTradeForModal.details.retestQuality?.toFixed(1) || 0}</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
                         <span style={{ color: '#32CD32', fontSize: '15px' }}>Relative Strength:</span>
@@ -22132,7 +22190,7 @@ export default function TradingViewChart({
             <div
               ref={containerRef}
               className="relative flex-1"
-              style={{ height: height - 100 }}
+              style={{ height: height }}
             >
               {/* Loading Overlay */}
               {loading && (
@@ -24086,7 +24144,6 @@ export default function TradingViewChart({
                             <div className="seasonality-custom-panel" style={{ minHeight: '450px', overflow: 'auto', background: '#000', borderRadius: '4px', border: '1px solid rgba(255, 107, 0, 0.2)', marginTop: '0px', paddingTop: '10px' }}>
                               <AlmanacDailyChart
                                 symbol={seasonalSymbol}
-                                viewMode="daily"
                               />
                             </div>
                           ) : (

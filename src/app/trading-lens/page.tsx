@@ -362,7 +362,7 @@ export default function TradingLensPage() {
     return (
         <div style={{
             minHeight: '100vh',
-            background: 'linear-gradient(180deg, #000000 0%, #0A0A0A 100%)',
+            background: 'transparent',
             color: '#FFFFFF',
             padding: '0',
             position: 'relative'
@@ -370,7 +370,7 @@ export default function TradingLensPage() {
             {/* Compact Search Bar - Top Left Corner */}
             <div style={{
                 position: 'absolute',
-                top: '10px',
+                top: '-100px',
                 left: '20px',
                 maxWidth: '600px',
                 background: 'linear-gradient(145deg, #020B14, #000508)',
@@ -462,7 +462,7 @@ export default function TradingLensPage() {
             {/* Leadership Signal Card */}
             <div style={{
                 position: 'absolute',
-                top: '150px',
+                top: '30px',
                 left: '20px',
                 width: '460px',
                 background: 'linear-gradient(145deg, #020B14, #000508)',
@@ -656,7 +656,7 @@ export default function TradingLensPage() {
             {/* RS Status Card */}
             <div style={{
                 position: 'absolute',
-                top: '150px',
+                top: '30px',
                 left: '490px',
                 width: '460px',
                 background: 'linear-gradient(145deg, #020B14, #000508)',
@@ -902,7 +902,7 @@ export default function TradingLensPage() {
             {/* Options Flow Panel - Below Search Bar */}
             <div style={{
                 position: 'absolute',
-                top: '300px',
+                top: '180px',
                 left: '20px',
                 width: '920px',
                 height: '365px',
@@ -1104,7 +1104,7 @@ export default function TradingLensPage() {
             {/* IV Charts Panel - Bottom Left */}
             <div style={{
                 position: 'absolute',
-                bottom: '140px',
+                bottom: '260px',
                 left: '20px',
                 width: '550px'
             }}>

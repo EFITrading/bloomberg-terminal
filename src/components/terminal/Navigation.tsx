@@ -65,7 +65,7 @@ export default function Navigation() {
     { name: 'Data Driven', path: '/data-driven' },
     { name: 'Analytics', path: '/analytics' },
     { name: 'AI Suite', path: '/ai-suite' },
-    // { name: 'Trading Lens', path: '/trading-lens' },
+    { name: 'Lens', path: '/trading-lens' },
     { name: 'OptionsFlow', path: '/options-flow' }
   ];
 
@@ -95,9 +95,10 @@ export default function Navigation() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 24px',
-          height: '90px',
+          height: typeof window !== 'undefined' && window.innerWidth <= 768 ? '90px' : '90px',
           position: 'relative',
-          zIndex: 1
+          zIndex: 1,
+          paddingTop: typeof window !== 'undefined' && window.innerWidth <= 768 ? '20px' : '0'
         }}>
           <div className="nav-brand">
             <Link
@@ -173,33 +174,34 @@ export default function Navigation() {
                     fontWeight: '700',
                     letterSpacing: '0.8px',
                     textTransform: 'uppercase',
-                    color: isActive ? '#FFA500' : '#FFFFFF',
+                    color: '#FFFFFF',
                     background: isActive ? '#000000' : 'transparent',
                     borderRadius: '8px',
                     textDecoration: 'none',
                     display: 'inline-block',
                     border: isActive ? '2px solid #FFA500' : '1px solid rgba(255, 165, 0, 0.3)',
                     cursor: 'pointer',
-                    transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                    transform: 'scale(1) translateY(0)',
-                    boxShadow: isActive ? '0 4px 12px rgba(255, 165, 0, 0.4)' : 'none'
+                    opacity: 1,
+                    filter: 'none',
+                    backdropFilter: 'none',
+                    WebkitTextFillColor: isActive ? '#FFA500' : '#FFFFFF',
+                    transition: 'none',
+                    transform: 'none',
+                    boxShadow: isActive ? '0 4px 12px rgba(255, 165, 0, 0.4)' : 'none',
+                    textShadow: 'none'
                   }}
                   onMouseEnter={(e) => {
                     if (!isActive) {
-                      e.currentTarget.style.transform = 'scale(1.08) translateY(-3px)';
-                      e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.8), 0 0 0 2px #FFA500';
                       e.currentTarget.style.borderColor = '#FFA500';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive) {
-                      e.currentTarget.style.transform = 'scale(1) translateY(0)';
-                      e.currentTarget.style.boxShadow = 'none';
                       e.currentTarget.style.borderColor = 'rgba(255, 165, 0, 0.3)';
                     }
                   }}
                 >
-                  <span style={{ color: isActive ? '#FFA500' : '#FFFFFF' }}>
+                  <span style={{ color: isActive ? '#FFA500' : '#FFFFFF', opacity: 1, filter: 'none' }}>
                     {link.name}
                   </span>
                 </Link>

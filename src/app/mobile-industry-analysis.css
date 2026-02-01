@@ -57,7 +57,7 @@
         margin-left: -1rem !important;
     }
 
-    /* Industry cards - 1 column per section on mobile, 2 columns on desktop */
+    /* Industry cards - 1 column per section on mobile */
     .grid.grid-cols-1.md\:grid-cols-2.gap-4,
     .grid.grid-cols-2.gap-4 {
         grid-template-columns: 1fr !important;
@@ -66,7 +66,25 @@
 
     /* Industry card compact padding */
     .group.relative.p-4.rounded-lg {
-        padding: 0.75rem !important;
+        padding: 0.5rem !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
+    /* Force equal column widths and proper alignment */
+    .grid.grid-cols-2.gap-6 {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        width: 100% !important;
+        padding: 0 0.5rem !important;
+        gap: 0.5rem !important;
+        box-sizing: border-box !important;
+    }
+
+    .grid.grid-cols-2.gap-6>div {
+        min-width: 0 !important;
+        overflow: hidden !important;
     }
 
     /* Reduce ETF ticker title size by 50% */
@@ -112,5 +130,15 @@
         width: 90% !important;
         margin-left: auto !important;
         margin-right: auto !important;
+    }
+
+    /* Reduce ticker symbols in score section by 30% for mobile - override inline styles */
+    .space-y-2>div .font-mono {
+        font-size: 0.79625rem !important;
+    }
+
+    /* Also target the percentage text */
+    .space-y-2>div .font-mono.font-black {
+        font-size: 0.79625rem !important;
     }
 }

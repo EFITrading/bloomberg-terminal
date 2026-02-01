@@ -817,6 +817,21 @@ body {
     overflow: hidden;
 }
 
+/* Force white text on all navigation links */
+.nav-center a,
+.nav-center a span {
+    color: #FFFFFF !important;
+    opacity: 1 !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    text-shadow: none !important;
+}
+
+.nav-center a[style*="color: rgb(255, 165, 0)"],
+.nav-center a[style*="color: rgb(255, 165, 0)"] span {
+    color: #FFA500 !important;
+    -webkit-text-fill-color: #FFA500 !important;
+}
+
 .nav-center::before {
     content: '';
     position: absolute;
@@ -828,16 +843,7 @@ body {
 }
 
 .nav-center::after {
-    content: '';
-    position: absolute;
-    top: 4px;
-    left: 4px;
-    right: 4px;
-    bottom: 4px;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    pointer-events: none;
+    display: none !important;
 }
 
 /* DISABLED - Using inline styles in Navigation.tsx instead */
