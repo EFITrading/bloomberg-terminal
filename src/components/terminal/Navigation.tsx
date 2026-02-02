@@ -13,7 +13,7 @@ import TickerScroller from './TickerScroller';
 
 export default function Navigation() {
   const { data: session } = useSession();
-  const { regimes } = useMarketRegime();
+  const { regimes, regimeAnalysis } = useMarketRegime();
   const [currentTime, setCurrentTime] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -65,7 +65,6 @@ export default function Navigation() {
     { name: 'Data Driven', path: '/data-driven' },
     { name: 'Analytics', path: '/analytics' },
     { name: 'AI Suite', path: '/ai-suite' },
-    { name: 'Lens', path: '/trading-lens' },
     { name: 'OptionsFlow', path: '/options-flow' }
   ];
 
@@ -281,7 +280,7 @@ export default function Navigation() {
               gap: '16px'
             }}>
               {/* Fear & Greed Gauge */}
-              {regimes.length > 0 && (
+              {Object.keys(regimeAnalysis).length > 0 && (
                 <div style={{
                   display: 'flex',
                   gap: '12px',
@@ -292,7 +291,7 @@ export default function Navigation() {
                   border: '1px solid rgba(255, 255, 255, 0.08)',
                   backdropFilter: 'blur(10px)'
                 }}>
-                  <FearGreedGauge regimes={regimes} />
+                  <FearGreedGauge regimeAnalysis={regimeAnalysis} />
                 </div>
               )}
 

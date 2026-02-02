@@ -62,7 +62,6 @@ class ChartDataCache {
             return null;
         }
 
-        console.log(` CACHE HIT: ${symbol} ${timeframe} (${entry.data.length} points)`);
         return entry.data;
     }
 

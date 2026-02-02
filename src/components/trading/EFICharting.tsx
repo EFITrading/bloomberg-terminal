@@ -8428,6 +8428,7 @@ export default function TradingViewChart({
 
       // Process each tab sequentially
       for (const regimeTab of tabsToCalculate) {
+        console.log('🔴 [PROCESSING TAB]:', regimeTab);
         try {
           const currentTabData = regimeDataCache[regimeTab];
 
@@ -8712,7 +8713,7 @@ export default function TradingViewChart({
 
                 if (chunk.length === 0) continue;
 
-                const setupWorker = new Worker('/workers/aiTradeScoreWorkerNew.js');
+                const setupWorker = new Worker('/workers/aiTradeScoreWorkerPure.js');
                 setupWorkers.push(setupWorker);
 
                 setupWorker.onmessage = (e) => {
@@ -8752,7 +8753,7 @@ export default function TradingViewChart({
 
                 if (chunk.length === 0) continue;
 
-                const momentumWorker = new Worker('/workers/aiTradeScoreMomentumWorker.js');
+                const momentumWorker = new Worker('/workers/aiTradeScoreMomentumPure.js');
                 momentumWorkers.push(momentumWorker);
 
                 momentumWorker.onmessage = (e) => {
@@ -8795,13 +8796,18 @@ export default function TradingViewChart({
           }
 
           // Collect all visible stocks from all industries
-          const bullishIndustries = currentData.industries.filter(ind => ind.trend === 'bullish').slice(0, 20);
-          const bearishIndustries = currentData.industries.filter(ind => ind.trend === 'bearish').slice(0, 20);
+          const bullishIndustries = currentData.industries.filter(ind => ind.trend === 'bullish');
+          const bearishIndustries = currentData.industries.filter(ind => ind.trend === 'bearish');
 
           const allCandidates: any[] = [];
 
-          // Collect top 3 from each bullish industry
+          // Collect top 3 from each bullish industry (with kill switch)
           for (const industry of bullishIndustries) {
+            // KILL SWITCH: Skip if bullish but ratio below 21-day EMA
+            if (industry.hasStructure === false || (industry.ratioVsEMA && industry.ratioVsEMA < 0)) {
+              continue; // Skip this industry - countertrend setup
+            }
+
             if (industry.topPerformers && industry.topPerformers.length > 0) {
               const top3 = industry.topPerformers.slice(0, 3);
               for (const stock of top3) {
@@ -8816,8 +8822,13 @@ export default function TradingViewChart({
             }
           }
 
-          // Collect worst 3 from each bearish industry
+          // Collect worst 3 from each bearish industry (with kill switch)
           for (const industry of bearishIndustries) {
+            // KILL SWITCH: Skip if bearish but ratio above 21-day EMA
+            if (industry.hasStructure === false || (industry.ratioVsEMA && industry.ratioVsEMA > 0)) {
+              continue; // Skip this industry - countertrend setup
+            }
+
             if (industry.worstPerformers && industry.worstPerformers.length > 0) {
               const worst3 = industry.worstPerformers.slice(0, 3);
               for (const stock of worst3) {
@@ -8896,7 +8907,23 @@ export default function TradingViewChart({
           const validSetup = setupScored.filter((c: any) => c.score > 0);
           const validMomentum = momentumScored.filter((c: any) => c.score > 0);
 
-          console.log(`📊 Setup scored: ${validSetup.length}/${setupScored.length}, 🚀 Momentum scored: ${validMomentum.length}/${momentumScored.length}`);
+          // Add worker dominance tagging
+          const candidatesWithDominance = allCandidates.map(candidate => {
+            const setupScore = validSetup.find((s: any) => s.symbol === candidate.symbol)?.score || 0;
+            const momentumScore = validMomentum.find((m: any) => m.symbol === candidate.symbol)?.score || 0;
+            const scoreDiff = setupScore - momentumScore;
+
+            let dominance: 'setup' | 'momentum' | 'transitional' = 'transitional';
+            if (scoreDiff >= 20) dominance = 'setup';
+            else if (scoreDiff <= -20) dominance = 'momentum';
+
+            return {
+              ...candidate,
+              setupScore,
+              momentumScore,
+              dominance
+            };
+          });
 
           if (validSetup.length === 0 && validMomentum.length === 0) {
             setIsCalculatingTrades(false);
@@ -9049,8 +9076,6 @@ export default function TradingViewChart({
           const purpleCount = Object.values(tradesMap).filter(t => t.highlightType === 'purple').length;
           const blueCount = Object.values(tradesMap).filter(t => t.highlightType === 'blue').length;
           const pinkCount = Object.values(tradesMap).filter(t => t.highlightType === 'pink').length;
-
-          console.log(`✅ ${regimeTab} Highlights: 🥇 Gold=${goldCount} 🟣 Purple=${purpleCount} 🔵 Blue=${blueCount} 🩷 Pink=${pinkCount}`);
 
           // Update cache for this specific tab
           setHighlightedTradesCache(prev => ({ ...prev, [regimeTab]: tradesMap }));
@@ -9375,7 +9400,6 @@ export default function TradingViewChart({
     setIsAutoFitPrice(true);
     setPriceZoomLevel(1.0);
     setPriceZoomCenter(0);
-    console.log('🔍 Y-axis zoom reset to auto-fit');
   }, []);
 
   // Reset Y-axis zoom when symbol changes
@@ -9503,8 +9527,6 @@ export default function TradingViewChart({
           // Don't reset price change on error - keep previous values
         }
       } else {
-        console.log(`⚠️ No live trade data for ${sym}, trying last close price...`);
-
         // Fallback: Try to get the most recent close price from daily data
         const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
         try {
@@ -9513,7 +9535,6 @@ export default function TradingViewChart({
 
           if (fallbackResult.status === 'OK' && fallbackResult.results?.[0]?.c) {
             const closePrice = fallbackResult.results[0].c;
-            console.log(`📈 FALLBACK: Using previous close price for ${sym}: $${closePrice}`);
             setCurrentPrice(closePrice);
             // Set change to 0 when using fallback close price (market closed, no intraday movement)
             setPriceChange(0);
@@ -10079,7 +10100,7 @@ export default function TradingViewChart({
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
 
-        // X-AXIS DATE/TIME LABEL (bottom)
+        // X-AXIS DATE/TIME LABEL (bottom of price chart area, above volume/time axis)
         // Show date + time for intraday timeframes (5m, 30m, 1h), date only for daily+
         const isIntradayTimeframe = ['5m', '30m', '1h', '15m', '1m', '4h'].includes(config.timeframe);
         const dateText = isIntradayTimeframe
@@ -10088,24 +10109,31 @@ export default function TradingViewChart({
         const dateTextWidth = ctx.measureText(dateText).width + 24; // Increased padding
         const dateX = crosshairPosition.x;
 
+        // Calculate price chart height (excluding volume, IV panels, flow chart)
+        const timeAxisHeight = 25;
+        const volumeAreaHeight = 80;
+        const flowChartSpace = isFlowChartActive ? flowChartHeight : 0;
+        const ivPanelSpace = isAnyIVHVActive ? (activeIVPanelCount * ivPanelHeight) : 0;
+        const priceChartBottom = height - timeAxisHeight - volumeAreaHeight - flowChartSpace - ivPanelSpace;
+
         // Ensure date label doesn't go off screen
         const labelX = Math.max(dateTextWidth / 2, Math.min(width - dateTextWidth / 2, dateX));
 
-        // Date label background (bottom of chart) - darker for contrast
+        // Date label background (at bottom of price chart area) - darker for contrast
         ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748';
         ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568';
         ctx.lineWidth = 1;
-        ctx.fillRect(labelX - dateTextWidth / 2, height - 35, dateTextWidth, 28); // Reduced background size
-        ctx.strokeRect(labelX - dateTextWidth / 2, height - 35, dateTextWidth, 28);
+        ctx.fillRect(labelX - dateTextWidth / 2, priceChartBottom, dateTextWidth, 28);
+        ctx.strokeRect(labelX - dateTextWidth / 2, priceChartBottom, dateTextWidth, 28);
 
-        // CRISP WHITE DATE TEXT with enhanced shadow for maximum clarity
+        // CRISP ORANGE DATE TEXT with enhanced shadow for maximum clarity
         ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
         ctx.shadowBlur = 3;
         ctx.shadowOffsetX = 1;
         ctx.shadowOffsetY = 1;
         ctx.fillStyle = '#FF6600';
         ctx.textAlign = 'center';
-        ctx.fillText(dateText, labelX, height - 21); // Moved up to match reduced background
+        ctx.fillText(dateText, labelX, priceChartBottom + 14);
 
         // Reset shadow
         ctx.shadowColor = 'transparent';
@@ -10255,7 +10283,7 @@ export default function TradingViewChart({
       const centerY = (startY + endY) / 2;
       ctx.fillText('Release to zoom', centerX, centerY);
     }
-  }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd]);
+  }, [dimensions, config.crosshair, config.theme, crosshairPosition, crosshairInfo, isBoxZooming, boxZoomStart, boxZoomEnd, isFlowChartActive, flowChartHeight, isAnyIVHVActive, activeIVPanelCount, ivPanelHeight]);
 
   // Update overlay when interactions change
   useEffect(() => {
@@ -10783,10 +10811,13 @@ export default function TradingViewChart({
         });
       }
     } else {
-      // Draw candlesticks/bars/area/hollow candles
+      // Draw candlesticks/bars/area/hollow candles - pixel-perfect positioning
       visibleData.forEach((candle, index) => {
-        const x = Math.round(40 + (index * candleSpacing) + (candleSpacing - candleWidth) / 2);
-        drawCandle(ctx, candle, x, Math.round(candleWidth), priceChartHeight, adjustedMin, adjustedMax);
+        // Calculate x position and ensure it's pixel-aligned
+        const xPos = 40 + (index * candleSpacing);
+        const candleX = Math.floor(xPos); // Floor for consistent left edge
+        const width = Math.floor(candleWidth);
+        drawCandle(ctx, candle, candleX, width, priceChartHeight, adjustedMin, adjustedMax);
       });
 
       // ENHANCED: Draw future space grid when scrolled beyond actual data
@@ -12366,11 +12397,11 @@ export default function TradingViewChart({
       ? { body: candleColor, wick: candleColor, border: candleColor }
       : (isGreen ? config.colors.bullish : config.colors.bearish);
 
-    // Convert prices to canvas coordinates
+    // Convert prices to canvas coordinates - pixel-perfect alignment
     const priceToY = (price: number) => {
       const ratio = (price - minPrice) / (maxPrice - minPrice);
       const chartArea = height - 25; // Reserve 25px at bottom for time labels
-      return Math.round(chartArea - (ratio * (chartArea - 20)) - 10); // Round to crisp pixels
+      return Math.floor(chartArea - (ratio * (chartArea - 20)) - 10); // Floor for consistent alignment
     };
 
     const openY = priceToY(open);
@@ -12378,30 +12409,33 @@ export default function TradingViewChart({
     const highY = priceToY(high);
     const lowY = priceToY(low);
 
-    // Round x position for crisp rendering
-    const crispX = Math.round(x);
-    const crispWidth = Math.max(1, Math.round(width));
+    // Calculate crisp, centered coordinates
+    const crispX = Math.floor(x); // Floor for consistent left edge
+    const crispWidth = Math.max(1, Math.floor(width)); // Floor to ensure integer width
 
-    // Draw wick (high-low line) - ensure all coordinates are pixel-aligned
+    // Draw wick (high-low line) - pixel-perfect centered alignment
     ctx.strokeStyle = candleColors.wick;
-    ctx.lineWidth = Math.max(1, Math.round(width * 0.05)); // Reduced from 0.1 to 0.05 for thinner wicks
+    ctx.lineWidth = 1; // Always use 1px for crisp wick
     ctx.beginPath();
-    const wickCenterX = Math.round(crispX + crispWidth / 2) + 0.5; // Add 0.5 for crisp 1px lines
-    ctx.moveTo(wickCenterX, Math.round(highY));
-    ctx.lineTo(wickCenterX, Math.round(lowY));
+    const wickCenterX = Math.floor(crispX + crispWidth / 2); // Remove +0.5 offset - causes blur with DPR scaling
+    ctx.moveTo(wickCenterX, highY);
+    ctx.lineTo(wickCenterX, lowY);
     ctx.stroke();
 
-    // Draw body (open-close rectangle)
+    // Draw body (open-close rectangle) - pixel-perfect rendering
     if (config.chartType === 'candlestick') {
       const bodyHeight = Math.max(1, Math.abs(closeY - openY));
       const bodyY = Math.min(openY, closeY);
-      const bodyWidth = Math.max(2, crispWidth - 2);
 
-      // Round all coordinates to pixel boundaries for crispy rendering
-      const crispBodyX = Math.round(crispX + 1);
-      const crispBodyY = Math.round(bodyY);
-      const crispBodyWidth = Math.round(bodyWidth);
-      const crispBodyHeight = Math.round(bodyHeight);
+      // Calculate body width to be centered within candle width, leaving 1px margin on each side
+      const bodyWidth = Math.max(2, crispWidth - 2);
+      const bodyOffsetX = Math.floor((crispWidth - bodyWidth) / 2); // Center the body
+
+      // Use floor for all coordinates to ensure pixel-perfect alignment
+      const crispBodyX = crispX + bodyOffsetX;
+      const crispBodyY = Math.floor(bodyY);
+      const crispBodyWidth = Math.floor(bodyWidth);
+      const crispBodyHeight = Math.floor(bodyHeight);
 
       // Fill the body
       ctx.fillStyle = candleColors.body;
@@ -16930,15 +16964,105 @@ export default function TradingViewChart({
     }, [marketRegimeData, activeTab]);
 
     const timeframeData = getCurrentTimeframeData();
+
+    // Get ALL industries for 'all' filter (regardless of trend)
+    const allIndustries = useMemo(() => {
+      const industries = timeframeData?.industries || [];
+      return industries;
+    }, [timeframeData, activeTab]);
+
+    // For non-'all' filters, get only trending industries
     const bullishIndustries = useMemo(() =>
-      timeframeData?.industries?.filter((industry: any) => industry.trend === 'bullish').slice(0, 20) || []
+      timeframeData?.industries?.filter((industry: any) => industry.trend === 'bullish') || []
       , [timeframeData]);
     const bearishIndustries = useMemo(() =>
-      timeframeData?.industries?.filter((industry: any) => industry.trend === 'bearish').slice(0, 20) || []
+      timeframeData?.industries?.filter((industry: any) => industry.trend === 'bearish') || []
       , [timeframeData]);
+
+    // For 'all' filter in INDUSTRY view, split all industries by performance (positive vs negative)
+    const allBullishIndustries = useMemo(() =>
+      allIndustries.filter((industry: any) => industry.relativePerformance >= 0) || []
+      , [allIndustries]);
+    const allBearishIndustries = useMemo(() =>
+      allIndustries.filter((industry: any) => industry.relativePerformance < 0) || []
+      , [allIndustries]);
 
     // Memoize filtered and sorted trades to prevent re-computation on every render
     const { filteredBullishTrades, filteredBearishTrades } = useMemo(() => {
+      // When filter is 'all', show ALL industries AND highlighted trades
+      if (highlightFilter === 'all') {
+        // Show ALL industries - bullish trend goes to bullish list, everything else to bearish list
+        const industryBullish = allIndustries
+          .filter((industry: any) => industry.trend === 'bullish')
+          .map((industry: any) => [industry.symbol, {
+            ...industry,
+            optionType: 'call',
+            score: industry.relativePerformance || 0,
+            highlightType: null,
+            sourceTab: activeTab.toLowerCase(),
+            strike: 0,
+            expiration: null,
+            contractPrice: 0,
+            impliedVolatility: 0,
+            thetaDecay: 0,
+            delta: 0,
+            stockPrice: 0,
+            stockTarget80: 0,
+            stockTarget90: 0,
+            stopLoss: 0
+          }]);
+
+        // Put bearish AND neutral in bearish section so user sees everything
+        const industryBearish = allIndustries
+          .filter((industry: any) => industry.trend === 'bearish' || industry.trend === 'neutral')
+          .map((industry: any) => [industry.symbol, {
+            ...industry,
+            optionType: 'put',
+            score: industry.relativePerformance || 0,
+            highlightType: null,
+            sourceTab: activeTab.toLowerCase(),
+            strike: 0,
+            expiration: null,
+            contractPrice: 0,
+            impliedVolatility: 0,
+            thetaDecay: 0,
+            delta: 0,
+            stockPrice: 0,
+            stockTarget80: 0,
+            stockTarget90: 0,
+            stopLoss: 0
+          }]);
+
+        // Also include highlighted trades from cache
+        const allTabsHighlights = Object.entries(highlightedTradesCache).flatMap(([tab, trades]) =>
+          Object.entries(trades || {}).map(([symbol, trade]) => [symbol, trade])
+        );
+
+        const highlightBullish = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
+          return trade.optionType?.toLowerCase() === 'call';
+        });
+
+        const highlightBearish = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
+          return trade.optionType?.toLowerCase() === 'put';
+        });
+
+        // Combine industries and highlighted trades
+        const bullish = [...industryBullish, ...highlightBullish].sort((a, b) => {
+          const scoreA = a[1].score || 0;
+          const scoreB = b[1].score || 0;
+          return sortByPercentage ? scoreB - scoreA : scoreA - scoreB;
+        });
+
+        const bearish = [...industryBearish, ...highlightBearish].sort((a, b) => {
+          const scoreA = a[1].score || 0;
+          const scoreB = b[1].score || 0;
+          return sortByPercentage ? scoreB - scoreA : scoreA - scoreB;
+        });
+
+        return { filteredBullishTrades: bullish, filteredBearishTrades: bearish };
+      }
+
+      // For other filters, use highlighted trades cache
       const allTabsHighlights: Array<[string, any]> = [];
       Object.keys(highlightedTradesCache).forEach(tab => {
         Object.entries(highlightedTradesCache[tab] || {}).forEach(([symbol, trade]) => {
@@ -16969,7 +17093,7 @@ export default function TradingViewChart({
       });
 
       return { filteredBullishTrades: bullish, filteredBearishTrades: bearish };
-    }, [highlightedTradesCache, highlightFilter, sortByPercentage]);
+    }, [highlightedTradesCache, highlightFilter, sortByPercentage, allIndustries]);
 
     // Preserve scroll position on re-renders
     useLayoutEffect(() => {
@@ -17232,10 +17356,10 @@ export default function TradingViewChart({
                     background: highlightFilter === 'gold'
                       ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
                       : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
-                    border: highlightFilter === 'gold' ? '2px solid #FFD700' : '2px solid rgba(255, 215, 0, 0.2)',
+                    border: highlightFilter === 'gold' ? '2px solid #FFFF00' : '2px solid rgba(255, 255, 0, 0.2)',
                     borderRadius: '10px',
                     boxShadow: highlightFilter === 'gold'
-                      ? '0 8px 25px rgba(255, 215, 0, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(255, 215, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
+                      ? '0 8px 25px rgba(255, 255, 0, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(255, 255, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
                       : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
                     transform: highlightFilter === 'gold' ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)' : 'scale(1) perspective(1000px)',
                     clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
@@ -17255,15 +17379,15 @@ export default function TradingViewChart({
                   }} />
                   {/* Side edge */}
                   <div className="absolute top-0 right-0 w-px h-full" style={{
-                    background: 'linear-gradient(180deg, #FFD700 0%, transparent 100%)',
+                    background: 'linear-gradient(180deg, #FFFF00 0%, transparent 100%)',
                     opacity: highlightFilter === 'gold' ? 0.6 : 0
                   }} />
                   <div className="flex items-center justify-center gap-2 relative z-10">
                     <TbTrendingUp size={18} style={{
-                      color: highlightFilter === 'gold' ? '#FFD700' : '#ffffff'
+                      color: highlightFilter === 'gold' ? '#FFFF00' : '#ffffff'
                     }} />
                     <span className="font-black text-sm tracking-widest" style={{
-                      color: highlightFilter === 'gold' ? '#FFD700' : '#ffffff',
+                      color: highlightFilter === 'gold' ? '#FFFF00' : '#ffffff',
                       textShadow: 'none',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
@@ -17280,10 +17404,10 @@ export default function TradingViewChart({
                     background: highlightFilter === 'purple'
                       ? 'linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(10, 10, 10, 0.98) 50%, rgba(0, 0, 0, 0.95) 100%)'
                       : 'linear-gradient(135deg, rgba(30, 30, 30, 0.6) 0%, rgba(15, 15, 15, 0.8) 100%)',
-                    border: highlightFilter === 'purple' ? '2px solid #8A2BE2' : '2px solid rgba(138, 43, 226, 0.2)',
+                    border: highlightFilter === 'purple' ? '2px solid #ffffff' : '2px solid rgba(255, 255, 255, 0.2)',
                     borderRadius: '10px',
                     boxShadow: highlightFilter === 'purple'
-                      ? '0 8px 25px rgba(138, 43, 226, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(138, 43, 226, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
+                      ? '0 8px 25px rgba(255, 255, 255, 0.5), 0 15px 45px rgba(0, 0, 0, 0.9), inset 0 3px 15px rgba(255, 255, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 8px rgba(0, 0, 0, 0.8)'
                       : '0 4px 10px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 3px rgba(0, 0, 0, 0.6)',
                     transform: highlightFilter === 'purple' ? 'scale(1.02) translateY(-6px) perspective(1000px) rotateX(2deg)' : 'scale(1) perspective(1000px)',
                     clipPath: 'polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%)',
@@ -17303,15 +17427,15 @@ export default function TradingViewChart({
                   }} />
                   {/* Side edge */}
                   <div className="absolute top-0 right-0 w-px h-full" style={{
-                    background: 'linear-gradient(180deg, #8A2BE2 0%, transparent 100%)',
+                    background: 'linear-gradient(180deg, #ffffff 0%, transparent 100%)',
                     opacity: highlightFilter === 'purple' ? 0.6 : 0
                   }} />
                   <div className="flex items-center justify-center gap-2 relative z-10">
                     <TbChartBar size={18} style={{
-                      color: highlightFilter === 'purple' ? '#8A2BE2' : '#ffffff'
+                      color: '#ffffff'
                     }} />
                     <span className="font-black text-sm tracking-widest" style={{
-                      color: highlightFilter === 'purple' ? '#8A2BE2' : '#ffffff',
+                      color: '#ffffff',
                       textShadow: 'none',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
@@ -17480,15 +17604,8 @@ export default function TradingViewChart({
                         </div>
                         <div className="space-y-4">
                           {filteredBullishTrades.map(([symbol, trade]: [string, any], idx) => {
-                            const isGold = trade.highlightType === 'gold';
-                            const isPurple = trade.highlightType === 'purple';
-                            const isBlue = trade.highlightType === 'blue';
-                            const isPink = trade.highlightType === 'pink';
-
-                            const tickerColor = isGold ? '#FFD700' :
-                              isPurple ? '#8A2BE2' :
-                                isBlue ? '#00FFFF' :
-                                  isPink ? '#FF69B4' : '#ffffff';
+                            // Color logic: Gold for setup/quality, Lime Green for momentum
+                            const tickerColor = trade.strategy === 'setup' ? '#FFD700' : '#32CD32';
                             const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
 
                             // Get tab label and color from trade's sourceTab
@@ -17500,23 +17617,9 @@ export default function TradingViewChart({
                               tradeTab === 'developing' ? '#3b82f6' :
                                 tradeTab === 'momentum' ? '#a855f7' : '#f59e0b';
 
-                            // Determine card styling based on highlight type
-                            let cardBorder = '1px solid rgba(16, 185, 129, 0.3)';
-                            let cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(16, 185, 129, 0.1)';
-
-                            if (isGold) {
-                              cardBorder = '2px solid rgba(255, 215, 0, 0.6)';
-                              cardShadow = '0 4px 12px rgba(255, 215, 0, 0.4), inset 0 1px 0 rgba(255, 215, 0, 0.2)';
-                            } else if (isPurple) {
-                              cardBorder = '2px solid rgba(138, 43, 226, 0.6)';
-                              cardShadow = '0 4px 12px rgba(138, 43, 226, 0.4), inset 0 1px 0 rgba(138, 43, 226, 0.2)';
-                            } else if (isBlue) {
-                              cardBorder = '2px solid rgba(0, 255, 255, 0.6)';
-                              cardShadow = '0 4px 12px rgba(0, 255, 255, 0.4), inset 0 1px 0 rgba(0, 255, 255, 0.2)';
-                            } else if (isPink) {
-                              cardBorder = '2px solid rgba(255, 105, 180, 0.6)';
-                              cardShadow = '0 4px 12px rgba(255, 105, 180, 0.4), inset 0 1px 0 rgba(255, 105, 180, 0.2)';
-                            }
+                            // Uniform card styling
+                            const cardBorder = '1px solid rgba(16, 185, 129, 0.3)';
+                            const cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)';
 
                             return (
                               <div
@@ -17551,7 +17654,7 @@ export default function TradingViewChart({
                                           marginTop: '2px',
                                           fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.455rem' : '0.65rem'
                                         }}>
-                                          {isBlue || isPink ? 'Momentum' : 'Quality'}
+                                          Quality
                                         </div>
                                       </div>
                                     </div>
@@ -17560,12 +17663,7 @@ export default function TradingViewChart({
                                     <div className="flex-1 text-center flex items-center justify-center gap-2">
                                       <span className="font-black tracking-tight" style={{
                                         fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem',
-                                        background: isGold ? 'linear-gradient(135deg, #FFD700, #FFA500)' :
-                                          isBlue ? 'linear-gradient(135deg, #00FFFF, #00CED1)' :
-                                            isPink ? 'linear-gradient(135deg, #FF69B4, #FF1493)' :
-                                              'linear-gradient(135deg, #A855F7, #D946EF)',
-                                        WebkitBackgroundClip: 'text',
-                                        WebkitTextFillColor: 'transparent',
+                                        color: tickerColor,
                                         fontFamily: 'system-ui, -apple-system, sans-serif',
                                         display: 'inline-block'
                                       }}>
@@ -17765,15 +17863,8 @@ export default function TradingViewChart({
                         </div>
                         <div className="space-y-4">
                           {filteredBearishTrades.map(([symbol, trade]: [string, any], idx) => {
-                            const isGold = trade.highlightType === 'gold';
-                            const isPurple = trade.highlightType === 'purple';
-                            const isBlue = trade.highlightType === 'blue';
-                            const isPink = trade.highlightType === 'pink';
-
-                            const tickerColor = isGold ? '#FFD700' :
-                              isPurple ? '#8A2BE2' :
-                                isBlue ? '#00FFFF' :
-                                  isPink ? '#FF69B4' : '#ffffff';
+                            // Color logic: Cyan blue for setup/quality, Bright Red for momentum
+                            const tickerColor = trade.strategy === 'setup' ? '#00FFFF' : '#FF0000';
                             const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
 
                             // Get tab label and color from trade's sourceTab
@@ -17785,23 +17876,9 @@ export default function TradingViewChart({
                               tradeTab === 'developing' ? '#3b82f6' :
                                 tradeTab === 'momentum' ? '#a855f7' : '#f59e0b';
 
-                            // Determine card styling based on highlight type
+                            // Determine card styling
                             let cardBorder = '1px solid rgba(239, 68, 68, 0.3)';
                             let cardShadow = '0 2px 8px rgba(0, 0, 0, 0.6)';
-
-                            if (isGold) {
-                              cardBorder = '2px solid rgba(255, 215, 0, 0.6)';
-                              cardShadow = '0 4px 12px rgba(255, 215, 0, 0.4), inset 0 1px 0 rgba(255, 215, 0, 0.2)';
-                            } else if (isPurple) {
-                              cardBorder = '2px solid rgba(138, 43, 226, 0.6)';
-                              cardShadow = '0 4px 12px rgba(138, 43, 226, 0.4), inset 0 1px 0 rgba(138, 43, 226, 0.2)';
-                            } else if (isBlue) {
-                              cardBorder = '2px solid rgba(0, 255, 255, 0.6)';
-                              cardShadow = '0 4px 12px rgba(0, 255, 255, 0.4), inset 0 1px 0 rgba(0, 255, 255, 0.2)';
-                            } else if (isPink) {
-                              cardBorder = '2px solid rgba(255, 105, 180, 0.6)';
-                              cardShadow = '0 4px 12px rgba(255, 105, 180, 0.4), inset 0 1px 0 rgba(255, 105, 180, 0.2)';
-                            }
 
                             return (
                               <div
@@ -17836,7 +17913,7 @@ export default function TradingViewChart({
                                           marginTop: '2px',
                                           fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0.455rem' : '0.65rem'
                                         }}>
-                                          {isBlue || isPink ? 'Momentum' : 'Quality'}
+                                          Quality
                                         </div>
                                       </div>
                                     </div>
@@ -17845,12 +17922,7 @@ export default function TradingViewChart({
                                     <div className="flex-1 text-center flex items-center justify-center gap-2">
                                       <span className="font-black tracking-tight" style={{
                                         fontSize: typeof window !== 'undefined' && window.innerWidth <= 768 ? '1.05rem' : '1.5rem',
-                                        background: isGold ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FFD700 100%)' :
-                                          isBlue ? 'linear-gradient(135deg, #00FFFF 0%, #00CED1 50%, #00FFFF 100%)' :
-                                            isPink ? 'linear-gradient(135deg, #FF69B4 0%, #FF1493 50%, #FF69B4 100%)' :
-                                              'linear-gradient(135deg, #A855F7 0%, #D946EF 50%, #A855F7 100%)',
-                                        WebkitBackgroundClip: 'text',
-                                        WebkitTextFillColor: 'transparent',
+                                        color: tickerColor,
                                         filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
                                         fontFamily: 'system-ui, -apple-system, sans-serif',
                                         display: 'inline-block'
@@ -18073,12 +18145,12 @@ export default function TradingViewChart({
                               background: 'rgba(255, 102, 0, 0.1)',
                               border: '1px solid rgba(255, 102, 0, 0.3)'
                             }}>
-                              {bullishIndustries.length} sectors
+                              {(highlightFilter === 'all' ? allBullishIndustries : bullishIndustries).length} sectors
                             </div>
                           </div>
 
                           <div className="grid grid-cols-2 gap-4">
-                            {bullishIndustries.length > 0 ? bullishIndustries.map((industry: any, index: number) => (
+                            {(highlightFilter === 'all' ? allBullishIndustries : bullishIndustries).length > 0 ? (highlightFilter === 'all' ? allBullishIndustries : bullishIndustries).map((industry: any, index: number) => (
                               <div
                                 key={industry.symbol}
                                 className="group relative p-4 rounded-lg transition-all duration-200 cursor-pointer"
@@ -18128,33 +18200,11 @@ export default function TradingViewChart({
                                     <div className="space-y-2">
                                       {industry.topPerformers.slice(0, 3).map((stock: any) => {
                                         const tradeData = highlightedTrades[stock.symbol];
-                                        const isHighlighted = !!tradeData;
-                                        const isGold = tradeData?.highlightType === 'gold';
-                                        const isPurple = tradeData?.highlightType === 'purple';
-                                        const isBlue = tradeData?.highlightType === 'blue';
-                                        const isPink = tradeData?.highlightType === 'pink';
-
-                                        let bgColor = 'rgba(0, 0, 0, 0.3)';
-                                        let borderColor = 'rgba(0, 255, 0, 0.3)';
-                                        let symbolColor = '#ffffff';
-
-                                        if (isGold) {
-                                          bgColor = 'rgba(255, 215, 0, 0.1)';
-                                          borderColor = '#FFD700';
-                                          symbolColor = '#FFD700';
-                                        } else if (isPurple) {
-                                          bgColor = 'rgba(138, 43, 226, 0.1)';
-                                          borderColor = '#8A2BE2';
-                                          symbolColor = '#8A2BE2';
-                                        } else if (isBlue) {
-                                          bgColor = 'rgba(0, 255, 255, 0.1)';
-                                          borderColor = '#00FFFF';
-                                          symbolColor = '#00FFFF';
-                                        } else if (isPink) {
-                                          bgColor = 'rgba(255, 105, 180, 0.1)';
-                                          borderColor = '#FF69B4';
-                                          symbolColor = '#FF69B4';
-                                        }
+                                        // Color logic: Gold for setup/quality, Lime Green for momentum, white for non-highlighted
+                                        const symbolColor = tradeData?.strategy === 'setup' ? '#FFD700' :
+                                          tradeData?.strategy === 'momentum' ? '#32CD32' : '#ffffff';
+                                        const bgColor = 'rgba(0, 0, 0, 0.3)';
+                                        const borderColor = 'rgba(0, 255, 0, 0.3)';
 
                                         return (
                                           <div
@@ -18163,11 +18213,11 @@ export default function TradingViewChart({
                                             style={{
                                               background: bgColor,
                                               border: `1px solid ${borderColor}`,
-                                              boxShadow: isHighlighted ? `0 0 8px ${borderColor}` : 'none'
+                                              boxShadow: 'none'
                                             }}
                                             onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                                               e.stopPropagation();
-                                              if (isHighlighted && tradeData) {
+                                              if (tradeData) {
                                                 setSelectedTradeForModal(tradeData);
                                                 setShowTradeModal(true);
                                               } else {
@@ -18222,12 +18272,12 @@ export default function TradingViewChart({
                               background: 'rgba(255, 102, 0, 0.1)',
                               border: '1px solid rgba(255, 102, 0, 0.3)'
                             }}>
-                              {bearishIndustries.length} sectors
+                              {(highlightFilter === 'all' ? allBearishIndustries : bearishIndustries).length} sectors
                             </div>
                           </div>
 
                           <div className="grid grid-cols-2 gap-4">
-                            {bearishIndustries.length > 0 ? bearishIndustries.map((industry: any, index: number) => (
+                            {(highlightFilter === 'all' ? allBearishIndustries : bearishIndustries).length > 0 ? (highlightFilter === 'all' ? allBearishIndustries : bearishIndustries).map((industry: any, index: number) => (
                               <div
                                 key={industry.symbol}
                                 className="group relative p-4 rounded-lg transition-all duration-200 cursor-pointer"
@@ -18277,33 +18327,11 @@ export default function TradingViewChart({
                                     <div className="space-y-2">
                                       {industry.worstPerformers.slice(0, 3).map((stock: any) => {
                                         const tradeData = highlightedTrades[stock.symbol];
-                                        const isHighlighted = !!tradeData;
-                                        const isGold = tradeData?.highlightType === 'gold';
-                                        const isPurple = tradeData?.highlightType === 'purple';
-                                        const isBlue = tradeData?.highlightType === 'blue';
-                                        const isPink = tradeData?.highlightType === 'pink';
-
-                                        let bgColor = 'rgba(0, 0, 0, 0.3)';
-                                        let borderColor = 'rgba(255, 0, 0, 0.3)';
-                                        let symbolColor = '#ffffff';
-
-                                        if (isGold) {
-                                          bgColor = 'rgba(255, 215, 0, 0.1)';
-                                          borderColor = '#FFD700';
-                                          symbolColor = '#FFD700';
-                                        } else if (isPurple) {
-                                          bgColor = 'rgba(138, 43, 226, 0.1)';
-                                          borderColor = '#8A2BE2';
-                                          symbolColor = '#8A2BE2';
-                                        } else if (isBlue) {
-                                          bgColor = 'rgba(0, 255, 255, 0.1)';
-                                          borderColor = '#00FFFF';
-                                          symbolColor = '#00FFFF';
-                                        } else if (isPink) {
-                                          bgColor = 'rgba(255, 105, 180, 0.1)';
-                                          borderColor = '#FF69B4';
-                                          symbolColor = '#FF69B4';
-                                        }
+                                        // Color logic: Cyan blue for setup/quality, Bright Red for momentum, white for non-highlighted
+                                        const symbolColor = tradeData?.strategy === 'setup' ? '#00FFFF' :
+                                          tradeData?.strategy === 'momentum' ? '#FF0000' : '#ffffff';
+                                        const bgColor = 'rgba(0, 0, 0, 0.3)';
+                                        const borderColor = 'rgba(255, 0, 0, 0.3)';
 
                                         return (
                                           <div
@@ -18312,11 +18340,11 @@ export default function TradingViewChart({
                                             style={{
                                               background: bgColor,
                                               border: `1px solid ${borderColor}`,
-                                              boxShadow: isHighlighted ? `0 0 8px ${borderColor}` : 'none'
+                                              boxShadow: 'none'
                                             }}
                                             onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                                               e.stopPropagation();
-                                              if (isHighlighted && tradeData) {
+                                              if (tradeData) {
                                                 setSelectedTradeForModal(tradeData);
                                                 setShowTradeModal(true);
                                               } else {
@@ -18401,10 +18429,7 @@ export default function TradingViewChart({
                       className="px-3 py-1 font-mono font-bold text-2xl"
                       style={{
                         background: '#000000',
-                        color: selectedTradeForModal.highlightType === 'gold' ? '#FFD700' :
-                          selectedTradeForModal.highlightType === 'purple' ? '#8A2BE2' :
-                            selectedTradeForModal.highlightType === 'blue' ? '#00FFFF' :
-                              selectedTradeForModal.highlightType === 'pink' ? '#FF69B4' : '#ffffff'
+                        color: '#ffffff'
                       }}
                     >
                       {selectedTradeForModal.symbol}
@@ -18412,9 +18437,9 @@ export default function TradingViewChart({
                     <div
                       className="px-3 py-1 font-mono text-sm font-bold uppercase"
                       style={{
-                        background: selectedTradeForModal.strategy === 'setup' ? 'rgba(218, 165, 32, 0.2)' : 'rgba(255, 140, 0, 0.2)',
-                        color: selectedTradeForModal.strategy === 'setup' ? '#FFD700' : '#FF8C00',
-                        border: `1px solid ${selectedTradeForModal.strategy === 'setup' ? 'rgba(218, 165, 32, 0.4)' : 'rgba(255, 140, 0, 0.4)'}`
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        color: '#ffffff',
+                        border: '1px solid rgba(255, 255, 255, 0.3)'
                       }}
                     >
                       {selectedTradeForModal.strategy === 'setup' ? '📊 SETUP QUALITY' : '🚀 MOMENTUM'}
@@ -18650,53 +18675,53 @@ export default function TradingViewChart({
                   <div className="text-center font-mono text-lg uppercase tracking-wide mb-5" style={{
                     color: '#ff6600'
                   }}>
-                    {selectedTradeForModal.strategy === 'setup' ? 'Setup Quality Score Breakdown' : 'Momentum-Volatility Score Breakdown'}
+                    {selectedTradeForModal.strategy === 'setup' ? 'Price Structure Score Breakdown' : 'Momentum-Volatility Score Breakdown'}
                   </div>
 
                   {selectedTradeForModal.strategy === 'setup' ? (
                     <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Setup Quality:</span>
-                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.setupQuality?.toFixed(1) || 0}/25</span>
+                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Trend Structure:</span>
+                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.trendStructure || 0}/3</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#4ECDC4', fontSize: '15px' }}>Risk/Reward:</span>
-                        <span className="font-bold" style={{ color: '#4ECDC4', fontSize: '16px' }}>{selectedTradeForModal.details.riskReward?.toFixed(1) || 0}/20</span>
+                        <span style={{ color: '#4ECDC4', fontSize: '15px' }}>Location in Range:</span>
+                        <span className="font-bold" style={{ color: '#4ECDC4', fontSize: '16px' }}>{selectedTradeForModal.details.locationInRange || 0}/3</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#95E1D3', fontSize: '15px' }}>Relative Strength:</span>
-                        <span className="font-bold" style={{ color: '#95E1D3', fontSize: '16px' }}>{selectedTradeForModal.details.relativeStrength?.toFixed(1) || 0}/15</span>
+                        <span style={{ color: '#95E1D3', fontSize: '15px' }}>Compression:</span>
+                        <span className="font-bold" style={{ color: '#95E1D3', fontSize: '16px' }}>{selectedTradeForModal.details.compression || 0}/2</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#F38181', fontSize: '15px' }}>Momentum Health:</span>
-                        <span className="font-bold" style={{ color: '#F38181', fontSize: '16px' }}>{selectedTradeForModal.details.momentumHealth?.toFixed(1) || 0}/20</span>
+                        <span style={{ color: '#F38181', fontSize: '15px' }}>Level Respect:</span>
+                        <span className="font-bold" style={{ color: '#F38181', fontSize: '16px' }}>{selectedTradeForModal.details.levelRespect || 0}/2</span>
                       </div>
                       <div className="flex items-center col-span-2 justify-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#AA96DA', fontSize: '15px' }}>Trend Strength:</span>
-                        <span className="font-bold ml-3" style={{ color: '#AA96DA', fontSize: '16px' }}>{selectedTradeForModal.details.trendStrength?.toFixed(1) || 0}/20</span>
+                        <span style={{ color: '#AA96DA', fontSize: '15px' }}>Total Structure Score:</span>
+                        <span className="font-bold ml-3" style={{ color: '#AA96DA', fontSize: '16px' }}>{selectedTradeForModal.details.structureScore || 0}/10</span>
                       </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-base font-mono">
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#FF8C00', fontSize: '15px' }}>Support Strength:</span>
-                        <span className="font-bold" style={{ color: '#FF8C00', fontSize: '16px' }}>{selectedTradeForModal.details.supportStrength?.toFixed(1) || 0}</span>
+                        <span style={{ color: '#FF8C00', fontSize: '15px' }}>Trend Structure:</span>
+                        <span className="font-bold" style={{ color: '#FF8C00', fontSize: '16px' }}>{selectedTradeForModal.details.trendStructure || 0}/3</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Elite Resilience:</span>
-                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.resilience?.toFixed(1) || 0}</span>
+                        <span style={{ color: '#FFD700', fontSize: '15px' }}>Location Near Highs:</span>
+                        <span className="font-bold" style={{ color: '#FFD700', fontSize: '16px' }}>{selectedTradeForModal.details.locationNearHighs || 0}/3</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#00FFFF', fontSize: '15px' }}>Retest Quality:</span>
-                        <span className="font-bold" style={{ color: '#00FFFF', fontSize: '16px' }}>{selectedTradeForModal.details.retestQuality?.toFixed(1) || 0}</span>
+                        <span style={{ color: '#00FFFF', fontSize: '15px' }}>Expansion:</span>
+                        <span className="font-bold" style={{ color: '#00FFFF', fontSize: '16px' }}>{selectedTradeForModal.details.expansion || 0}/2</span>
                       </div>
                       <div className="flex justify-between items-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#32CD32', fontSize: '15px' }}>Relative Strength:</span>
-                        <span className="font-bold" style={{ color: '#32CD32', fontSize: '16px' }}>{selectedTradeForModal.details.relativeStrength?.toFixed(1) || 0}</span>
+                        <span style={{ color: '#32CD32', fontSize: '15px' }}>Level Breakout:</span>
+                        <span className="font-bold" style={{ color: '#32CD32', fontSize: '16px' }}>{selectedTradeForModal.details.levelBreakout || 0}/2</span>
                       </div>
                       <div className="flex items-center col-span-2 justify-center p-3 rounded" style={{ background: '#000000', border: '1px solid #333' }}>
-                        <span style={{ color: '#FF1493', fontSize: '15px' }}>Pullback Depth:</span>
-                        <span className="font-bold ml-3" style={{ color: '#FF1493', fontSize: '16px' }}>{selectedTradeForModal.details.pullbackDepth?.toFixed(1) || 0}</span>
+                        <span style={{ color: '#FF1493', fontSize: '15px' }}>Total Momentum Score:</span>
+                        <span className="font-bold ml-3" style={{ color: '#FF1493', fontSize: '16px' }}>{selectedTradeForModal.details.momentumScore || 0}/10</span>
                       </div>
                     </div>
                   )}
@@ -18978,10 +19003,10 @@ export default function TradingViewChart({
       }} />
 
       <div className="w-full h-full flex">
-        <div className={`${isGuideAIOpen ? 'w-[70%]' : 'w-full'} h-full rounded-lg overflow-hidden transition-all duration-300`} style={{ backgroundColor: colors.background }}>
+        <div className={`${isGuideAIOpen ? 'w-[70%]' : 'w-full'} h-full flex flex-col rounded-lg overflow-hidden transition-all duration-300`} style={{ backgroundColor: colors.background }}>
           {/* Premium Bloomberg Terminal Top Bar with Solid Black & Gold */}
           <div
-            className="h-14 border-b flex items-center justify-between px-6 relative navigation-bar-premium"
+            className="h-14 border-b flex items-center justify-between px-6 relative navigation-bar-premium flex-shrink-0"
             style={{
               background: '#000000',
               backgroundSize: '400% 400%',
@@ -22291,21 +22316,29 @@ export default function TradingViewChart({
                   {/* Main Chart Canvas */}
                   <canvas
                     ref={chartCanvasRef}
-                    className="absolute top-0 left-0 z-10"
-                    style={{ height: chartHeight }}
+                    className="absolute top-0 z-10"
+                    style={{
+                      height: chartHeight,
+                      left: 0,
+                      width: '100%'
+                    }}
                   />
 
                   {/* Crosshair and Interaction Overlay */}
                   <canvas
                     ref={overlayCanvasRef}
-                    className="absolute inset-0 z-20"
+                    className="absolute z-20"
                     tabIndex={0}
                     style={{
                       cursor: activeTool ? 'crosshair' :
                         dragRef.current.active ? 'grabbing' : 'crosshair',
                       transition: 'cursor 0.1s ease',
                       outline: 'none',
-                      touchAction: 'none'
+                      touchAction: 'none',
+                      left: 0,
+                      top: 0,
+                      width: '100%',
+                      height: '100%'
                     }}
                     onMouseDown={handleUnifiedMouseDown}
                     onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -24690,14 +24723,14 @@ export default function TradingViewChart({
                               <div className="space-y-3">
                                 {buildTradeMarketRegime.map((regime, index) => (
                                   <div key={index} className="p-3 rounded-lg" style={{
-                                    background: regime.highlightType === 'gold' ? 'rgba(218, 165, 32, 0.1)' : 'rgba(147, 51, 234, 0.1)',
-                                    border: regime.highlightType === 'gold' ? '1px solid rgba(218, 165, 32, 0.3)' : '1px solid rgba(147, 51, 234, 0.3)'
+                                    background: 'rgba(255, 255, 255, 0.05)',
+                                    border: '1px solid rgba(255, 255, 255, 0.2)'
                                   }}>
                                     <div className="flex flex-wrap gap-2 mb-3">
                                       <div className="px-3 py-2 rounded-lg font-bold" style={{
-                                        background: regime.highlightType === 'gold' ? 'rgba(218, 165, 32, 0.2)' : 'rgba(147, 51, 234, 0.2)',
-                                        border: regime.highlightType === 'gold' ? '1px solid rgba(218, 165, 32, 0.4)' : '1px solid rgba(147, 51, 234, 0.4)',
-                                        color: regime.highlightType === 'gold' ? '#daa520' : '#9333ea',
+                                        background: 'rgba(255, 255, 255, 0.1)',
+                                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                                        color: '#ffffff',
                                         fontSize: '13px',
                                         fontFamily: 'monospace',
                                         textTransform: 'uppercase' as const

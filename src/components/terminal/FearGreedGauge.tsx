@@ -2,63 +2,77 @@
 
 import { useMemo } from 'react';
 
-interface RegimeData {
-  period: string;
+interface SectorAnalysis {
+  sector: string;
+  change: number;
+  relativeToSPY: number;
+}
+
+interface RegimeAnalysis {
+  defensiveAvg: number;
+  growthAvg: number;
+  valueAvg: number;
+  defensiveGrowthSpread: number;
+  spreadStrength: 'STRONG' | 'MODERATE' | 'WEAK';
   regime: string;
+  confidence: number;
+  defensiveSectors: SectorAnalysis[];
+  growthSectors: SectorAnalysis[];
+  valueSectors: SectorAnalysis[];
 }
 
 interface FearGreedGaugeProps {
-  regimes: RegimeData[];
+  regimeAnalysis: Record<string, RegimeAnalysis>;
 }
 
-export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
-  // Calculate weighted score
+export default function FearGreedGauge({ regimeAnalysis }: FearGreedGaugeProps) {
+  // Calculate weighted composite spread using composite logic
   const score = useMemo(() => {
-    const weights: Record<string, number> = {
-      '21d': 40,
-      '13d': 30,
-      '5d': 20,
-      '1d': 10,
-    };
+    const timeframes = ['1d', '5d', '13d', '21d', '50d', 'ytd'];
+    const weights = { '1d': 0.25, '5d': 0.20, '13d': 0.20, '21d': 0.15, '50d': 0.15, 'ytd': 0.05 };
 
-    let totalScore = 0;
+    let compositeSpread = 0;
+    let totalWeight = 0;
 
-    regimes.forEach(({ period, regime }) => {
-      const weight = weights[period.toLowerCase()] || 0;
-      
-      if (regime === 'DEFENSIVE') {
-        totalScore -= weight;
-      } else if (regime === 'RISK ON') {
-        totalScore += weight;
-      } else if (regime === 'VALUE') {
-        totalScore += 5;
+    timeframes.forEach(tf => {
+      const tfAnalysis = regimeAnalysis[tf];
+      if (tfAnalysis) {
+        const weight = weights[tf as keyof typeof weights];
+        compositeSpread += tfAnalysis.defensiveGrowthSpread * weight;
+        totalWeight += weight;
       }
-      // MIXED contributes 0 points
     });
 
-    return Math.max(-100, Math.min(100, totalScore)); // Clamp between -100 and 100
-  }, [regimes]);
+    // Normalize by actual total weight
+    if (totalWeight > 0) {
+      compositeSpread /= totalWeight;
+    }
+
+    // Scale to -100 to +100 range for display (spread typically ranges from -10 to +10)
+    // INVERT: Positive spread = defensive (fear/left), Negative spread = growth (greed/right)
+    return Math.max(-100, Math.min(100, -compositeSpread * 10));
+  }, [regimeAnalysis]);
 
   // Calculate gauge position (0-180 degrees, where 0 is far left, 90 is center, 180 is far right)
   const angle = useMemo(() => {
     return ((score + 100) / 200) * 180;
   }, [score]);
 
-  // Get color based on score
+  // Get color based on score (positive = growth/green, negative = defensive/red)
   const getColor = (s: number) => {
-    if (s <= -60) return '#dc2626'; // Deep red (Extreme Fear)
-    if (s <= -20) return '#f87171'; // Light red (Fear)
-    if (s < 20) return '#fbbf24'; // Yellow (Neutral)
-    if (s < 60) return '#4ade80'; // Light green (Greed)
-    return '#10b981'; // Deep green (Extreme Greed)
+    if (s >= 60) return '#10b981'; // Deep green (Strong Growth)
+    if (s >= 20) return '#4ade80'; // Light green (Growth)
+    if (s > -20) return '#fbbf24'; // Yellow (Neutral)
+    if (s > -60) return '#f87171'; // Light red (Defensive)
+    return '#dc2626'; // Deep red (Strong Defensive)
   };
 
   const getLabel = (s: number) => {
-    if (s <= -60) return 'EXTREME FEAR';
-    if (s <= -20) return 'FEAR';
-    if (s < 20) return 'NEUTRAL';
-    if (s < 60) return 'GREED';
-    return 'EXTREME GREED';
+    if (s >= 60) return 'STRONG GROWTH';
+    if (s >= 20) return 'GROWTH';
+    if (s > -20) return 'NEUTRAL';
+    if (s > -60) return 'DEFENSIVE';
+    return 'STRONG DEFENSIVE';
   };
 
   const color = getColor(score);
@@ -76,7 +90,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
   const needleY = centerY - needleLength * Math.sin((needleAngle * Math.PI) / 180);
 
   return (
-    <div 
+    <div
       className="fear-greed-gauge"
       style={{
         position: 'relative',
@@ -98,7 +112,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
       {/* SVG Gauge */}
       <svg width="120" height="65" viewBox="0 0 120 65" style={{ overflow: 'visible' }}>
         <defs>
-          {/* Gradient for gauge arc - Fear to Greed */}
+          {/* Gradient for gauge arc - Defensive to Growth */}
           <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#dc2626" />
             <stop offset="25%" stopColor="#f87171" />
@@ -126,7 +140,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
           strokeLinecap="round"
         />
 
-        {/* Fear label */}
+        {/* Fear label (Defensive) */}
         <text
           x={centerX - radius - 15}
           y={centerY + 5}
@@ -138,7 +152,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
           FEAR
         </text>
 
-        {/* Greed label */}
+        {/* Greed label (Growth) */}
         <text
           x={centerX + radius + 15}
           y={centerY + 5}
@@ -164,7 +178,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
 
         {/* Needle */}
         <g>
-          {/* Fire particles for fear side (negative scores) */}
+          {/* Fire particles for defensive side (negative scores) */}
           {score < 0 && (
             <>
               <circle className="fire-particle fire-1" cx={needleX} cy={needleY} r="2" fill="#ff6b00" opacity="0.8" />
@@ -174,8 +188,8 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
               <circle className="fire-particle fire-5" cx={needleX} cy={needleY} r="2.2" fill="#ffa500" opacity="0.5" />
             </>
           )}
-          
-          {/* Firework particles for greed side (positive scores) */}
+
+          {/* Firework particles for growth side (positive scores) */}
           {score > 0 && (
             <>
               <circle className="firework-particle fw-1" cx={needleX} cy={needleY} r="2" fill="#00ff88" opacity="0.9" />
@@ -186,7 +200,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
               <circle className="firework-particle fw-6" cx={needleX} cy={needleY} r="1.2" fill="#00ff66" opacity="0.6" />
             </>
           )}
-          
+
           <line
             x1={centerX}
             y1={centerY}
@@ -199,7 +213,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
               transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
           />
-          
+
           {/* Needle center dot */}
           <circle
             cx={centerX}
@@ -250,7 +264,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
           letterSpacing: '-0.5px',
           transition: 'all 0.4s ease',
         }}>
-          {score > 0 ? '+' : ''}{score}
+          {score > 0 ? '+' : ''}{score.toFixed(2)}
         </div>
       </div>
 
@@ -260,7 +274,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
           transform: scale(1.05);
         }
 
-        /* Fire animation for fear side */
+        /* Fire animation for defensive side */
         @keyframes fire-rise {
           0% {
             transform: translate(0, 0) scale(1);
@@ -310,7 +324,7 @@ export default function FearGreedGauge({ regimes }: FearGreedGaugeProps) {
           animation-delay: 0.6s;
         }
 
-        /* Firework animation for greed side */
+        /* Firework animation for growth side */
         @keyframes firework-burst {
           0% {
             transform: translate(0, 0) scale(0.5);

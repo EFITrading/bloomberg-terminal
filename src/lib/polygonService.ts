@@ -316,7 +316,6 @@ class PolygonService {
     ): Promise<PolygonAggregateData | null> {
         try {
             const endpoint = `/api/historical-data?symbol=${symbol}&startDate=${startDate}&endDate=${endDate}`;
-            console.log(` Fetching historical data for ${symbol} from ${startDate} to ${endDate} via backend API`);
 
             const response = await fetch(endpoint, {
                 method: 'GET',
@@ -333,7 +332,6 @@ class PolygonService {
             }
 
             const data = await response.json();
-            console.log(` Successfully fetched ${data.resultsCount || 0} data points for ${symbol}`);
             return data;
 
         } catch (error) {

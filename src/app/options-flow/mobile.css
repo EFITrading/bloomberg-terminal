@@ -6,6 +6,25 @@
     overflow-x: hidden;
   }
 
+  /* Push control bar down on mobile only */
+  .control-bar,
+  div[style*="border-b border-gray-700"] {
+    margin-top: 30px !important;
+    padding-top: 12px !important;
+  }
+
+  /* Target the Premium Control Bar wrapper */
+  .bg-black.border-b.border-gray-700 {
+    margin-top: 30px !important;
+    padding-top: 12px !important;
+  }
+
+  /* Remove any extra spacing from table */
+  .options-flow-table-container {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+
   /* Make table scroll horizontally on mobile */
   .options-flow-table-container {
     width: 100vw;

@@ -45,7 +45,15 @@ export interface IndustryPerformance {
   name: string;
   category: string;
   relativePerformance: number;
-  trend: 'bullish' | 'bearish';
+  trend: 'bullish' | 'bearish' | 'neutral';
+  hasStructure: boolean;
+  ratioVsEMA: number;
+  temporalConsistency?: number; // 0-100, higher = more orderly build
+  windowBreakdown?: {
+    short: { score: number; valid: boolean; };
+    mid: { score: number; valid: boolean; };
+    full: { score: number; valid: boolean; };
+  };
   topPerformers: HoldingPerformance[];
   worstPerformers: HoldingPerformance[];
 }
@@ -101,7 +109,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
     symbol: 'FDN',
     name: 'Internet & Fintech',
     category: 'Technology',
-    holdings: ['META', 'NFLX', 'UBER', 'SHOP', 'SPOT', 'EBAY', 'PYPL', 'SQ', 'DASH', 'ABNB', 'COIN', 'ROKU', 'ZM', 'HOOD', 'PATH', 'RBLX', 'U', 'MARA', 'RIOT', 'AFRM', 'UPST']
+    holdings: ['META', 'NFLX', 'UBER', 'SHOP', 'SPOT', 'EBAY', 'PYPL', 'XYZ', 'DASH', 'ABNB', 'COIN', 'ROKU', 'ZM', 'HOOD', 'PATH', 'RBLX', 'U', 'MARA', 'RIOT', 'AFRM', 'UPST']
   },
 
   // 5. Tech Hardware & Robotics
@@ -133,7 +141,7 @@ export const INDUSTRY_ETFS: IndustryETF[] = [
     symbol: 'TAN',
     name: 'Renewable Energy',
     category: 'Clean Energy',
-    holdings: ['FSLR', 'ENPH', 'JKS', 'DQ', 'CSIQ', 'RUN', 'ARRY', 'SEDG', 'BE', 'NEE', 'EIX', 'GPRE', 'ORA', 'ITRI']
+    holdings: ['FSLR', 'ENPH', 'RUN']
   },
 
   // 9. Nuclear Energy
@@ -418,7 +426,7 @@ export class IndustryAnalysisService {
               const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
               const response = await fetch(
-                `${this.baseUrl}/historical-data?symbol=${symbol}&startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`,
+                `${this.baseUrl}/historical-data?symbol=${symbol}&startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}&keepDesc=true`,
                 {
                   signal: controller.signal,
                   headers: {
@@ -480,6 +488,83 @@ export class IndustryAnalysisService {
     console.log(` Completed fetching ${uncachedSymbols.length} symbols`);
 
     return dataMap;
+  }
+
+  // Calculate ETF/SPY ratio and check structure confirmation
+  static calculateRatioStructure(
+    etfData: any,
+    spyData: any
+  ): { hasStructure: boolean, ratio: number[], emaRatio: number } {
+    try {
+      if (!etfData?.results || !spyData?.results || etfData.results.length < 5) {
+        return { hasStructure: false, ratio: [], emaRatio: 0 };
+      }
+
+      // Calculate ETF/SPY ratio for each bar
+      const minLength = Math.min(etfData.results.length, spyData.results.length);
+      const ratio: number[] = [];
+
+      for (let i = 0; i < minLength; i++) {
+        const etfPrice = etfData.results[i].c;
+        const spyPrice = spyData.results[i].c;
+        if (spyPrice > 0) {
+          ratio.push(etfPrice / spyPrice);
+        }
+      }
+
+      if (ratio.length < 5) {
+        return { hasStructure: false, ratio, emaRatio: 0 };
+      }
+
+      // Calculate 21-day EMA of ratio
+      const emaPeriod = Math.min(21, ratio.length);
+      const k = 2 / (emaPeriod + 1);
+      let emaRatio = ratio[ratio.length - 1]; // Start with oldest
+      for (let i = ratio.length - 2; i >= 0; i--) {
+        emaRatio = ratio[i] * k + emaRatio * (1 - k);
+      }
+
+      // Find swing highs in ratio (lookback 3)
+      const swingHighs: number[] = [];
+      for (let i = 3; i < ratio.length - 3; i++) {
+        let isSwingHigh = true;
+        for (let j = i - 3; j <= i + 3; j++) {
+          if (j !== i && ratio[j] >= ratio[i]) {
+            isSwingHigh = false;
+            break;
+          }
+        }
+        if (isSwingHigh) swingHighs.push(ratio[i]);
+      }
+
+      const currentRatio = ratio[0]; // Most recent
+
+      // Structure confirmation: Either breaks prior swing high + holds 3 bars, OR makes HH+HL
+      let hasStructure = false;
+
+      // Check 1: Breaking prior swing high and holding
+      if (swingHighs.length > 0) {
+        const priorHigh = Math.max(...swingHighs.slice(-3)); // Last 3 swing highs
+        if (currentRatio > priorHigh) {
+          // Check if held above for 3+ bars
+          const holdingAbove = ratio.slice(0, Math.min(3, ratio.length)).every(r => r > priorHigh);
+          if (holdingAbove) hasStructure = true;
+        }
+      }
+
+      // Check 2: HH + HL sequence (last 2 swings)
+      if (!hasStructure && swingHighs.length >= 2) {
+        const recentHighs = swingHighs.slice(-2);
+        if (recentHighs[1] > recentHighs[0]) {
+          hasStructure = true; // Higher high confirmed
+        }
+      }
+
+      return { hasStructure, ratio, emaRatio };
+    } catch (error) {
+      console.error('Error calculating ratio structure:', error);
+      return { hasStructure: false, ratio: [], emaRatio: 0 };
+    }
   }
 
   // Calculate relative performance using cached data
@@ -604,8 +689,100 @@ export class IndustryAnalysisService {
     }
   }
 
+  // Analyze single window (sub-timeframe)
+  private static analyzeWindow(
+    etfData: any,
+    spyData: any,
+    windowDays: number
+  ): { relativePerf: number; hasStructure: boolean; ratioVsEMA: number; valid: boolean } {
+    try {
+      // Dynamically adjust window if insufficient data
+      const availableBars = Math.min(etfData?.results?.length || 0, spyData?.results?.length || 0);
+      const actualWindow = Math.min(windowDays, availableBars);
+
+      // Need at least 4 bars for any meaningful analysis
+      if (actualWindow < 4) {
+        return { relativePerf: 0, hasStructure: false, ratioVsEMA: 0, valid: false };
+      }
+
+      // Slice data to actual window size (data is DESC order, newest first)
+      const etfWindow = etfData?.results?.slice(0, actualWindow);
+      const spyWindow = spyData?.results?.slice(0, actualWindow);
+
+      // Calculate relative performance for window
+      const etfChange = ((etfWindow[0].c - etfWindow[etfWindow.length - 1].c) / etfWindow[etfWindow.length - 1].c) * 100;
+      const spyChange = ((spyWindow[0].c - spyWindow[spyWindow.length - 1].c) / spyWindow[spyWindow.length - 1].c) * 100;
+      const relativePerf = etfChange - spyChange;
+
+      // Calculate ETF/SPY ratio
+      const ratio = etfWindow.map((e: any, i: number) => e.c / spyWindow[i].c);
+      const startRatio = ratio[ratio.length - 1]; // oldest (start of period)
+      const currentRatio = ratio[0]; // newest (end of period)
+
+      // Calculate EMA of ratio
+      const emaPeriod = Math.min(21, ratio.length);
+      const k = 2 / (emaPeriod + 1);
+      let emaRatio = ratio[ratio.length - 1];
+      for (let i = ratio.length - 2; i >= 0; i--) {
+        emaRatio = ratio[i] * k + emaRatio * (1 - k);
+      }
+
+      const ratioVsEMA = currentRatio - emaRatio;
+
+      // Structure definition: holding gains/losses near highs/lows or showing strong directional move
+      let hasStructure = false;
+
+      // Find the highest and lowest points in the window
+      const maxRatio = Math.max(...ratio);
+      const minRatio = Math.min(...ratio);
+
+      // For BULLISH structure: current ratio near the high or strong move
+      const nearHigh = currentRatio >= maxRatio * 0.95;
+      const aboveStart = currentRatio > startRatio;
+      const strongMove = Math.abs(relativePerf) > 2.0;
+
+      // For BEARISH structure: current ratio near the low or strong move
+      const nearLow = currentRatio <= minRatio * 1.05;
+      const belowStart = currentRatio < startRatio;
+
+      // Has structure if showing clear direction from start
+      if (relativePerf > 0) {
+        // Bullish: holding gains, near highs, or strong move
+        hasStructure = (aboveStart && nearHigh) || strongMove;
+      } else {
+        // Bearish: holding losses, near lows, or strong move  
+        hasStructure = (belowStart && nearLow) || strongMove;
+      }
+
+      const valid = hasStructure;
+
+      return { relativePerf, hasStructure, ratioVsEMA, valid };
+    } catch (error) {
+      return { relativePerf: 0, hasStructure: false, ratioVsEMA: 0, valid: false };
+    }
+  }
+
   // Separate the actual analysis logic to enable timeout handling
   private static async performTimeframeAnalysis(days: number, timeframeName: string): Promise<TimeframeAnalysis> {
+    // Define sub-windows with timeframe-specific logic
+    let shortWindow, midWindow;
+    if (days <= 5) {
+      // Life: 1/3/5 (20%/60%/100%)
+      shortWindow = 1;
+      midWindow = 3;
+    } else if (days <= 21) {
+      // Developing: 5/15/21 (24%/71%/100%)
+      shortWindow = 5;
+      midWindow = 15;
+    } else {
+      // Momentum, Legacy: 30%/70%/100%
+      shortWindow = Math.round(days * 0.30);
+      midWindow = Math.round(days * 0.70);
+    }
+    const fullWindow = days;
+
+    console.log(`📊 ${timeframeName}: Analyzing with temporal confluence (${shortWindow}d / ${midWindow}d / ${fullWindow}d)`);
+
     // Collect all unique symbols (ETFs + holdings + SPY)
     const allSymbols = new Set<string>();
     allSymbols.add('SPY'); // Always include SPY for relative performance
@@ -617,8 +794,8 @@ export class IndustryAnalysisService {
       }
     }
 
-    // Bulk fetch all historical data
-    const historicalDataMap = await this.batchFetchHistoricalData(Array.from(allSymbols), days);
+    // Bulk fetch all historical data (fetch full window)
+    const historicalDataMap = await this.batchFetchHistoricalData(Array.from(allSymbols), fullWindow);
 
     const spyData = historicalDataMap.get('SPY');
 
@@ -633,23 +810,98 @@ export class IndustryAnalysisService {
 
     const industries: IndustryPerformance[] = [];
 
-    // Analyze each ETF using bulk data
+    // Analyze each ETF with temporal confluence
     for (const etf of INDUSTRY_ETFS) {
       try {
         const etfData = historicalDataMap.get(etf.symbol);
+
         if (!etfData) {
           continue;
         }
 
-        const relativePerformance = this.calculateRelativePerformanceFromData(etfData, spyData);
-        const { topPerformers, worstPerformers } = await this.analyzeETFHoldings(etf, days, historicalDataMap);
+        if (!etfData.results || etfData.results.length < 5) {
+          continue;
+        }
+
+        // Analyze 3 independent windows
+        const shortAnalysis = this.analyzeWindow(etfData, spyData, shortWindow);
+        const midAnalysis = this.analyzeWindow(etfData, spyData, midWindow);
+        const fullAnalysis = this.analyzeWindow(etfData, spyData, fullWindow);
+
+        // Weighted aggregation (20% short, 30% mid, 50% full)
+        const weights = { short: 0.20, mid: 0.30, full: 0.50 };
+
+        // Only include valid windows in weighting
+        let totalWeight = 0;
+        let weightedPerf = 0;
+
+        if (shortAnalysis.valid) {
+          weightedPerf += shortAnalysis.relativePerf * weights.short;
+          totalWeight += weights.short;
+        }
+        if (midAnalysis.valid) {
+          weightedPerf += midAnalysis.relativePerf * weights.mid;
+          totalWeight += weights.mid;
+        }
+        if (fullAnalysis.valid) {
+          weightedPerf += fullAnalysis.relativePerf * weights.full;
+          totalWeight += weights.full;
+        }
+
+        const relativePerformance = totalWeight > 0 ? weightedPerf / totalWeight : 0;
+
+        // hasStructure must be true on Full OR Mid (short alone insufficient)
+        const hasStructure = fullAnalysis.hasStructure || midAnalysis.hasStructure;
+
+        // Temporal consistency: 100 - stdev of relative performances
+        const validPerfs = [
+          shortAnalysis.valid ? shortAnalysis.relativePerf : null,
+          midAnalysis.valid ? midAnalysis.relativePerf : null,
+          fullAnalysis.valid ? fullAnalysis.relativePerf : null
+        ].filter(p => p !== null) as number[];
+
+        let temporalConsistency = 0;
+        if (validPerfs.length >= 2) {
+          const mean = validPerfs.reduce((a, b) => a + b, 0) / validPerfs.length;
+          const variance = validPerfs.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / validPerfs.length;
+          const stdev = Math.sqrt(variance);
+          temporalConsistency = Math.max(0, 100 - stdev);
+        }
+
+        // Use full window for holdings analysis
+        const { topPerformers, worstPerformers } = await this.analyzeETFHoldings(etf, fullWindow, historicalDataMap);
+
+        // Determine trend with structure gate + EMA kill switch at FINAL level
+        // Lower threshold for very short timeframes (Life ≤5d, Developing ≤21d)
+        const weightThreshold = days <= 21 ? 0.3 : 0.5;
+        let trend: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+        if (hasStructure && totalWeight >= weightThreshold) {
+          // Apply EMA kill switch HERE at final aggregation, not per window
+          const bullishWithEMA = relativePerformance > 0 && fullAnalysis.ratioVsEMA >= 0;
+          const bearishWithEMA = relativePerformance < 0 && fullAnalysis.ratioVsEMA <= 0;
+
+          if (bullishWithEMA) {
+            trend = 'bullish';
+          } else if (bearishWithEMA) {
+            trend = 'bearish';
+          }
+          // else: has structure but EMA contradicts = neutral (kill switch active)
+        }
 
         industries.push({
           symbol: etf.symbol,
           name: etf.name,
           category: etf.category,
           relativePerformance,
-          trend: relativePerformance > 0 ? 'bullish' : 'bearish',
+          trend,
+          hasStructure,
+          ratioVsEMA: fullAnalysis.ratioVsEMA,
+          temporalConsistency,
+          windowBreakdown: {
+            short: { score: shortAnalysis.relativePerf, valid: shortAnalysis.valid },
+            mid: { score: midAnalysis.relativePerf, valid: midAnalysis.valid },
+            full: { score: fullAnalysis.relativePerf, valid: fullAnalysis.valid }
+          },
           topPerformers,
           worstPerformers
         });

@@ -499,6 +499,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [historicalDataLoading, setHistoricalDataLoading] = useState<Set<string>>(new Set());
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null);
   const [notableFilterActive, setNotableFilterActive] = useState<boolean>(false);
+  const [pricesFetchedForDataset, setPricesFetchedForDataset] = useState<string>(''); // Track if prices were fetched for current dataset
 
   // State for option price checkpoints for Stock Reaction Score
   const [optionPriceCheckpoints, setOptionPriceCheckpoints] = useState<Map<string, {
@@ -760,14 +761,29 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const pricesUpdate: Record<string, number> = {};
     const failed: string[] = [];
 
+    // Filter out expired options before fetching prices
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    const activeTrades = trades.filter(trade => {
+      const expiryDate = new Date(trade.expiry);
+      expiryDate.setHours(0, 0, 0, 0);
+      return now <= expiryDate; // Only include non-expired options
+    });
+
+    if (activeTrades.length === 0) {
+      setOptionPricesFetching(false);
+      return;
+    }
+
     setOptionPricesFetching(true);
-    setGradingProgress({ current: 0, total: trades.length });    // Parallel batch processing for faster fetching
+    setGradingProgress({ current: 0, total: activeTrades.length });    // Parallel batch processing for faster fetching
     const BATCH_SIZE = 15; // 15 contracts per batch
     const MAX_CONCURRENT_BATCHES = 3; // Process 3 batches in parallel
     const batches = [];
 
-    for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-      batches.push(trades.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < activeTrades.length; i += BATCH_SIZE) {
+      batches.push(activeTrades.slice(i, i + BATCH_SIZE));
     }
 
     let processedCount = 0;
@@ -1892,39 +1908,66 @@ Stock Reaction: ${scores.stockReaction}/25`;
   // Fetch current option prices when EFI Highlights is ON
   useEffect(() => {
     if (efiHighlightsActive && filteredAndSortedData.length > 0) {
-      fetchCurrentOptionPrices(filteredAndSortedData);
+      // Create a hash of the current dataset (based on data length + first few tickers)
+      const datasetHash = `${data.length}-${data.slice(0, 5).map(d => d.underlying_ticker).join('-')}`;
+
+      // Only fetch if we haven't fetched for this dataset yet
+      if (datasetHash !== pricesFetchedForDataset) {
+        fetchCurrentOptionPrices(filteredAndSortedData);
+        setPricesFetchedForDataset(datasetHash);
+      }
     }
-  }, [efiHighlightsActive, filteredAndSortedData.length, chartTimeframe]);
+  }, [efiHighlightsActive, data.length]);
 
   // Fetch chart data for tracked flows when EFI is active or flows are added
   // Use useRef to track previous flows length to avoid unnecessary re-renders
   const prevTrackedFlowsLength = React.useRef(trackedFlows.length);
 
   useEffect(() => {
-    // Only fetch if flows were added (length increased) or EFI is active
-    if (trackedFlows.length > 0 && (efiHighlightsActive || trackedFlows.length > prevTrackedFlowsLength.current)) {
-      // Fetch option prices for grading
-      fetchCurrentOptionPrices(trackedFlows);
+    // Clean up expired flows and only fetch if flows exist
+    if (trackedFlows.length > 0) {
+      // Remove expired flows
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
 
-      // Fetch current stock prices for grading
-      const uniqueTickers = [...new Set(trackedFlows.map(t => t.underlying_ticker))];
-      fetchCurrentPrices(uniqueTickers);
-
-      // Fetch chart data for each flow with their individual timeframes
-      trackedFlows.forEach(flow => {
-        const flowId = generateFlowId(flow);
-        const stockTimeframe = flowChartTimeframes[flowId]?.stock || '1D';
-        const optionTimeframe = flowChartTimeframes[flowId]?.option || '1D';
-
-        // Fetch stock chart data for this flow
-        fetchStockChartDataForFlow(flowId, flow.underlying_ticker, stockTimeframe);
-
-        // Fetch options premium data for this flow
-        fetchOptionPremiumDataForFlow(flowId, flow, optionTimeframe);
+      const activeFlows = trackedFlows.filter(flow => {
+        const expiryDate = new Date(flow.expiry);
+        expiryDate.setHours(0, 0, 0, 0);
+        return now <= expiryDate;
       });
 
-      // Update ref
-      prevTrackedFlowsLength.current = trackedFlows.length;
+      // If expired flows were removed, update localStorage
+      if (activeFlows.length !== trackedFlows.length) {
+        localStorage.setItem('flowTrackingWatchlist', JSON.stringify(activeFlows));
+        setTrackedFlows(activeFlows);
+        return; // Exit early, the state update will trigger this effect again
+      }
+
+      // Only fetch if flows were added (length increased) or EFI is active
+      if (efiHighlightsActive || trackedFlows.length > prevTrackedFlowsLength.current) {
+        // Fetch option prices for grading
+        fetchCurrentOptionPrices(trackedFlows);
+
+        // Fetch current stock prices for grading
+        const uniqueTickers = [...new Set(trackedFlows.map(t => t.underlying_ticker))];
+        fetchCurrentPrices(uniqueTickers);
+
+        // Fetch chart data for each flow with their individual timeframes
+        trackedFlows.forEach(flow => {
+          const flowId = generateFlowId(flow);
+          const stockTimeframe = flowChartTimeframes[flowId]?.stock || '1D';
+          const optionTimeframe = flowChartTimeframes[flowId]?.option || '1D';
+
+          // Fetch stock chart data for this flow
+          fetchStockChartDataForFlow(flowId, flow.underlying_ticker, stockTimeframe);
+
+          // Fetch options premium data for this flow
+          fetchOptionPremiumDataForFlow(flowId, flow, optionTimeframe);
+        });
+
+        // Update ref
+        prevTrackedFlowsLength.current = trackedFlows.length;
+      }
     }
   }, [trackedFlows.length, efiHighlightsActive]);
 
@@ -3009,15 +3052,15 @@ Stock Reaction: ${scores.stockReaction}/25`;
         style={{
           minHeight: '100vh',
           width: 'calc(100% - 801px)',
-          marginRight: '0'
+          marginRight: '0',
+          marginTop: '-115px'
         }}
       >
         {/* Premium Control Bar */}
         <div className="bg-black border-b border-gray-700 flex-shrink-0" style={{
           zIndex: 10,
           width: '100%',
-          overflow: 'visible',
-          marginTop: '15px'
+          overflow: 'visible'
         }}>
           {/* Mobile Layout - 2 Rows */}
           <div className="md:hidden px-4 py-3">
@@ -5099,12 +5142,16 @@ Stock Reaction: ${scores.stockReaction}/25`;
             </div>
           ) : (
             trackedFlows.filter((flow) => {
-              // Remove expired options (more than 1 day past expiration)
+              // Remove expired options (expired today or earlier)
               const expiryDate = new Date(flow.expiry);
               const now = new Date();
-              const daysSinceExpiry = (now.getTime() - expiryDate.getTime()) / (1000 * 60 * 60 * 24);
 
-              if (daysSinceExpiry > 1) {
+              // Set both dates to midnight for accurate comparison
+              expiryDate.setHours(0, 0, 0, 0);
+              now.setHours(0, 0, 0, 0);
+
+              // If expiration date has passed, remove it
+              if (now > expiryDate) {
                 return false; // Filter out expired options
               }
 
