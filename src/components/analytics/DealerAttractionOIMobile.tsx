@@ -52,7 +52,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
   }, [selectedTicker]);
 
   return (
-    <div className="space-y-8">
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* MOBILE Control Bar - Redesigned for 430px */}
       <div style={{
         display: 'flex',
@@ -63,7 +63,8 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
         borderRadius: '16px',
         border: '1px solid rgba(255, 255, 255, 0.1)',
         boxShadow: '0 4px 24px rgba(0, 0, 0, 0.6)',
-        maxWidth: '430px'
+        maxWidth: '430px',
+        flexShrink: 0
       }}>
         {/* Row 1: Date, Mode, Premium, AI */}
         <div style={{
@@ -214,105 +215,77 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
             AI
           </button>
         </div>
+      </div>
 
-        {/* Row 2: PC Ratio Display */}
+      {/* MOBILE: Scrollable Charts Container */}
+      <div style={{
+        height: 'calc(100vh - 200px)',
+        overflowY: 'scroll',
+        overflowX: 'hidden',
+        WebkitOverflowScrolling: 'touch',
+        marginTop: '20px'
+      }}>
+        {/* MOBILE: Scaled Charts */}
         <div style={{
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '8px 12px',
-          background: 'linear-gradient(145deg, rgba(5, 10, 25, 0.9), rgba(0, 5, 15, 0.95))',
-          borderRadius: '10px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          boxShadow: 'inset 0 1px 2px rgba(255, 255, 255, 0.08), 0 2px 8px rgba(0, 0, 0, 0.5)'
+          flexDirection: 'column',
+          gap: '0px',
+          paddingBottom: '100px'
         }}>
           <div style={{
-            color: '#ff6600',
-            fontSize: '13px',
-            fontWeight: '700',
-            letterSpacing: '1px',
-            textTransform: 'uppercase'
+            width: '100%',
+            maxWidth: '430px',
+            height: '380px'
           }}>
-            P/C Ratio
-          </div>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ color: '#ff4444', fontSize: '9px', fontWeight: '600', marginBottom: '1px' }}>90%</div>
-              <div style={{
-                color: '#ffffff',
-                fontSize: '12px',
-                fontWeight: '700',
-                fontFamily: '"SF Mono", monospace'
-              }}>
-                {expectedRangePCRatio || '—'}
-              </div>
-            </div>
-            <div style={{ color: '#333', fontSize: '16px', fontWeight: '300' }}>|</div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ color: '#00d4ff', fontSize: '9px', fontWeight: '600', marginBottom: '1px' }}>45D</div>
-              <div style={{
-                color: '#ffffff',
-                fontSize: '12px',
-                fontWeight: '700',
-                fontFamily: '"SF Mono", monospace'
-              }}>
-                {(cumulativePCRatio45Days || '—').replace(/\s*\(\d+\s*exp\)/, '')}
-              </div>
+            <div style={{
+              transform: 'scale(0.56)',
+              transformOrigin: 'top left',
+              width: '769px',
+              height: '450px'
+            }}>
+              <DealerOpenInterestChart
+                selectedTicker={selectedTicker}
+                compactMode={true}
+                selectedExpiration={sharedExpiration}
+                hideAllControls={true}
+                oiViewMode={showPremium ? 'premium' : 'contracts'}
+                showCalls={showCalls}
+                showPuts={showPuts}
+                showNetOI={showNetOI}
+                showTowers={showAITowers}
+                onExpectedRangePCRatioChange={setExpectedRangePCRatio}
+                onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days}
+                onExpectedRange90Change={setExpectedRange90}
+              />
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* MOBILE: Scaled Charts */}
-      <div className="w-full overflow-x-auto" style={{
-        marginBottom: '0px',
-        maxWidth: '100vw'
-      }}>
-        <div style={{
-          transform: 'scale(0.59, 0.78)',
-          transformOrigin: 'top left',
-          width: '171%',
-          height: '600px'
-        }}>
-          <DealerOpenInterestChart
-            selectedTicker={selectedTicker}
-            compactMode={true}
-            selectedExpiration={sharedExpiration}
-            hideAllControls={true}
-            oiViewMode={showPremium ? 'premium' : 'contracts'}
-            showCalls={showCalls}
-            showPuts={showPuts}
-            showNetOI={showNetOI}
-            showTowers={showAITowers}
-            onExpectedRangePCRatioChange={setExpectedRangePCRatio}
-            onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days}
-            onExpectedRange90Change={setExpectedRange90}
-          />
-        </div>
-      </div>
-
-      <div className="w-full overflow-x-auto" style={{
-        marginTop: '-95px',
-        maxWidth: '100vw'
-      }}>
-        <div style={{
-          transform: 'scale(0.78, 0.78)',
-          transformOrigin: 'top left',
-          width: '128%',
-          height: '600px'
-        }}>
-          <DealerGEXChart
-            selectedTicker={selectedTicker}
-            compactMode={true}
-            selectedExpiration={sharedExpiration}
-            hideAllControls={true}
-            gexViewMode={showPremium ? 'premium' : 'gex'}
-            showPositiveGamma={showPositiveGamma}
-            showNegativeGamma={showNegativeGamma}
-            showNetGamma={showNetGamma}
-            showAttrax={showAITowers}
-            expectedRange90={expectedRange90}
-          />
+          <div className="w-full" style={{
+            width: '100%',
+            maxWidth: '430px',
+            height: '380px',
+            marginTop: '-20px'
+          }}>
+            <div style={{
+              transform: 'scale(0.56)',
+              transformOrigin: 'top left',
+              width: '769px',
+              height: '450px'
+            }}>
+              <DealerGEXChart
+                selectedTicker={selectedTicker}
+                compactMode={true}
+                selectedExpiration={sharedExpiration}
+                hideAllControls={true}
+                gexViewMode={showPremium ? 'premium' : 'gex'}
+                showPositiveGamma={showPositiveGamma}
+                showNegativeGamma={showNegativeGamma}
+                showNetGamma={showNetGamma}
+                showAttrax={showAITowers}
+                expectedRange90={expectedRange90}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>

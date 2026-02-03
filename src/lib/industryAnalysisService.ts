@@ -781,8 +781,6 @@ export class IndustryAnalysisService {
     }
     const fullWindow = days;
 
-    console.log(`📊 ${timeframeName}: Analyzing with temporal confluence (${shortWindow}d / ${midWindow}d / ${fullWindow}d)`);
-
     // Collect all unique symbols (ETFs + holdings + SPY)
     const allSymbols = new Set<string>();
     allSymbols.add('SPY'); // Always include SPY for relative performance

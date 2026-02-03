@@ -6444,6 +6444,73 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           </select>
                         </div>
 
+                        {/* MOBILE ONLY: Mode Dropdown (Normal, Dealer, Flow Map, ODTRIO) - After OTM Range */}
+                        <select
+                          className="md:hidden"
+                          value={
+                            showGEX && !showDealer && !showFlowGEX && !showODTRIO ? 'normal' :
+                              !showGEX && showDealer && !showFlowGEX && !showODTRIO ? 'dealer' :
+                                !showGEX && !showDealer && showFlowGEX && !showODTRIO ? 'flowmap' :
+                                  !showGEX && !showDealer && !showFlowGEX && showODTRIO ? 'odtrio' :
+                                    'normal'
+                          }
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setShowGEX(value === 'normal');
+                            setShowDealer(value === 'dealer');
+                            setShowFlowGEX(value === 'flowmap');
+                            setShowODTRIO(value === 'odtrio');
+                            if (value === 'normal') setGexMode('Net GEX');
+                            if (value === 'dealer') setGexMode('Net Dealer');
+                            if (value === 'odtrio') fetchODTRIOData();
+                          }}
+                          style={{
+                            height: '36px',
+                            padding: '0 12px',
+                            background: '#000000',
+                            border: '2px solid rgba(255, 255, 255, 0.2)',
+                            borderRadius: '4px',
+                            color: '#ffffff',
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            textTransform: 'uppercase',
+                            outline: 'none',
+                            cursor: 'pointer',
+                            boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.8)'
+                          }}
+                        >
+                          <option value="normal" style={{ background: '#000', color: '#22c55e' }}>Normal</option>
+                          <option value="dealer" style={{ background: '#000', color: '#a855f7' }}>Dealer</option>
+                          <option value="flowmap" style={{ background: '#000', color: '#f97316' }}>Flow Map</option>
+                          <option value="odtrio" style={{ background: '#000', color: '#3b82f6' }}>ODTRIO</option>
+                        </select>
+
+                        {/* MOBILE ONLY: OI Button - After Mode Dropdown */}
+                        <div
+                          className="md:hidden flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
+                          style={{
+                            height: '36px',
+                            background: showOI ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%)' : 'transparent',
+                            border: showOI ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
+                            boxShadow: showOI ? 'inset 0 1px 2px rgba(59, 130, 246, 0.1), 0 2px 4px rgba(59, 130, 246, 0.2)' : 'none'
+                          }}
+                          onClick={() => setShowOI(!showOI)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={showOI}
+                            onChange={() => { }}
+                            className="w-4 h-4 text-blue-500 bg-black border-2 border-gray-600 rounded pointer-events-none"
+                            style={{
+                              accentColor: '#3b82f6',
+                              boxShadow: showOI ? '0 0 6px rgba(59, 130, 246, 0.5)' : 'none'
+                            }}
+                          />
+                          <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap" style={{ color: showOI ? '#3b82f6' : '#ffffff', textShadow: showOI ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none' }}>
+                            OI
+                          </span>
+                        </div>
+
                         {/* Bloomberg Theme Toggle Button - Hidden (BB mode is default) */}
                         <button
                           onClick={() => setUseBloombergTheme(!useBloombergTheme)}
@@ -6461,11 +6528,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           BB
                         </button>
 
-                        {/* Historical GEX Button - Mobile only, hidden when ODTRIO is active */}
+                        {/* Historical GEX Button - Hidden on mobile */}
                         {!showODTRIO && (
                           <button
                             onClick={() => setShowHistoricalGEX(!showHistoricalGEX)}
-                            className={`md:hidden flex items-center justify-center px-2 font-black text-xs transition-all rounded ${showHistoricalGEX
+                            className={`hidden md:flex items-center justify-center px-2 font-black text-xs transition-all rounded ${showHistoricalGEX
                               ? 'bg-blue-500 text-white border-2 border-blue-400 hover:bg-blue-400'
                               : 'bg-black text-gray-400 border-2 border-gray-700 hover:border-blue-500 hover:text-blue-500'
                               }`}
@@ -6551,8 +6618,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                         </button>
                       </div>
 
-                      {/* Row 2: All Mode Checkboxes */}
-                      <div className="flex items-center gap-2 overflow-x-auto">
+                      {/* Row 2: All Mode Checkboxes - Desktop Only */}
+                      <div className="hidden md:flex items-center gap-2 overflow-x-auto">
                         {/* NORMAL */}
                         <div
                           className="flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
@@ -6639,7 +6706,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                           </span>
                         </div>
 
-                        {/* VOLATILITY */}
                         <div
                           className="hidden md:flex items-center gap-2 flex-shrink-0 px-3 py-2 rounded-lg transition-all cursor-pointer"
                           style={{

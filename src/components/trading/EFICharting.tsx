@@ -8275,6 +8275,213 @@ export default function TradingViewChart({
     return () => clearInterval(interval);
   }, []); // Empty dependency array to run only once
 
+  // Fetch data for Tracking tab - auto-fetch on mount
+  useEffect(() => {
+    setTrackingLoading(true);
+
+    const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
+
+    const categories = {
+      Markets: ['SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT'],
+      'Large Caps': ['NVDA', 'TSM', 'AVGO', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA'],
+      Value: ['JPM', 'BA', 'FCX', 'XOM', 'NKE', 'FDX', 'CAT', 'BAC', 'MS', 'DAL', 'UNH', 'LMT', 'MCD', 'WMT', 'DHI', 'HD', 'PANW', 'NFLX'],
+      'High Beta': ['OKLO', 'CRWV', 'IONQ', 'QUBT', 'IREN', 'NBIS', 'HOOD', 'PLTR', 'HIMS', 'UPST', 'AFRM', 'TEM', 'CRCL', 'MSTR', 'COIN', 'XYZ', 'ARM', 'SHOP', 'DASH', 'UBER', 'ABNB', 'AMD', 'ROKU', 'RBLX'],
+      China: ['PDD', 'FXI', 'JD', 'FUTU', 'BILI', 'BABA', 'NTES', 'KWEB', 'BIDU'],
+      '11 Sectors': ['XLK', 'XLY', 'XLC', 'XLE', 'XLI', 'XLB', 'XLF', 'XLU', 'XLP', 'XLRE', 'XLV'],
+      Industries: ['OIH', 'XME', 'GDX', 'JETS', 'PBW', 'KRE', 'KIE', 'FDN', 'IGV', 'XRT', 'SMH', 'ITB', 'XHB', 'IBB', 'XBI', 'TAN', 'XOP', 'ARKK']
+    };
+
+    const allSymbols = Object.values(categories).flat();
+
+    const fetchAllData = async () => {
+      try {
+        // Get current date/time in PST timezone properly
+        const now = new Date();
+        const year = parseInt(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric' }));
+        const month = parseInt(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'numeric' }));
+        const day = parseInt(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', day: 'numeric' }));
+        const hour = parseInt(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false }));
+        const minute = parseInt(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', minute: 'numeric' }));
+        const dayOfWeek = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'long' });
+
+        const todayStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+        const etDate = new Date(year, month - 1, day);
+        const startDate = new Date(etDate);
+        startDate.setDate(startDate.getDate() - 10);
+        const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+
+        const results: any = {};
+        const BATCH_SIZE = 5;
+        const DELAY_MS = 200;
+
+        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+        const fetchSymbol = async (symbol: string) => {
+          try {
+            if (trackingTimeframe === '1D') {
+              const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=3&apiKey=${POLYGON_API_KEY}`;
+              const dailyResponse = await fetch(dailyUrl);
+              const dailyData = await dailyResponse.json();
+
+              if (!dailyData.results || dailyData.results.length < 2) {
+                return null;
+              }
+
+              const lastTradingDayTimestamp = dailyData.results[0].t;
+              const lastTradingDay = new Date(lastTradingDayTimestamp);
+              const lastTradingDayStr = `${lastTradingDay.getUTCFullYear()}-${String(lastTradingDay.getUTCMonth() + 1).padStart(2, '0')}-${String(lastTradingDay.getUTCDate()).padStart(2, '0')}`;
+
+              const intradayUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${lastTradingDayStr}/${lastTradingDayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
+              const intradayResponse = await fetch(intradayUrl);
+              const intradayData = await intradayResponse.json();
+
+              if (!intradayData.results || intradayData.results.length === 0) {
+                return null;
+              }
+
+              const intradayResults = intradayData.results;
+              const currentPrice = intradayResults[intradayResults.length - 1].c;
+              const previousDayClose = dailyData.results[1].c;
+              const changePercent = ((currentPrice - previousDayClose) / previousDayClose) * 100;
+
+              const sparklineData = intradayResults.map((bar: any) => {
+                const date = new Date(bar.t);
+                const pstString = date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
+                const pstDate = new Date(pstString);
+                const hour = pstDate.getHours();
+                const minute = pstDate.getMinutes();
+                const totalMinutes = hour * 60 + minute;
+
+                return {
+                  time: bar.t,
+                  price: bar.c,
+                  etMinutes: totalMinutes
+                };
+              });
+
+              return {
+                symbol,
+                data: {
+                  symbol,
+                  price: currentPrice,
+                  change: changePercent,
+                  sparklineData,
+                  previousDayClose
+                }
+              };
+            } else {
+              let daysBack = 5;
+              let multiplier = 1;
+              let timespan = 'hour';
+
+              switch (trackingTimeframe) {
+                case '5D':
+                  daysBack = 5;
+                  multiplier = 30;
+                  timespan = 'minute';
+                  break;
+                case '1M':
+                  daysBack = 30;
+                  multiplier = 1;
+                  timespan = 'hour';
+                  break;
+                case '3M':
+                  daysBack = 90;
+                  multiplier = 1;
+                  timespan = 'day';
+                  break;
+                case '6M':
+                  daysBack = 180;
+                  multiplier = 1;
+                  timespan = 'day';
+                  break;
+                case '1Y':
+                  daysBack = 365;
+                  multiplier = 1;
+                  timespan = 'day';
+                  break;
+              }
+
+              const rangeStartDate = new Date(etDate);
+              rangeStartDate.setDate(rangeStartDate.getDate() - daysBack);
+              const rangeStartStr = `${rangeStartDate.getFullYear()}-${String(rangeStartDate.getMonth() + 1).padStart(2, '0')}-${String(rangeStartDate.getDate()).padStart(2, '0')}`;
+
+              const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${rangeStartStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
+
+              const dataResponse = await fetch(dataUrl);
+              const data = await dataResponse.json();
+
+              if (!data.results || data.results.length === 0) {
+                return null;
+              }
+
+              const results = data.results;
+              const currentPrice = results[results.length - 1].c;
+              const startPrice = results[0].c;
+              const changePercent = ((currentPrice - startPrice) / startPrice) * 100;
+
+              const sparklineData = results.map((bar: any) => ({
+                time: bar.t,
+                price: bar.c
+              }));
+
+              return {
+                symbol,
+                data: {
+                  symbol,
+                  price: currentPrice,
+                  change: changePercent,
+                  sparklineData,
+                  previousDayClose: startPrice
+                }
+              };
+            }
+          } catch (error) {
+            // Silently fail
+          }
+          return null;
+        };
+
+        for (let i = 0; i < allSymbols.length; i += BATCH_SIZE) {
+          const batch = allSymbols.slice(i, i + BATCH_SIZE);
+          const batchResults = await Promise.all(batch.map(fetchSymbol));
+
+          batchResults.forEach(result => {
+            if (result) {
+              results[result.symbol] = result.data;
+            }
+          });
+
+          if (i + BATCH_SIZE < allSymbols.length) {
+            await delay(DELAY_MS);
+          }
+        }
+
+        // Update state once with all results
+        setTrackingData(results);
+
+      } catch (error) {
+        // Silently handle errors
+      } finally {
+        setTrackingLoading(false);
+      }
+    };
+
+    fetchAllData();
+
+    const interval = setInterval(() => {
+      fetchAllData();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Clear Tracking data when timeframe changes
+  useEffect(() => {
+    setTrackingData({});
+  }, [trackingTimeframe]);
+
   // Close emoji picker when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -8428,7 +8635,6 @@ export default function TradingViewChart({
 
       // Process each tab sequentially
       for (const regimeTab of tabsToCalculate) {
-        console.log('🔴 [PROCESSING TAB]:', regimeTab);
         try {
           const currentTabData = regimeDataCache[regimeTab];
 
@@ -10613,18 +10819,18 @@ export default function TradingViewChart({
       const minute = etDate.getMinutes();
       const totalMinutes = hour * 60 + minute;
 
-      // Market hours in ET: 9:30 AM - 4:00 PM ET (570 - 960 minutes)
-      const marketStart = 9 * 60 + 30; // 9:30 AM ET
-      const marketEnd = 16 * 60; // 4:00 PM ET
-      const preMarketStart = 4 * 60; // 4:00 AM ET
-      const afterHoursEnd = 20 * 60; // 8:00 PM ET (7:55 PM rounded up)
+      // Market hours in PST: 6:30 AM - 1:00 PM PST (390 - 780 minutes)
+      const marketStart = 6 * 60 + 30; // 6:30 AM PST
+      const marketEnd = 13 * 60; // 1:00 PM PST
+      const preMarketStart = 1 * 60; // 1:00 AM PST
+      const afterHoursEnd = 17 * 60; // 5:00 PM PST
 
       if (totalMinutes >= preMarketStart && totalMinutes < marketStart) {
-        // Pre-market: 4:00 AM ET - 9:30 AM ET - low opacity orange tint
+        // Pre-market: 1:00 AM PST - 6:30 AM PST - low opacity orange tint
         ctx.fillStyle = 'rgba(255, 140, 60, 0.08)'; // Orange with 8% opacity
         ctx.fillRect(x, 0, candleSpacing, height);
       } else if (totalMinutes >= marketEnd && totalMinutes < afterHoursEnd) {
-        // After-hours: 4:00 PM ET - 8:00 PM ET - low opacity blue tint
+        // After-hours: 1:00 PM PST - 5:00 PM PST - low opacity blue tint
         ctx.fillStyle = 'rgba(100, 150, 200, 0.08)'; // Blue with 8% opacity
         ctx.fillRect(x, 0, candleSpacing, height);
       }
@@ -14632,223 +14838,6 @@ export default function TradingViewChart({
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, pdTimeframe, stableSymbols]);
 
-    // Fetch data for Tracking tab - auto-fetch on mount and when timeframe changes
-    useEffect(() => {
-      if (!trackingFetchedRef.current && !trackingLoading) {
-        trackingFetchedRef.current = true;
-        setTrackingLoading(true);
-
-        const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
-
-        const categories = {
-          Markets: ['SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT'],
-          'Large Caps': ['NVDA', 'TSM', 'AVGO', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA'],
-          Value: ['JPM', 'BA', 'FCX', 'XOM', 'NKE', 'FDX', 'CAT', 'BAC', 'MS', 'DAL', 'UNH', 'LMT', 'MCD', 'WMT', 'DHI', 'HD', 'PANW', 'NFLX'],
-          'High Beta': ['OKLO', 'CRWV', 'IONQ', 'QUBT', 'IREN', 'NBIS', 'HOOD', 'PLTR', 'HIMS', 'UPST', 'AFRM', 'TEM', 'CRCL', 'MSTR', 'COIN', 'XYZ', 'ARM', 'SHOP', 'DASH', 'UBER', 'ABNB', 'AMD', 'ROKU', 'RBLX'],
-          China: ['PDD', 'FXI', 'JD', 'FUTU', 'BILI', 'BABA', 'NTES', 'KWEB', 'BIDU'],
-          '11 Sectors': ['XLK', 'XLY', 'XLC', 'XLE', 'XLI', 'XLB', 'XLF', 'XLU', 'XLP', 'XLRE', 'XLV'],
-          Industries: ['OIH', 'XME', 'GDX', 'JETS', 'PBW', 'KRE', 'KIE', 'FDN', 'IGV', 'XRT', 'SMH', 'ITB', 'XHB', 'IBB', 'XBI', 'TAN', 'XOP', 'ARKK']
-        };
-
-        const allSymbols = Object.values(categories).flat();
-
-        const fetchAllData = async () => {
-          try {
-            // Get local date in YYYY-MM-DD format (same as PowerShell test)
-            const now = new Date();
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-            const startDate = new Date(today);
-            startDate.setDate(startDate.getDate() - 10);
-            const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
-
-            const results: any = {};
-            const BATCH_SIZE = 5; // Process 5 symbols at a time
-            const DELAY_MS = 200; // 200ms delay between batches
-
-            // Helper to delay execution
-            const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-            // Helper to fetch single symbol
-            const fetchSymbol = async (symbol: string) => {
-              try {
-                // 1D - Fetch last trading day's intraday data
-                if (trackingTimeframe === '1D') {
-                  // First get the last 3 daily bars to find the most recent trading day
-                  const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=3&apiKey=${POLYGON_API_KEY}`;
-                  const dailyResponse = await fetch(dailyUrl);
-                  const dailyData = await dailyResponse.json();
-
-                  if (!dailyData.results || dailyData.results.length < 2) {
-                    return null;
-                  }
-
-                  // Most recent trading day is results[0], previous day is results[1]
-                  const lastTradingDayTimestamp = dailyData.results[0].t;
-                  const lastTradingDay = new Date(lastTradingDayTimestamp);
-                  const lastTradingDayStr = `${lastTradingDay.getFullYear()}-${String(lastTradingDay.getMonth() + 1).padStart(2, '0')}-${String(lastTradingDay.getDate()).padStart(2, '0')}`;
-
-                  // Fetch intraday data for the last trading day
-                  const intradayUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${lastTradingDayStr}/${lastTradingDayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
-                  const intradayResponse = await fetch(intradayUrl);
-                  const intradayData = await intradayResponse.json();
-
-                  if (!intradayData.results || intradayData.results.length === 0) {
-                    return null;
-                  }
-
-                  const intradayResults = intradayData.results;
-                  const currentPrice = intradayResults[intradayResults.length - 1].c;
-                  const previousDayClose = dailyData.results[1].c;
-                  const changePercent = ((currentPrice - previousDayClose) / previousDayClose) * 100;
-
-                  const sparklineData = intradayResults.map((bar: any) => {
-                    // Pre-calculate ET time for shading to avoid expensive toLocaleString during render
-                    const date = new Date(bar.t);
-                    const etString = date.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
-                    const etDate = new Date(etString);
-                    const hour = etDate.getHours();
-                    const minute = etDate.getMinutes();
-                    const totalMinutes = hour * 60 + minute;
-
-                    return {
-                      time: bar.t,
-                      price: bar.c,
-                      etMinutes: totalMinutes // Pre-calculated for performance
-                    };
-                  });
-
-                  console.log(`✓ ${symbol}: Loaded ${sparklineData.length} 1-minute bars`);
-
-                  return {
-                    symbol,
-                    data: {
-                      symbol,
-                      price: currentPrice,
-                      change: changePercent,
-                      sparklineData,
-                      previousDayClose
-                    }
-                  };
-                } else {
-                  // 5D, 1M, 3M, 6M, 1Y - Use daily/hourly bars
-                  let daysBack = 5;
-                  let multiplier = 1;
-                  let timespan = 'hour';
-
-                  switch (trackingTimeframe) {
-                    case '5D':
-                      daysBack = 5;
-                      multiplier = 30;
-                      timespan = 'minute';
-                      break;
-                    case '1M':
-                      daysBack = 30;
-                      multiplier = 1;
-                      timespan = 'hour';
-                      break;
-                    case '3M':
-                      daysBack = 90;
-                      multiplier = 1;
-                      timespan = 'day';
-                      break;
-                    case '6M':
-                      daysBack = 180;
-                      multiplier = 1;
-                      timespan = 'day';
-                      break;
-                    case '1Y':
-                      daysBack = 365;
-                      multiplier = 1;
-                      timespan = 'day';
-                      break;
-                  }
-
-                  const rangeStartDate = new Date(today);
-                  rangeStartDate.setDate(rangeStartDate.getDate() - daysBack);
-                  const rangeStartStr = `${rangeStartDate.getFullYear()}-${String(rangeStartDate.getMonth() + 1).padStart(2, '0')}-${String(rangeStartDate.getDate()).padStart(2, '0')}`;
-
-                  const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${rangeStartStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`;
-
-                  const dataResponse = await fetch(dataUrl);
-                  const data = await dataResponse.json();
-
-                  if (!data.results || data.results.length === 0) {
-                    return null;
-                  }
-
-                  const results = data.results;
-                  const currentPrice = results[results.length - 1].c;
-                  const startPrice = results[0].c;
-                  const changePercent = ((currentPrice - startPrice) / startPrice) * 100;
-
-                  const sparklineData = results.map((bar: any) => ({
-                    time: bar.t,
-                    price: bar.c
-                  }));
-
-                  console.log(`✓ ${symbol}: Loaded ${sparklineData.length} ${timespan} bars for ${trackingTimeframe}`);
-
-                  return {
-                    symbol,
-                    data: {
-                      symbol,
-                      price: currentPrice,
-                      change: changePercent,
-                      sparklineData,
-                      previousDayClose: startPrice
-                    }
-                  };
-                }
-              } catch (error) {
-                console.error(`Error fetching ${symbol}:`, error);
-              }
-              return null;
-            };
-
-            // Process symbols in batches
-            for (let i = 0; i < allSymbols.length; i += BATCH_SIZE) {
-              const batch = allSymbols.slice(i, i + BATCH_SIZE);
-              const batchResults = await Promise.all(batch.map(fetchSymbol));
-
-              // Add successful results to state
-              batchResults.forEach(result => {
-                if (result) {
-                  results[result.symbol] = result.data;
-                }
-              });
-
-              // Save scroll position before update
-              const scrollPos = trackingScrollRef.current?.scrollTop || 0;
-
-              // Update state with current batch
-              setTrackingData(prev => ({ ...prev, ...results }));
-
-              // Restore scroll position after React updates
-              requestAnimationFrame(() => {
-                if (trackingScrollRef.current) {
-                  trackingScrollRef.current.scrollTop = scrollPos;
-                }
-              });
-
-              // Delay before next batch (except for last batch)
-              if (i + BATCH_SIZE < allSymbols.length) {
-                await delay(DELAY_MS);
-              }
-            }
-
-          } catch (error) {
-            console.error('Error fetching tracking data:', error);
-          } finally {
-            setTrackingLoading(false);
-          }
-        };
-
-        fetchAllData();
-      }
-    }, [trackingLoading, trackingTimeframe]);
-
     // For Watchlist tab, show Markets symbols; otherwise use activeTab
     const symbolKey = activeTab === 'Watchlist' ? 'Markets' : activeTab;
     const currentSymbols = marketSymbols[symbolKey as keyof typeof marketSymbols] || [];
@@ -15168,7 +15157,9 @@ export default function TradingViewChart({
             {['Watchlist', 'Tracking', 'Options Trades'].map(tab => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => {
+                  setActiveTab(tab);
+                }}
                 className="md:text-[20px] text-[12px]"
                 style={{
                   flex: 1,
@@ -15481,7 +15472,6 @@ export default function TradingViewChart({
                     key={tf}
                     onClick={() => {
                       setTrackingTimeframe(tf);
-                      trackingFetchedRef.current = false;
                       setTrackingData({});
                     }}
                     className={`px-5 py-2.5 text-sm font-bold rounded-md transition-all border ${trackingTimeframe === tf
@@ -15635,14 +15625,13 @@ export default function TradingViewChart({
                                         let currentZone: { start: number; color: string } | null = null;
 
                                         data.sparklineData.forEach((point: any, i: number) => {
-                                          // Use pre-calculated ET minutes for performance
+                                          // Use pre-calculated PST minutes for performance
                                           const totalMinutes = point.etMinutes || 0;
 
-                                          const marketStart = 9 * 60 + 30;
-                                          const marketEnd = 16 * 60;
-                                          const preMarketStart = 4 * 60;
-                                          const afterHoursEnd = 20 * 60;
-
+                                          const marketStart = 6 * 60 + 30; // 6:30 AM PST
+                                          const marketEnd = 13 * 60; // 1:00 PM PST
+                                          const preMarketStart = 1 * 60; // 1:00 AM PST
+                                          const afterHoursEnd = 17 * 60; // 5:00 PM PST
                                           let fillColor: string | null = null;
                                           if (totalMinutes >= preMarketStart && totalMinutes < marketStart) {
                                             fillColor = 'rgba(255, 165, 0, 0.12)';
@@ -15723,20 +15712,20 @@ export default function TradingViewChart({
                                   <div className="relative mt-2 px-1" style={{ height: '14px' }}>
                                     {data.sparklineData.length > 0 && (() => {
                                       if (trackingTimeframe === '1D') {
-                                        // For 1D intraday, position labels at actual market open (9:30 AM) and close (4:00 PM)
-                                        // Find the data points closest to 9:30 AM and 4:00 PM using pre-calculated ET minutes
+                                        // For 1D intraday, position labels at actual market open (6:30 AM PST) and close (1:00 PM PST)
+                                        // Find the data points closest to 6:30 AM and 1:00 PM using pre-calculated PST minutes
                                         let marketOpenIndex = -1;
                                         let marketCloseIndex = -1;
 
                                         data.sparklineData.forEach((point: any, i: number) => {
                                           const totalMinutes = point.etMinutes || 0;
 
-                                          // Market open: 9:30 AM ET (570 minutes)
-                                          if (marketOpenIndex === -1 && totalMinutes >= 9 * 60 + 30) {
+                                          // Market open: 6:30 AM PST (390 minutes)
+                                          if (marketOpenIndex === -1 && totalMinutes >= 6 * 60 + 30) {
                                             marketOpenIndex = i;
                                           }
-                                          // Market close: 4:00 PM ET (960 minutes)
-                                          if (totalMinutes >= 16 * 60) {
+                                          // Market close: 1:00 PM PST (780 minutes) - find FIRST point at or after close
+                                          if (marketCloseIndex === -1 && totalMinutes >= 13 * 60) {
                                             marketCloseIndex = i;
                                           }
                                         });
@@ -15756,7 +15745,7 @@ export default function TradingViewChart({
                                                 className="absolute md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold"
                                                 style={{ left: `${openPercent}%`, transform: 'translateX(-50%)' }}
                                               >
-                                                9:30 AM
+                                                6:30 AM
                                               </span>
                                             )}
                                             {marketCloseIndex >= 0 && (
@@ -15764,7 +15753,7 @@ export default function TradingViewChart({
                                                 className="absolute md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold"
                                                 style={{ left: `${closePercent}%`, transform: 'translateX(-50%)' }}
                                               >
-                                                4:00 PM
+                                                1:00 PM
                                               </span>
                                             )}
                                           </>
@@ -17038,11 +17027,13 @@ export default function TradingViewChart({
           Object.entries(trades || {}).map(([symbol, trade]) => [symbol, trade])
         );
 
-        const highlightBullish = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
+        const highlightBullish = allTabsHighlights.filter((item: any) => {
+          const [symbol, trade] = item as [string, any];
           return trade.optionType?.toLowerCase() === 'call';
         });
 
-        const highlightBearish = allTabsHighlights.filter(([symbol, trade]: [string, any]) => {
+        const highlightBearish = allTabsHighlights.filter((item: any) => {
+          const [symbol, trade] = item as [string, any];
           return trade.optionType?.toLowerCase() === 'put';
         });
 
@@ -17603,7 +17594,8 @@ export default function TradingViewChart({
                           </div>
                         </div>
                         <div className="space-y-4">
-                          {filteredBullishTrades.map(([symbol, trade]: [string, any], idx) => {
+                          {filteredBullishTrades.map((item: any, idx: number) => {
+                            const [symbol, trade] = item as [string, any];
                             // Color logic: Gold for setup/quality, Lime Green for momentum
                             const tickerColor = trade.strategy === 'setup' ? '#FFD700' : '#32CD32';
                             const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
@@ -17862,7 +17854,8 @@ export default function TradingViewChart({
                           </div>
                         </div>
                         <div className="space-y-4">
-                          {filteredBearishTrades.map(([symbol, trade]: [string, any], idx) => {
+                          {filteredBearishTrades.map((item: any, idx: number) => {
+                            const [symbol, trade] = item as [string, any];
                             // Color logic: Cyan blue for setup/quality, Bright Red for momentum
                             const tickerColor = trade.strategy === 'setup' ? '#00FFFF' : '#FF0000';
                             const uniqueKey = `${symbol}-${trade.sourceTab}-${idx}`;
