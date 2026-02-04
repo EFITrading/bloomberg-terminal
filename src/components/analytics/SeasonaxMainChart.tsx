@@ -57,6 +57,8 @@ interface SeasonaxMainChartProps {
     sweetSpotPeriod?: { startDay: number; endDay: number; period: string } | null;
     painPointPeriod?: { startDay: number; endDay: number; period: string } | null;
     selectedMonth?: number | null;
+    compareData?: SeasonalAnalysis | null;
+    compareSymbol?: string | null;
 }
 
 // Helper function to smooth data - removes abnormal spikes/crashes
@@ -167,7 +169,16 @@ const drawSeasonalLine = (
     // Symbol label at end of line removed to save space
 };
 
-const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonData = [], settings, sweetSpotPeriod, painPointPeriod, selectedMonth = null }) => {
+const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
+    data,
+    comparisonData = [],
+    settings,
+    sweetSpotPeriod,
+    painPointPeriod,
+    selectedMonth = null,
+    compareData = null,
+    compareSymbol = null
+}) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
@@ -177,19 +188,12 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
     const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null);
 
     useEffect(() => {
-        console.log('SeasonaxMainChart useEffect triggered', {
-            hasData: !!data,
-            hasCanvas: !!canvasRef.current,
-            comparisonCount: comparisonData.length
-        });
         if (data && canvasRef.current && containerRef.current) {
             // Check if container has valid dimensions before attempting to draw
             const rect = containerRef.current.getBoundingClientRect();
             if (rect.width > 100 && rect.height > 100) {
-                console.log('Drawing charts with data:', data.symbol, 'dailyData length:', data.dailyData.length);
                 drawCharts();
             } else {
-                console.log('Deferring chart draw - container not ready:', rect.width, 'x', rect.height);
                 // Retry after a short delay to allow browser layout
                 const timer = setTimeout(() => {
                     if (containerRef.current) {
@@ -232,7 +236,6 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
                     // Only redraw if dimensions are reasonable and we have data
                     if (data && canvasRef.current) {
                         if (width > 100 && height > 100 && width < 5000 && height < 3000) {
-                            console.log(`Redrawing chart due to resize: ${width}x${height}`);
                             drawCharts();
                         } else {
                             console.warn(`Skipping redraw - invalid dimensions: ${width}x${height}`);
@@ -348,17 +351,13 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
     const drawMainSeasonalChart = () => {
         const canvas = canvasRef.current;
         if (!canvas || !data) {
-            console.log('drawMainSeasonalChart early return:', { hasCanvas: !!canvas, hasData: !!data });
             return;
         }
 
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-            console.log('No canvas context available');
             return;
         }
-
-        console.log('Starting to draw main seasonal chart for:', data.symbol);
 
         // Get full container size to utilize all available space
         const container = containerRef.current;
@@ -411,7 +410,6 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
             // Filter by selected month if specified
             if (selectedMonth !== null && selectedMonth !== undefined) {
                 processedData = processedData.filter(d => d.month === selectedMonth);
-                console.log(`Filtering to month ${selectedMonth}, data points:`, processedData.length);
 
                 // Recalculate cumulative returns for just this month
                 if (processedData.length > 0) {
@@ -470,6 +468,23 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
                 }
             });
 
+            // Include compare data (orange line) in bounds calculation
+            if (compareData && compareData.dailyData) {
+                let compareProcessedData = compareData.dailyData;
+
+                // Apply same processing as main data
+                if (settings.smoothing) {
+                    compareProcessedData = smoothData(compareProcessedData);
+                }
+                if (settings.detrend) {
+                    compareProcessedData = detrendData(compareProcessedData);
+                }
+
+                const visibleCompareData = getVisibleDataPoints(compareProcessedData);
+                const compareReturns = visibleCompareData.length > 0 ? visibleCompareData.map(d => d.cumulativeReturn) : compareProcessedData.map(d => d.cumulativeReturn);
+                allCumulativeReturns = allCumulativeReturns.concat(compareReturns);
+            }
+
             const minReturn = Math.min(...allCumulativeReturns);
             const maxReturn = Math.max(...allCumulativeReturns);
             const returnRange = maxReturn - minReturn;
@@ -502,6 +517,12 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
             // Draw background
             ctx.fillStyle = '#000000';
             ctx.fillRect(0, 0, containerWidth, containerHeight);
+
+            // Save context and create clipping region for chart area
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(padding.left, padding.top, chartWidth, chartHeight);
+            ctx.clip();
 
             // Draw grid lines
             ctx.strokeStyle = '#333333';
@@ -649,6 +670,39 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
                 }
             });
 
+            // Draw compare line (orange)
+            if (compareData && compareData.dailyData) {
+                let compareProcessedData = compareData.dailyData;
+
+                // Apply same processing as main data
+                if (settings.smoothing) {
+                    compareProcessedData = smoothData(compareProcessedData);
+                }
+                if (settings.detrend) {
+                    compareProcessedData = detrendData(compareProcessedData);
+                }
+
+                // Draw in crispy orange
+                drawSeasonalLine(
+                    ctx,
+                    compareProcessedData,
+                    containerWidth,
+                    containerHeight,
+                    padding,
+                    chartWidth,
+                    chartHeight,
+                    paddedMin,
+                    paddedRange,
+                    '#FF6600',  // Crispy orange
+                    2.5,        // Slightly thicker than comparison lines
+                    compareSymbol || compareData.symbol,
+                    false,
+                    compareProcessedData,
+                    zoomLevel,
+                    panOffset
+                );
+            }
+
             // Draw Sweet Spot highlighting (green overlay)
             if (sweetSpotPeriod) {
                 const startX = padding.left + (sweetSpotPeriod.startDay / 365) * chartWidth;
@@ -695,13 +749,10 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({ data, comparisonD
                 ctx.lineTo(currentDateX, containerHeight - padding.bottom);
                 ctx.stroke();
                 ctx.setLineDash([]); // Reset line dash
-
-                // Add current date label - bigger and more visible
-                ctx.fillStyle = '#FF6600';
-                ctx.font = 'bold 20px "Roboto Mono", monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText('TODAY', currentDateX, padding.top + 5);
             }
+
+            // Restore context to draw outside clipping region (for axis labels)
+            ctx.restore();
 
             // Draw Y-axis labels - crispy white with % symbol and 30% smaller
             ctx.fillStyle = '#ffffff';

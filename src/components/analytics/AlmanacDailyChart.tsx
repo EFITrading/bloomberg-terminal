@@ -883,6 +883,12 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       'Russell 2000': '#FF5722'
     };
 
+    // Save context and create clipping region for chart area (prevents lines from drawing over y-axis)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PADDING.left, PADDING.top, chartWidth, chartHeight);
+    ctx.clip();
+
     // Draw data lines (only if event or pattern performance is not active)
     if (!showEventPerformance && !showPatternPerformance) {
       seasonalData.forEach(index => {
@@ -1028,6 +1034,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       ctx.textAlign = 'left';
       ctx.fillText('Day 0', getEventX(0, patternPerformanceData[0].data.length), PADDING.top - 5);
     }
+
+    // Restore context to draw outside clipping region (for axis labels)
+    ctx.restore();
 
     // Draw X-axis labels in the bottom padding area
     ctx.fillStyle = '#FFFFFF';

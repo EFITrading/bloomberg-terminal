@@ -109,6 +109,11 @@
   flex-wrap: nowrap;
 }
 
+/* Hide mobile controls on desktop by default */
+.almanac-mobile-controls {
+  display: none !important;
+}
+
 .almanac-daily-chart .chart-controls-row {
   display: flex;
   align-items: center;

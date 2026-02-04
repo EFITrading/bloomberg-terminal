@@ -114,18 +114,25 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
 
     // If showOnlyElectionAndYear is true, only render election and year selector
     if (showOnlyElectionAndYear) {
+        // Check if we have at least 12 years of data for election mode
+        const maxAvailableYears = Math.max(...availableYears);
+        const electionModeAllowed = maxAvailableYears >= 12;
+
         return (
             <div className="seasonax-controls">
                 {/* Election dropdown */}
                 <div className="election-dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
                     <button
-                        className={`election-btn ${isElectionMode ? 'active' : 'inactive'}`}
-                        onClick={handleElectionClick}
+                        className={`election-btn ${isElectionMode ? 'active' : 'inactive'} ${!electionModeAllowed ? 'disabled' : ''}`}
+                        onClick={electionModeAllowed ? handleElectionClick : undefined}
+                        style={{ cursor: electionModeAllowed ? 'pointer' : 'not-allowed', opacity: electionModeAllowed ? 1 : 0.6 }}
+                        title={electionModeAllowed ? '' : 'Election mode requires 12+ years of data'}
                     >
+                        {!electionModeAllowed && <span style={{ marginRight: '6px' }}>🔒</span>}
                         <span className="election-text">{selectedElectionPeriod}</span>
                         <span className="dropdown-arrow">▼</span>
                     </button>
-                    {isElectionDropdownOpen && (
+                    {isElectionDropdownOpen && electionModeAllowed && (
                         <div className="election-dropdown">
                             {electionPeriods.map((period) => (
                                 <div
@@ -177,26 +184,37 @@ const SeasonaxControls: React.FC<SeasonaxControlsProps> = ({
 
                     {/* Election dropdown */}
                     <div className="election-dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
-                        <button
-                            className={`election-btn ${isElectionMode ? 'active' : 'inactive'}`}
-                            onClick={handleElectionClick}
-                        >
-                            <span className="election-text">{selectedElectionPeriod}</span>
-                            <span className="dropdown-arrow">▼</span>
-                        </button>
-                        {isElectionDropdownOpen && (
-                            <div className="election-dropdown">
-                                {electionPeriods.map((period) => (
-                                    <div
-                                        key={period}
-                                        className={`election-option ${selectedElectionPeriod === period ? 'selected' : ''}`}
-                                        onClick={() => handleElectionPeriodSelect(period)}
+                        {(() => {
+                            const maxAvailableYears = Math.max(...availableYears);
+                            const electionModeAllowed = maxAvailableYears >= 12;
+                            return (
+                                <>
+                                    <button
+                                        className={`election-btn ${isElectionMode ? 'active' : 'inactive'} ${!electionModeAllowed ? 'disabled' : ''}`}
+                                        onClick={electionModeAllowed ? handleElectionClick : undefined}
+                                        style={{ cursor: electionModeAllowed ? 'pointer' : 'not-allowed', opacity: electionModeAllowed ? 1 : 0.6 }}
+                                        title={electionModeAllowed ? '' : 'Election mode requires 12+ years of data'}
                                     >
-                                        {period}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                                        {!electionModeAllowed && <span style={{ marginRight: '6px' }}>🔒</span>}
+                                        <span className="election-text">{selectedElectionPeriod}</span>
+                                        <span className="dropdown-arrow">▼</span>
+                                    </button>
+                                    {isElectionDropdownOpen && electionModeAllowed && (
+                                        <div className="election-dropdown">
+                                            {electionPeriods.map((period) => (
+                                                <div
+                                                    key={period}
+                                                    className={`election-option ${selectedElectionPeriod === period ? 'selected' : ''}`}
+                                                    onClick={() => handleElectionPeriodSelect(period)}
+                                                >
+                                                    {period}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </>
+                            );
+                        })()}
                     </div>
 
                     {settings.comparisonSymbols.length > 0 && (

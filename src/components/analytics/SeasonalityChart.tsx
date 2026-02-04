@@ -134,6 +134,13 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
     const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
     const [selectedMonthName, setSelectedMonthName] = useState<string>('');
     const [availableYears, setAvailableYears] = useState<number[]>([1, 3, 5, 10, 15, 20]); // Dynamic based on actual data
+
+    // Compare functionality state
+    const [isCompareMode, setIsCompareMode] = useState<boolean>(false);
+    const [compareSymbol, setCompareSymbol] = useState<string>('');
+    const [compareSeasonalData, setCompareSeasonalData] = useState<SeasonalAnalysis | null>(null);
+    const [compareElectionData, setCompareElectionData] = useState<ElectionCycleData | null>(null);
+
     const [chartSettings, setChartSettings] = useState<ChartSettings>({
         startDate: '11 Oct',
         endDate: '6 Nov',
@@ -869,9 +876,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
             period: bestSweetSpot.period
         });
 
-        // Clear pain point highlighting
-        setPainPointPeriod(null);
-
         console.log('Sweet Spot found:', bestSweetSpot);
     };
 
@@ -893,9 +897,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
             endDay: worstPainPoint.endDay,
             period: worstPainPoint.period
         });
-
-        // Clear sweet spot highlighting
-        setSweetSpotPeriod(null);
 
         console.log('Pain Point found:', worstPainPoint);
     };
@@ -1094,7 +1095,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
 
     // Pass selected symbol to monthly chart so it updates when ticker changes
     const memoizedMonthlyChart = useMemo(() => (
-        <div style={{ width: '100%', position: 'relative', top: '-10px', paddingRight: 0, overflow: 'visible' }}>
+        <div style={{ width: '100%', position: 'relative', top: '-8px', paddingRight: 0, overflow: 'visible' }}>
             <div style={{ paddingRight: 0, overflow: 'visible' }}>
                 <AlmanacDailyChart
                     month={new Date().getMonth()}
@@ -1106,7 +1107,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
     ), [selectedSymbol]); // Re-render when symbol changes
 
     const memoizedScreener = useMemo(() => (
-        <div style={{ minWidth: 0, marginTop: '-90px' }}>
+        <div style={{ minWidth: 0, marginTop: '-100px' }}>
             <SeasonaxLanding />
         </div>
     ), []); // Empty dependency array - only mount once
@@ -1176,11 +1177,108 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
         console.log(`Date range changed ${direction}: ${newStartStr} - ${newEndStr}`);
     };
 
+    // Compare functionality handlers
+    const handleCompareClick = () => {
+        setIsCompareMode(!isCompareMode);
+        if (isCompareMode) {
+            // Clear compare data when exiting compare mode
+            setCompareSymbol('');
+            setCompareSeasonalData(null);
+            setCompareElectionData(null);
+        }
+    };
+
+    const handleCompareSymbolChange = (symbol: string) => {
+        setCompareSymbol(symbol.toUpperCase());
+    };
+
+    const handleCompareSubmit = async () => {
+        const symbol = compareSymbol.trim();
+        if (symbol) {
+            // Load comparison data based on current mode
+            if (isElectionMode) {
+                await loadCompareElectionData(symbol, selectedElectionPeriod as any);
+            } else {
+                await loadCompareSeasonalData(symbol);
+            }
+        } else {
+            setCompareSeasonalData(null);
+            setCompareElectionData(null);
+        }
+    };
+
+    const loadCompareSeasonalData = async (symbol: string) => {
+        try {
+            const cache = GlobalDataCache.getInstance();
+            const cachedTicker = cache.get(GlobalDataCache.keys.TICKER_DETAILS(symbol));
+            let tickerDetails;
+
+            if (cachedTicker) {
+                tickerDetails = cachedTicker;
+            } else {
+                tickerDetails = await polygonService.getTickerDetails(symbol);
+                if (tickerDetails) {
+                    cache.set(GlobalDataCache.keys.TICKER_DETAILS(symbol), tickerDetails);
+                }
+            }
+
+            const endDate = new Date();
+            let startDate = new Date();
+            startDate.setFullYear(endDate.getFullYear() - 30);
+
+            const startDateStr = startDate.toISOString().split('T')[0];
+            const endDateStr = endDate.toISOString().split('T')[0];
+
+            const cacheKey = `seasonal_compare_${symbol}_${chartSettings.yearsOfData}`;
+            const cachedData = cache.get(cacheKey);
+
+            if (cachedData) {
+                setCompareSeasonalData(cachedData);
+                return;
+            }
+
+            const data = await polygonService.getHistoricalData(symbol, startDateStr, endDateStr, 'day', 1);
+
+            if (data && data.results && data.results.length > 0) {
+                const analysis = processDailySeasonalData(
+                    data.results,
+                    null,  // No SPY comparison for compare ticker
+                    symbol,
+                    tickerDetails?.name || symbol,
+                    chartSettings.yearsOfData
+                );
+                cache.set(cacheKey, analysis);
+                setCompareSeasonalData(analysis);
+            }
+        } catch (err) {
+            console.error('Error loading compare seasonal data:', err);
+        }
+    };
+
+    const loadCompareElectionData = async (
+        symbol: string,
+        electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
+    ) => {
+        try {
+            const electionResult = await electionCycleService.analyzeElectionCycleSeasonality(
+                symbol,
+                electionType,
+                Math.min(chartSettings.yearsOfData, 20)
+            );
+
+            if (electionResult) {
+                setCompareElectionData(electionResult);
+            }
+        } catch (err) {
+            console.error('Error loading compare election data:', err);
+        }
+    };
+
     return (
         <div className="seasonax-container">
             {/* Header with all elements in one row */}
             {!hideControls && (
-                <div className="seasonax-header">
+                <div className="seasonax-header" style={{ position: 'relative', top: '-55px', marginBottom: '-80px', zIndex: 1000, left: '20px' }}>
                     {/* Group 1: Search + Compare */}
                     <div className="header-group search-compare-group">
                         <SeasonaxSymbolSearch
@@ -1189,7 +1287,32 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
                             onElectionPeriodSelect={handleElectionPeriodSelect}
                             onElectionModeToggle={handleElectionModeToggle}
                         />
-                        <button className="compare-btn" onClick={() => { }}>+ COMPARE</button>
+                        {!isCompareMode ? (
+                            <button className="compare-btn" onClick={handleCompareClick}>+ COMPARE</button>
+                        ) : (
+                            <input
+                                type="text"
+                                className="seasonax-search-input"
+                                placeholder="Compare..."
+                                value={compareSymbol}
+                                onChange={(e) => handleCompareSymbolChange(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleCompareSubmit();
+                                    }
+                                }}
+                                onBlur={() => {
+                                    if (!compareSymbol.trim()) {
+                                        setIsCompareMode(false);
+                                    }
+                                }}
+                                autoFocus
+                                style={{
+                                    color: '#FF6600',
+                                    fontWeight: 600
+                                }}
+                            />
+                        )}
                     </div>
 
                     {/* Election and Year Selector without wrapping box */}
@@ -1275,18 +1398,20 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
             {/* Show data based on current mode */}
             {((isElectionMode && electionData) || (!isElectionMode && seasonalData)) && !loading && (
                 <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '50.3% 48%', gap: '1%', width: '100%', marginTop: '-20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '50.3% 48%', gap: '1%', width: '100%', marginTop: '12px', overflow: 'visible' }}>
                         {/* Left column: Charts */}
                         <div style={{ minWidth: 0, width: '100%', overflow: 'visible' }}>
                             <div style={{ width: '100%' }}>
                                 {/* Main Chart Area - Override CSS max-width */}
-                                <div style={{ width: '100%', maxHeight: '650px', height: '650px', position: 'relative', marginTop: '-20px' }}>
+                                <div style={{ width: '100%', maxHeight: '650px', height: '650px', position: 'relative', marginTop: '0px' }}>
                                     <SeasonaxMainChart
                                         data={(isElectionMode ? electionData : seasonalData) as unknown as Parameters<typeof SeasonaxMainChart>[0]['data']}
                                         settings={chartSettings}
                                         sweetSpotPeriod={sweetSpotPeriod}
                                         painPointPeriod={painPointPeriod}
                                         selectedMonth={monthlyViewActive ? selectedMonthIndex : null}
+                                        compareData={isCompareMode ? (isElectionMode ? compareElectionData : compareSeasonalData) : null}
+                                        compareSymbol={isCompareMode ? compareSymbol : null}
                                     />
                                 </div>
                             </div>
@@ -1360,6 +1485,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
                                 sweetSpotPeriod={null}
                                 painPointPeriod={null}
                                 selectedMonth={selectedMonthIndex}
+                                compareData={isCompareMode ? (isElectionMode ? compareElectionData : compareSeasonalData) : null}
+                                compareSymbol={isCompareMode ? compareSymbol : null}
                             />
                         </div>
                     </div>
