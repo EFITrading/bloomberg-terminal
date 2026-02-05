@@ -6104,10 +6104,136 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     return gexTopValues;
   }, [showFlowGEX, showDealer, showGEX, showVEX, flowTopValues, dealerTopValues, gexTopValues, vexTopValues]);
 
-  const getCellStyle = (value: number, isVexValue: boolean = false, strike?: number, exp?: string, customTopValues?: any): { bg: string; ring: string; text: string } => {
+  // Detect clusters of high GEX values (top 3 if in same column AND consecutive strikes)
+  const detectGEXClusters = useMemo(() => {
+    const gexClusters = new Map<string, { color: 'green' | 'red', cells: { strike: number; exp: string }[] }>();
+    const dealerClusters = new Map<string, { color: 'green' | 'red', cells: { strike: number; exp: string }[] }>();
+
+    // Function to detect clusters in a dataset
+    const findClusters = (calculatedData: any[], clusterMap: Map<string, { color: 'green' | 'red', cells: { strike: number; exp: string }[] }>) => {
+      if (!calculatedData || calculatedData.length === 0) return;
+
+      // Collect ALL values across ALL expirations with their strike and expiration
+      const allPositiveValues: { strike: number; exp: string; value: number }[] = [];
+      const allNegativeValues: { strike: number; exp: string; value: number }[] = [];
+
+      calculatedData.forEach(row => {
+        Object.keys(row).forEach(key => {
+          if (key !== 'strike') {
+            const exp = key;
+            const expData = row[exp] as any;
+            if (expData) {
+              const value = (expData.call || 0) + (expData.put || 0);
+              if (value > 0) {
+                allPositiveValues.push({ strike: row.strike, exp, value });
+              } else if (value < 0) {
+                allNegativeValues.push({ strike: row.strike, exp, value });
+              }
+            }
+          }
+        });
+      });
+
+      // Get ONLY the top 3 positive and negative (sorted by absolute highest values)
+      const sortedPositive = allPositiveValues.sort((a, b) => b.value - a.value);
+      const sortedNegative = allNegativeValues.sort((a, b) => a.value - b.value);
+
+      // Take EXACTLY the top 3 - no more, no less
+      const top3Positive = sortedPositive.slice(0, 3);
+      const top3Negative = sortedNegative.slice(0, 3);
+
+      // POSITIVE: Check if the absolute top 3 highest positive GEX values are in same column AND consecutive strikes
+      if (top3Positive.length === 3) {
+        const expirations = top3Positive.map(v => v.exp);
+        const uniqueExps = new Set(expirations);
+
+        if (uniqueExps.size === 1) {
+          // All in same column - now check if strikes are ACTUALLY consecutive in the strike ladder
+          const targetExp = top3Positive[0].exp;
+          const strikes = top3Positive.map(v => v.strike).sort((a, b) => b - a); // Sort descending
+
+          // Get ALL strikes available in this expiration from the dataset (include ALL strikes)
+          const allStrikesInExp: number[] = [];
+          calculatedData.forEach(row => {
+            const expData = row[targetExp] as any;
+            if (expData) {
+              // Include ALL strikes in the ladder, even those with zero GEX
+              allStrikesInExp.push(row.strike);
+            }
+          });
+          allStrikesInExp.sort((a, b) => b - a); // Sort descending
+
+          // Find indices of our top 3 strikes in the full strike ladder
+          const indices = strikes.map(s => allStrikesInExp.indexOf(s));
+
+          // Check if they are consecutive indices (0,1,2 or 5,6,7, etc.)
+          if (indices.length === 3 && indices.every(i => i !== -1)) {
+            indices.sort((a, b) => a - b);
+            if (indices[1] === indices[0] + 1 && indices[2] === indices[1] + 1) {
+              // Consecutive strikes! Mark all 3 for blue border
+              top3Positive.forEach(v => {
+                const key = `${v.strike}-${v.exp}`;
+                clusterMap.set(key, { color: 'green', cells: top3Positive.map(p => ({ strike: p.strike, exp: p.exp })) });
+              });
+            }
+          }
+        }
+      }
+
+      // NEGATIVE: Check if the absolute top 3 highest negative GEX values are in same column AND consecutive strikes
+      if (top3Negative.length === 3) {
+        const expirations = top3Negative.map(v => v.exp);
+        const uniqueExps = new Set(expirations);
+
+        if (uniqueExps.size === 1) {
+          // All in same column - now check if strikes are ACTUALLY consecutive in the strike ladder
+          const targetExp = top3Negative[0].exp;
+          const strikes = top3Negative.map(v => v.strike).sort((a, b) => b - a); // Sort descending
+
+          // Get ALL strikes available in this expiration from the dataset (include ALL strikes)
+          const allStrikesInExp: number[] = [];
+          calculatedData.forEach(row => {
+            const expData = row[targetExp] as any;
+            if (expData) {
+              // Include ALL strikes in the ladder, even those with zero GEX
+              allStrikesInExp.push(row.strike);
+            }
+          });
+          allStrikesInExp.sort((a, b) => b - a); // Sort descending
+
+          // Find indices of our top 3 strikes in the full strike ladder
+          const indices = strikes.map(s => allStrikesInExp.indexOf(s));
+
+          // Check if they are consecutive indices (0,1,2 or 5,6,7, etc.)
+          if (indices.length === 3 && indices.every(i => i !== -1)) {
+            indices.sort((a, b) => a - b);
+            if (indices[1] === indices[0] + 1 && indices[2] === indices[1] + 1) {
+              // Consecutive strikes! Mark all 3 for blue border
+              top3Negative.forEach(v => {
+                const key = `${v.strike}-${v.exp}`;
+                clusterMap.set(key, { color: 'red', cells: top3Negative.map(n => ({ strike: n.strike, exp: n.exp })) });
+              });
+            }
+          }
+        }
+      }
+    };
+
+    // Detect clusters in GEX (NORMAL) data
+    findClusters(allGEXCalculatedData, gexClusters);
+
+    // Detect clusters in Dealer data
+    findClusters(allDealerCalculatedData, dealerClusters);
+
+    return { gex: gexClusters, dealer: dealerClusters };
+  }, [allGEXCalculatedData, allDealerCalculatedData]);
+
+  const getCellStyle = (value: number, isVexValue: boolean = false, strike?: number, exp?: string, customTopValues?: any, tableType?: 'gex' | 'dealer'): { bg: string; ring: string; text: string; clusterPosition?: 'top' | 'middle' | 'bottom' | 'single'; clusterColor?: 'green' | 'red' } => {
     let bgColor = '';
     let ringColor = '';
     let textColor = 'text-white'; // Default text color
+    let clusterPosition: 'top' | 'middle' | 'bottom' | 'single' | undefined = undefined;
+    let clusterColor: 'green' | 'red' | undefined = undefined;
 
     // Determine which top values to use
     const topVals = customTopValues || topValues;
@@ -6163,7 +6289,25 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       }
     }
 
-    return { bg: bgColor, ring: ringColor, text: textColor };
+    // Check if this cell is part of a GEX cluster and determine position in cluster
+    if (strike !== undefined && exp !== undefined && tableType) {
+      const clusterKey = `${strike}-${exp}`;
+      const clusterMap = tableType === 'gex' ? detectGEXClusters.gex : detectGEXClusters.dealer;
+      const clusterInfo = clusterMap.get(clusterKey);
+
+      if (clusterInfo && clusterInfo.cells.length === 3) {
+        // Sort cells by strike descending to determine top/middle/bottom
+        const sortedCells = [...clusterInfo.cells].sort((a, b) => b.strike - a.strike);
+        const currentIndex = sortedCells.findIndex(c => c.strike === strike);
+
+        if (currentIndex === 0) clusterPosition = 'top';
+        else if (currentIndex === 1) clusterPosition = 'middle';
+
+        clusterColor = clusterInfo.color;
+      }
+    }
+
+    return { bg: bgColor, ring: ringColor, text: textColor, clusterPosition, clusterColor };
   };
 
   const formatDate = (dateStr: string) => {
@@ -8266,7 +8410,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                             const calculatedRow = allGEXCalculatedData.find(r => r.strike === row.strike);
                                             const gexValue = calculatedRow?.[exp] as any;
                                             const displayValue = (gexValue?.call || 0) + (gexValue?.put || 0);
-                                            const cellStyle = getCellStyle(displayValue, false, row.strike, exp, gexTopValues);
+                                            const cellStyle = getCellStyle(displayValue, false, row.strike, exp, gexTopValues, 'gex');
 
                                             return (
                                               <td
@@ -8353,7 +8497,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                             const calculatedRow = allDealerCalculatedData.find(r => r.strike === row.strike);
                                             const dealerValue = calculatedRow?.[exp] as any;
                                             const displayValue = (dealerValue?.call || 0) + (dealerValue?.put || 0);
-                                            const cellStyle = getCellStyle(displayValue, false, row.strike, exp, dealerTopValues);
+                                            const cellStyle = getCellStyle(displayValue, false, row.strike, exp, dealerTopValues, 'dealer');
 
                                             return (
                                               <td
@@ -8361,7 +8505,10 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                 className={`px-1 py-3 ${useBloombergTheme ? `border-l ${borderColorDivider}` : ''}`}
                                                 style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                               >
-                                                <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all`}>
+                                                <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${cellStyle.clusterPosition === 'top' ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` :
+                                                    cellStyle.clusterPosition === 'middle' ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` :
+                                                      cellStyle.clusterPosition === 'bottom' ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` : ''
+                                                  }`}>
                                                   <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
                                                 </div>
                                               </td>

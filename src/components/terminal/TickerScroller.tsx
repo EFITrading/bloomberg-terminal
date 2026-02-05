@@ -25,53 +25,36 @@ export default function TickerScroller() {
     ]);
 
     useEffect(() => {
-        // Fetch real ticker data using same logic as EFICharting
         const fetchTickerData = async () => {
             try {
                 const symbols = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMZN', 'MSFT', 'AVGO', 'AMD', 'BABA', 'JPM', 'CAT', 'BA'];
                 const promises = symbols.map(async (symbol) => {
                     try {
-                        // Use exact same logic as EFICharting - minute bars for live price
+                        // Get last 5 days to ensure we have at least 2 trading days
                         const today = new Date();
-                        const yesterday = new Date(today);
-                        yesterday.setDate(yesterday.getDate() - 1);
+                        const fiveDaysAgo = new Date(today);
+                        fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
                         const todayStr = today.toISOString().split('T')[0];
-                        const yesterdayStr = yesterday.toISOString().split('T')[0];
+                        const fiveDaysAgoStr = fiveDaysAgo.toISOString().split('T')[0];
 
-                        // Get most recent minute bar (same as chart)
-                        const recentUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${yesterdayStr}/${todayStr}?adjusted=true&sort=desc&limit=1&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
-                        const response = await fetch(recentUrl);
+                        // Get daily bars
+                        const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveDaysAgoStr}/${todayStr}?adjusted=true&sort=desc&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+                        const response = await fetch(dailyUrl);
                         const result = await response.json();
 
-                        if (response.ok && result.status === 'OK' && result.results && result.results.length > 0) {
-                            const livePrice = result.results[0].c;
-
-                            // Get previous day's close (same as chart)
-                            const prevDayUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?adjusted=true&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
-                            const prevResponse = await fetch(prevDayUrl);
-
-                            if (prevResponse.ok) {
-                                const prevResult = await prevResponse.json();
-                                if (prevResult?.results && prevResult.results.length > 0) {
-                                    const previousClose = prevResult.results[0].c;
-                                    const change = livePrice - previousClose;
-                                    const changePercent = (change / previousClose) * 100;
-                                    return { symbol, change: changePercent };
-                                }
-                            }
-                        }
-
-                        // Fallback to previous close if no live data
-                        const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?adjusted=true&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
-                        const fallbackResponse = await fetch(fallbackUrl);
-                        const fallbackResult = await fallbackResponse.json();
-
-                        if (fallbackResult.status === 'OK' && fallbackResult.results?.[0]) {
+                        if (!response.ok || !result?.results || result.results.length < 2) {
                             return { symbol, change: 0 };
                         }
 
-                        return { symbol, change: 0 };
+                        // results[0] is most recent day, results[1] is previous trading day
+                        const todayClose = result.results[0].c;
+                        const previousClose = result.results[1].c;
+
+                        // Calculate percentage change
+                        const changePercent = ((todayClose - previousClose) / previousClose) * 100;
+
+                        return { symbol, change: changePercent };
                     } catch (error) {
                         return { symbol, change: 0 };
                     }
@@ -80,7 +63,7 @@ export default function TickerScroller() {
                 const results = await Promise.all(promises);
                 setTickerData(results);
             } catch (error) {
-                // Silent error handling
+                console.error('Error fetching ticker data:', error);
             }
         };
 

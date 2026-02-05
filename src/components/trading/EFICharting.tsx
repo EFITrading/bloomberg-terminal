@@ -3235,6 +3235,7 @@ const FlowPanel = React.memo(({
   const [retryCount, setRetryCount] = useState<number>(0);
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
   const isStreamCompleteRef = useRef<boolean>(false);
+  const [flowPanelTab, setFlowPanelTab] = useState<'flow' | 'tracking'>('flow');
 
   const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
     setFlowLoading(true);
@@ -3405,27 +3406,41 @@ const FlowPanel = React.memo(({
         </button>
         {/* Tab Navigation */}
         <div className="flex border-2 border-yellow-500/30 rounded-md overflow-hidden shadow-lg">
-          <button
-            style={{
-              flex: 1,
-              padding: '12px 24px',
-              fontSize: '20px',
-              fontWeight: '900',
-              fontFamily: 'monospace',
-              letterSpacing: '1px',
-              textTransform: 'uppercase',
-              border: 'none',
-              cursor: 'default',
-              transition: 'all 0.3s',
-              background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
-              color: '#ff8844',
-              boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
-              opacity: 1,
-              filter: 'contrast(1.1) brightness(1.1)'
-            }}
-          >
-            Options Flow
-          </button>
+          {[
+            { id: 'flow', label: 'Options Flow' },
+            { id: 'tracking', label: 'Flow Tracking' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setFlowPanelTab(tab.id as 'flow' | 'tracking')}
+              style={{
+                flex: 1,
+                padding: '12px 24px',
+                fontSize: '20px',
+                fontWeight: '900',
+                fontFamily: 'monospace',
+                letterSpacing: '1px',
+                textTransform: 'uppercase',
+                border: 'none',
+                borderRight: flowPanelTab === tab.id ? 'none' : '1px solid #333',
+                cursor: 'pointer',
+                transition: 'all 0.3s',
+                background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)',
+                color: flowPanelTab === tab.id ? '#ff8844' : '#ffffff',
+                boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.1), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
+                opacity: 1,
+                filter: 'contrast(1.1) brightness(1.1)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'linear-gradient(135deg, #252525 0%, #0a0a0a 50%, #252525 100%)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #000000 50%, #1a1a1a 100%)';
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -3443,6 +3458,8 @@ const FlowPanel = React.memo(({
           streamingProgress={flowStreamingProgress}
           streamError={flowStreamError}
           useDropdowns={true}
+          hideFlowTracking={flowPanelTab === 'flow'}
+          showFlowTrackingInline={flowPanelTab === 'tracking'}
         />
       </div>
     </div>

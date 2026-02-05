@@ -1409,7 +1409,7 @@ body {
 
 /* Hero Section */
 .hero {
-    padding: 40px 32px 80px;
+    padding: 1px 32px 80px;
     max-width: 1800px;
     margin: 0 auto;
 }
@@ -2088,7 +2088,7 @@ h1 {
 
 /* Main Content for Individual Pages */
 .main-content {
-    padding-top: 120px;
+    padding-top: 60px;
     padding-left: 0;
     padding-right: 0;
     min-height: 100vh;

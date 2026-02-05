@@ -2,7 +2,7 @@
     width: 100%;
     height: auto;
     min-height: 800px;
-    padding: 20px;
+    padding: 35px 20px 20px;
     background: transparent;
 }
 
@@ -12,6 +12,7 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
+    padding-top: 8px;
     padding-bottom: 12px;
     border-bottom: 1px solid rgba(255, 102, 0, 0.2);
 }
@@ -55,8 +56,17 @@
 }
 
 @keyframes live-pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(1.2); }
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.5;
+        transform: scale(1.2);
+    }
 }
 
 .market-time {
@@ -440,12 +450,14 @@
 
 /* Volume Widget */
 .widget-volume {
-    display: none; /* Hidden by default, can be shown in larger layouts */
+    display: none;
+    /* Hidden by default, can be shown in larger layouts */
 }
 
 /* Indicators Widget */
 .widget-indicators {
-    display: none; /* Hidden by default, can be shown in larger layouts */
+    display: none;
+    /* Hidden by default, can be shown in larger layouts */
 }
 
 /* Responsive Design */
