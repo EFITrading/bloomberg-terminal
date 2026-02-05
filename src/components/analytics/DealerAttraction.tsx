@@ -4097,12 +4097,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
           setLiveOIData(liveOIMap);
           setLiveOIProgress(100); // 100% - complete
-          console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
+          // console.log(`✅ Live OI update complete: ${liveOIMap.size} contracts`);
 
           // Step 5: Calculate simple premium-based flow (no GEX, no Greeks)
-          console.log(`💰 Flow Map: Simple premium tracking for new trades (AA, A, BB fill styles)`);
+          // console.log(`💰 Flow Map: Simple premium tracking for new trades (AA, A, BB fill styles)`);
 
-          console.log(`📊 Live OI calculated for ${liveOIMap.size} contracts`);
+          // console.log(`📊 Live OI calculated for ${liveOIMap.size} contracts`);
 
           // Check if base options data exists, if not fetch it first
           if (Object.keys(gexByStrikeByExpiration).length === 0) {
@@ -5108,7 +5108,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             const contractKey = `${selectedTicker}_${strikeNum}_call_${expDate}`;
             if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
               const liveOI = liveOIDataFromState.get(contractKey) || 0;
-              console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
+              // console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
               oi = liveOI;
             }
 
@@ -5152,7 +5152,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               };
 
               if (callPremium > 0) {
-                console.log(`💰 FLOW MAP Call: Strike ${strikeNum} = $${callPremium.toFixed(0)} (${callContracts} contracts)`);
+                // console.log(`💰 FLOW MAP Call: Strike ${strikeNum} = $${callPremium.toFixed(0)} (${callContracts} contracts)`);
               }
 
               // ALWAYS calculate BOTH formulas
@@ -5235,7 +5235,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             const contractKey = `${selectedTicker}_${strikeNum}_put_${expDate}`;
             if (liveOIDataFromState && liveOIDataFromState.has(contractKey)) {
               const liveOI = liveOIDataFromState.get(contractKey) || 0;
-              console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
+              // console.log(`🔥 USING LIVE OI for ${contractKey}: Original=${oi}, Live=${liveOI}`);
               oi = liveOI;
             }
 
@@ -5302,7 +5302,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               flowGexByStrikeByExp[expDate][strikeNum].putVolume = putContracts;  // Store contract count
 
               if (putPremium > 0) {
-                console.log(`💰 FLOW MAP Put: Strike ${strikeNum} = $${putPremium.toFixed(0)} (${putContracts} contracts)`);
+                // console.log(`💰 FLOW MAP Put: Strike ${strikeNum} = $${putPremium.toFixed(0)} (${putContracts} contracts)`);
               }
 
               // ALWAYS calculate BOTH formulas
@@ -5647,7 +5647,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           // Recalculate based on the current mode
           if (gexMode === 'Net Dealer') {
             // Use dealer formula for live recalc
-            console.log(`🔄 LIVE OI RECALC - NET DEALER MODE: Strike ${strike}, Exp ${exp}`);
+            // console.log(`🔄 LIVE OI RECALC - NET DEALER MODE: Strike ${strike}, Exp ${exp}`);
             if (liveCallOI !== undefined && greeksData.callGamma && greeksData.callDelta !== undefined && greeksData.callVanna !== undefined && T > 0) {
               callOI = liveCallOI;
               const beta = 0.25;
@@ -5657,7 +5657,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               const gammaEff = greeksData.callGamma + beta * greeksData.callVanna * rho_S_sigma;
               const liveWeight = Math.abs(greeksData.callDelta) * (1 - Math.abs(greeksData.callDelta));
               callGEX = liveCallOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
-              console.log(`  📈 Call: LiveOI ${liveCallOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${callGEX.toFixed(2)}`);
+              // console.log(`  📈 Call: LiveOI ${liveCallOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${callGEX.toFixed(2)}`);
             }
 
             if (livePutOI !== undefined && greeksData.putGamma && greeksData.putDelta !== undefined && greeksData.putVanna !== undefined && T > 0) {
@@ -5669,21 +5669,21 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
               const gammaEff = greeksData.putGamma + beta * greeksData.putVanna * rho_S_sigma;
               const liveWeight = Math.abs(greeksData.putDelta) * (1 - Math.abs(greeksData.putDelta));
               putGEX = -livePutOI * gammaEff * liveWeight * wT * currentPrice * contractMult;
-              console.log(`  📉 Put: LiveOI ${livePutOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${putGEX.toFixed(2)}`);
+              // console.log(`  📉 Put: LiveOI ${livePutOI} × gammaEff ${gammaEff.toFixed(6)} × liveWeight ${liveWeight.toFixed(4)} = ${putGEX.toFixed(2)}`);
             }
           } else {
             // Use standard GEX formula for live recalc
-            console.log(`🔄 LIVE OI RECALC - NET GEX MODE: Strike ${strike}, Exp ${exp}`);
+            // console.log(`🔄 LIVE OI RECALC - NET GEX MODE: Strike ${strike}, Exp ${exp}`);
             if (liveCallOI !== undefined && greeksData.callGamma) {
               callOI = liveCallOI;
               callGEX = greeksData.callGamma * liveCallOI * (currentPrice * currentPrice) * 100;
-              console.log(`  📈 Call: ${greeksData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 = ${callGEX.toFixed(2)}`);
+              // console.log(`  📈 Call: ${greeksData.callGamma} × ${liveCallOI} × ${currentPrice}² × 100 = ${callGEX.toFixed(2)}`);
             }
 
             if (livePutOI !== undefined && greeksData.putGamma) {
               putOI = livePutOI;
               putGEX = -greeksData.putGamma * livePutOI * (currentPrice * currentPrice) * 100;
-              console.log(`  📉 Put: -${greeksData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 = ${putGEX.toFixed(2)}`);
+              // console.log(`  📉 Put: -${greeksData.putGamma} × ${livePutOI} × ${currentPrice}² × 100 = ${putGEX.toFixed(2)}`);
             }
           }
 
@@ -8506,8 +8506,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                 style={{ width: `${mobileExpWidth}px`, minWidth: `${mobileExpWidth}px`, maxWidth: `${mobileExpWidth}px` }}
                                               >
                                                 <div className={`${cellStyle.bg} ${cellStyle.ring} px-1 py-3 ${useBloombergTheme ? 'bb-cell' : 'rounded-lg'} text-center font-mono transition-all ${cellStyle.clusterPosition === 'top' ? `border-t-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` :
-                                                    cellStyle.clusterPosition === 'middle' ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` :
-                                                      cellStyle.clusterPosition === 'bottom' ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` : ''
+                                                  cellStyle.clusterPosition === 'middle' ? `border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` :
+                                                    cellStyle.clusterPosition === 'bottom' ? `border-b-[3px] border-l-[3px] border-r-[3px] ${cellStyle.clusterColor === 'green' ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}` : ''
                                                   }`}>
                                                   <div className="text-sm md:text-base font-bold mb-1">{formatCurrency(displayValue)}</div>
                                                 </div>
