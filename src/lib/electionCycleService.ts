@@ -95,8 +95,23 @@ class ElectionCycleService {
   }
 
   // Get years for each election cycle type (exact years as specified)
-  private getYearsByElectionType(type: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'): number[] {
-    switch (type) {
+  private getYearsByElectionType(type: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election' | string): number[] {
+    // Normalize the input string to handle variations like "Midterm" vs "Mid-Term"
+    const normalized = type.toLowerCase().replace(/\s+/g, '-').replace(/election/g, 'election');
+
+    // Map normalized strings to standard format
+    let standardType = type;
+    if (normalized === 'midterm' || normalized === 'mid-term') {
+      standardType = 'Mid-Term';
+    } else if (normalized === 'post' || normalized === 'post-election') {
+      standardType = 'Post-Election';
+    } else if (normalized === 'pre' || normalized === 'pre-election') {
+      standardType = 'Pre-Election';
+    } else if (normalized === 'election-year' || normalized === 'election') {
+      standardType = 'Election Year';
+    }
+
+    switch (standardType) {
       case 'Election Year':
         return [2008, 2012, 2016, 2020, 2024]; // Election Year: 2008, 2012, 2016, 2020, 2024 (5 years of data)
       case 'Post-Election':
@@ -106,6 +121,7 @@ class ElectionCycleService {
       case 'Pre-Election':
         return [2007, 2011, 2015, 2019, 2023]; // Pre-Election: 2007, 2011, 2015, 2019, 2023 (5 years of data)
       default:
+        console.warn(`⚠️ Unknown election type: "${type}" (normalized: "${normalized}")`);
         return [];
     }
   }
@@ -122,11 +138,9 @@ class ElectionCycleService {
       const validYears = targetYears.filter(year => year >= currentYear - yearsBack && year < currentYear);
 
       if (validYears.length === 0) {
-        console.warn(`No valid ${electionType} years found in the last ${yearsBack} years`);
+        console.warn(`⚠️ No valid ${electionType} years found in the last ${yearsBack} years`);
         return null;
       }
-
-      console.log(`Analyzing ${electionType} years:`, validYears);
 
       // Get historical data for the symbol and SPY (unless symbol is SPY)
       const shouldBenchmarkSPY = symbol.toUpperCase() !== 'SPY';

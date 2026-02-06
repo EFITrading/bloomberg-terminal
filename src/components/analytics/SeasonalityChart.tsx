@@ -232,7 +232,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
     };
 
     const handleElectionPeriodSelect = async (period: string) => {
-        console.log('Election period selected:', period);
         setSelectedElectionPeriod(period);
         setIsElectionMode(true);
         await loadElectionCycleAnalysis(selectedSymbol, period as 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election');
@@ -247,8 +246,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
         setError(null);
 
         try {
-            console.log(`Loading election cycle analysis for ${symbol} - ${electionType}`);
-
             const yearsToUse = yearsOverride ?? chartSettings.yearsOfData;
 
             const electionResult = await electionCycleService.analyzeElectionCycleSeasonality(
@@ -426,7 +423,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
             );
 
             setSeasonalData(processedData);
-            console.log('Seasonal data loaded successfully:', processedData.symbol, 'dailyData count:', processedData.dailyData.length);
+            // console.log('Seasonal data loaded successfully:', processedData.symbol, 'dailyData count:', processedData.dailyData.length);
 
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load seasonal data';
