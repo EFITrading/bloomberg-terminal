@@ -3838,6 +3838,12 @@ export default function TradingViewChart({
           const gexResult = await response.json();
 
           if (gexResult.success) {
+              totalCallGEX: gexResult.gexData.totalCallGEX,
+              totalPutGEX: gexResult.gexData.totalPutGEX,
+              callWalls: gexResult.gexData.callWalls?.length,
+              putWalls: gexResult.gexData.putWalls?.length
+            });
+
             setLiveGexData(gexResult);
             setIsGexActive(true);
             setGexProgress(100);
@@ -4726,10 +4732,6 @@ export default function TradingViewChart({
   const [seasonalSweetSpotActive, setSeasonalSweetSpotActive] = useState(false);
   const [seasonalPainPointActive, setSeasonalPainPointActive] = useState(false);
   const [seasonalShowMonthly, setSeasonalShowMonthly] = useState(false);
-  const [seasonalEventsDropdownOpen, setSeasonalEventsDropdownOpen] = useState(false);
-  const [seasonalPatternsDropdownOpen, setSeasonalPatternsDropdownOpen] = useState(false);
-  const [seasonalSelectedEvent, setSeasonalSelectedEvent] = useState<string | null>(null);
-  const [seasonalSelectedPatterns, setSeasonalSelectedPatterns] = useState<string[]>([]);
   const [seasonalData, setSeasonalData] = useState<any>(null);
   const [seasonalLoading, setSeasonalLoading] = useState(false);
   const [seasonalScanStarted, setSeasonalScanStarted] = useState(false);
@@ -4931,6 +4933,10 @@ export default function TradingViewChart({
   const fetchPdPerformanceData = useCallback(async () => {
     if (pdSelectedSymbols.length === 0) return;
 
+      symbolCount: pdSelectedSymbols.length,
+      timeframe: pdTimeframe
+    });
+
     // Cancel any existing fetch
     if (pdFetchControllerRef.current) {
       pdFetchControllerRef.current.abort();
@@ -5013,6 +5019,10 @@ export default function TradingViewChart({
         if (result.errors) {
           Object.assign(bulkResult.errors, result.errors);
         }
+      });
+
+        totalSymbols: Object.keys(bulkResult.data).length,
+        errors: Object.keys(bulkResult.errors).length
       });
 
       if (!bulkResult.success) {
@@ -11105,6 +11115,13 @@ export default function TradingViewChart({
     // Draw GEX levels on top of candlesticks (standalone button)
     if (isGexActive && (liveGexData || gexData)) {
       const gexDataToUse = liveGexData || gexData;
+        hasLiveGexData: !!liveGexData,
+        hasGexData: !!gexData,
+        gexMode: gexMode,
+        usingLive: !!liveGexData,
+        totalCallGEX: gexDataToUse?.gexData?.totalCallGEX,
+        totalPutGEX: gexDataToUse?.gexData?.totalPutGEX
+      });
       renderGEXLevels(
         ctx,
         chartWidth,
@@ -14489,6 +14506,11 @@ export default function TradingViewChart({
             y: yCoord
           };
 
+            storedX: drawing.clickX,
+            storedY: drawing.absoluteScreenY,
+            finalPoint: startPoint,
+            drawingId: drawing.id
+          });
         } else {
           // Normal coordinate conversion for other drawings
           startPoint = timePriceToScreenCoordinates(drawing.time, drawing.price);
@@ -14591,6 +14613,10 @@ export default function TradingViewChart({
         const currentSymbolsKey = `${stableSymbols}_${pdTimeframe}`;
         if (currentSymbolsKey !== pdLastFetchedSymbolsRef.current) {
           pdLastFetchedSymbolsRef.current = currentSymbolsKey;
+            symbols: pdSelectedSymbols,
+            timeframe: pdTimeframe,
+            count: pdSelectedSymbols.length
+          });
           fetchPdPerformanceData();
         }
       }
@@ -23929,25 +23955,23 @@ export default function TradingViewChart({
                             .seasonality-custom-panel .seasonax-container {
                               padding: 0 !important;
                               margin: 0 !important;
-                              margin-top: -30px !important;
                             }
                             
                             /* ONLY FOR SEASONALITY SIDEBAR: Chart heights */
                             .seasonality-custom-panel .almanac-daily-chart {
                               min-height: 525px !important;
                               max-height: 625px !important;
-                              margin-top: 60px !important;
                             }
                             
                             .seasonality-custom-panel .chart-container {
-                              min-height: 473px !important;
-                              max-height: 563px !important;
-                              height: 473px !important;
+                              min-height: 525px !important;
+                              max-height: 625px !important;
+                              height: 525px !important;
                             }
                             
                             .seasonality-custom-panel .chart-container canvas {
-                              max-height: 473px !important;
-                              height: 473px !important;
+                              max-height: 525px !important;
+                              height: 525px !important;
                             }
                             
                             /* ONLY FOR SEASONALITY SIDEBAR: Navy-green background container for ALL buttons in ONE ROW */
@@ -23956,7 +23980,7 @@ export default function TradingViewChart({
                               padding: 0px 20px !important;
                               border-radius: 4px !important;
                               margin-bottom: 12px !important;
-                              border: none !important;
+                              border: 1px solid rgba(0, 255, 102, 0.2) !important;
                               box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5) !important;
                               display: flex !important;
                               flex-wrap: nowrap !important;
@@ -24108,22 +24132,19 @@ export default function TradingViewChart({
                               white-space: nowrap !important;
                             }
                             
-                            /* Hide almanac controls completely - Events/Patterns are in Row 1 now */
+                            /* Clean almanac header styling for seasonality panel */
                             .seasonality-custom-panel .almanac-daily-chart .chart-header-row {
-                              display: none !important;
-                            }
-                            
-                            .seasonality-custom-panel .almanac-daily-chart .almanac-mobile-controls {
-                              display: none !important;
-                            }
-                            
-                            .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop {
-                              display: none !important;
-                            }
-                            
-                            /* Hide mobile controls on desktop */
-                            .seasonality-custom-panel .almanac-daily-chart .almanac-mobile-controls {
-                              display: none !important;
+                              background: #0a0a0a !important;
+                              padding: 8px 16px !important;
+                              border: 1px solid rgba(255, 107, 0, 0.3) !important;
+                              border-radius: 4px !important;
+                              margin-bottom: 12px !important;
+                              display: flex !important;
+                              align-items: center !important;
+                              gap: 12px !important;
+                              position: relative !important;
+                              z-index: 5000 !important;
+                              overflow: visible !important;
                             }
                             
                             .seasonality-custom-panel .almanac-daily-chart .month-selector {
@@ -24177,10 +24198,10 @@ export default function TradingViewChart({
                           <div className="seasonality-controls-row-1" style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '8px',
+                            gap: '12px',
                             marginBottom: '12px',
-                            padding: '8px 12px',
-                            background: '#000000',
+                            padding: '12px 16px',
+                            background: 'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
                             border: '1px solid rgba(255, 107, 0, 0.3)',
                             borderRadius: '4px',
                             boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5)'
@@ -24192,19 +24213,15 @@ export default function TradingViewChart({
                               value={seasonalSymbol}
                               onChange={(e) => setSeasonalSymbol(e.target.value.toUpperCase())}
                               style={{
-                                width: '90px',
-                                padding: '9px 12px',
-                                background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
+                                width: '120px',
+                                padding: '8px 12px',
+                                background: '#0a0a0a',
                                 border: '1px solid rgba(255, 107, 0, 0.4)',
-                                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
                                 borderRadius: '3px',
                                 color: '#fff',
                                 fontSize: '13px',
-                                fontWeight: '700',
-                                textTransform: 'uppercase',
-                                height: '41px',
-                                outline: 'none',
-                                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
+                                fontWeight: '600',
+                                textTransform: 'uppercase'
                               }}
                             />
 
@@ -24215,35 +24232,27 @@ export default function TradingViewChart({
                                 // TODO: Implement compare functionality
                               }}
                               style={{
-                                padding: '9px 17px',
-                                background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
+                                padding: '8px 16px',
+                                background: 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)',
                                 border: '1px solid rgba(255, 107, 0, 0.4)',
-                                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
                                 borderRadius: '3px',
-                                color: '#ff8800',
-                                fontSize: '12px',
+                                color: '#ff6b00',
+                                fontSize: '11px',
                                 fontWeight: '700',
                                 textTransform: 'uppercase',
                                 cursor: 'pointer',
                                 letterSpacing: '0.5px',
-                                transition: 'all 0.2s ease',
-                                height: '41px',
-                                whiteSpace: 'nowrap',
-                                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
+                                transition: 'all 0.2s ease'
                               }}
                               onMouseEnter={(e) => {
-                                e.currentTarget.style.background = 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #0a0a0a 100%)';
+                                e.currentTarget.style.background = 'linear-gradient(135deg, #2a2a2a 0%, #1f1f1f 100%)';
                                 e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)';
-                                e.currentTarget.style.transform = 'translateY(-1px)';
-                                e.currentTarget.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.15), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
                               }}
                               onMouseLeave={(e) => {
-                                e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)';
+                                e.currentTarget.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)';
                                 e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)';
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
                               }}>
-                              + CMP
+                              + COMPARE
                             </button>
 
                             {/* Election Dropdown */}
@@ -24251,26 +24260,21 @@ export default function TradingViewChart({
                               value={seasonalElectionMode}
                               onChange={(e) => setSeasonalElectionMode(e.target.value)}
                               style={{
-                                padding: '9px 12px',
-                                background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
+                                padding: '9.6px 14.4px',
+                                background: '#0a0a0a',
                                 border: '1px solid rgba(255, 107, 0, 0.4)',
-                                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
                                 borderRadius: '3px',
                                 color: '#fff',
-                                fontSize: '13px',
-                                fontWeight: '700',
-                                minWidth: '110px',
-                                height: '41px',
-                                cursor: 'pointer',
-                                outline: 'none',
-                                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
+                                fontSize: '14.4px',
+                                fontWeight: '600',
+                                minWidth: typeof window !== 'undefined' && window.innerWidth > 768 ? '180px' : '100px'
                               }}
                             >
-                              <option value="Normal">Normal</option>
-                              <option value="Election">Election</option>
-                              <option value="Post">Post</option>
-                              <option value="Midterm">Midterm</option>
-                              <option value="Pre">Pre</option>
+                              <option value="Normal">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Normal Mode' : 'Normal'}</option>
+                              <option value="Election">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Election Year' : 'Election'}</option>
+                              <option value="Post">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Post Election' : 'Post'}</option>
+                              <option value="Midterm">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Midterm' : 'Midterm'}</option>
+                              <option value="Pre">{typeof window !== 'undefined' && window.innerWidth > 768 ? 'Pre Election' : 'Pre'}</option>
                             </select>
 
                             {/* Year Selector */}
@@ -24278,31 +24282,31 @@ export default function TradingViewChart({
                               value={seasonalYears}
                               onChange={(e) => setSeasonalYears(Number(e.target.value))}
                               style={{
-                                padding: '9px 12px',
-                                background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
+                                padding: '9.6px 14.4px',
+                                background: '#0a0a0a',
                                 border: '1px solid rgba(255, 107, 0, 0.4)',
-                                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
                                 borderRadius: '3px',
                                 color: '#fff',
-                                fontSize: '13px',
-                                fontWeight: '700',
-                                minWidth: '85px',
-                                height: '41px',
-                                cursor: 'pointer',
-                                outline: 'none',
-                                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
+                                fontSize: '14.4px',
+                                fontWeight: '600',
+                                minWidth: typeof window !== 'undefined' && window.innerWidth > 768 ? '144px' : '70px'
                               }}
                             >
                               {availableSeasonalYears.length > 0 ? (
                                 availableSeasonalYears.map(years => (
-                                  <option key={years} value={years}>{years}Y</option>
+                                  <option key={years} value={years}>
+                                    {typeof window !== 'undefined' && window.innerWidth > 768
+                                      ? `${years} ${years === 1 ? 'Year' : 'Years'}`
+                                      : `${years}Y`
+                                    }
+                                  </option>
                                 ))
                               ) : (
                                 <>
-                                  <option value={5}>5Y</option>
-                                  <option value={10}>10Y</option>
-                                  <option value={15}>15Y</option>
-                                  <option value={20}>20Y</option>
+                                  <option value={5}>{typeof window !== 'undefined' && window.innerWidth > 768 ? '5 Years' : '5Y'}</option>
+                                  <option value={10}>{typeof window !== 'undefined' && window.innerWidth > 768 ? '10 Years' : '10Y'}</option>
+                                  <option value={15}>{typeof window !== 'undefined' && window.innerWidth > 768 ? '15 Years' : '15Y'}</option>
+                                  <option value={20}>{typeof window !== 'undefined' && window.innerWidth > 768 ? '20 Years' : '20Y'}</option>
                                 </>
                               )}
                             </select>
@@ -24323,41 +24327,34 @@ export default function TradingViewChart({
                                   }
                                 }}
                                 style={{
-                                  padding: '9px 17px',
+                                  padding: '9.6px 19.2px',
                                   background: seasonalSweetSpotActive
-                                    ? 'linear-gradient(145deg, #00dd00 0%, #00aa00 50%, #007700 100%)'
-                                    : 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
+                                    ? 'linear-gradient(135deg, #00aa00 0%, #006d00 100%)'
+                                    : 'linear-gradient(135deg, #004d00 0%, #002600 100%)',
                                   border: seasonalSweetSpotActive
                                     ? '1px solid rgba(0, 255, 100, 0.8)'
                                     : '1px solid rgba(0, 255, 100, 0.4)',
-                                  borderTop: '1px solid rgba(255, 255, 255, 0.1)',
                                   borderRadius: '3px',
-                                  color: '#00ff00',
-                                  fontSize: '12px',
+                                  color: '#00ff66',
+                                  fontSize: '13.2px',
                                   fontWeight: '700',
                                   textTransform: 'uppercase',
                                   cursor: 'pointer',
                                   letterSpacing: '0.5px',
                                   transition: 'all 0.2s ease',
-                                  height: '41px',
-                                  whiteSpace: 'nowrap',
-                                  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
+                                  boxShadow: seasonalSweetSpotActive ? '0 0 15px rgba(0, 255, 100, 0.4)' : 'none'
                                 }}
                                 onMouseEnter={(e) => {
                                   if (!seasonalSweetSpotActive) {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #0a0a0a 100%)';
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #006d00 0%, #003600 100%)';
                                     e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.6)';
                                   }
-                                  e.currentTarget.style.transform = 'translateY(-1px)';
-                                  e.currentTarget.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.15), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
                                 }}
                                 onMouseLeave={(e) => {
                                   if (!seasonalSweetSpotActive) {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)';
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #004d00 0%, #002600 100%)';
                                     e.currentTarget.style.borderColor = 'rgba(0, 255, 100, 0.4)';
                                   }
-                                  e.currentTarget.style.transform = 'translateY(0)';
-                                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
                                 }}>
                                 {seasonalSweetSpotActive ? '✓ ' : ''}Sweet Spot
                               </button>
@@ -24379,41 +24376,34 @@ export default function TradingViewChart({
                                   }
                                 }}
                                 style={{
-                                  padding: '9px 17px',
+                                  padding: '9.6px 19.2px',
                                   background: seasonalPainPointActive
-                                    ? 'linear-gradient(145deg, #dd0000 0%, #aa0000 50%, #770000 100%)'
-                                    : 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
+                                    ? 'linear-gradient(135deg, #aa0000 0%, #6d0000 100%)'
+                                    : 'linear-gradient(135deg, #4d0000 0%, #260000 100%)',
                                   border: seasonalPainPointActive
                                     ? '1px solid rgba(255, 0, 0, 0.8)'
                                     : '1px solid rgba(255, 0, 0, 0.4)',
-                                  borderTop: '1px solid rgba(255, 255, 255, 0.1)',
                                   borderRadius: '3px',
-                                  color: '#ff0000',
-                                  fontSize: '12px',
+                                  color: '#ff0044',
+                                  fontSize: '13.2px',
                                   fontWeight: '700',
                                   textTransform: 'uppercase',
                                   cursor: 'pointer',
                                   letterSpacing: '0.5px',
                                   transition: 'all 0.2s ease',
-                                  height: '41px',
-                                  whiteSpace: 'nowrap',
-                                  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
+                                  boxShadow: seasonalPainPointActive ? '0 0 15px rgba(255, 0, 0, 0.4)' : 'none'
                                 }}
                                 onMouseEnter={(e) => {
                                   if (!seasonalPainPointActive) {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #0a0a0a 100%)';
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #6d0000 0%, #360000 100%)';
                                     e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.6)';
                                   }
-                                  e.currentTarget.style.transform = 'translateY(-1px)';
-                                  e.currentTarget.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.15), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
                                 }}
                                 onMouseLeave={(e) => {
                                   if (!seasonalPainPointActive) {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)';
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #4d0000 0%, #260000 100%)';
                                     e.currentTarget.style.borderColor = 'rgba(255, 0, 0, 0.4)';
                                   }
-                                  e.currentTarget.style.transform = 'translateY(0)';
-                                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
                                 }}>
                                 {seasonalPainPointActive ? '✓ ' : ''}Pain Point
                               </button>
@@ -24424,547 +24414,21 @@ export default function TradingViewChart({
                               className="month-btn-mobile"
                               onClick={() => setSeasonalShowMonthly(!seasonalShowMonthly)}
                               style={{
-                                padding: '9px 17px',
+                                padding: '8px 12px',
                                 background: seasonalShowMonthly
-                                  ? 'linear-gradient(145deg, #ff8b20 0%, #ff6b00 50%, #dd5500 100%)'
-                                  : 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
+                                  ? '#ff6b00'
+                                  : '#0a0a0a',
                                 border: '1px solid rgba(255, 107, 0, 0.4)',
-                                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
                                 borderRadius: '3px',
                                 color: seasonalShowMonthly ? '#000' : '#fff',
                                 fontSize: '12px',
-                                fontWeight: '700',
+                                fontWeight: '600',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                height: '41px',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.5px',
-                                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
+                                transition: 'all 0.2s ease'
                               }}
                             >
                               Month
                             </button>
-
-                            {/* Almanac Controls - Desktop Only, Always Visible */}
-                            {typeof window !== 'undefined' && window.innerWidth > 768 && (
-                              <>
-                                {/* Divider */}
-                                <div style={{ width: '1px', height: '28px', background: 'rgba(255, 107, 0, 0.3)' }} />
-
-                                {/* Month Selector */}
-                                <select
-                                  onChange={(e) => {
-                                    const monthSelect = document.querySelector('.seasonality-custom-panel .almanac-daily-chart select') as HTMLSelectElement;
-                                    if (monthSelect) {
-                                      monthSelect.value = e.target.value;
-                                      monthSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                                    }
-                                  }}
-                                  style={{
-                                    padding: '9px 12px',
-                                    background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
-                                    border: '1px solid rgba(255, 107, 0, 0.4)',
-                                    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                                    borderRadius: '3px',
-                                    color: '#fff',
-                                    fontSize: '13px',
-                                    fontWeight: '700',
-                                    cursor: 'pointer',
-                                    minWidth: '70px',
-                                    height: '41px',
-                                    outline: 'none',
-                                    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
-                                  }}
-                                >
-                                  {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((name, i) => (
-                                    <option key={i} value={i}>{name}</option>
-                                  ))}
-                                </select>
-
-                                {/* View Buttons */}
-                                <button
-                                  onClick={() => {
-                                    const buttons = Array.from(document.querySelectorAll('.seasonality-custom-panel .almanac-daily-chart button'));
-                                    const chartBtn = buttons.find(btn => btn.textContent?.includes('CHART')) as HTMLButtonElement;
-                                    if (chartBtn) chartBtn.click();
-                                  }}
-                                  style={{
-                                    padding: '9px 15px',
-                                    background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
-                                    border: '1px solid rgba(255, 107, 0, 0.4)',
-                                    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                                    borderRadius: '3px',
-                                    color: '#ff8800',
-                                    fontSize: '12px',
-                                    fontWeight: '700',
-                                    cursor: 'pointer',
-                                    letterSpacing: '0.5px',
-                                    transition: 'all 0.2s ease',
-                                    height: '41px',
-                                    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #0a0a0a 100%)';
-                                    e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)';
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                    e.currentTarget.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.15), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)';
-                                    e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                  }}
-                                >
-                                  Chart
-                                </button>
-
-                                <button
-                                  onClick={() => {
-                                    const buttons = Array.from(document.querySelectorAll('.seasonality-custom-panel .almanac-daily-chart button'));
-                                    const calBtn = buttons.find(btn => btn.textContent?.includes('CAL')) as HTMLButtonElement;
-                                    if (calBtn) calBtn.click();
-                                  }}
-                                  style={{
-                                    padding: '9px 21px',
-                                    background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
-                                    border: '1px solid rgba(255, 107, 0, 0.4)',
-                                    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                                    borderRadius: '3px',
-                                    color: '#ff8800',
-                                    fontSize: '12px',
-                                    fontWeight: '700',
-                                    cursor: 'pointer',
-                                    letterSpacing: '0.5px',
-                                    transition: 'all 0.2s ease',
-                                    height: '41px',
-                                    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #0a0a0a 100%)';
-                                    e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)';
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                    e.currentTarget.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.15), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)';
-                                    e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                  }}
-                                >
-                                  Calendar
-                                </button>
-
-                                <button
-                                  onClick={() => {
-                                    const buttons = Array.from(document.querySelectorAll('.seasonality-custom-panel .almanac-daily-chart button'));
-                                    const tableBtn = buttons.find(btn => btn.textContent?.includes('TABLE')) as HTMLButtonElement;
-                                    if (tableBtn) tableBtn.click();
-                                  }}
-                                  style={{
-                                    padding: '9px 15px',
-                                    background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
-                                    border: '1px solid rgba(255, 107, 0, 0.4)',
-                                    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                                    borderRadius: '3px',
-                                    color: '#ff8800',
-                                    fontSize: '12px',
-                                    fontWeight: '700',
-                                    cursor: 'pointer',
-                                    letterSpacing: '0.5px',
-                                    transition: 'all 0.2s ease',
-                                    height: '41px',
-                                    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #0a0a0a 100%)';
-                                    e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)';
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                    e.currentTarget.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.15), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)';
-                                    e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                  }}
-                                >
-                                  Table
-                                </button>
-
-                                {/* Events Dropdown Button */}
-                                <div style={{ position: 'relative', display: 'inline-block' }}>
-                                  <button
-                                    onClick={() => setSeasonalEventsDropdownOpen(!seasonalEventsDropdownOpen)}
-                                    style={{
-                                      padding: '9px 15px',
-                                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
-                                      border: '1px solid rgba(255, 107, 0, 0.4)',
-                                      borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                                      borderRadius: '3px',
-                                      color: '#ff8800',
-                                      fontSize: '12px',
-                                      fontWeight: '700',
-                                      cursor: 'pointer',
-                                      letterSpacing: '0.5px',
-                                      transition: 'all 0.2s ease',
-                                      height: '41px',
-                                      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = 'linear-gradient(145deg, #2a2a2a 0%, #1a1a1a 50%, #0a0a0a 100%)';
-                                      e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)';
-                                      e.currentTarget.style.transform = 'translateY(-1px)';
-                                      e.currentTarget.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.15), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)';
-                                      e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)';
-                                      e.currentTarget.style.transform = 'translateY(0)';
-                                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                    }}
-                                  >
-                                    Events {seasonalSelectedEvent && '✓'}
-                                  </button>
-
-                                  {seasonalEventsDropdownOpen && (
-                                    <div style={{
-                                      position: 'absolute',
-                                      top: '100%',
-                                      left: 0,
-                                      marginTop: '4px',
-                                      background: '#0a1520',
-                                      border: '1px solid #ff6600',
-                                      borderRadius: '4px',
-                                      width: '165px',
-                                      maxHeight: '400px',
-                                      overflowY: 'auto',
-                                      zIndex: 999999,
-                                      boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-                                    }}>
-                                      <div style={{ padding: '8px', borderBottom: '1px solid #333' }}>
-                                        <div style={{ color: '#ff6600', fontWeight: 'bold', fontSize: '11px', marginBottom: '4px' }}>HOLIDAYS</div>
-                                        {['thanksgiving', 'christmas', 'newyear', 'presidentsday', 'mlkday', 'memorialday', 'july4th', 'laborday'].map(event => (
-                                          <button
-                                            key={event}
-                                            onClick={() => {
-                                              setSeasonalSelectedEvent(event);
-                                              setSeasonalEventsDropdownOpen(false);
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: seasonalSelectedEvent === event ? '#ff6600' : 'transparent',
-                                              color: seasonalSelectedEvent === event ? '#000' : '#fff',
-                                              border: 'none',
-                                              textAlign: 'left',
-                                              cursor: 'pointer',
-                                              fontSize: '11px',
-                                              fontFamily: '"JetBrains Mono", monospace'
-                                            }}
-                                          >
-                                            {event.toUpperCase().replace(/-/g, ' ')}
-                                          </button>
-                                        ))}
-                                      </div>
-
-                                      <div style={{ padding: '8px', borderBottom: '1px solid #333' }}>
-                                        <div style={{ color: '#ff6600', fontWeight: 'bold', fontSize: '11px', marginBottom: '4px' }}>FOMC</div>
-                                        {['fomc-march', 'fomc-june', 'fomc-september', 'fomc-december'].map(event => (
-                                          <button
-                                            key={event}
-                                            onClick={() => {
-                                              setSeasonalSelectedEvent(event);
-                                              setSeasonalEventsDropdownOpen(false);
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: seasonalSelectedEvent === event ? '#ff6600' : 'transparent',
-                                              color: seasonalSelectedEvent === event ? '#000' : '#fff',
-                                              border: 'none',
-                                              textAlign: 'left',
-                                              cursor: 'pointer',
-                                              fontSize: '11px',
-                                              fontFamily: '"JetBrains Mono", monospace'
-                                            }}
-                                          >
-                                            {event.toUpperCase().replace(/-/g, ' ')}
-                                          </button>
-                                        ))}
-                                      </div>
-
-                                      <div style={{ padding: '8px', borderBottom: '1px solid #333' }}>
-                                        <div style={{ color: '#ff6600', fontWeight: 'bold', fontSize: '11px', marginBottom: '4px' }}>QUAD WITCHING</div>
-                                        {['quad-witching-mar', 'quad-witching-jun', 'quad-witching-sep', 'quad-witching-dec'].map(event => (
-                                          <button
-                                            key={event}
-                                            onClick={() => {
-                                              setSeasonalSelectedEvent(event);
-                                              setSeasonalEventsDropdownOpen(false);
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: seasonalSelectedEvent === event ? '#ff6600' : 'transparent',
-                                              color: seasonalSelectedEvent === event ? '#000' : '#fff',
-                                              border: 'none',
-                                              textAlign: 'left',
-                                              cursor: 'pointer',
-                                              fontSize: '11px',
-                                              fontFamily: '"JetBrains Mono", monospace'
-                                            }}
-                                          >
-                                            {event.toUpperCase().replace(/-/g, ' ')}
-                                          </button>
-                                        ))}
-                                      </div>
-
-                                      <div style={{ padding: '8px' }}>
-                                        <div style={{ color: '#ff6600', fontWeight: 'bold', fontSize: '11px', marginBottom: '4px' }}>EARNINGS</div>
-                                        {['q1-earnings', 'q2-earnings', 'q3-earnings', 'q4-earnings', 'yearendrally', 'santarally', 'monthlyopex'].map(event => (
-                                          <button
-                                            key={event}
-                                            onClick={() => {
-                                              setSeasonalSelectedEvent(event);
-                                              setSeasonalEventsDropdownOpen(false);
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: seasonalSelectedEvent === event ? '#ff6600' : 'transparent',
-                                              color: seasonalSelectedEvent === event ? '#000' : '#fff',
-                                              border: 'none',
-                                              textAlign: 'left',
-                                              cursor: 'pointer',
-                                              fontSize: '11px',
-                                              fontFamily: '"JetBrains Mono", monospace'
-                                            }}
-                                          >
-                                            {event.toUpperCase().replace(/-/g, ' ')}
-                                          </button>
-                                        ))}
-
-                                        {seasonalSelectedEvent && (
-                                          <button
-                                            onClick={() => {
-                                              setSeasonalSelectedEvent(null);
-                                              setSeasonalEventsDropdownOpen(false);
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: '#ff0000',
-                                              color: '#fff',
-                                              border: 'none',
-                                              textAlign: 'center',
-                                              cursor: 'pointer',
-                                              fontSize: '11px',
-                                              fontFamily: '"JetBrains Mono", monospace',
-                                              marginTop: '8px',
-                                              fontWeight: 'bold'
-                                            }}
-                                          >
-                                            CLEAR
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Patterns Dropdown Button */}
-                                <div style={{ position: 'relative', display: 'inline-block' }}>
-                                  <button
-                                    onClick={() => setSeasonalPatternsDropdownOpen(!seasonalPatternsDropdownOpen)}
-                                    style={{
-                                      padding: '9px 15px',
-                                      background: 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)',
-                                      border: '1px solid rgba(0, 206, 209, 0.4)',
-                                      borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                                      borderRadius: '3px',
-                                      color: '#00ffff',
-                                      fontSize: '12px',
-                                      fontWeight: '700',
-                                      cursor: 'pointer',
-                                      letterSpacing: '0.5px',
-                                      transition: 'all 0.2s ease',
-                                      height: '41px',
-                                      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = 'linear-gradient(145deg, #0d2a2a 0%, #0d1a1a 50%, #0a0a0a 100%)';
-                                      e.currentTarget.style.borderColor = 'rgba(0, 206, 209, 0.6)';
-                                      e.currentTarget.style.transform = 'translateY(-1px)';
-                                      e.currentTarget.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.15), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = 'linear-gradient(145deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%)';
-                                      e.currentTarget.style.borderColor = 'rgba(0, 206, 209, 0.4)';
-                                      e.currentTarget.style.transform = 'translateY(0)';
-                                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.1), inset 0 -1px 2px rgba(0, 0, 0, 0.5)';
-                                    }}
-                                  >
-                                    Patterns {seasonalSelectedPatterns.length > 0 && `(${seasonalSelectedPatterns.length})`}
-                                  </button>
-
-                                  {seasonalPatternsDropdownOpen && (
-                                    <div style={{
-                                      position: 'absolute',
-                                      top: '100%',
-                                      right: 0,
-                                      marginTop: '4px',
-                                      background: '#0a1520',
-                                      border: '1px solid #00CED1',
-                                      borderRadius: '4px',
-                                      minWidth: '250px',
-                                      maxHeight: '500px',
-                                      overflowY: 'auto',
-                                      zIndex: 999999,
-                                      boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-                                    }}>
-                                      <div style={{ padding: '8px' }}>
-                                        <div style={{ color: '#00CED1', fontWeight: 'bold', fontSize: '11px', marginBottom: '8px', borderBottom: '1px solid #333', paddingBottom: '4px' }}>52-WEEK BREAKOUTS</div>
-
-                                        {[
-                                          { id: '52week-high-cooldown', label: '52W High (90d Cooldown)' },
-                                          { id: '52week-high-annual', label: '52W High (Annual)' },
-                                          { id: '52week-low-cooldown', label: '52W Low (90d Cooldown)' },
-                                          { id: '52week-low-annual', label: '52W Low (Annual)' }
-                                        ].map(pattern => (
-                                          <button
-                                            key={pattern.id}
-                                            onClick={() => {
-                                              const isSelected = seasonalSelectedPatterns.includes(pattern.label);
-                                              if (isSelected) {
-                                                setSeasonalSelectedPatterns(prev => prev.filter(p => p !== pattern.label));
-                                              } else {
-                                                setSeasonalSelectedPatterns(prev => [...prev, pattern.label]);
-                                              }
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: seasonalSelectedPatterns.includes(pattern.label) ? '#00CED1' : 'transparent',
-                                              color: seasonalSelectedPatterns.includes(pattern.label) ? '#000' : '#fff',
-                                              border: 'none',
-                                              textAlign: 'left',
-                                              cursor: 'pointer',
-                                              fontSize: '10px',
-                                              fontFamily: '"JetBrains Mono", monospace'
-                                            }}
-                                          >
-                                            {pattern.label}
-                                          </button>
-                                        ))}
-
-                                        <div style={{ color: '#00CED1', fontWeight: 'bold', fontSize: '11px', margin: '12px 0 8px 0', borderBottom: '1px solid #333', paddingBottom: '4px' }}>8-11% MOVES</div>
-
-                                        {[
-                                          { id: 'move-8-11-up-cooldown', label: '8-11% UP (90d Cooldown)' },
-                                          { id: 'move-8-11-up-annual', label: '8-11% UP (Annual)' },
-                                          { id: 'move-8-11-down-cooldown', label: '8-11% DOWN (90d Cooldown)' },
-                                          { id: 'move-8-11-down-annual', label: '8-11% DOWN (Annual)' }
-                                        ].map(pattern => (
-                                          <button
-                                            key={pattern.id}
-                                            onClick={() => {
-                                              const isSelected = seasonalSelectedPatterns.includes(pattern.label);
-                                              if (isSelected) {
-                                                setSeasonalSelectedPatterns(prev => prev.filter(p => p !== pattern.label));
-                                              } else {
-                                                setSeasonalSelectedPatterns(prev => [...prev, pattern.label]);
-                                              }
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: seasonalSelectedPatterns.includes(pattern.label) ? '#00CED1' : 'transparent',
-                                              color: seasonalSelectedPatterns.includes(pattern.label) ? '#000' : '#fff',
-                                              border: 'none',
-                                              textAlign: 'left',
-                                              cursor: 'pointer',
-                                              fontSize: '10px',
-                                              fontFamily: '"JetBrains Mono", monospace'
-                                            }}
-                                          >
-                                            {pattern.label}
-                                          </button>
-                                        ))}
-
-                                        <div style={{ color: '#00CED1', fontWeight: 'bold', fontSize: '11px', margin: '12px 0 8px 0', borderBottom: '1px solid #333', paddingBottom: '4px' }}>18-22% MOVES</div>
-
-                                        {[
-                                          { id: 'move-18-22-up-cooldown', label: '18-22% UP (90d Cooldown)' },
-                                          { id: 'move-18-22-up-annual', label: '18-22% UP (Annual)' },
-                                          { id: 'move-18-22-down-cooldown', label: '18-22% DOWN (90d Cooldown)' },
-                                          { id: 'move-18-22-down-annual', label: '18-22% DOWN (Annual)' }
-                                        ].map(pattern => (
-                                          <button
-                                            key={pattern.id}
-                                            onClick={() => {
-                                              const isSelected = seasonalSelectedPatterns.includes(pattern.label);
-                                              if (isSelected) {
-                                                setSeasonalSelectedPatterns(prev => prev.filter(p => p !== pattern.label));
-                                              } else {
-                                                setSeasonalSelectedPatterns(prev => [...prev, pattern.label]);
-                                              }
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: seasonalSelectedPatterns.includes(pattern.label) ? '#00CED1' : 'transparent',
-                                              color: seasonalSelectedPatterns.includes(pattern.label) ? '#000' : '#fff',
-                                              border: 'none',
-                                              textAlign: 'left',
-                                              cursor: 'pointer',
-                                              fontSize: '10px',
-                                              fontFamily: '"JetBrains Mono", monospace'
-                                            }}
-                                          >
-                                            {pattern.label}
-                                          </button>
-                                        ))}
-
-                                        {seasonalSelectedPatterns.length > 0 && (
-                                          <button
-                                            onClick={() => {
-                                              setSeasonalSelectedPatterns([]);
-                                              setSeasonalPatternsDropdownOpen(false);
-                                            }}
-                                            style={{
-                                              display: 'block',
-                                              width: '100%',
-                                              padding: '6px 12px',
-                                              background: '#ff0000',
-                                              color: '#fff',
-                                              border: 'none',
-                                              textAlign: 'center',
-                                              cursor: 'pointer',
-                                              fontSize: '11px',
-                                              fontFamily: '"JetBrains Mono", monospace',
-                                              marginTop: '8px',
-                                              fontWeight: 'bold'
-                                            }}
-                                          >
-                                            CLEAR ALL
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </>
-                            )}
                           </div>
 
                           {/* Row 2: Bullish 30D, Monthly Returns, Bearish 30D */}
@@ -25041,11 +24505,11 @@ export default function TradingViewChart({
                                 minWidth: '100px',
                                 flex: 1
                               }}>
-                                <div style={{ fontSize: '14px', color: '#00ff66', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BULLISH</div>
-                                <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>
+                                <div style={{ fontSize: '9px', color: '#00ff66', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BULLISH</div>
+                                <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>
                                   {seasonalBest30Day ? seasonalBest30Day.period.replace(' - ', ' - ') : 'Loading...'}
                                 </div>
-                                <div style={{ fontSize: '15px', color: '#00ff66', fontWeight: '700', marginTop: '2px' }}>
+                                <div style={{ fontSize: '12px', color: '#00ff66', fontWeight: '700', marginTop: '2px' }}>
                                   {seasonalBest30Day ? `+${seasonalBest30Day.return.toFixed(2)}%` : '--'}
                                 </div>
                               </div>
@@ -25074,8 +24538,8 @@ export default function TradingViewChart({
                                       e.currentTarget.style.background = '#0a0a0a';
                                       e.currentTarget.style.borderColor = isPositive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(255, 0, 0, 0.3)';
                                     }}>
-                                    <div style={{ fontSize: '11px', color: '#ffffff', fontWeight: '700', marginBottom: '2px', opacity: 1 }}>{monthNames[i]}</div>
-                                    <div style={{ fontSize: '12px', color: isPositive ? '#00ff66' : '#ff0044', fontWeight: '700' }}>
+                                    <div style={{ fontSize: '9px', color: '#ffffff', fontWeight: '700', marginBottom: '2px', opacity: 1 }}>{monthNames[i]}</div>
+                                    <div style={{ fontSize: '11px', color: isPositive ? '#00ff66' : '#ff0044', fontWeight: '700' }}>
                                       {isPositive ? '+' : ''}{ret.toFixed(2)}%
                                     </div>
                                   </div>
@@ -25090,8 +24554,8 @@ export default function TradingViewChart({
                                   textAlign: 'center',
                                   minWidth: '60px'
                                 }}>
-                                  <div style={{ fontSize: '11px', color: '#666', fontWeight: '700', marginBottom: '2px' }}>{month}</div>
-                                  <div style={{ fontSize: '12px', color: '#666', fontWeight: '700' }}>--</div>
+                                  <div style={{ fontSize: '9px', color: '#666', fontWeight: '700', marginBottom: '2px' }}>{month}</div>
+                                  <div style={{ fontSize: '11px', color: '#666', fontWeight: '700' }}>--</div>
                                 </div>
                               ))}
 
@@ -25105,11 +24569,11 @@ export default function TradingViewChart({
                                 minWidth: '100px',
                                 flex: 1
                               }}>
-                                <div style={{ fontSize: '14px', color: '#ff0044', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BEARISH</div>
-                                <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>
+                                <div style={{ fontSize: '9px', color: '#ff0044', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>BEARISH</div>
+                                <div style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>
                                   {seasonalWorst30Day ? seasonalWorst30Day.period.replace(' - ', ' - ') : 'Loading...'}
                                 </div>
-                                <div style={{ fontSize: '15px', color: '#ff0044', fontWeight: '700', marginTop: '2px' }}>
+                                <div style={{ fontSize: '12px', color: '#ff0044', fontWeight: '700', marginTop: '2px' }}>
                                   {seasonalWorst30Day ? `${seasonalWorst30Day.return.toFixed(2)}%` : '--'}
                                 </div>
                               </div>
@@ -25168,15 +24632,13 @@ export default function TradingViewChart({
 
                           {/* Conditionally render either Monthly Chart or Seasonality Chart - MOBILE ONLY */}
                           {seasonalShowMonthly && typeof window !== 'undefined' && window.innerWidth <= 768 ? (
-                            <div className="seasonality-custom-panel" style={{ minHeight: '450px', overflow: 'visible', background: '#000', borderRadius: '4px', border: '1px solid rgba(255, 107, 0, 0.2)', marginTop: '0px', paddingTop: '10px' }}>
+                            <div className="seasonality-custom-panel" style={{ minHeight: '450px', overflow: 'auto', background: '#000', borderRadius: '4px', border: '1px solid rgba(255, 107, 0, 0.2)', marginTop: '0px', paddingTop: '10px' }}>
                               <AlmanacDailyChart
                                 symbol={seasonalSymbol}
-                                externalSelectedEvent={seasonalSelectedEvent}
-                                externalSelectedPatterns={seasonalSelectedPatterns}
                               />
                             </div>
                           ) : (
-                            <div className="seasonality-custom-panel" style={{ minHeight: '450px', overflow: 'visible', background: '#000', borderRadius: '4px', border: '1px solid rgba(255, 107, 0, 0.2)', marginTop: '0px', paddingTop: '0px' }}>
+                            <div className="seasonality-custom-panel" style={{ minHeight: '450px', overflow: 'auto', background: '#000', borderRadius: '4px', border: '1px solid rgba(255, 107, 0, 0.2)', marginTop: '0px', paddingTop: '10px' }}>
                               <SeasonalityChart
                                 initialSymbol={seasonalSymbol}
                                 autoStart={true}
@@ -25184,8 +24646,6 @@ export default function TradingViewChart({
                                 onSymbolChange={(symbol) => setSeasonalSymbol(symbol)}
                                 externalElectionMode={seasonalElectionMode}
                                 externalYears={seasonalYears}
-                                externalSelectedEvent={seasonalSelectedEvent}
-                                externalSelectedPatterns={seasonalSelectedPatterns}
                                 onMonthlyDataLoaded={(monthlyData, best30Day, worst30Day) => {
                                   setSeasonalMonthlyData(monthlyData);
                                   setSeasonalBest30Day(best30Day);

@@ -6,6 +6,8 @@ import GlobalDataCache from '@/lib/GlobalDataCache';
 import HeroSection from './HeroSection';
 import MarketTabs from './MarketTabs';
 import OpportunityCard from './OpportunityCard';
+import { BullIcon } from '@/components/icons/BullIcon';
+import { BearIcon } from '@/components/icons/BearIcon';
 
 
 interface SeasonaxLandingProps {
@@ -36,6 +38,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   const [progressStats, setProgressStats] = useState({ processed: 0, total: 1000, found: 0 });
   const [hasScanned, setHasScanned] = useState(false); // Track if user has clicked scan
   const [filters, setFilters] = useState(externalFilters || { highWinRate: false, startingSoon: false, fiftyTwoWeek: false });
+  const [seasonedMode, setSeasonedMode] = useState(false); // Track if showing seasoned multi-timeframe results
+  const [bestMode, setBestMode] = useState(false); // Track if showing BEST scan results
   const autoStartTriggered = useRef(false);
 
   // Handle external filters
@@ -145,6 +149,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }, [opportunities.length, loading, showWebsite, error]);
 
   const timePeriodOptions = [
+    { id: '5Y', name: '5 Years', years: 5, description: 'Recent - Current trends' },
     { id: '10Y', name: '10 Years', years: 10, description: 'Balanced - Market cycles' },
     { id: '15Y', name: '15 Years', years: 15, description: 'Comprehensive - Long patterns' },
     { id: '20Y', name: '20 Years', years: 20, description: 'Maximum depth - Full cycles' }
@@ -170,6 +175,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setError(null);
       setShowWebsite(false);
       setOpportunities([]);
+      setSeasonedMode(false);
+      setBestMode(false);
       setStreamStatus(`⚡ Loading real seasonal data from ${market} (${marketStocks.length} stocks)...`);
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 });
 
@@ -262,10 +269,275 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     }
   };
 
+  // Load seasoned multi-timeframe data - scan 5Y, 10Y, 15Y, 20Y and find stocks with 60%+ win rate on 2+ timeframes
+  const loadSeasonedData = async (selectedMarket?: string) => {
+    try {
+      console.log('🌟 Starting SEASONED multi-timeframe scan...');
+
+      const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService');
+      const { getMarketStocks } = await import('@/lib/marketIndices');
+      const seasonalService = new SeasonalScreenerService();
+
+      const market = selectedMarket || activeMarket;
+      const marketStocks = getMarketStocks(market);
+
+      setHasScanned(true);
+      setLoading(true);
+      setError(null);
+      setShowWebsite(false);
+      setOpportunities([]);
+      setSeasonedMode(true);
+      setBestMode(false);
+      setStreamStatus(`🌟 SEASONED SCAN: Analyzing ${marketStocks.length} stocks across 4 timeframes (5Y, 10Y, 15Y, 20Y)...`);
+      setProgressStats({ processed: 0, total: marketStocks.length * 4, found: 0 });
+
+      const timeframes = [5, 10, 15, 20];
+      const stockResults = new Map<string, { symbol: string; qualifyingTimeframes: number[]; patterns: any[] }>();
+
+      // Scan each timeframe
+      for (let i = 0; i < timeframes.length; i++) {
+        const years = timeframes[i];
+        console.log(`📊 Scanning ${years}Y timeframe...`);
+
+        setStreamStatus(`🌟 Scanning ${years}Y timeframe (${i + 1}/4)...`);
+
+        const results = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
+          years,
+          marketStocks.length,
+          50,
+          (processed, total, foundOpportunities) => {
+            const overallProcessed = (i * marketStocks.length) + processed;
+            const overallTotal = marketStocks.length * 4;
+
+            setProgressStats({
+              processed: overallProcessed,
+              total: overallTotal,
+              found: stockResults.size
+            });
+
+            setStreamStatus(`🌟 ${years}Y: ${processed}/${total} | Total qualified stocks: ${stockResults.size}`);
+          }
+        );
+
+        // Process results from this timeframe
+        results.forEach((pattern: any) => {
+          if (pattern.winRate >= 60) {
+            const existing = stockResults.get(pattern.symbol);
+            if (existing) {
+              existing.qualifyingTimeframes.push(years);
+              existing.patterns.push({ ...pattern, timeframe: years }); // Clone and tag with timeframe
+            } else {
+              stockResults.set(pattern.symbol, {
+                symbol: pattern.symbol,
+                qualifyingTimeframes: [years],
+                patterns: [{ ...pattern, timeframe: years }] // Clone and tag with timeframe
+              });
+            }
+          }
+        });
+      }
+
+      // Filter stocks that qualify on 2+ timeframes
+      const seasonedOpportunities: any[] = [];
+      stockResults.forEach((stockData) => {
+        if (stockData.qualifyingTimeframes.length >= 2) {
+          // Calculate average win rate across all qualifying timeframes
+          const avgWinRate = stockData.patterns.reduce((sum, p) => sum + p.winRate, 0) / stockData.patterns.length;
+          const avgReturn = stockData.patterns.reduce((sum, p) => sum + (p.avgReturn || p.averageReturn || 0), 0) / stockData.patterns.length;
+
+          // Use the first pattern as base and update with averages
+          const basePattern = stockData.patterns[0];
+
+          // Add metadata for color coding
+          seasonedOpportunities.push({
+            ...basePattern,
+            winRate: avgWinRate,
+            avgReturn: avgReturn,
+            averageReturn: avgReturn,
+            qualifyingTimeframes: stockData.qualifyingTimeframes.length,
+            timeframeDetails: stockData.qualifyingTimeframes
+          });
+        }
+      });
+
+      console.log(`✅ SEASONED SCAN Complete! Found ${seasonedOpportunities.length} multi-timeframe qualified stocks`);
+
+      if (seasonedOpportunities.length > 0) {
+        // Check 52-week status
+        setStreamStatus('🔍 Checking 52-week high/low status...');
+        const enrichedOpportunities = await check52WeekStatus(seasonedOpportunities);
+
+        // Sort by number of qualifying timeframes, then by win rate
+        const sorted = enrichedOpportunities.sort((a: any, b: any) => {
+          if (b.qualifyingTimeframes !== a.qualifyingTimeframes) {
+            return b.qualifyingTimeframes - a.qualifyingTimeframes;
+          }
+          return b.winRate - a.winRate;
+        });
+
+        setOpportunities(sorted as unknown as SeasonalPattern[]);
+        setLoading(false);
+        setShowWebsite(true);
+        setStreamStatus(`✅ Found ${seasonedOpportunities.length} SEASONED opportunities!`);
+      } else {
+        setError('No stocks found with 60%+ win rate on 2+ timeframes');
+        setLoading(false);
+        setShowWebsite(false);
+      }
+
+    } catch (error) {
+      console.error('SEASONED scan failed:', error);
+      setError(`SEASONED scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setLoading(false);
+      setSeasonedMode(false);
+    }
+  };
+
   const handleScreenerStart = (market: string) => {
     console.log(`Starting screener for ${market}`);
     setActiveMarket(market);
+    setSeasonedMode(false);
     loadMarketData(market);
+  };
+
+  // Load best bullish and bearish for each timeframe - scan 5Y, 10Y, 15Y, 20Y and find best of each
+  const loadBestData = async (selectedMarket?: string) => {
+    try {
+      console.log('🏆 Starting BEST scan - Top bullish & bearish for each timeframe...');
+
+      const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService');
+      const { getMarketStocks } = await import('@/lib/marketIndices');
+      const seasonalService = new SeasonalScreenerService();
+
+      const market = selectedMarket || activeMarket;
+      const marketStocks = getMarketStocks(market);
+
+      setHasScanned(true);
+      setLoading(true);
+      setError(null);
+      setShowWebsite(false);
+      setOpportunities([]);
+      setSeasonedMode(false);
+      setBestMode(true); // Set BEST mode flag
+      setStreamStatus(`🏆 BEST SCAN: Analyzing ${marketStocks.length} stocks across 4 timeframes (5Y, 10Y, 15Y, 20Y)...`);
+      setProgressStats({ processed: 0, total: marketStocks.length * 4, found: 0 });
+
+      const timeframes = [5, 10, 15, 20];
+      const bestResults: any[] = [];
+
+      // Scan each timeframe
+      for (let i = 0; i < timeframes.length; i++) {
+        const years = timeframes[i];
+        console.log(`📊 Scanning ${years}Y timeframe for best trades...`);
+
+        setStreamStatus(`🏆 Scanning ${years}Y timeframe (${i + 1}/4)...`);
+
+        const results = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
+          years,
+          marketStocks.length,
+          50,
+          (processed, total, foundOpportunities) => {
+            const overallProcessed = (i * marketStocks.length) + processed;
+            const overallTotal = marketStocks.length * 4;
+
+            setProgressStats({
+              processed: overallProcessed,
+              total: overallTotal,
+              found: bestResults.length
+            });
+
+            setStreamStatus(`🏆 ${years}Y: ${processed}/${total} | Best picks: ${bestResults.length}/8`);
+          }
+        );
+
+        if (results && results.length > 0) {
+          // Filter qualified patterns (win rate 60%+)
+          const qualifiedPatterns = results.filter((p: any) => p.winRate >= 60);
+
+          if (qualifiedPatterns.length > 0) {
+            // Find best bullish (highest positive return)
+            const bullishPatterns = qualifiedPatterns.filter((p: any) => (p.averageReturn || p.avgReturn || 0) >= 0);
+            if (bullishPatterns.length > 0) {
+              const bestBullish = bullishPatterns.reduce((prev, curr) => {
+                const prevReturn = Math.abs(prev.averageReturn || prev.avgReturn || 0);
+                const currReturn = Math.abs(curr.averageReturn || curr.avgReturn || 0);
+                return currReturn > prevReturn ? curr : prev;
+              });
+              bestResults.push({
+                ...bestBullish,
+                timeframe: years,
+                timeframeLabel: `${years}Y`
+              });
+            }
+
+            // Find best bearish (most negative return)
+            const bearishPatterns = qualifiedPatterns.filter((p: any) => (p.averageReturn || p.avgReturn || 0) < 0);
+            if (bearishPatterns.length > 0) {
+              const bestBearish = bearishPatterns.reduce((prev, curr) => {
+                const prevReturn = Math.abs(prev.averageReturn || prev.avgReturn || 0);
+                const currReturn = Math.abs(curr.averageReturn || curr.avgReturn || 0);
+                return currReturn > prevReturn ? curr : prev;
+              });
+              bestResults.push({
+                ...bestBearish,
+                timeframe: years,
+                timeframeLabel: `${years}Y`
+              });
+            }
+          }
+        }
+      }
+
+      console.log(`✅ BEST SCAN Complete! Found ${bestResults.length} best picks`);
+
+      if (bestResults.length > 0) {
+        // Check 52-week status
+        setStreamStatus('🔍 Checking 52-week high/low status...');
+        const enrichedOpportunities = await check52WeekStatus(bestResults);
+
+        // Sort: bullish first (by timeframe), then bearish (by timeframe)
+        const sorted = enrichedOpportunities.sort((a: any, b: any) => {
+          const aReturn = a.averageReturn || a.avgReturn || 0;
+          const bReturn = b.averageReturn || b.avgReturn || 0;
+          const aIsBullish = aReturn >= 0;
+          const bIsBullish = bReturn >= 0;
+
+          // Bullish first
+          if (aIsBullish && !bIsBullish) return -1;
+          if (!aIsBullish && bIsBullish) return 1;
+
+          // Within same type, sort by timeframe
+          return a.timeframe - b.timeframe;
+        });
+
+        setOpportunities(sorted as unknown as SeasonalPattern[]);
+        setLoading(false);
+        setShowWebsite(true);
+        setStreamStatus(`✅ Found ${bestResults.length} BEST picks!`);
+      } else {
+        setError('No qualified patterns found (60%+ win rate required)');
+        setLoading(false);
+        setShowWebsite(false);
+      }
+
+    } catch (error) {
+      console.error('BEST scan failed:', error);
+      setError(`BEST scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setLoading(false);
+      setSeasonedMode(false);
+    }
+  };
+
+  const handleSeasonedScan = (market: string) => {
+    console.log(`Starting SEASONED scan for ${market}`);
+    setActiveMarket(market);
+    loadSeasonedData(market);
+  };
+
+  const handleBestScan = (market: string) => {
+    console.log(`Starting BEST scan for ${market}`);
+    setActiveMarket(market);
+    loadBestData(market);
   };
 
   const handleTabChange = (tabId: string) => {
@@ -329,6 +601,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         loading={loading}
         timePeriodOptions={timePeriodOptions}
         onFilterChange={handleFilterChange}
+        onSeasonedScan={handleSeasonedScan}
+        onBestScan={handleBestScan}
       />
 
       {/* Results Grid */}
@@ -346,7 +620,101 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
             marginTop: sidebarMode ? '20px' : '0'
           }}>
             {(() => {
-              // Split opportunities into bullish and bearish
+              // SEASONED MODE - Split by bullish/bearish like regular mode
+              if (seasonedMode) {
+                const bullishOpps = displayedOpportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) >= 0);
+                const bearishOpps = displayedOpportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) < 0);
+
+                return (
+                  <>
+                    {/* Left Column - Bullish Seasoned */}
+                    <div className="seasoned-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+                      <div className="section-header-split seasoned-header">
+                        <div className="section-title">
+                          <BullIcon size={48} />
+                          BULLISH SEASONED
+                          <span className="count">({bullishOpps.length})</span>
+                        </div>
+                      </div>
+                      <div className="results-grid-split" style={{
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        height: 'calc(80vh - 70px)',
+                        paddingRight: '8px',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                        WebkitOverflowScrolling: 'touch'
+                      } as React.CSSProperties & { scrollbarWidth?: string; msOverflowStyle?: string; WebkitOverflowScrolling?: string }}>
+                        {bullishOpps.map((opportunity, index) => {
+                          const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0;
+                          const timeframeYears = (opportunity as any).timeframe || (opportunity as any).years || 15;
+                          return (
+                            <OpportunityCard
+                              key={`seasoned-bullish-${opportunity.symbol}-${index}`}
+                              pattern={opportunity}
+                              rank={index + 1}
+                              isTopBullish={false}
+                              isTopBearish={false}
+                              sidebarMode={sidebarMode}
+                              seasonedQualifying={qualifyingCount}
+                              years={timeframeYears}
+                              hideBestBadge={bestMode}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Golden Vertical Separator */}
+                    <div className="golden-separator">
+                      <div className="separator-line"></div>
+                      <div className="separator-orb">
+                        <div className="orb-inner"></div>
+                      </div>
+                    </div>
+
+                    {/* Right Column - Bearish Seasoned */}
+                    <div className="seasoned-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+                      <div className="section-header-split seasoned-header">
+                        <div className="section-title">
+                          <BearIcon size={48} />
+                          BEARISH SEASONED
+                          <span className="count">({bearishOpps.length})</span>
+                        </div>
+                      </div>
+                      <div className="results-grid-split" style={{
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        height: 'calc(80vh - 70px)',
+                        paddingRight: '8px',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                        WebkitOverflowScrolling: 'touch'
+                      } as React.CSSProperties & { scrollbarWidth?: string; msOverflowStyle?: string; WebkitOverflowScrolling?: string }}>
+                        {bearishOpps.map((opportunity, index) => {
+                          const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0;
+                          const timeframeYears = (opportunity as any).timeframe || (opportunity as any).years || 15;
+                          return (
+                            <OpportunityCard
+                              key={`seasoned-bearish-${opportunity.symbol}-${index}`}
+                              pattern={opportunity}
+                              rank={index + 1}
+                              isTopBullish={false}
+                              isTopBearish={false}
+                              sidebarMode={sidebarMode}
+                              seasonedQualifying={qualifyingCount}
+                              years={timeframeYears}
+                              hideBestBadge={bestMode}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                );
+              }
+
+              // REGULAR MODE - Bullish/Bearish split
               const bullishOpps = displayedOpportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) >= 0);
               const bearishOpps = displayedOpportunities.filter(opp => (opp.averageReturn || opp.avgReturn || 0) < 0);
 
@@ -386,6 +754,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                     } as React.CSSProperties & { scrollbarWidth?: string; msOverflowStyle?: string; WebkitOverflowScrolling?: string }}>
                       {bullishOpps.map((opportunity, index) => {
                         const isTopBullish = topBullish ? opportunity.symbol === topBullish.symbol : false;
+                        const timeframeYears = (opportunity as any).timeframe || (opportunity as any).years || 15;
                         return (
                           <OpportunityCard
                             key={`bullish-${opportunity.symbol}-${index}`}
@@ -394,6 +763,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             isTopBullish={isTopBullish}
                             isTopBearish={false}
                             sidebarMode={sidebarMode}
+                            hideBestBadge={bestMode}
+                            years={timeframeYears}
                           />
                         );
                       })}
@@ -428,6 +799,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                     } as React.CSSProperties & { scrollbarWidth?: string; msOverflowStyle?: string; WebkitOverflowScrolling?: string }}>
                       {bearishOpps.map((opportunity, index) => {
                         const isTopBearish = topBearish ? opportunity.symbol === topBearish.symbol : false;
+                        const timeframeYears = (opportunity as any).timeframe || (opportunity as any).years || 15;
                         return (
                           <OpportunityCard
                             key={`bearish-${opportunity.symbol}-${index}`}
@@ -435,7 +807,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             rank={index + 1}
                             isTopBullish={false}
                             isTopBearish={isTopBearish}
+                            hideBestBadge={bestMode}
                             sidebarMode={sidebarMode}
+                            years={timeframeYears}
                           />
                         );
                       })}

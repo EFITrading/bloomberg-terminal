@@ -150,7 +150,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
 
   // Calculate chart dimensions and scales
   const chartWidth = 1200;
-  const chartHeight = 500;
+  const chartHeight = 600;
   const padding = { top: 40, right: 125, bottom: 60, left: 60 };
   const plotWidth = chartWidth - padding.left - padding.right;
   const plotHeight = chartHeight - padding.top - padding.bottom;

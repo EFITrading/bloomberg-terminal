@@ -769,7 +769,6 @@ const TradingPlan: React.FC = () => {
  onChange={(e) => {
  const selectedType = e.target.value;
  const isOptionsType = selectedType === 'call' || selectedType === 'put' || selectedType === 'spread';
- console.log('Selected type:', selectedType, 'Is options:', isOptionsType);
  setFormData(prev => ({ 
  ...prev, 
  type: selectedType as any, 

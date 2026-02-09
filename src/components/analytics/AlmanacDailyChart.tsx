@@ -11,6 +11,8 @@ interface AlmanacDailyChartProps {
   showPostElection?: boolean;
   onMonthChange?: (month: number) => void;
   symbol?: string;
+  externalSelectedEvent?: string | null;
+  externalSelectedPatterns?: string[];
 }
 
 interface PriceData {
@@ -29,7 +31,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   month = new Date().getMonth(),
   showPostElection = true,
   onMonthChange,
-  symbol = 'SPY'
+  symbol = 'SPY',
+  externalSelectedEvent,
+  externalSelectedPatterns = []
 }) => {
   const isIndex = ['SPY', 'QQQ', 'DIA', 'IWM'].includes(symbol);
   const [seasonalData, setSeasonalData] = useState<IndexSeasonalData[]>([]);
@@ -48,13 +52,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null);
   const [showEventPerformance, setShowEventPerformance] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
-  const [isEventsDropdownOpen, setIsEventsDropdownOpen] = useState(false);
   const [eventPerformanceData, setEventPerformanceData] = useState<{ date: Date, avgReturn: number, tradingDay: number }[]>([]);
 
   // Pattern Analysis states
   const [showPatternPerformance, setShowPatternPerformance] = useState(false);
-  const [selectedPattern, setSelectedPattern] = useState<string[]>([]); // Array for multiple patterns
-  const [isPatternDropdownOpen, setIsPatternDropdownOpen] = useState(false);
+  const [selectedPattern, setSelectedPattern] = useState<string | null>(null);
   const [patternPerformanceData, setPatternPerformanceData] = useState<{
     patternName: string;
     data: { date: Date, avgReturn: number, tradingDay: number }[];
@@ -73,6 +75,57 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   useEffect(() => {
     loadData();
   }, [selectedMonth, symbol, isIndex]);
+
+  // Handle external event selection from Row 1
+  useEffect(() => {
+    if (externalSelectedEvent) {
+      setSelectedEvent(externalSelectedEvent);
+      setShowEventPerformance(true);
+      calculateEventPerformance(externalSelectedEvent);
+    } else {
+      setSelectedEvent(null);
+      setShowEventPerformance(false);
+      setEventPerformanceData([]);
+    }
+  }, [externalSelectedEvent]);
+
+  // Handle external pattern selections from Row 1
+  useEffect(() => {
+    if (externalSelectedPatterns && externalSelectedPatterns.length > 0) {
+      const firstPattern = externalSelectedPatterns[0];
+      setSelectedPattern(firstPattern);
+      setShowPatternPerformance(true);
+      setShowEventPerformance(false);
+
+      // Clear existing pattern data and recalculate
+      setPatternPerformanceData([]);
+
+      // Calculate for the selected pattern
+      const patternMap: { [key: string]: string } = {
+        '52W High (90d Cooldown)': '52week-high-cooldown',
+        '52W High (Annual)': '52week-high-annual',
+        '52W Low (90d Cooldown)': '52week-low-cooldown',
+        '52W Low (Annual)': '52week-low-annual',
+        '8-11% UP (90d Cooldown)': 'move-8-11-up-cooldown',
+        '8-11% UP (Annual)': 'move-8-11-up-annual',
+        '8-11% DOWN (90d Cooldown)': 'move-8-11-down-cooldown',
+        '8-11% DOWN (Annual)': 'move-8-11-down-annual',
+        '18-22% UP (90d Cooldown)': 'move-18-22-up-cooldown',
+        '18-22% UP (Annual)': 'move-18-22-up-annual',
+        '18-22% DOWN (90d Cooldown)': 'move-18-22-down-cooldown',
+        '18-22% DOWN (Annual)': 'move-18-22-down-annual'
+      };
+
+      const patternId = patternMap[firstPattern];
+      if (patternId) {
+        calculatePatternPerformance(patternId, firstPattern, symbol);
+      }
+    } else {
+      setSelectedPattern(null);
+      setShowPatternPerformance(false);
+      setPatternPerformanceData([]);
+    }
+  }, [externalSelectedPatterns, symbol]);
 
   useEffect(() => {
     if (seasonalData.length > 0 && canvasRef.current && activeView === 'chart') {
@@ -189,12 +242,12 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
     try {
       if (isIndex) {
-        // Load all 4 indices
-        const data = await almanacService.getMonthlySeasonalData(selectedMonth, 18);
+        // Load all 4 indices - use 25 years to capture all available data
+        const data = await almanacService.getMonthlySeasonalData(selectedMonth, 25);
         setSeasonalData(data);
       } else {
-        // Load single stock data
-        const data = await almanacService.getSingleStockMonthlyData(symbol, selectedMonth, 18);
+        // Load single stock data - use 25 years to capture all available data
+        const data = await almanacService.getSingleStockMonthlyData(symbol, selectedMonth, 25);
         setSeasonalData(data);
       }
     } catch (err) {
@@ -892,18 +945,61 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     // Draw data lines (only if event or pattern performance is not active)
     if (!showEventPerformance && !showPatternPerformance) {
       seasonalData.forEach(index => {
-        // For individual stocks, use white for normal years, yellow for election years
-        const normalColor = isIndex ? (colors[index.name] || '#FFFFFF') : '#FFFFFF';
+        // For individual stocks, use white for max, orange for 10Y, pink for 15Y
+        const whiteColor = isIndex ? (colors[index.name] || '#FFFFFF') : '#FFFFFF';
+        const orangeColor = '#FF6600';
+        const pinkColor = '#FF69B4';
         const electionColor = isIndex ? (colors[index.name] || '#FFFFFF') : '#FFD700';
 
         if (showRecentYears) {
-          ctx.strokeStyle = normalColor;
+          // Determine if we should show white line (max years)
+          // Check if there's any difference between max and 10Y/15Y data
+          const hasDistinct10Y = index.dailyData.some(p => 
+            Math.abs(p.cumulativeReturn - p.cumulativeReturn10Y) > 0.01
+          );
+          const hasDistinct15Y = index.dailyData.some(p => 
+            Math.abs(p.cumulativeReturn - p.cumulativeReturn15Y) > 0.01
+          );
+          const showWhiteLine = hasDistinct10Y || hasDistinct15Y;
+          
+          // Draw white line (max years) if it's distinct from 10Y and 15Y
+          if (showWhiteLine) {
+            ctx.strokeStyle = whiteColor;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            index.dailyData.forEach((point, i) => {
+              const x = getX(point.tradingDay);
+              const y = getY(point.cumulativeReturn);
+
+              if (i === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+          }
+          
+          // Draw pink line (15 years)
+          ctx.strokeStyle = pinkColor;
           ctx.lineWidth = 2;
           ctx.beginPath();
 
           index.dailyData.forEach((point, i) => {
             const x = getX(point.tradingDay);
-            const y = getY(point.cumulativeReturn);
+            const y = getY(point.cumulativeReturn15Y);
+
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+          
+          // Draw orange line (10 years)
+          ctx.strokeStyle = orangeColor;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+
+          index.dailyData.forEach((point, i) => {
+            const x = getX(point.tradingDay);
+            const y = getY(point.cumulativeReturn10Y);
 
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
@@ -1285,7 +1381,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               onChange={(e) => {
                 const value = e.target.value;
                 if (value === 'none') {
-                  setSelectedPattern([]);
+                  setSelectedPattern(null);
                   setShowPatternPerformance(false);
                   setPatternPerformanceData([]);
                 } else {
@@ -1305,7 +1401,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                   };
                   const pattern = patternMap[value];
                   if (pattern) {
-                    setSelectedPattern([pattern.label]);
+                    setSelectedPattern(pattern.label);
                     setShowPatternPerformance(true);
                     setShowEventPerformance(false);
                     calculatePatternPerformance(pattern.id, pattern.label, symbol);
@@ -1314,18 +1410,18 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               }}
               className="almanac-mobile-select"
               value={
-                selectedPattern[0] === '52W High (90d Cooldown)' ? '52week-high-cooldown' :
-                  selectedPattern[0] === '52W High (Annual)' ? '52week-high-annual' :
-                    selectedPattern[0] === '52W Low (90d Cooldown)' ? '52week-low-cooldown' :
-                      selectedPattern[0] === '52W Low (Annual)' ? '52week-low-annual' :
-                        selectedPattern[0] === '8-11% UP (90d Cooldown)' ? 'move-8-11-up-cooldown' :
-                          selectedPattern[0] === '8-11% UP (Annual)' ? 'move-8-11-up-annual' :
-                            selectedPattern[0] === '8-11% DOWN (90d Cooldown)' ? 'move-8-11-down-cooldown' :
-                              selectedPattern[0] === '8-11% DOWN (Annual)' ? 'move-8-11-down-annual' :
-                                selectedPattern[0] === '18-22% UP (90d Cooldown)' ? 'move-18-22-up-cooldown' :
-                                  selectedPattern[0] === '18-22% UP (Annual)' ? 'move-18-22-up-annual' :
-                                    selectedPattern[0] === '18-22% DOWN (90d Cooldown)' ? 'move-18-22-down-cooldown' :
-                                      selectedPattern[0] === '18-22% DOWN (Annual)' ? 'move-18-22-down-annual' :
+                selectedPattern === '52W High (90d Cooldown)' ? '52week-high-cooldown' :
+                  selectedPattern === '52W High (Annual)' ? '52week-high-annual' :
+                    selectedPattern === '52W Low (90d Cooldown)' ? '52week-low-cooldown' :
+                      selectedPattern === '52W Low (Annual)' ? '52week-low-annual' :
+                        selectedPattern === '8-11% UP (90d Cooldown)' ? 'move-8-11-up-cooldown' :
+                          selectedPattern === '8-11% UP (Annual)' ? 'move-8-11-up-annual' :
+                            selectedPattern === '8-11% DOWN (90d Cooldown)' ? 'move-8-11-down-cooldown' :
+                              selectedPattern === '8-11% DOWN (Annual)' ? 'move-8-11-down-annual' :
+                                selectedPattern === '18-22% UP (90d Cooldown)' ? 'move-18-22-up-cooldown' :
+                                  selectedPattern === '18-22% UP (Annual)' ? 'move-18-22-up-annual' :
+                                    selectedPattern === '18-22% DOWN (90d Cooldown)' ? 'move-18-22-down-cooldown' :
+                                      selectedPattern === '18-22% DOWN (Annual)' ? 'move-18-22-down-annual' :
                                         'none'
               }
             >
@@ -1352,8 +1448,22 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           </div>
         </div>
 
-        {/* Desktop: All controls in one row */}
-        <div className="chart-controls-row chart-controls-desktop">
+        {/* Desktop: All controls in one clean row */}
+        <div
+          className="chart-controls-row chart-controls-desktop desktop-only-btn"
+          data-active-view={activeView}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 12px',
+            background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+            borderBottom: '1px solid #1a1a1a',
+            flexWrap: 'nowrap',
+            overflowX: 'auto'
+          }}
+        >
+          {/* Month Selector */}
           <select
             value={selectedMonth}
             onChange={(e) => {
@@ -1361,552 +1471,282 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               setSelectedMonth(newMonth);
               onMonthChange?.(newMonth);
             }}
-            className="month-selector"
+            style={{
+              padding: '6px 10px',
+              background: '#000000',
+              color: '#fff',
+              border: '1px solid #333333',
+              borderRadius: '2px',
+              fontSize: '11px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              outline: 'none',
+              minWidth: '90px'
+            }}
           >
             {MONTH_NAMES.map((name, i) => (
               <option key={i} value={i}>{name}</option>
             ))}
           </select>
 
-          {/* Desktop: Chart/Calendar/Table Buttons */}
+          {/* Divider */}
+          <div style={{ width: '1px', height: '24px', background: '#333' }} />
+
+          {/* View Buttons */}
           <button
-            className={`toggle-btn desktop-only-btn ${activeView === 'chart' ? 'active' : ''}`}
             onClick={() => setActiveView('chart')}
-            style={{ marginLeft: '12px' }}
+            style={{
+              padding: '6px 12px',
+              background: activeView === 'chart' ? '#ff6600' : '#000000',
+              color: activeView === 'chart' ? '#000' : '#fff',
+              border: '1px solid #333333',
+              borderRadius: '2px',
+              fontSize: '10px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              letterSpacing: '0.5px'
+            }}
           >
-            Chart
+            CHART
           </button>
 
           <button
-            className={`toggle-btn desktop-only-btn ${activeView === 'calendar' ? 'active' : ''}`}
             onClick={() => setActiveView('calendar')}
-            style={{ marginLeft: '8px' }}
+            style={{
+              padding: '6px 12px',
+              background: activeView === 'calendar' ? '#ff6600' : '#000000',
+              color: activeView === 'calendar' ? '#000' : '#fff',
+              border: '1px solid #333333',
+              borderRadius: '2px',
+              fontSize: '10px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              letterSpacing: '0.5px'
+            }}
           >
-            Calendar
+            CALENDAR
           </button>
 
           <button
-            className={`toggle-btn desktop-only-btn ${activeView === 'table' ? 'active' : ''}`}
             onClick={() => setActiveView(activeView === 'table' ? 'chart' : 'table')}
-            style={{ marginLeft: '8px' }}
+            style={{
+              padding: '6px 12px',
+              background: activeView === 'table' ? '#ff6600' : '#000000',
+              color: activeView === 'table' ? '#000' : '#fff',
+              border: '1px solid #333333',
+              borderRadius: '2px',
+              fontSize: '10px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              letterSpacing: '0.5px'
+            }}
           >
-            SeasonalTable
+            Seasonality Table
           </button>
 
-          {/* Desktop: Events Dropdown */}
-          <div className="desktop-only-btn" style={{ position: 'relative', display: 'inline-block' }}>
-            <button
-              className={`toggle-btn ${showEventPerformance ? 'active' : ''}`}
-              onClick={() => setIsEventsDropdownOpen(!isEventsDropdownOpen)}
-              style={{
-                marginLeft: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: '#000000',
-                color: '#fff',
-                border: '1px solid #333333',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)'
-              }}
-            >
-              <span>Events {selectedEvent ? `(${selectedEvent})` : ''}</span>
-              {selectedEvent && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedEvent(null);
-                    setShowEventPerformance(false);
-                    setEventPerformanceData([]);
-                  }}
-                  style={{
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    fontSize: '16px',
-                    color: '#ff6600',
-                    marginLeft: '4px'
-                  }}
-                >
-                  ✕
-                </span>
-              )}
-            </button>
+          {/* Divider */}
+          <div style={{ width: '1px', height: '24px', background: '#333' }} />
 
-            {isEventsDropdownOpen && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                background: '#0a1520',
-                border: '1px solid #ff6600',
-                borderRadius: '4px',
-                marginTop: '4px',
-                minWidth: '200px',
-                maxHeight: '400px',
-                overflowY: 'auto',
-                zIndex: 9999,
-                boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-              }}>
-                <div style={{ padding: '8px', borderBottom: '1px solid #333' }}>
-                  <div style={{ color: '#ff6600', fontWeight: 'bold', fontSize: '12px', marginBottom: '4px' }}>HOLIDAYS</div>
-                  {['thanksgiving', 'christmas', 'newyear', 'presidentsday', 'mlkday', 'memorialday', 'july4th', 'laborday'].map(event => (
-                    <button
-                      key={event}
-                      onClick={() => {
-                        setSelectedEvent(event);
-                        setShowEventPerformance(true);
-                        setIsEventsDropdownOpen(false);
-                        calculateEventPerformance(event);
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: selectedEvent === event ? '#ff6600' : 'transparent',
-                        color: selectedEvent === event ? '#000' : '#fff',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontFamily: '"JetBrains Mono", monospace'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (selectedEvent !== event) {
-                          e.currentTarget.style.background = '#1a2530';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (selectedEvent !== event) {
-                          e.currentTarget.style.background = 'transparent';
-                        }
-                      }}
-                    >
-                      {event.toUpperCase().replace(/-/g, ' ')}
-                    </button>
-                  ))}
+          {/* Line Style Toggles */}
+          <button
+            onClick={() => setShowRecentYears(!showRecentYears)}
+            style={{
+              padding: '6px 12px',
+              background: showRecentYears ? '#00ff41' : '#000000',
+              color: showRecentYears ? '#000' : '#00ff41',
+              border: '1px solid #333333',
+              borderRadius: '2px',
+              fontSize: '10px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              letterSpacing: '0.5px'
+            }}
+          >
+            SOLID
+          </button>
+
+          <button
+            onClick={() => setShowPostElectionYears(!showPostElectionYears)}
+            style={{
+              padding: '6px 12px',
+              background: showPostElectionYears ? '#00CED1' : '#000000',
+              color: showPostElectionYears ? '#000' : '#00CED1',
+              border: '1px solid #333333',
+              borderRadius: '2px',
+              fontSize: '10px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              letterSpacing: '0.5px'
+            }}
+          >
+            DASH
+          </button>
+
+          {/* Legend */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginLeft: 'auto', marginRight: 'auto', fontSize: '10px', fontFamily: '"JetBrains Mono", monospace' }}>
+            {isIndex ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ color: '#fff' }}>DIA</span>
+                  <div style={{ width: '20px', height: '2px', backgroundColor: '#FFFFFF' }} />
+                  <div style={{ width: '20px', height: '2px', background: 'repeating-linear-gradient(90deg, #FFFFFF 0px, #FFFFFF 3px, transparent 3px, transparent 6px)' }} />
                 </div>
-
-                <div style={{ padding: '8px', borderBottom: '1px solid #333' }}>
-                  <div style={{ color: '#ff6600', fontWeight: 'bold', fontSize: '12px', marginBottom: '4px' }}>FOMC MEETINGS</div>
-                  {['fomc-march', 'fomc-june', 'fomc-september', 'fomc-december'].map(event => (
-                    <button
-                      key={event}
-                      onClick={() => {
-                        setSelectedEvent(event);
-                        setShowEventPerformance(true);
-                        setIsEventsDropdownOpen(false);
-                        calculateEventPerformance(event);
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: selectedEvent === event ? '#ff6600' : 'transparent',
-                        color: selectedEvent === event ? '#000' : '#fff',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontFamily: '"JetBrains Mono", monospace'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (selectedEvent !== event) {
-                          e.currentTarget.style.background = '#1a2530';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (selectedEvent !== event) {
-                          e.currentTarget.style.background = 'transparent';
-                        }
-                      }}
-                    >
-                      {event.toUpperCase().replace(/-/g, ' ')}
-                    </button>
-                  ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ color: '#00C853' }}>SPY</span>
+                  <div style={{ width: '20px', height: '2px', backgroundColor: '#00C853' }} />
+                  <div style={{ width: '20px', height: '2px', background: 'repeating-linear-gradient(90deg, #00C853 0px, #00C853 3px, transparent 3px, transparent 6px)' }} />
                 </div>
-
-                <div style={{ padding: '8px', borderBottom: '1px solid #333' }}>
-                  <div style={{ color: '#ff6600', fontWeight: 'bold', fontSize: '12px', marginBottom: '4px' }}>QUAD WITCHING</div>
-                  {['quad-witching-mar', 'quad-witching-jun', 'quad-witching-sep', 'quad-witching-dec'].map(event => (
-                    <button
-                      key={event}
-                      onClick={() => {
-                        setSelectedEvent(event);
-                        setShowEventPerformance(true);
-                        setIsEventsDropdownOpen(false);
-                        calculateEventPerformance(event);
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: selectedEvent === event ? '#ff6600' : 'transparent',
-                        color: selectedEvent === event ? '#000' : '#fff',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontFamily: '"JetBrains Mono", monospace'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (selectedEvent !== event) {
-                          e.currentTarget.style.background = '#1a2530';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (selectedEvent !== event) {
-                          e.currentTarget.style.background = 'transparent';
-                        }
-                      }}
-                    >
-                      {event.toUpperCase().replace(/-/g, ' ')}
-                    </button>
-                  ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ color: '#2196F3' }}>QQQ</span>
+                  <div style={{ width: '20px', height: '2px', backgroundColor: '#2196F3' }} />
+                  <div style={{ width: '20px', height: '2px', background: 'repeating-linear-gradient(90deg, #2196F3 0px, #2196F3 3px, transparent 3px, transparent 6px)' }} />
                 </div>
-
-                <div style={{ padding: '8px' }}>
-                  <div style={{ color: '#ff6600', fontWeight: 'bold', fontSize: '12px', marginBottom: '4px' }}>EARNINGS & RALLIES</div>
-                  {['q1-earnings', 'q2-earnings', 'q3-earnings', 'q4-earnings', 'yearendrally', 'halloweenrally', 'santarally', 'monthlyopex'].map(event => (
-                    <button
-                      key={event}
-                      onClick={() => {
-                        setSelectedEvent(event);
-                        setShowEventPerformance(true);
-                        setIsEventsDropdownOpen(false);
-                        calculateEventPerformance(event);
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: selectedEvent === event ? '#ff6600' : 'transparent',
-                        color: selectedEvent === event ? '#000' : '#fff',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontFamily: '"JetBrains Mono", monospace'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (selectedEvent !== event) {
-                          e.currentTarget.style.background = '#1a2530';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (selectedEvent !== event) {
-                          e.currentTarget.style.background = 'transparent';
-                        }
-                      }}
-                    >
-                      {event.toUpperCase().replace(/-/g, ' ')}
-                    </button>
-                  ))}
-
-                  {showEventPerformance && (
-                    <button
-                      onClick={() => {
-                        setShowEventPerformance(false);
-                        setSelectedEvent(null);
-                        setEventPerformanceData([]);
-                        setIsEventsDropdownOpen(false);
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: '#ff0000',
-                        color: '#fff',
-                        border: 'none',
-                        textAlign: 'center',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontFamily: '"JetBrains Mono", monospace',
-                        marginTop: '8px',
-                        fontWeight: 'bold'
-                      }}
-                    >
-                      CLEAR
-                    </button>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ color: '#FF5722' }}>IWM</span>
+                  <div style={{ width: '20px', height: '2px', backgroundColor: '#FF5722' }} />
+                  <div style={{ width: '20px', height: '2px', background: 'repeating-linear-gradient(90deg, #FF5722 0px, #FF5722 3px, transparent 3px, transparent 6px)' }} />
                 </div>
+              </>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ color: '#fff' }}>{symbol}</span>
+                <div style={{ width: '20px', height: '2px', backgroundColor: '#FFFFFF' }} />
+                <div style={{ width: '20px', height: '2px', background: 'repeating-linear-gradient(90deg, #FFD700 0px, #FFD700 3px, transparent 3px, transparent 6px)' }} />
               </div>
             )}
           </div>
 
-          {/* Pattern Analysis Button */}
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <button
-              className={`toggle-btn ${showPatternPerformance ? 'active' : ''}`}
-              onClick={() => setIsPatternDropdownOpen(!isPatternDropdownOpen)}
-              style={{
-                marginLeft: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: '#000000',
-                color: '#fff',
-                border: '1px solid #333333',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)'
-              }}
-            >
-              <span>Pattern Analysis {selectedPattern.length > 0 ? `(${selectedPattern.length})` : ''}</span>
-              {selectedPattern.length > 0 && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedPattern([]);
-                    setShowPatternPerformance(false);
-                    setPatternPerformanceData([]);
-                  }}
-                  style={{
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    fontSize: '16px',
-                    color: '#00CED1',
-                    marginLeft: '4px'
-                  }}
-                >
-                  ✕
-                </span>
-              )}
-            </button>
+          {/* Divider */}
+          <div style={{ width: '1px', height: '24px', background: '#333' }} />
 
-            {isPatternDropdownOpen && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                background: '#0a1520',
-                border: '1px solid #00CED1',
-                borderRadius: '4px',
-                marginTop: '4px',
-                minWidth: '250px',
-                maxHeight: '500px',
-                overflowY: 'auto',
-                zIndex: 9999,
-                boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-              }}>
-                <div style={{ padding: '8px' }}>
-                  <div style={{ color: '#00CED1', fontWeight: 'bold', fontSize: '12px', marginBottom: '8px', borderBottom: '1px solid #333', paddingBottom: '4px' }}>52-WEEK BREAKOUTS</div>
+          {/* Events Dropdown */}
+          <select
+            value={selectedEvent || ''}
+            onChange={(e) => {
+              const eventValue = e.target.value;
+              if (eventValue) {
+                setSelectedEvent(eventValue);
+                setShowEventPerformance(true);
+                calculateEventPerformance(eventValue);
+              } else {
+                setSelectedEvent(null);
+                setShowEventPerformance(false);
+                setEventPerformanceData([]);
+              }
+            }}
+            style={{
+              padding: '6px 10px',
+              background: '#000000',
+              color: '#fff',
+              border: '1px solid #333333',
+              borderRadius: '2px',
+              fontSize: '11px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              outline: 'none',
+              width: 'auto',
+              maxWidth: '100px'
+            }}
+          >
+            <option value="">EVENTS</option>
+            <optgroup label="HOLIDAYS">
+              <option value="thanksgiving">THANKSGIVING</option>
+              <option value="christmas">CHRISTMAS</option>
+              <option value="newyear">NEWYEAR</option>
+              <option value="presidentsday">PRESIDENTSDAY</option>
+              <option value="mlkday">MLKDAY</option>
+              <option value="memorialday">MEMORIALDAY</option>
+              <option value="july4th">JULY4TH</option>
+              <option value="laborday">LABORDAY</option>
+            </optgroup>
+            <optgroup label="FOMC MEETINGS">
+              <option value="fomc-march">FOMC MARCH</option>
+              <option value="fomc-june">FOMC JUNE</option>
+              <option value="fomc-september">FOMC SEPTEMBER</option>
+              <option value="fomc-december">FOMC DECEMBER</option>
+            </optgroup>
+            <optgroup label="QUAD WITCHING">
+              <option value="quad-witching-mar">QUAD WITCHING MAR</option>
+              <option value="quad-witching-jun">QUAD WITCHING JUN</option>
+              <option value="quad-witching-sep">QUAD WITCHING SEP</option>
+              <option value="quad-witching-dec">QUAD WITCHING DEC</option>
+            </optgroup>
+            <optgroup label="EARNINGS & RALLIES">
+              <option value="q1-earnings">Q1 EARNINGS</option>
+              <option value="q2-earnings">Q2 EARNINGS</option>
+              <option value="q3-earnings">Q3 EARNINGS</option>
+              <option value="q4-earnings">Q4 EARNINGS</option>
+              <option value="yearendrally">YEARENDRALLY</option>
+              <option value="halloweenrally">HALLOWEENRALLY</option>
+              <option value="santarally">SANTARALLY</option>
+              <option value="monthlyopex">MONTHLYOPEX</option>
+            </optgroup>
+          </select>
 
-                  {[
-                    { id: '52week-high-cooldown', label: '52W High (90d Cooldown)' },
-                    { id: '52week-high-annual', label: '52W High (Annual)' },
-                    { id: '52week-low-cooldown', label: '52W Low (90d Cooldown)' },
-                    { id: '52week-low-annual', label: '52W Low (Annual)' }
-                  ].map(pattern => (
-                    <button
-                      key={pattern.id}
-                      onClick={() => {
-                        const isSelected = selectedPattern.includes(pattern.label);
-                        if (isSelected) {
-                          // Remove pattern
-                          setSelectedPattern(prev => prev.filter(p => p !== pattern.label));
-                          setPatternPerformanceData(prev => prev.filter(p => p.patternName !== pattern.label));
-                          if (selectedPattern.length === 1) {
-                            setShowPatternPerformance(false);
-                          }
-                        } else {
-                          // Add pattern
-                          setSelectedPattern(prev => [...prev, pattern.label]);
-                          setShowPatternPerformance(true);
-                          setShowEventPerformance(false);
-                          calculatePatternPerformance(pattern.id, pattern.label, symbol);
-                        }
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: selectedPattern.includes(pattern.label) ? '#00CED1' : 'transparent',
-                        color: selectedPattern.includes(pattern.label) ? '#000' : '#fff',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        fontFamily: '"JetBrains Mono", monospace'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!selectedPattern.includes(pattern.label)) {
-                          e.currentTarget.style.background = '#1a2530';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!selectedPattern.includes(pattern.label)) {
-                          e.currentTarget.style.background = 'transparent';
-                        }
-                      }}
-                    >
-                      {pattern.label}
-                    </button>
-                  ))}
-
-                  <div style={{ color: '#00CED1', fontWeight: 'bold', fontSize: '12px', margin: '12px 0 8px 0', borderBottom: '1px solid #333', paddingBottom: '4px' }}>8-11% MOVES</div>
-
-                  {[
-                    { id: 'move-8-11-up-cooldown', label: '8-11% UP (90d Cooldown)' },
-                    { id: 'move-8-11-up-annual', label: '8-11% UP (Annual)' },
-                    { id: 'move-8-11-down-cooldown', label: '8-11% DOWN (90d Cooldown)' },
-                    { id: 'move-8-11-down-annual', label: '8-11% DOWN (Annual)' }
-                  ].map(pattern => (
-                    <button
-                      key={pattern.id}
-                      onClick={() => {
-                        const isSelected = selectedPattern.includes(pattern.label);
-                        if (isSelected) {
-                          setSelectedPattern(prev => prev.filter(p => p !== pattern.label));
-                          setPatternPerformanceData(prev => prev.filter(p => p.patternName !== pattern.label));
-                          if (selectedPattern.length === 1) {
-                            setShowPatternPerformance(false);
-                          }
-                        } else {
-                          setSelectedPattern(prev => [...prev, pattern.label]);
-                          setShowPatternPerformance(true);
-                          setShowEventPerformance(false);
-                          calculatePatternPerformance(pattern.id, pattern.label, symbol);
-                        }
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: selectedPattern.includes(pattern.label) ? '#00CED1' : 'transparent',
-                        color: selectedPattern.includes(pattern.label) ? '#000' : '#fff',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        fontFamily: '"JetBrains Mono", monospace'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!selectedPattern.includes(pattern.label)) {
-                          e.currentTarget.style.background = '#1a2530';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!selectedPattern.includes(pattern.label)) {
-                          e.currentTarget.style.background = 'transparent';
-                        }
-                      }}
-                    >
-                      {pattern.label}
-                    </button>
-                  ))}
-
-                  <div style={{ color: '#00CED1', fontWeight: 'bold', fontSize: '12px', margin: '12px 0 8px 0', borderBottom: '1px solid #333', paddingBottom: '4px' }}>18-22% MOVES</div>
-
-                  {[
-                    { id: 'move-18-22-up-cooldown', label: '18-22% UP (90d Cooldown)' },
-                    { id: 'move-18-22-up-annual', label: '18-22% UP (Annual)' },
-                    { id: 'move-18-22-down-cooldown', label: '18-22% DOWN (90d Cooldown)' },
-                    { id: 'move-18-22-down-annual', label: '18-22% DOWN (Annual)' }
-                  ].map(pattern => (
-                    <button
-                      key={pattern.id}
-                      onClick={() => {
-                        const isSelected = selectedPattern.includes(pattern.label);
-                        if (isSelected) {
-                          setSelectedPattern(prev => prev.filter(p => p !== pattern.label));
-                          setPatternPerformanceData(prev => prev.filter(p => p.patternName !== pattern.label));
-                          if (selectedPattern.length === 1) {
-                            setShowPatternPerformance(false);
-                          }
-                        } else {
-                          setSelectedPattern(prev => [...prev, pattern.label]);
-                          setShowPatternPerformance(true);
-                          setShowEventPerformance(false);
-                          calculatePatternPerformance(pattern.id, pattern.label, symbol);
-                        }
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: selectedPattern.includes(pattern.label) ? '#00CED1' : 'transparent',
-                        color: selectedPattern.includes(pattern.label) ? '#000' : '#fff',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        fontFamily: '"JetBrains Mono", monospace'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!selectedPattern.includes(pattern.label)) {
-                          e.currentTarget.style.background = '#1a2530';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!selectedPattern.includes(pattern.label)) {
-                          e.currentTarget.style.background = 'transparent';
-                        }
-                      }}
-                    >
-                      {pattern.label}
-                    </button>
-                  ))}
-
-                  {selectedPattern.length > 0 && (
-                    <button
-                      onClick={() => {
-                        setSelectedPattern([]);
-                        setShowPatternPerformance(false);
-                        setPatternPerformanceData([]);
-                        setIsPatternDropdownOpen(false);
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        padding: '6px 12px',
-                        background: '#ff0000',
-                        color: '#fff',
-                        border: 'none',
-                        textAlign: 'center',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontFamily: '"JetBrains Mono", monospace',
-                        marginTop: '8px',
-                        fontWeight: 'bold'
-                      }}
-                    >
-                      CLEAR
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="chart-legend-inline desktop-only-btn" style={{ marginLeft: '250px' }}>
-          <div className="toggle-buttons">
-            <button
-              className={`toggle-btn ${showRecentYears ? 'active' : ''}`}
-              onClick={() => setShowRecentYears(!showRecentYears)}
-              style={{
-                background: '#000000',
-                color: '#fff',
-                border: '1px solid #333333',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)'
-              }}
-            >
-              Normal (Solid)
-            </button>
-            <button
-              className={`toggle-btn ${showPostElectionYears ? 'active' : ''}`}
-              onClick={() => setShowPostElectionYears(!showPostElectionYears)}
-              style={{
-                background: '#000000',
-                color: '#fff',
-                border: '1px solid #333333',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)'
-              }}
-            >
-              Election (Dashed)
-            </button>
-          </div>
+          {/* Pattern Analysis Dropdown */}
+          <select
+            value={selectedPattern || ''}
+            onChange={(e) => {
+              const patternValue = e.target.value;
+              if (patternValue) {
+                const patternLabel = e.target.selectedOptions[0].text;
+                setSelectedPattern(patternLabel);
+                setShowPatternPerformance(true);
+                setShowEventPerformance(false);
+                calculatePatternPerformance(patternValue, patternLabel, symbol);
+              } else {
+                setSelectedPattern(null);
+                setShowPatternPerformance(false);
+                setPatternPerformanceData([]);
+              }
+            }}
+            style={{
+              padding: '6px 10px',
+              background: '#000000',
+              color: '#fff',
+              border: '1px solid #333333',
+              borderRadius: '2px',
+              fontSize: '11px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              outline: 'none',
+              width: 'auto',
+              maxWidth: '110px'
+            }}
+          >
+            <option value="">PATTERNS</option>
+            <optgroup label="52-WEEK BREAKOUTS">
+              <option value="52week-high-cooldown">52W High (90d Cooldown)</option>
+              <option value="52week-high-annual">52W High (Annual)</option>
+              <option value="52week-low-cooldown">52W Low (90d Cooldown)</option>
+              <option value="52week-low-annual">52W Low (Annual)</option>
+            </optgroup>
+            <optgroup label="8-11% MOVES">
+              <option value="move-8-11-up-cooldown">8-11% UP (90d Cooldown)</option>
+              <option value="move-8-11-up-annual">8-11% UP (Annual)</option>
+              <option value="move-8-11-down-cooldown">8-11% DOWN (90d Cooldown)</option>
+              <option value="move-8-11-down-annual">8-11% DOWN (Annual)</option>
+            </optgroup>
+            <optgroup label="18-22% MOVES">
+              <option value="move-18-22-up-cooldown">18-22% UP (90d Cooldown)</option>
+              <option value="move-18-22-up-annual">18-22% UP (Annual)</option>
+              <option value="move-18-22-down-cooldown">18-22% DOWN (90d Cooldown)</option>
+              <option value="move-18-22-down-annual">18-22% DOWN (Annual)</option>
+            </optgroup>
+          </select>
         </div>
       </div>
 
@@ -1995,28 +1835,13 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         )}
         {activeView === 'table' && (
           <div style={{
-            padding: typeof window !== 'undefined' && window.innerWidth <= 768 ? '0' : 'inherit',
-            margin: typeof window !== 'undefined' && window.innerWidth <= 768 ? '-20px 0 0 0' : '0'
+            padding: '0',
+            margin: '0'
           }}>
             <WeeklyScanTable />
           </div>
         )}
       </div>
-
-      {activeView === 'chart' && (
-        <div className="legend-row" style={{ marginTop: '4px', display: 'flex', justifyContent: 'center', gap: '20px' }}>
-          {isIndex ? (
-            <>
-              <div className="legend-item"><span>DIA</span><span className="legend-line solid" style={{ backgroundColor: '#FFFFFF' }}></span><span className="legend-line dashed" style={{ background: 'repeating-linear-gradient(90deg, #FFFFFF 0px, #FFFFFF 4px, transparent 4px, transparent 7px)' }}></span></div>
-              <div className="legend-item"><span>SPY</span><span className="legend-line solid" style={{ backgroundColor: '#00C853' }}></span><span className="legend-line dashed" style={{ background: 'repeating-linear-gradient(90deg, #00C853 0px, #00C853 4px, transparent 4px, transparent 7px)' }}></span></div>
-              <div className="legend-item"><span>QQQ</span><span className="legend-line solid" style={{ backgroundColor: '#2196F3' }}></span><span className="legend-line dashed" style={{ background: 'repeating-linear-gradient(90deg, #2196F3 0px, #2196F3 4px, transparent 4px, transparent 7px)' }}></span></div>
-              <div className="legend-item"><span>IWM</span><span className="legend-line solid" style={{ backgroundColor: '#FF5722' }}></span><span className="legend-line dashed" style={{ background: 'repeating-linear-gradient(90deg, #FF5722 0px, #FF5722 4px, transparent 4px, transparent 7px)' }}></span></div>
-            </>
-          ) : (
-            <div className="legend-item"><span>{symbol}</span><span className="legend-line solid" style={{ backgroundColor: '#FFFFFF' }}></span><span className="legend-line dashed" style={{ background: 'repeating-linear-gradient(90deg, #FFD700 0px, #FFD700 4px, transparent 4px, transparent 7px)' }}></span></div>
-          )}
-        </div>
-      )}
 
       {/* Pattern Details Popup */}
       {showPatternDetails && (

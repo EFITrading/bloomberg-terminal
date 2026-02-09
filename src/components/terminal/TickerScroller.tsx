@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { polygonRateLimiter } from '@/lib/polygonRateLimiter';
 
 interface TickerData {
     symbol: string;
@@ -40,10 +41,9 @@ export default function TickerScroller() {
 
                         // Get daily bars
                         const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveDaysAgoStr}/${todayStr}?adjusted=true&sort=desc&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
-                        const response = await fetch(dailyUrl);
-                        const result = await response.json();
+                        const result = await polygonRateLimiter.fetch(dailyUrl);
 
-                        if (!response.ok || !result?.results || result.results.length < 2) {
+                        if (!result?.results || result.results.length < 2) {
                             return { symbol, change: 0 };
                         }
 

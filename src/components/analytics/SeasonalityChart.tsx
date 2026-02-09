@@ -107,15 +107,19 @@ interface SeasonalityChartProps {
     initialSymbol?: string;
     onClose?: () => void;
     hideControls?: boolean;
+    hideScreener?: boolean;
     onSymbolChange?: (symbol: string) => void;
     externalElectionMode?: string;
     externalYears?: number;
     onSweetSpotClick?: () => void;
     onPainPointClick?: () => void;
     onMonthlyDataLoaded?: (monthlyData: Array<{ month: string; outperformance: number }>, best30Day?: any, worst30Day?: any) => void;
+    chartHeight?: number;
+    externalSelectedEvent?: string | null;
+    externalSelectedPatterns?: string[];
 }
 
-const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, initialSymbol, onClose, hideControls = false, onSymbolChange, externalElectionMode, externalYears, onSweetSpotClick: externalSweetSpotClick, onPainPointClick: externalPainPointClick, onMonthlyDataLoaded }) => {
+const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, initialSymbol, onClose, hideControls = false, hideScreener = false, onSymbolChange, externalElectionMode, externalYears, onSweetSpotClick: externalSweetSpotClick, onPainPointClick: externalPainPointClick, onMonthlyDataLoaded, chartHeight = 650, externalSelectedEvent, externalSelectedPatterns = [] }) => {
     const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || 'SPY');
     const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null);
     const [electionData, setElectionData] = useState<ElectionCycleData | null>(null);
@@ -1098,15 +1102,23 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
                     month={new Date().getMonth()}
                     showPostElection={true}
                     symbol={selectedSymbol}
+                    externalSelectedEvent={externalSelectedEvent}
+                    externalSelectedPatterns={externalSelectedPatterns}
                 />
             </div>
         </div>
-    ), [selectedSymbol]); // Re-render when symbol changes
+    ), [selectedSymbol, externalSelectedEvent, externalSelectedPatterns]); // Re-render when symbol or selections change
+
+    // Memoized screener component with React.memo wrapper to prevent resets
+    const MemoizedScreenerWrapper = React.memo(() => (
+        <div style={{ minWidth: 0, marginTop: '-100px' }}>
+            <SeasonaxLanding key="persistent-screener" />
+        </div>
+    ));
+    MemoizedScreenerWrapper.displayName = 'MemoizedScreenerWrapper';
 
     const memoizedScreener = useMemo(() => (
-        <div style={{ minWidth: 0, marginTop: '-100px' }}>
-            <SeasonaxLanding />
-        </div>
+        <MemoizedScreenerWrapper />
     ), []); // Empty dependency array - only mount once
 
     if (!seasonalData || !selectedSymbol) {
@@ -1395,7 +1407,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
             {/* Show data based on current mode */}
             {((isElectionMode && electionData) || (!isElectionMode && seasonalData)) && !loading && (
                 <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '50.3% 48%', gap: '1%', width: '100%', marginTop: '12px', overflow: 'visible' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: hideScreener ? '100%' : '50.3% 48%', gap: '1%', width: '100%', marginTop: '12px', overflow: 'visible' }}>
                         {/* Left column: Charts */}
                         <div style={{ minWidth: 0, width: '100%', overflow: 'visible' }}>
                             <div style={{ width: '100%' }}>
@@ -1418,7 +1430,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({ autoStart = false, 
                         </div>
 
                         {/* Right column: Screener */}
-                        {memoizedScreener}
+                        {!hideScreener && memoizedScreener}
                     </div>
                 </>
             )}

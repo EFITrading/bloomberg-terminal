@@ -12,9 +12,16 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 export default function DataDriven() {
   return (
     <div className="data-driven-container">
-      {/* Desktop view - shows all components as before */}
+      {/* Desktop view - shows all components side by side */}
       <div className="desktop-view">
-        <SeasonalityChart autoStart={true} />
+        <div style={{ display: 'grid', gridTemplateColumns: '50.3% 48%', gap: '1%', width: '100%', marginTop: '12px' }}>
+          <div style={{ minWidth: 0, width: '100%' }}>
+            <SeasonalityChart autoStart={true} hideScreener={true} />
+          </div>
+          <div style={{ minWidth: 0, marginTop: '-60px' }}>
+            <SeasonaxLanding />
+          </div>
+        </div>
       </div>
 
       {/* Mobile view - shows tabs */}

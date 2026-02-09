@@ -63,7 +63,6 @@ const ETFHoldingsModal: React.FC<ETFHoldingsModalProps> = ({ isOpen, onClose, et
         }
         await fetchHoldingsPerformance(sectorHoldings);
       } else {
-        console.log('Using INDUSTRY_ETFS holdings:', etfData.holdings);
         await fetchHoldingsPerformance(etfData.holdings);
       }
     } catch (err) {

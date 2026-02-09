@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import './AbstractCube.css';
+import { polygonRateLimiter } from '@/lib/polygonRateLimiter';
 
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
@@ -58,43 +59,29 @@ export default function AbstractCube() {
                        'META', 'NFLX', 'AMD', 'INTC', 'CRM', 'ORCL', 'UBER', 'DIS', 'BA', 'JPM'];
       
       const fetchWithRetry = async (ticker: string, retries = 2) => {
-        for (let i = 0; i < retries; i++) {
-          try {
-            const prevDayUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_API_KEY}`;
-            const response = await fetch(prevDayUrl, { 
-              signal: AbortSignal.timeout(5000) // 5 second timeout
-            });
+        try {
+          const prevDayUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+          const data = await polygonRateLimiter.fetch(prevDayUrl);
+          
+          if (data.results && data.results.length > 0) {
+            const result = data.results[0];
+            const close = result.c || 0;
+            const open = result.o || close;
+            const change = close - open;
+            const changePercent = open !== 0 ? (change / open) * 100 : 0;
             
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.results && data.results.length > 0) {
-              const result = data.results[0];
-              const close = result.c || 0;
-              const open = result.o || close;
-              const change = close - open;
-              const changePercent = open !== 0 ? (change / open) * 100 : 0;
-              
-              return {
-                symbol: ticker,
-                price: close,
-                change: change,
-                changePercent: changePercent
-              };
-            }
-            return null;
-          } catch (error) {
-            if (i === retries - 1) {
-              console.warn(`Failed to fetch ${ticker} after ${retries} attempts`);
-              return null;
-            }
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+            return {
+              symbol: ticker,
+              price: close,
+              change: change,
+              changePercent: changePercent
+            };
           }
+          return null;
+        } catch (error) {
+          console.warn(`Failed to fetch ${ticker}:`, error);
+          return null;
         }
-        return null;
       };
       
       const promises = tickers.map(ticker => fetchWithRetry(ticker));
@@ -172,15 +159,7 @@ export default function AbstractCube() {
         for (let i = 0; i < retries; i++) {
           try {
             const histUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
-            const response = await fetch(histUrl, {
-              signal: AbortSignal.timeout(8000) // 8 second timeout for historical data
-            });
-            
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-            
-            const data = await response.json();
+            const data = await polygonRateLimiter.fetch(histUrl);
             
             if (data.results && data.results.length > 0) {
               const prices = data.results.map((r: any) => r.c);

@@ -15,6 +15,11 @@ export interface DailySeasonalPoint {
   cumulativeReturn: number;
   postElectionReturn: number;
   postElectionCumulative: number;
+  // Multi-period data
+  cumulativeReturn10Y: number;
+  cumulativeReturn15Y: number;
+  postElectionCumulative10Y: number;
+  postElectionCumulative15Y: number;
 }
 
 export interface IndexSeasonalData {
@@ -247,7 +252,7 @@ const dailyReturnsCache = new Map<string, number[][]>();
 export class AlmanacService {
   
   // Fetch real historical data and calculate daily seasonal patterns for a specific month
-  async getMonthlySeasonalData(month: number, yearsBack: number = 18): Promise<IndexSeasonalData[]> {
+  async getMonthlySeasonalData(month: number, yearsBack: number = 25): Promise<IndexSeasonalData[]> {
     const results: IndexSeasonalData[] = [];
     const currentYear = new Date().getFullYear();
     const startYear = currentYear - yearsBack;
@@ -271,7 +276,7 @@ export class AlmanacService {
     return results;
   }
   
-  async getSingleStockMonthlyData(symbol: string, month: number, yearsBack: number = 20): Promise<IndexSeasonalData[]> {
+  async getSingleStockMonthlyData(symbol: string, month: number, yearsBack: number = 25): Promise<IndexSeasonalData[]> {
     const currentYear = new Date().getFullYear();
     const startYear = currentYear - yearsBack;
     
@@ -297,11 +302,27 @@ export class AlmanacService {
     startYear: number, 
     endYear: number
   ): Promise<DailySeasonalPoint[]> {
-    const monthlyReturns: { [tradingDay: number]: { all: number[], postElection: number[] } } = {};
+    const monthlyReturns: { 
+      [tradingDay: number]: { 
+        all: number[], 
+        postElection: number[],
+        last10Y: number[],
+        last15Y: number[],
+        postElection10Y: number[],
+        postElection15Y: number[]
+      } 
+    } = {};
     
     // Initialize trading days (max ~23 trading days in a month)
     for (let i = 1; i <= 23; i++) {
-      monthlyReturns[i] = { all: [], postElection: [] };
+      monthlyReturns[i] = { 
+        all: [], 
+        postElection: [],
+        last10Y: [],
+        last15Y: [],
+        postElection10Y: [],
+        postElection15Y: []
+      };
     }
     
     // Fetch historical data for the symbol
@@ -333,11 +354,17 @@ export class AlmanacService {
         }
       }
       
+      // Calculate cutoff years
+      const cutoff10Y = endYear - 10;
+      const cutoff15Y = endYear - 15;
+      
       // Calculate daily returns for each year
       for (const key of Object.keys(dataByYearMonth)) {
         const yearData = dataByYearMonth[key].sort((a, b) => a.t - b.t);
         const year = parseInt(key.split('-')[0]);
         const isPostElection = POST_ELECTION_YEARS.includes(year);
+        const isIn10Y = year >= cutoff10Y;
+        const isIn15Y = year >= cutoff15Y;
         
         // Get the first price of the month for calculating cumulative
         if (yearData.length < 2) continue;
@@ -357,6 +384,20 @@ export class AlmanacService {
           if (isPostElection) {
             monthlyReturns[tradingDay].postElection.push(cumulativeReturn);
           }
+          
+          if (isIn10Y) {
+            monthlyReturns[tradingDay].last10Y.push(cumulativeReturn);
+            if (isPostElection) {
+              monthlyReturns[tradingDay].postElection10Y.push(cumulativeReturn);
+            }
+          }
+          
+          if (isIn15Y) {
+            monthlyReturns[tradingDay].last15Y.push(cumulativeReturn);
+            if (isPostElection) {
+              monthlyReturns[tradingDay].postElection15Y.push(cumulativeReturn);
+            }
+          }
         }
       }
       
@@ -365,9 +406,26 @@ export class AlmanacService {
       let prevAllCum = 0;
       let prevPostCum = 0;
       
-      for (let tradingDay = 1; tradingDay <= 23; tradingDay++) {
+      // Minimum sample size to ensure statistical reliability
+      const MIN_SAMPLE_SIZE = 10;
+      
+      // Find the maximum trading day with sufficient data
+      let maxTradingDay = 0;
+      for (let day = 1; day <= 23; day++) {
+        if (monthlyReturns[day].all.length >= MIN_SAMPLE_SIZE) {
+          maxTradingDay = day;
+        } else {
+          break; // Stop at first day with insufficient data
+        }
+      }
+      
+      for (let tradingDay = 1; tradingDay <= maxTradingDay; tradingDay++) {
         const allReturns = monthlyReturns[tradingDay].all;
         const postElectionReturns = monthlyReturns[tradingDay].postElection;
+        const last10YReturns = monthlyReturns[tradingDay].last10Y;
+        const last15YReturns = monthlyReturns[tradingDay].last15Y;
+        const postElection10YReturns = monthlyReturns[tradingDay].postElection10Y;
+        const postElection15YReturns = monthlyReturns[tradingDay].postElection15Y;
         
         if (allReturns.length === 0) continue;
         
@@ -379,6 +437,23 @@ export class AlmanacService {
           : avgCumulative;
         const postElectionReturn = postElectionCumulative - prevPostCum;
         
+        // Calculate 10Y and 15Y averages
+        const cumulative10Y = last10YReturns.length > 0
+          ? last10YReturns.reduce((a, b) => a + b, 0) / last10YReturns.length
+          : avgCumulative;
+        
+        const cumulative15Y = last15YReturns.length > 0
+          ? last15YReturns.reduce((a, b) => a + b, 0) / last15YReturns.length
+          : avgCumulative;
+        
+        const postElectionCumulative10Y = postElection10YReturns.length > 0
+          ? postElection10YReturns.reduce((a, b) => a + b, 0) / postElection10YReturns.length
+          : cumulative10Y;
+        
+        const postElectionCumulative15Y = postElection15YReturns.length > 0
+          ? postElection15YReturns.reduce((a, b) => a + b, 0) / postElection15YReturns.length
+          : cumulative15Y;
+        
         // Get approximate date for this trading day
         const year = new Date().getFullYear();
         const approximateDate = this.getApproximateDateForTradingDay(year, month, tradingDay);
@@ -389,7 +464,11 @@ export class AlmanacService {
           avgReturn,
           cumulativeReturn: avgCumulative,
           postElectionReturn,
-          postElectionCumulative
+          postElectionCumulative,
+          cumulativeReturn10Y: cumulative10Y,
+          cumulativeReturn15Y: cumulative15Y,
+          postElectionCumulative10Y,
+          postElectionCumulative15Y
         });
         
         prevAllCum = avgCumulative;
@@ -433,7 +512,11 @@ export class AlmanacService {
       avgReturn: 0,
       cumulativeReturn: 0,
       postElectionReturn: 0,
-      postElectionCumulative: 0
+      postElectionCumulative: 0,
+      cumulativeReturn10Y: 0,
+      cumulativeReturn15Y: 0,
+      postElectionCumulative10Y: 0,
+      postElectionCumulative15Y: 0
     }));
   }
   
@@ -441,7 +524,7 @@ export class AlmanacService {
   async getMonthlyVitalStats(month: number): Promise<MonthlyVitalStats[]> {
     const stats: MonthlyVitalStats[] = [];
     const currentYear = new Date().getFullYear();
-    const yearsBack = 18;
+    const yearsBack = 25;
     
     for (const index of INDICES) {
       try {

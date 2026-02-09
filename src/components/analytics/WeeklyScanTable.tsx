@@ -118,7 +118,7 @@ const WeeklyScanTable: React.FC = () => {
     const startDay = start.getDate();
     const endMonth = monthNames[end.getMonth()];
     const endDay = end.getDate();
-    
+
     if (start.getMonth() === end.getMonth()) {
       return `${startMonth} ${startDay} - ${endDay}`;
     }
@@ -145,7 +145,7 @@ const WeeklyScanTable: React.FC = () => {
   const loadRealSeasonalData = async () => {
     setLoading(true);
     setLoadingStatus('Initializing seasonal analysis...');
-    
+
     const today = new Date();
     const weeks: WeekRange[] = [];
     for (let i = 0; i < 4; i++) {
@@ -160,25 +160,25 @@ const WeeklyScanTable: React.FC = () => {
       setLoadingStatus('Loading SPY benchmark data (10 years)...');
       const tenYearsAgo = new Date();
       tenYearsAgo.setFullYear(tenYearsAgo.getFullYear() - 10);
-      
+
       const spyStartDate = tenYearsAgo.toISOString().split('T')[0];
       const spyEndDate = new Date().toISOString().split('T')[0];
-      
+
       const spyData = await polygonService.getHistoricalData('SPY', spyStartDate, spyEndDate);
-      
+
       if (!spyData || !spyData.results || spyData.results.length === 0) {
         throw new Error('Failed to load SPY benchmark data');
       }
 
       setLoadingStatus('Analyzing sector seasonal patterns...');
-      const sectorsPromises = sectors.map(sector => 
+      const sectorsPromises = sectors.map(sector =>
         calculateSeasonalPerformance(sector.symbol, sector.name, weeks, spyData.results)
       );
       const sectorsResults = await Promise.all(sectorsPromises);
       setSectorsData(sectorsResults);
 
       setLoadingStatus('Analyzing industry seasonal patterns...');
-      const industriesPromises = industries.map(industry => 
+      const industriesPromises = industries.map(industry =>
         calculateSeasonalPerformance(industry.symbol, industry.name, weeks, spyData.results)
       );
       const industriesResults = await Promise.all(industriesPromises);
@@ -202,13 +202,13 @@ const WeeklyScanTable: React.FC = () => {
     try {
       const tenYearsAgo = new Date();
       tenYearsAgo.setFullYear(tenYearsAgo.getFullYear() - 10);
-      
+
       const startDate = tenYearsAgo.toISOString().split('T')[0];
       const endDate = new Date().toISOString().split('T')[0];
-      
+
       const cache = GlobalDataCache.getInstance();
       const cacheKey = GlobalDataCache.keys.HISTORICAL_DATA(symbol, startDate, endDate);
-      
+
       let symbolData = cache.get(cacheKey);
       if (!symbolData) {
         symbolData = await polygonService.getHistoricalData(symbol, startDate, endDate);
@@ -247,14 +247,14 @@ const WeeklyScanTable: React.FC = () => {
       const endDay = weekEnd.getDate();
 
       const historicalWeekReturns: number[] = [];
-      
+
       for (let yearOffset = 1; yearOffset <= 10; yearOffset++) {
         const historicalYear = new Date().getFullYear() - yearOffset;
         const historicalWeekStart = new Date(historicalYear, startMonth, startDay);
         const historicalWeekEnd = new Date(historicalYear, endMonth, endDay);
-        
+
         const symbolWeekData = findWeekData(symbolData, historicalWeekStart, historicalWeekEnd);
-        
+
         if (symbolWeekData.start && symbolWeekData.end) {
           // Absolute return - no SPY benchmarking
           const symbolWeekReturn = ((symbolWeekData.end.c - symbolWeekData.start.c) / symbolWeekData.start.c) * 100;
@@ -283,15 +283,15 @@ const WeeklyScanTable: React.FC = () => {
     for (let i = 0; i < data.length; i++) {
       const dataPoint = data[i];
       const dataTime = dataPoint.t;
-      
+
       if (dataTime >= weekStartTime && !startPoint) {
         startPoint = dataPoint;
       }
-      
+
       if (dataTime >= weekStartTime && dataTime <= weekEndTime) {
         endPoint = dataPoint;
       }
-      
+
       if (dataTime > weekEndTime) break;
     }
 
@@ -305,12 +305,12 @@ const WeeklyScanTable: React.FC = () => {
 
   const renderTableCell = (value: number | null) => {
     if (value === null) {
-      return <td style={{ textAlign: 'center', color: '#666', fontStyle: 'italic', padding: '12px 10px', fontSize: '18px' }}>...</td>;
+      return <td style={{ textAlign: 'center', color: '#666', fontStyle: 'italic', padding: '10px 8px', fontSize: '14px' }}>...</td>;
     }
-    
+
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
-    let cellStyle: React.CSSProperties = { textAlign: 'center', padding: '12px 10px', fontSize: '18px' };
-    
+    let cellStyle: React.CSSProperties = { textAlign: 'center', padding: '10px 8px', fontSize: '14px' };
+
     if (numValue >= 0.60) {
       cellStyle = { ...cellStyle, backgroundColor: 'rgba(0, 255, 0, 0.15)', color: '#00ff00', fontWeight: 700 };
     } else if (numValue > 0) {
@@ -320,7 +320,7 @@ const WeeklyScanTable: React.FC = () => {
     } else {
       cellStyle = { ...cellStyle, color: '#ff4444', fontWeight: 600 };
     }
-    
+
     const displayValue = numValue >= 0 ? `+${numValue.toFixed(2)}%` : `${numValue.toFixed(2)}%`;
     return <td style={cellStyle}>{displayValue}</td>;
   };
@@ -328,13 +328,13 @@ const WeeklyScanTable: React.FC = () => {
   return (
     <div className="weekly-scan-table-container">
       <div className="weekly-scan-tabs">
-        <button 
+        <button
           className={`weekly-tab ${activeTab === 'sectors' ? 'active' : ''}`}
           onClick={() => setActiveTab('sectors')}
         >
           SECTORS ({sectors.length})
         </button>
-        <button 
+        <button
           className={`weekly-tab ${activeTab === 'industries' ? 'active' : ''}`}
           onClick={() => setActiveTab('industries')}
         >
@@ -362,8 +362,8 @@ const WeeklyScanTable: React.FC = () => {
             </thead>
             <tbody>
               {(activeTab === 'sectors' ? sectorsData : industriesData).map((item, index) => (
-                <tr 
-                  key={item.symbol} 
+                <tr
+                  key={item.symbol}
                   className={index % 2 === 0 ? 'even-row' : 'odd-row'}
                   onClick={() => {
                     setSelectedETF({ symbol: item.symbol, name: item.name });
@@ -390,23 +390,26 @@ const WeeklyScanTable: React.FC = () => {
           background: #000;
           border: 1px solid #333;
           border-radius: 6px;
-          padding: 16px;
+          padding: 13px 0px;
           margin-top: 20px;
+          margin-left: 0;
+          margin-right: 0;
+          width: 100%;
         }
 
         .weekly-scan-tabs {
           display: flex;
           gap: 12px;
-          margin-bottom: 16px;
+          margin-bottom: 13px;
         }
 
         .weekly-tab {
-          padding: 14px 32px;
+          padding: 11px 26px;
           background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%);
           border: 1px solid #2a2a2a;
           border-radius: 4px;
           color: #555555;
-          font-size: 15px;
+          font-size: 12px;
           font-weight: 700;
           cursor: pointer;
           transition: all 0.15s ease;
@@ -466,7 +469,7 @@ const WeeklyScanTable: React.FC = () => {
           display: flex;
           flex-direction: column;
           align-items: center;
-          padding: 40px;
+          padding: 32px;
           color: #888;
         }
 
@@ -488,7 +491,7 @@ const WeeklyScanTable: React.FC = () => {
           width: 100%;
           border-collapse: collapse;
           font-family: 'JetBrains Mono', monospace;
-          font-size: 18px;
+          font-size: 14px;
         }
 
         .weekly-scan-table-inline thead {
@@ -497,9 +500,9 @@ const WeeklyScanTable: React.FC = () => {
         }
 
         .weekly-scan-table-inline th {
-          padding: 14px 12px;
+          padding: 11px 10px;
           text-align: left;
-          font-size: 20px;
+          font-size: 16px;
           font-weight: 700;
           color: #ff6600;
           letter-spacing: 0.5px;
@@ -530,15 +533,15 @@ const WeeklyScanTable: React.FC = () => {
         .symbol-cell {
           font-weight: 900;
           text-align: center;
-          padding: 14px 12px;
-          font-size: 18px;
+          padding: 11px 10px;
+          font-size: 14px;
           color: #ff6600 !important;
         }
 
         .name-cell {
           color: #aaa;
-          padding: 14px 12px;
-          font-size: 18px;
+          padding: 11px 10px;
+          font-size: 14px;
         }
 
         @keyframes spin {

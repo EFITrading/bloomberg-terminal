@@ -356,7 +356,7 @@ body * {
   background: transparent;
   color: #ffffff;
   font-family: 'Roboto Mono', monospace;
-  margin: -60px 0 0 0;
+  margin: 0;
   padding: 0;
   overflow: visible;
 }
@@ -2450,6 +2450,11 @@ div.correlation-display div.correlation-strength-text {
   box-shadow: none;
 }
 
+.date-select option {
+  background: #000000;
+  color: #ffffff;
+}
+
 .more-dropdown {
   position: relative;
 }
@@ -4423,6 +4428,11 @@ label {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
+.pro-market-select option {
+  background: #000000;
+  color: #ffffff;
+}
+
 .pro-market-select:hover {
   border-color: var(--premium-orange);
   box-shadow: 0 4px 25px rgba(255, 74, 0, 0.2);
@@ -4699,6 +4709,17 @@ label {
   width: 60px;
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--premium-red), transparent);
+}
+
+.seasoned-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00d4ff, transparent);
 }
 
 .section-title {
@@ -5832,7 +5853,7 @@ button,
 /* Desktop: Show normal view, hide mobile tabs */
 .desktop-view {
   display: block;
-  margin-top: -40px;
+  margin-top: 20px;
   padding-top: 0;
   overflow: visible;
 }

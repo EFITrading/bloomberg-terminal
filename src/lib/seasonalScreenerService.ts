@@ -97,8 +97,8 @@ class SeasonalScreenerService {
           try {
             // Filter out stocks without enough historical data
             const yearsOfData = this.calculateYearsOfData(stockData.results);
-            if (yearsOfData < 15) {
-              console.warn(` ${stock.symbol} only has ${yearsOfData} years of data, skipping (need 15+)`);
+            if (yearsOfData < years) {
+              console.warn(` ${stock.symbol} only has ${yearsOfData} years of data, skipping (need ${years}+)`);
               processedCount++;
               continue;
             }
@@ -184,7 +184,7 @@ class SeasonalScreenerService {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               symbols: batch,
-              days: 30 * 365
+              days: Math.ceil(years * 365.25) // Use specified years, not hardcoded 30
             })
           });
 
@@ -299,13 +299,12 @@ class SeasonalScreenerService {
             startDate: bestPeriod.startDate,
             endDate: bestPeriod.endDate,
             averageReturn: bestPeriod.return,
-            winRate: seasonalData.statistics.winRate,
+            winRate: (bestPeriod as any).winRate || seasonalData.statistics.winRate,
             years: seasonalData.statistics.yearsOfData,
             daysUntilStart: this.calculateDaysUntilStart(bestPeriod.startDate),
             isCurrentlyActive: true
           };
         } else {
-          const bearishWinRate = 100 - seasonalData.statistics.winRate;
           return {
             symbol: stock.symbol,
             companyName: stock.name,
@@ -314,7 +313,7 @@ class SeasonalScreenerService {
             startDate: worstPeriod.startDate,
             endDate: worstPeriod.endDate,
             averageReturn: worstPeriod.return,
-            winRate: bearishWinRate,
+            winRate: (worstPeriod as any).winRate || (100 - seasonalData.statistics.winRate),
             years: seasonalData.statistics.yearsOfData,
             daysUntilStart: this.calculateDaysUntilStart(worstPeriod.startDate),
             isCurrentlyActive: true
@@ -332,13 +331,12 @@ class SeasonalScreenerService {
           startDate: bestPeriod.startDate,
           endDate: bestPeriod.endDate,
           averageReturn: bestPeriod.return,
-          winRate: seasonalData.statistics.winRate,
+          winRate: (bestPeriod as any).winRate || seasonalData.statistics.winRate,
           years: seasonalData.statistics.yearsOfData,
           daysUntilStart: this.calculateDaysUntilStart(bestPeriod.startDate),
           isCurrentlyActive: true
         };
       } else {
-        const bearishWinRate = 100 - seasonalData.statistics.winRate;
         return {
           symbol: stock.symbol,
           companyName: stock.name,
@@ -347,7 +345,7 @@ class SeasonalScreenerService {
           startDate: worstPeriod.startDate,
           endDate: worstPeriod.endDate,
           averageReturn: worstPeriod.return,
-          winRate: bearishWinRate,
+          winRate: (worstPeriod as any).winRate || (100 - seasonalData.statistics.winRate),
           years: seasonalData.statistics.yearsOfData,
           daysUntilStart: this.calculateDaysUntilStart(worstPeriod.startDate),
           isCurrentlyActive: true
@@ -405,7 +403,7 @@ class SeasonalScreenerService {
             startDate: bullish.startDate,
             endDate: bullish.endDate,
             averageReturn: bullish.return,
-            winRate: analysis.statistics.winRate,
+            winRate: (bullish as any).winRate || analysis.statistics.winRate,
             years: analysis.statistics.yearsOfData,
             daysUntilStart: this.calculateDaysUntilStart(bullish.startDate),
             isCurrentlyActive: true
@@ -419,7 +417,7 @@ class SeasonalScreenerService {
       // Check for bearish opportunities
       if (analysis.spyComparison?.worst30DayPeriod) {
         const bearish = analysis.spyComparison.worst30DayPeriod;
-        const bearishWinRate = 100 - analysis.statistics.winRate;
+        const bearishWinRate = (bearish as any).winRate || (100 - analysis.statistics.winRate);
         if (bearishWinRate >= 40 && this.isSeasonalCurrentlyActive(bearish.startDate)) {
           const opportunity: SeasonalOpportunity = {
             symbol: stock.symbol,
@@ -500,7 +498,7 @@ class SeasonalScreenerService {
                 startDate: bullish.startDate,
                 endDate: bullish.endDate,
                 averageReturn: bullish.return,
-                winRate: analysis.statistics.winRate,
+                winRate: (bullish as any).winRate || analysis.statistics.winRate,
                 years: analysis.statistics.yearsOfData,
                 daysUntilStart: this.calculateDaysUntilStart(bullish.startDate),
                 isCurrentlyActive: true
@@ -514,7 +512,7 @@ class SeasonalScreenerService {
           // Check for bearish opportunities
           if (analysis.spyComparison?.worst30DayPeriod) {
             const bearish = analysis.spyComparison.worst30DayPeriod;
-            const bearishWinRate = 100 - analysis.statistics.winRate;
+            const bearishWinRate = (bearish as any).winRate || (100 - analysis.statistics.winRate);
             if (bearishWinRate >= 40 && this.isSeasonalCurrentlyActive(bearish.startDate)) {
               const opportunity: SeasonalOpportunity = {
                 symbol: stock.symbol,
@@ -727,6 +725,11 @@ class SeasonalScreenerService {
 
   // Copy of the processDailySeasonalData method from SeasonalityChart
   private processDailySeasonalData(data: any[], spyData: any[], symbol: string, companyName: string, years: number) {
+    // Calculate cutoff date for the specified years
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - years);
+    const cutoffTimestamp = cutoffDate.getTime();
+
     // Group data by day of year
     const dailyGroups: { [dayOfYear: number]: { date: Date; return: number; year: number }[] } = {};
     const yearlyReturns: { [year: number]: number } = {};
@@ -741,6 +744,12 @@ class SeasonalScreenerService {
     for (let i = 1; i < data.length; i++) {
       const currentItem = data[i];
       const previousItem = data[i - 1];
+
+      // Skip data older than our years cutoff
+      if (currentItem.t < cutoffTimestamp) {
+        continue;
+      }
+
       const date = new Date(currentItem.t);
       const year = date.getFullYear();
       const dayOfYear = this.getDayOfYear(date);
@@ -807,11 +816,11 @@ class SeasonalScreenerService {
     const totalTrades = allReturns.length;
     const winRate = (winningYears / totalTrades) * 100;
 
-    // Analyze 30-day seasonal patterns
+    // Analyze 30-day seasonal patterns WITH WIN RATES
     const analyze30DayPatterns = (dailyData: any[]) => {
       const windowSize = 30;
-      let bestPeriod = { startDay: 1, endDay: 30, avgReturn: -999, period: '', startDate: '', endDate: '' };
-      let worstPeriod = { startDay: 1, endDay: 30, avgReturn: 999, period: '', startDate: '', endDate: '' };
+      let bestPeriod = { startDay: 1, endDay: 30, avgReturn: -999, period: '', startDate: '', endDate: '', winRate: 0 };
+      let worstPeriod = { startDay: 1, endDay: 30, avgReturn: 999, period: '', startDate: '', endDate: '', winRate: 0 };
 
       // Slide through the year to find 30-day windows
       for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
@@ -821,6 +830,9 @@ class SeasonalScreenerService {
         if (windowData.length >= 25) { // Ensure we have enough data points
           const windowReturn = windowData.reduce((sum, d) => sum + d.avgReturn, 0);
           const avgWindowReturn = windowReturn / windowData.length;
+
+          // Calculate win rate for this specific window across all years
+          const windowWinRate = this.calculateWindowWinRate(dailyGroups, startDay, endDay);
 
           // Check for best period
           if (avgWindowReturn > bestPeriod.avgReturn) {
@@ -834,7 +846,8 @@ class SeasonalScreenerService {
                 avgReturn: avgWindowReturn,
                 period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day}`,
                 startDate: `${startDataPoint.monthName} ${startDataPoint.day}`,
-                endDate: `${endDataPoint.monthName} ${endDataPoint.day}`
+                endDate: `${endDataPoint.monthName} ${endDataPoint.day}`,
+                winRate: windowWinRate
               };
             }
           }
@@ -850,8 +863,9 @@ class SeasonalScreenerService {
                 endDay,
                 avgReturn: avgWindowReturn,
                 period: `${startDataPoint.monthName} ${startDataPoint.day} - ${endDataPoint.monthName} ${endDataPoint.day}`,
-                startDate: `${startDataPoint.monthName} ${startDataPoint.day}`,
-                endDate: `${endDataPoint.monthName} ${endDataPoint.day}`
+                startDate: `${startDataPoint.monthName} ${endDataPoint.day}`,
+                endDate: `${endDataPoint.monthName} ${endDataPoint.day}`,
+                winRate: windowWinRate
               };
             }
           }
@@ -876,16 +890,42 @@ class SeasonalScreenerService {
           period: bestPeriod.period,
           return: bestPeriod.avgReturn * 30,
           startDate: bestPeriod.startDate,
-          endDate: bestPeriod.endDate
+          endDate: bestPeriod.endDate,
+          winRate: bestPeriod.winRate
         },
         worst30DayPeriod: {
           period: worstPeriod.period,
           return: worstPeriod.avgReturn * 30,
           startDate: worstPeriod.startDate,
-          endDate: worstPeriod.endDate
+          endDate: worstPeriod.endDate,
+          winRate: worstPeriod.winRate
         }
       }
     };
+  }
+
+  // Calculate win rate for a specific 30-day window across all years
+  private calculateWindowWinRate(dailyGroups: { [dayOfYear: number]: { date: Date; return: number; year: number }[] }, startDay: number, endDay: number): number {
+    // Group returns by year for this specific window
+    const yearlyWindowReturns: { [year: number]: number } = {};
+
+    // Sum up returns for each year within this specific window
+    for (let day = startDay; day <= endDay; day++) {
+      const dayData = dailyGroups[day] || [];
+      dayData.forEach(({ return: ret, year }) => {
+        if (!yearlyWindowReturns[year]) {
+          yearlyWindowReturns[year] = 0;
+        }
+        yearlyWindowReturns[year] += ret;
+      });
+    }
+
+    // Calculate win rate: percentage of years where window had positive returns
+    const allYearReturns = Object.values(yearlyWindowReturns);
+    if (allYearReturns.length === 0) return 0;
+
+    const winningYears = allYearReturns.filter(ret => ret > 0).length;
+    return (winningYears / allYearReturns.length) * 100;
   }
 
 }

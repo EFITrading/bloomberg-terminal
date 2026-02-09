@@ -46,9 +46,11 @@ interface OpportunityCardProps {
     isTopBearish?: boolean;
     years?: number;
     sidebarMode?: boolean; // Add flag for sidebar rendering
+    seasonedQualifying?: number; // Number of timeframes with 60%+ win rate (2, 3, or 4)
+    hideBestBadge?: boolean; // Hide the BEST badge (used in BEST mode where all cards are best)
 }
 
-const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopBullish, isTopBearish, years = 15, sidebarMode = false }) => {
+const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopBullish, isTopBearish, years = 15, sidebarMode = false, seasonedQualifying, hideBestBadge = false }) => {
     const [showModal, setShowModal] = useState(false);
     const isPositive = (pattern.averageReturn || pattern.avgReturn || 0) >= 0;
     const expectedReturn = (pattern.averageReturn || pattern.avgReturn || 0);
@@ -57,9 +59,9 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
     const getTimingMessage = () => {
         if (daysUntilStart === undefined || daysUntilStart === null) return null;
         if (daysUntilStart === 0) return 'STARTS TODAY';
-        if (daysUntilStart === 1) return 'STARTS TOMORROW';
+        if (daysUntilStart === 1) return 'IN 1D';
         if (daysUntilStart > 1) return `IN ${daysUntilStart}D`;
-        if (daysUntilStart === -1) return 'STARTED YESTERDAY';
+        if (daysUntilStart === -1) return '1D AGO';
         if (daysUntilStart < -1) return `${Math.abs(daysUntilStart)}D AGO`;
         return null;
     };
@@ -87,6 +89,18 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
     // Generate unique class name for this card instance
     const cardId = `opp-card-${pattern.symbol}-${Date.now()}`;
 
+    // Get ticker color based on seasoned qualifying
+    const getTickerColor = () => {
+        if (seasonedQualifying) {
+            if (seasonedQualifying >= 4) return '#FFD700'; // Golden yellow for all 4 timeframes
+            if (seasonedQualifying === 3) return '#00FF88'; // Crispy lime green for 3 timeframes
+            if (seasonedQualifying === 2) return '#00d4ff'; // Crispy cyan blue for 2 timeframes
+        }
+        return '#FF6600'; // Default orange
+    };
+
+    const tickerColor = getTickerColor();
+
     // Best/Worst highlighting logic
     const isBest = isTopBullish || isTopBearish;
     const isWorst = rank !== undefined && rank > 3;
@@ -109,7 +123,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
             <style>
                 {`
  .${cardId} .opp-symbol {
- color: #FF6600 !important;
+ color: ${tickerColor} !important;
  }
  .${cardId} .opp-expected-positive {
  color: #00FF88 !important;
@@ -138,39 +152,39 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
                     willChange: 'transform',
                     cursor: 'pointer'
                 }}>
-                {/* Best/Worst Badge */}
-                {isTopBullish && (
+                {/* Best/Worst Badge - Only show if not in BEST mode */}
+                {!hideBestBadge && isTopBullish && (
                     <div style={{
                         position: 'absolute',
-                        top: '-8px',
+                        top: '-6px',
                         right: '12px',
                         background: 'linear-gradient(135deg, #00FF88 0%, #00CC66 100%)',
                         color: '#000000',
-                        padding: '4px 12px',
-                        borderRadius: '12px',
-                        fontSize: '10px',
+                        padding: '3px 8px',
+                        borderRadius: '8px',
+                        fontSize: '7px',
                         fontWeight: 'bold',
                         fontFamily: 'monospace',
-                        letterSpacing: '0.5px',
+                        letterSpacing: '0.35px',
                         boxShadow: '0 2px 8px rgba(0, 255, 136, 0.4)',
                         textTransform: 'uppercase'
                     }}>
                         ⭐ BEST
                     </div>
                 )}
-                {isTopBearish && (
+                {!hideBestBadge && isTopBearish && (
                     <div style={{
                         position: 'absolute',
-                        top: '-8px',
+                        top: '-6px',
                         right: '12px',
                         background: 'linear-gradient(135deg, #FF4444 0%, #CC0000 100%)',
                         color: '#FFFFFF',
-                        padding: '4px 12px',
-                        borderRadius: '12px',
-                        fontSize: '10px',
+                        padding: '3px 8px',
+                        borderRadius: '8px',
+                        fontSize: '7px',
                         fontWeight: 'bold',
                         fontFamily: 'monospace',
-                        letterSpacing: '0.5px',
+                        letterSpacing: '0.35px',
                         boxShadow: '0 2px 8px rgba(255, 68, 68, 0.4)',
                         textTransform: 'uppercase'
                     }}>
@@ -193,18 +207,35 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
                             fontWeight: 'bold',
                             letterSpacing: '1px',
                             fontFamily: 'monospace',
-                            textShadow: '0 0 15px rgba(255, 102, 0, 0.6)',
+                            color: tickerColor,
+                            textShadow: `0 0 15px ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.6)' : tickerColor === '#00FF88' ? 'rgba(0, 255, 136, 0.6)' : tickerColor === '#00d4ff' ? 'rgba(0, 212, 255, 0.6)' : 'rgba(255, 102, 0, 0.6)'}`,
                             filter: 'brightness(1.1)'
                         }}>
                             {pattern.symbol}
                         </div>
-                        {(pattern as any).fiftyTwoWeekStatus && (
+                        {(pattern as any).timeframeLabel && (
                             <div style={{
-                                fontSize: '8px',
+                                fontSize: '10px',
                                 fontWeight: 'bold',
                                 fontFamily: 'monospace',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
+                                padding: '2px 6px',
+                                borderRadius: '3px',
+                                backgroundColor: 'rgba(255, 102, 0, 0.2)',
+                                color: '#FF6600',
+                                border: '1px solid #FF6600',
+                                textShadow: '0 0 10px rgba(255, 102, 0, 0.5)',
+                                whiteSpace: 'nowrap'
+                            }}>
+                                {(pattern as any).timeframeLabel}
+                            </div>
+                        )}
+                        {(pattern as any).fiftyTwoWeekStatus && (
+                            <div style={{
+                                fontSize: '4px',
+                                fontWeight: 'bold',
+                                fontFamily: 'monospace',
+                                padding: '2px 4px',
+                                borderRadius: '2px',
                                 backgroundColor: (pattern as any).fiftyTwoWeekStatus === '52 High' ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 68, 68, 0.2)',
                                 color: (pattern as any).fiftyTwoWeekStatus === '52 High' ? '#00FF88' : '#FF4444',
                                 border: `1px solid ${(pattern as any).fiftyTwoWeekStatus === '52 High' ? '#00FF88' : '#FF4444'}`,
@@ -217,15 +248,15 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
                     </div>
                     {timingMessage && (
                         <div style={{
-                            fontSize: '11px',
+                            fontSize: '5.5px',
                             color: '#FF6600',
                             fontWeight: '700',
-                            letterSpacing: '0.8px',
+                            letterSpacing: '0.4px',
                             textTransform: 'uppercase',
                             fontFamily: 'monospace',
                             background: 'rgba(255, 102, 0, 0.1)',
-                            padding: '4px 8px',
-                            borderRadius: '4px',
+                            padding: '2px 4px',
+                            borderRadius: '2px',
                             border: '1px solid rgba(255, 102, 0, 0.3)',
                             textShadow: '0 0 10px rgba(255, 102, 0, 0.5)'
                         }}>
@@ -252,7 +283,8 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
                     gridTemplateColumns: '1fr 1fr',
                     gap: '4px',
                     marginBottom: '10px',
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    position: 'relative'
                 }}>
                     {/* Expected Return */}
                     <div style={{
@@ -284,6 +316,34 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({ pattern, rank, isTopB
                             {expectedReturn >= 0 ? '+' : ''}{expectedReturn.toFixed(1)}%
                         </div>
                     </div>
+
+                    {/* Seasoned Multi-Timeframe Badge - Overlaid between boxes */}
+                    {seasonedQualifying && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '58%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            background: seasonedQualifying >= 4 ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)' :
+                                seasonedQualifying === 3 ? 'linear-gradient(135deg, #00FF88 0%, #00CC66 100%)' :
+                                    'linear-gradient(135deg, #00d4ff 0%, #0088cc 100%)',
+                            color: '#000000',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 'bold',
+                            fontFamily: 'monospace',
+                            boxShadow: `0 2px 10px ${seasonedQualifying >= 4 ? 'rgba(255, 215, 0, 0.6)' :
+                                seasonedQualifying === 3 ? 'rgba(0, 255, 136, 0.6)' :
+                                    'rgba(0, 212, 255, 0.6)'}`,
+                            textAlign: 'center',
+                            minWidth: '24px',
+                            border: '2px solid #000000',
+                            zIndex: 10
+                        }}>
+                            {seasonedQualifying}
+                        </div>
+                    )}
 
                     {/* Win Rate */}
                     <div style={{
