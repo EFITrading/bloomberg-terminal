@@ -5066,7 +5066,7 @@ function OptionPriceChart({ data, type }: { data: { time: string; price: number;
 
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
-  
+
   // Helper function to format time to 12-hour format
   const formatTime = (timeStr: string, showAMPM: boolean = true): string => {
     // Extract just the time part (e.g., "9:30" or "13:10")
@@ -5075,23 +5075,23 @@ function OptionPriceChart({ data, type }: { data: { time: string; price: number;
       const parts = timeStr.split(' ');
       timePart = parts[parts.length - 1]; // Get last part which should be the time
     }
-    
+
     // Remove existing AM/PM if present
     timePart = timePart.replace(/AM|PM/gi, '').trim();
-    
+
     // Parse hours and minutes
     const [hoursStr, minutesStr] = timePart.split(':');
     let hours = parseInt(hoursStr, 10);
     const minutes = minutesStr || '00';
-    
+
     // Determine AM/PM
     const isAM = hours < 12;
     const ampm = isAM ? 'AM' : 'PM';
-    
+
     // Convert to 12-hour format
     if (hours === 0) hours = 12;
     else if (hours > 12) hours = hours - 12;
-    
+
     // Return formatted time
     if (showAMPM) {
       return `${hours}:${minutes} ${ampm}`;
@@ -5244,7 +5244,7 @@ function OptionPriceChart({ data, type }: { data: { time: string; price: number;
 
     const timeStep = Math.max(1, Math.floor(data.length / Math.min(maxLabels, 8)));
 
-    
+
 
     // Find which indices we'll actually display
 
@@ -5272,7 +5272,7 @@ function OptionPriceChart({ data, type }: { data: { time: string; price: number;
 
       const timeStr = data[i].time;
 
-      
+
 
       // Show AM/PM only for first and last labels
 
@@ -5280,7 +5280,7 @@ function OptionPriceChart({ data, type }: { data: { time: string; price: number;
 
       const formattedTime = formatTime(timeStr, isFirstOrLast);
 
-      
+
 
       ctx.fillText(formattedTime, x, height - padding.bottom + 20);
 

@@ -45,7 +45,7 @@ class PolygonRateLimiter {
     });
 
     this.inFlightRequests.set(url, promise);
-    
+
     // Clean up after request completes
     promise.finally(() => {
       this.inFlightRequests.delete(url);
@@ -112,11 +112,11 @@ class PolygonRateLimiter {
       if (request.retryCount < this.MAX_RETRIES) {
         const delay = this.RETRY_DELAY * Math.pow(2, request.retryCount);
         console.warn(`Retrying request (${request.retryCount + 1}/${this.MAX_RETRIES}) after ${delay}ms:`, request.url);
-        
+
         await this.sleep(delay);
         request.retryCount++;
         this.queue.unshift(request); // Add back to front of queue
-        
+
         // Don't block, let the queue processor handle it
         setTimeout(() => this.processQueue(), 0);
       } else {

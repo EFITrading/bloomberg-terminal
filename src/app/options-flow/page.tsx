@@ -693,9 +693,17 @@ export default function OptionsFlowPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white pt-12">
+    <div className="min-h-screen bg-black text-white">
       {/* Main Content */}
-      <div className="p-6">
+      <div className="p-0">
+        <style jsx>{`
+          @media (max-width: 768px) {
+            :global(.main-content) {
+              padding-top: 0 !important;
+              margin-top: -30px !important;
+            }
+          }
+        `}</style>
         <OptionsFlowTable
           data={data}
           summary={summary}

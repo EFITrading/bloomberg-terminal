@@ -6100,7 +6100,7 @@ Stock Reaction: ${scores.stockReaction}/25`;
 
           minHeight: showFlowTrackingInline ? 'auto' : '100vh',
 
-          width: '100%',
+          width: '74%',
 
           marginRight: '0',
 
@@ -6120,13 +6120,15 @@ Stock Reaction: ${scores.stockReaction}/25`;
 
           width: '100%',
 
-          overflow: 'visible'
+          overflow: 'visible',
+
+          marginTop: '-52px'
 
         }}>
 
           {/* Mobile Layout - 2 Rows */}
 
-          <div className="md:hidden px-4 py-3">
+          <div className="md:hidden px-4 py-0">
 
             {/* Row 1: Search, Highlights, Clear, Filter, Track */}
 
@@ -6654,7 +6656,7 @@ Stock Reaction: ${scores.stockReaction}/25`;
 
           {/* Desktop Layout - Single Row */}
 
-          <div className="hidden md:block px-8 py-5 bg-black" style={{
+          <div className="hidden md:block px-8 py-0 bg-black" style={{
 
             width: '100%',
 
