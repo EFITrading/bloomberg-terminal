@@ -39,6 +39,7 @@ export default function LeadershipScan() {
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
     const [timeframe, setTimeframe] = useState(1.0); // 1 year
     const [minDaysBelow, setMinDaysBelow] = useState(45);
+    const [customTicker, setCustomTicker] = useState('');
 
     // Comprehensive top 850 largest stocks by market cap
     const ALL_STOCKS = [
@@ -172,10 +173,12 @@ export default function LeadershipScan() {
         return 100 - (100 / (1 + rs));
     };
 
-    const calculateLeadershipMetrics = async (symbol: string): Promise<LeadershipStock | null> => {
+    const calculateLeadershipMetrics = async (symbol: string, customTimeframe?: number, customMinDaysBelow?: number): Promise<LeadershipStock | null> => {
         try {
+            const tf = customTimeframe ?? timeframe;
+            const minDays = customMinDaysBelow ?? minDaysBelow;
             const endDate = new Date().toISOString().split('T')[0];
-            const startDate = new Date(Date.now() - timeframe * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const startDate = new Date(Date.now() - tf * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
             const data = await polygonService.getHistoricalData(symbol, startDate, endDate);
 
@@ -208,7 +211,7 @@ export default function LeadershipScan() {
             const isReaching52WHigh = currentPrice >= weekHigh52 * 0.99;
 
             if (isReachingATH || isReaching52WHigh) {
-                // Check that stock was BELOW this level for the past minDaysBelow days
+                // Check that stock was BELOW this level for the past minDays days
                 let wasBelow = true;
                 let daysSinceBelow = 0;
 
@@ -219,7 +222,7 @@ export default function LeadershipScan() {
 
                     // If we were AT the high level recently, it's not a fresh breakout
                     if (pastHigh >= weekHigh52 * 0.99) {
-                        if (daysAgo <= minDaysBelow) {
+                        if (daysAgo <= minDays) {
                             wasBelow = false; // We were at high level too recently
                             break;
                         } else {
@@ -235,7 +238,7 @@ export default function LeadershipScan() {
                 }
 
                 // TRUE FRESH BREAKOUT: Was below for required period and now breaking out
-                if (wasBelow && daysSinceLastHigh >= minDaysBelow) {
+                if (wasBelow && daysSinceLastHigh >= minDays) {
                     isNewBreakout = true;
 
                     // Determine breakout type
@@ -386,6 +389,62 @@ export default function LeadershipScan() {
         }
     }, [timeframe, minDaysBelow]); // Include dependencies that affect the calculation
 
+    const scanCustomTicker = useCallback(async () => {
+        if (!customTicker.trim()) return;
+
+        setLoading(true);
+        setProgress({ current: 0, total: 1 });
+        setLeaders([]);
+
+        try {
+            const symbol = customTicker.toUpperCase().trim();
+            console.log('Leadership Scan: Scanning custom ticker:', symbol);
+
+            // All available timeframes
+            const timeframes = [0.5, 1.0, 2.0];
+            const timeframeLabels: Record<number, string> = {
+                0.5: '6M',
+                1.0: '1Y',
+                2.0: '2Y'
+            };
+
+            // Scan across all timeframes with current minDaysBelow setting
+            const results = await Promise.all(
+                timeframes.map(tf => calculateLeadershipMetrics(symbol, tf, minDaysBelow))
+            );
+
+            const allLeaders: LeadershipStock[] = [];
+
+            // Process results from each timeframe
+            results.forEach((metrics, idx) => {
+                if (metrics) {
+                    const tf = timeframes[idx];
+                    const tfLabel = timeframeLabels[tf];
+
+                    // Add timeframe label to symbol
+                    allLeaders.push({
+                        ...metrics,
+                        symbol: `${metrics.symbol} [${tfLabel}]`
+                    });
+                }
+            });
+
+            console.log('Leadership Scan: Total results across all timeframes:', allLeaders.length);
+
+            // For single ticker search, show results from all timeframes
+            setLeaders(allLeaders);
+
+            setProgress({ current: 1, total: 1 });
+            setLastUpdate(new Date());
+            setCustomTicker('');
+        } catch (error) {
+            console.error('Error scanning custom ticker:', error);
+        } finally {
+            setLoading(false);
+            setProgress({ current: 0, total: 0 });
+        }
+    }, [customTicker, timeframe, minDaysBelow]);
+
     const formatPrice = (price: number) => {
         return new Intl.NumberFormat('en-US', {
             style: 'currency',
@@ -469,7 +528,7 @@ export default function LeadershipScan() {
                         {leader.symbol}
                     </div>
                     <div style={{
-                        color: '#888888',
+                        color: '#ffffff',
                         fontSize: '10px',
                         fontFamily: 'JetBrains Mono, monospace',
                         textTransform: 'uppercase',
@@ -512,7 +571,7 @@ export default function LeadershipScan() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
                     <div style={{
-                        color: '#888888',
+                        color: '#ffffff',
                         marginBottom: '2px',
                         fontSize: '9px',
                         fontWeight: '600',
@@ -532,7 +591,7 @@ export default function LeadershipScan() {
                 </div>
                 <div>
                     <div style={{
-                        color: '#888888',
+                        color: '#ffffff',
                         marginBottom: '2px',
                         fontSize: '9px',
                         fontWeight: '600',
@@ -552,7 +611,7 @@ export default function LeadershipScan() {
                 </div>
                 <div>
                     <div style={{
-                        color: '#888888',
+                        color: '#ffffff',
                         marginBottom: '2px',
                         fontSize: '9px',
                         fontWeight: '600',
@@ -576,7 +635,7 @@ export default function LeadershipScan() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
                     <div style={{
-                        color: '#888888',
+                        color: '#ffffff',
                         marginBottom: '2px',
                         fontSize: '9px',
                         fontWeight: '600',
@@ -597,7 +656,7 @@ export default function LeadershipScan() {
                 </div>
                 <div>
                     <div style={{
-                        color: '#888888',
+                        color: '#ffffff',
                         marginBottom: '2px',
                         fontSize: '9px',
                         fontWeight: '600',
@@ -622,7 +681,7 @@ export default function LeadershipScan() {
             <div style={{
                 borderTop: '1px solid #333333',
                 paddingTop: '8px',
-                color: '#999999',
+                color: '#ffffff',
                 fontSize: '10px',
                 fontFamily: 'JetBrains Mono, monospace',
                 display: 'flex',
@@ -858,6 +917,56 @@ export default function LeadershipScan() {
                     {loading ? 'SCANNING...' : 'RUN SCAN'}
                 </button>
 
+                {/* Custom Ticker Search */}
+                <input
+                    type="text"
+                    value={customTicker}
+                    onChange={(e) => setCustomTicker(e.target.value.toUpperCase())}
+                    onKeyPress={(e) => {
+                        if (e.key === 'Enter' && customTicker.trim()) {
+                            scanCustomTicker();
+                        }
+                    }}
+                    placeholder="OR ENTER TICKER"
+                    disabled={loading}
+                    style={{
+                        padding: '8px 12px',
+                        fontFamily: 'JetBrains Mono, Consolas, Monaco, "Courier New", monospace',
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        background: '#000',
+                        color: '#ffffff',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '4px',
+                        outline: 'none',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                        width: '180px',
+                        opacity: loading ? 0.4 : 1,
+                        cursor: loading ? 'not-allowed' : 'text'
+                    }}
+                />
+                <button
+                    onClick={scanCustomTicker}
+                    disabled={!customTicker.trim() || loading}
+                    style={{
+                        padding: '8px 24px',
+                        background: customTicker.trim() && !loading ? '#ff8c00' : '#1a1a1a',
+                        color: customTicker.trim() && !loading ? '#000' : '#666',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        fontFamily: 'JetBrains Mono, Consolas, Monaco, "Courier New", monospace',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                        cursor: customTicker.trim() && !loading ? 'pointer' : 'not-allowed',
+                        whiteSpace: 'nowrap'
+                    }}
+                >
+                    SCAN
+                </button>
+
                 {loading && (
                     <div style={{
                         display: 'flex',
@@ -929,7 +1038,7 @@ export default function LeadershipScan() {
                 ) : !loading ? (
                     <div style={{
                         textAlign: 'center',
-                        color: '#666666',
+                        color: '#ffffff',
                         fontFamily: 'JetBrains Mono, monospace',
                         marginTop: '80px'
                     }}>

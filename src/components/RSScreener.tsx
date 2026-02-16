@@ -102,6 +102,7 @@ const RSScreener: React.FC = () => {
         breakdowns: []
     });
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+    const [customTicker, setCustomTicker] = useState('');
 
     // Get sector for a stock
     const getSectorForStock = (symbol: string): string => {
@@ -114,10 +115,11 @@ const RSScreener: React.FC = () => {
     };
 
     // Calculate RS metrics for a given symbol
-    const calculateRSMetrics = async (symbol: string): Promise<RSMetrics | null> => {
+    const calculateRSMetrics = async (symbol: string, customLookbackYears?: number): Promise<RSMetrics | null> => {
         try {
+            const lookback = customLookbackYears ?? lookbackYears;
             const endDate = new Date().toISOString().split('T')[0];
-            const startDate = new Date(Date.now() - lookbackYears * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const startDate = new Date(Date.now() - lookback * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
             // Get price data for both symbol and SPY
             const [symbolData, spyData] = await Promise.all([
@@ -272,6 +274,93 @@ const RSScreener: React.FC = () => {
             setProgress({ current: 0, total: 0 });
         }
     }, [lookbackYears]); // Include lookbackYears as dependency since it affects the calculation
+
+    const scanCustomTicker = useCallback(async () => {
+        if (!customTicker.trim()) return;
+
+        setLoading(true);
+        setProgress({ current: 0, total: 1 });
+
+        // Reset signals at start
+        setSignals({
+            breakouts: [],
+            rareLows: [],
+            breakdowns: []
+        });
+
+        try {
+            const symbol = customTicker.toUpperCase().trim();
+            const sector = getSectorForStock(symbol);
+
+            // All available lookback periods
+            const lookbackPeriods = [0.5, 1.0, 1.5, 2.0, 5.0, 10.0, 15.0, 20.0];
+            const periodLabels: Record<number, string> = {
+                0.5: '6M',
+                1.0: '1Y',
+                1.5: '18M',
+                2.0: '2Y',
+                5.0: '5Y',
+                10.0: '10Y',
+                15.0: '15Y',
+                20.0: '20Y'
+            };
+
+            // Scan across all lookback periods
+            const results = await Promise.all(
+                lookbackPeriods.map(period => calculateRSMetrics(symbol, period))
+            );
+
+            const breakouts: StockSignal[] = [];
+            const rareLows: StockSignal[] = [];
+            const breakdowns: StockSignal[] = [];
+
+            // Process results from each period
+            results.forEach((metrics, idx) => {
+                if (metrics) {
+                    const period = lookbackPeriods[idx];
+                    const periodLabel = periodLabels[period];
+                    const priceChangePercent = metrics.currentPrice > 0 ? (metrics.priceChange / (metrics.currentPrice - metrics.priceChange)) * 100 : 0;
+
+                    const signalData = {
+                        symbol: `${symbol} [${periodLabel}]`, // Add period label to symbol
+                        percentile: metrics.percentile,
+                        classification: metrics.classification,
+                        currentPrice: metrics.currentPrice,
+                        priceChange: metrics.priceChange,
+                        priceChangePercent,
+                        volume: metrics.volume,
+                        sector
+                    };
+
+                    // Add to appropriate category if it qualifies
+                    if (metrics.isBreakout) {
+                        breakouts.push({ ...signalData, signalType: 'breakout' as const });
+                    }
+                    if (metrics.isRareLow) {
+                        rareLows.push({ ...signalData, signalType: 'rareLow' as const });
+                    }
+                    if (metrics.isBreakdown) {
+                        breakdowns.push({ ...signalData, signalType: 'breakdown' as const });
+                    }
+                }
+            });
+
+            setSignals({
+                breakouts,
+                rareLows,
+                breakdowns
+            });
+
+            setProgress({ current: 1, total: 1 });
+            setLastUpdate(new Date());
+            setCustomTicker('');
+        } catch (error) {
+            console.error('Error scanning custom ticker:', error);
+        } finally {
+            setLoading(false);
+            setProgress({ current: 0, total: 0 });
+        }
+    }, [customTicker, lookbackYears]);
 
     const formatPrice = (price: number) => {
         return new Intl.NumberFormat('en-US', {
@@ -686,6 +775,56 @@ const RSScreener: React.FC = () => {
                         }}
                     >
                         {loading ? 'SCANNING...' : 'RUN SCAN'}
+                    </button>
+
+                    {/* Custom Ticker Search */}
+                    <input
+                        type="text"
+                        value={customTicker}
+                        onChange={(e) => setCustomTicker(e.target.value.toUpperCase())}
+                        onKeyPress={(e) => {
+                            if (e.key === 'Enter' && customTicker.trim()) {
+                                scanCustomTicker();
+                            }
+                        }}
+                        placeholder="OR ENTER TICKER"
+                        disabled={loading}
+                        style={{
+                            padding: '8px 12px',
+                            fontFamily: 'JetBrains Mono, Consolas, Monaco, "Courier New", monospace',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            background: '#000',
+                            color: '#ffffff',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '4px',
+                            outline: 'none',
+                            textTransform: 'uppercase',
+                            letterSpacing: '1px',
+                            width: '180px',
+                            opacity: loading ? 0.4 : 1,
+                            cursor: loading ? 'not-allowed' : 'text'
+                        }}
+                    />
+                    <button
+                        onClick={scanCustomTicker}
+                        disabled={!customTicker.trim() || loading}
+                        style={{
+                            padding: '8px 24px',
+                            background: customTicker.trim() && !loading ? '#ff8c00' : '#1a1a1a',
+                            color: customTicker.trim() && !loading ? '#000' : '#666',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            fontFamily: 'JetBrains Mono, Consolas, Monaco, "Courier New", monospace',
+                            textTransform: 'uppercase',
+                            letterSpacing: '1px',
+                            cursor: customTicker.trim() && !loading ? 'pointer' : 'not-allowed',
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        SCAN
                     </button>
 
                     {loading && (

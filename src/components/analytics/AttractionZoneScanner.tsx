@@ -49,6 +49,8 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
     const [expirationFilter, setExpirationFilter] = useState('Default');
     const [strengthFilter, setStrengthFilter] = useState<'all' | 'purple' | 'blue' | 'yellow'>('all');
     const [currentPage, setCurrentPage] = useState(1);
+    const [customTicker, setCustomTicker] = useState('');
+    const [lastUpdate, setLastUpdate] = useState('');
 
     const [isMobile, setIsMobile] = useState(false);
 
@@ -120,9 +122,9 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                         netGex: messageData.data.netGex,
                                         bias: messageData.data.dealerSweat > 0 ? 'Bullish' as const : 'Bearish' as const,
                                         strength: messageData.data.gexImpactScore || 0,
-                                        volatility: Math.abs(messageData.data.netGex) > 2 ? 'High' as const :
-                                            Math.abs(messageData.data.netGex) > 0.5 ? 'Medium' as const : 'Low' as const,
-                                        range: Math.abs(((messageData.data.attractionLevel - messageData.data.currentPrice) / messageData.data.currentPrice) * 100),
+                                        volatility: Math.abs(messageData.data.netGex || 0) > 2 ? 'High' as const :
+                                            Math.abs(messageData.data.netGex || 0) > 0.5 ? 'Medium' as const : 'Low' as const,
+                                        range: messageData.data.currentPrice ? Math.abs(((messageData.data.attractionLevel - messageData.data.currentPrice) / messageData.data.currentPrice) * 100) : 0,
                                         marketCap: messageData.data.marketCap,
                                         gexImpactScore: messageData.data.gexImpactScore,
                                         largestWall: messageData.data.largestWall
@@ -139,6 +141,7 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                     setScanProgress({ current: messageData.count, total: messageData.count });
                                     const finalSortedResults = [...currentResults].sort((a, b) => (b.gexImpactScore || 0) - (a.gexImpactScore || 0));
                                     setGexData(finalSortedResults);
+                                    setLastUpdate(new Date().toLocaleTimeString());
                                     setLoading(false);
                                     setAnimationClass('');
                                     break;
@@ -168,6 +171,58 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
         });
     };
 
+    const scanCustomTicker = async () => {
+        if (!customTicker.trim()) return;
+
+        setLoading(true);
+        setError('');
+        setAnimationClass('animate-pulse');
+
+        try {
+            console.log(`🎯 Scanning custom ticker: ${customTicker.toUpperCase()}`);
+
+            const response = await fetch(`/api/gex-screener?symbols=${encodeURIComponent(customTicker.toUpperCase().trim())}&expirationFilter=${expirationFilter}`);
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch GEX data: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            if (data && data.success && Array.isArray(data.data)) {
+                // Transform data to match expected structure
+                const transformedData = data.data.map((item: any) => ({
+                    ticker: item.ticker,
+                    attractionLevel: item.attractionLevel,
+                    currentPrice: item.currentPrice,
+                    dealerSweat: item.dealerSweat,
+                    netGex: item.netGex,
+                    bias: item.dealerSweat > 0 ? 'Bullish' as const : 'Bearish' as const,
+                    strength: item.gexImpactScore || 0,
+                    volatility: Math.abs(item.netGex || 0) > 2 ? 'High' as const :
+                        Math.abs(item.netGex || 0) > 0.5 ? 'Medium' as const : 'Low' as const,
+                    range: item.currentPrice ? Math.abs(((item.attractionLevel - item.currentPrice) / item.currentPrice) * 100) : 0,
+                    marketCap: item.marketCap,
+                    gexImpactScore: item.gexImpactScore,
+                    largestWall: item.largestWall
+                }));
+
+                setGexData(transformedData);
+                setLastUpdate(new Date().toLocaleTimeString());
+            } else {
+                setGexData([]);
+            }
+
+            setCustomTicker('');
+        } catch (err: any) {
+            console.error('Error scanning custom ticker:', err);
+            setError(err.message || 'Failed to scan ticker');
+        } finally {
+            setLoading(false);
+            setAnimationClass('');
+        }
+    };
+
     const handleSort = (column: string) => {
         if (sortBy === column) {
             setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -180,7 +235,7 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
     const filteredGexData = gexData
         .filter(item => item.ticker.toLowerCase().includes(searchTerm.toLowerCase()))
         .filter(item => {
-            if (item.strength < 40) return false;
+            if (!item.strength || item.strength < 40) return false;
 
             if (strengthFilter === 'purple') return item.strength > 75;
             if (strengthFilter === 'blue') return item.strength >= 63 && item.strength <= 75;
@@ -188,10 +243,10 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
             return true;
         })
         .sort((a, b) => {
-            const aValue = sortBy === 'dealerSweat' ? a.dealerSweat :
-                sortBy === 'targetLevel' ? a.attractionLevel : a.currentPrice;
-            const bValue = sortBy === 'dealerSweat' ? b.dealerSweat :
-                sortBy === 'targetLevel' ? b.attractionLevel : b.currentPrice;
+            const aValue = sortBy === 'dealerSweat' ? (a.dealerSweat || 0) :
+                sortBy === 'targetLevel' ? (a.attractionLevel || 0) : (a.currentPrice || 0);
+            const bValue = sortBy === 'dealerSweat' ? (b.dealerSweat || 0) :
+                sortBy === 'targetLevel' ? (b.attractionLevel || 0) : (b.currentPrice || 0);
 
             return sortOrder === 'desc' ? bValue - aValue : aValue - bValue;
         });
@@ -210,7 +265,7 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
             {/* Header */}
             <div className="bg-gradient-to-r from-black via-gray-950 to-black border-b border-orange-500/30 rounded-t-xl">
                 <div className="px-3 md:px-8 py-3 md:py-6">
-                    <div className="flex flex-col gap-3 md:gap-0 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-col gap-3">
                         {/* Title Section */}
                         {!compactMode && (
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-8">
@@ -240,9 +295,63 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                         )}
                                     </div>
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Search Bar and Buttons Row */}
+                        {!compactMode && (
+                            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+                                {/* Action Buttons */}
+                                <div className="flex items-center gap-2 md:gap-4">
+                                    <button
+                                        onClick={handleScan}
+                                        disabled={loading}
+                                        className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${loading
+                                            ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                            : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+                                            }`}
+                                    >
+                                        <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${loading ? 'animate-spin' : ''}`} />
+                                        {loading ? 'SCANNING...' : 'SCAN NOW'}
+                                    </button>
+
+                                    {/* Custom Ticker Search */}
+                                    <input
+                                        type="text"
+                                        value={customTicker}
+                                        onChange={(e) => setCustomTicker(e.target.value.toUpperCase())}
+                                        onKeyPress={(e) => {
+                                            if (e.key === 'Enter' && customTicker.trim()) {
+                                                scanCustomTicker();
+                                            }
+                                        }}
+                                        placeholder="OR ENTER TICKER"
+                                        disabled={loading}
+                                        className="px-3 py-2 font-mono text-xs md:text-sm font-bold rounded-lg disabled:opacity-50"
+                                        style={{
+                                            background: '#000',
+                                            color: '#ffffff',
+                                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                                            outline: 'none',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.1em',
+                                            width: '200px'
+                                        }}
+                                    />
+                                    <button
+                                        onClick={scanCustomTicker}
+                                        disabled={!customTicker.trim() || loading}
+                                        className={`px-4 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl ${loading || !customTicker.trim()
+                                            ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                            : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+                                            }`}
+                                    >
+                                        SCAN
+                                    </button>
+                                </div>
 
                                 {/* Search Bar */}
-                                <div className="relative w-full md:w-80 md:ml-8">
+                                <div className="relative w-full md:flex-1 md:max-w-md">
                                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                         <Search className="h-3 w-3 md:h-4 md:w-4 text-gray-400" />
                                     </div>
@@ -254,23 +363,6 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                         className="block w-full pl-8 md:pl-10 pr-3 py-2 md:py-3 text-sm border border-gray-700 rounded-xl bg-gray-900/50 backdrop-blur-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all duration-300"
                                     />
                                 </div>
-                            </div>
-                        )}
-
-                        {/* Action Buttons */}
-                        {!compactMode && (
-                            <div className="flex items-center gap-2 md:gap-4">
-                                <button
-                                    onClick={handleScan}
-                                    disabled={loading}
-                                    className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${loading
-                                            ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                                            : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
-                                        }`}
-                                >
-                                    <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${loading ? 'animate-spin' : ''}`} />
-                                    {loading ? 'SCANNING...' : 'SCAN NOW'}
-                                </button>
                             </div>
                         )}
                     </div>
@@ -303,17 +395,47 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                     </select>
 
                     {compactMode && (
-                        <button
+                        <>\n                            <button
                             onClick={handleScan}
                             disabled={loading}
                             className={`px-4 md:px-6 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl flex items-center gap-2 ${loading
-                                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                                    : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+                                ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
                                 }`}
                         >
                             <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${loading ? 'animate-spin' : ''}`} />
                             {loading ? 'SCANNING...' : 'SCAN NOW'}
                         </button>
+
+                            {/* Custom Ticker Input */}
+                            <input
+                                type="text"
+                                value={customTicker}
+                                onChange={(e) => setCustomTicker(e.target.value.toUpperCase())}
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter' && customTicker.trim()) {
+                                        scanCustomTicker();
+                                    }
+                                }}
+                                placeholder="OR ENTER TICKER"
+                                disabled={loading}
+                                className="px-3 md:px-4 py-2 md:py-3 text-xs md:text-sm font-mono font-bold bg-gray-900/50 border border-gray-600/50 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.05em'
+                                }}
+                            />
+                            <button
+                                onClick={scanCustomTicker}
+                                disabled={!customTicker.trim() || loading}
+                                className={`px-3 md:px-4 py-2 md:py-3 font-bold text-xs md:text-sm transition-all duration-300 rounded-xl ${!customTicker.trim() || loading
+                                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+                                    }`}
+                            >
+                                SCAN
+                            </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -377,7 +499,9 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                 <div className="space-y-2">
                     {paginatedData.length === 0 && !loading && (
                         <div className="text-center py-16 text-gray-400">
-                            {searchTerm ? 'No results found for your search' : 'Click "SCAN NOW" to find attraction zones'}
+                            {searchTerm ? 'No results found for your search' :
+                                lastUpdate ? 'No results found' :
+                                    'Click "SCAN NOW" to find attraction zones'}
                         </div>
                     )}
 
@@ -388,10 +512,10 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                             onMouseEnter={() => setHoveredRow(index)}
                             onMouseLeave={() => setHoveredRow(null)}
                             className={`px-4 md:px-6 py-4 md:py-6 border rounded-xl transition-all duration-300 cursor-pointer ${selectedRow === index
-                                    ? 'bg-gradient-to-r from-orange-500/20 to-orange-600/20 border-orange-500/60 shadow-lg'
-                                    : hoveredRow === index
-                                        ? 'bg-gray-900/80 border-gray-700/80 shadow-md'
-                                        : 'bg-black/40 border-gray-800/60'
+                                ? 'bg-gradient-to-r from-orange-500/20 to-orange-600/20 border-orange-500/60 shadow-lg'
+                                : hoveredRow === index
+                                    ? 'bg-gray-900/80 border-gray-700/80 shadow-md'
+                                    : 'bg-black/40 border-gray-800/60'
                                 }`}
                         >
                             <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-8">
@@ -412,7 +536,7 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                     {/* Current Price */}
                                     <div className="text-center lg:text-center">
                                         <div className="text-xs text-gray-400 font-semibold mb-1 lg:hidden">Current</div>
-                                        <div className="text-lg md:text-xl font-bold text-white">${item.currentPrice.toFixed(2)}</div>
+                                        <div className="text-lg md:text-xl font-bold text-white">${item.currentPrice?.toFixed(2) || 'N/A'}</div>
                                     </div>
 
                                     {/* Target Level */}
@@ -420,7 +544,7 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                         <div className="text-xs text-gray-400 font-semibold mb-1 lg:hidden">Target</div>
                                         <div className={`text-lg md:text-xl font-bold ${item.attractionLevel > item.currentPrice ? 'text-green-400' : 'text-red-400'
                                             }`}>
-                                            ${item.attractionLevel.toFixed(2)}
+                                            ${item.attractionLevel?.toFixed(2) || 'N/A'}
                                         </div>
                                     </div>
 
@@ -428,7 +552,7 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                     <div className="text-center lg:text-center">
                                         <div className="text-xs text-gray-400 font-semibold mb-1 lg:hidden">Distance</div>
                                         <div className="text-base md:text-lg font-bold text-orange-400">
-                                            {item.range.toFixed(1)}%
+                                            {item.range?.toFixed(1) || 'N/A'}%
                                         </div>
                                     </div>
 
@@ -436,10 +560,10 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                     <div className="text-center lg:text-center">
                                         <div className="text-xs text-gray-400 font-semibold mb-1 lg:hidden">Sweat</div>
                                         <div className={`text-base md:text-lg font-bold ${Math.abs(item.dealerSweat) > 100 ? 'text-red-500' :
-                                                Math.abs(item.dealerSweat) > 50 ? 'text-orange-400' :
-                                                    'text-yellow-400'
+                                            Math.abs(item.dealerSweat) > 50 ? 'text-orange-400' :
+                                                'text-yellow-400'
                                             }`}>
-                                            {item.dealerSweat.toFixed(0)}
+                                            {item.dealerSweat?.toFixed(0) || 'N/A'}
                                         </div>
                                     </div>
 
@@ -447,11 +571,11 @@ export default function AttractionZoneScanner({ compactMode = false }: Attractio
                                     <div className="text-center lg:text-center">
                                         <div className="text-xs text-gray-400 font-semibold mb-1 lg:hidden">Strength</div>
                                         <div className="flex items-center justify-center gap-2">
-                                            <div className={`w-3 h-3 rounded-full ${item.strength > 75 ? 'bg-purple-500' :
-                                                    item.strength >= 63 ? 'bg-blue-500' :
-                                                        'bg-yellow-500'
+                                            <div className={`w-3 h-3 rounded-full ${(item.strength || 0) > 75 ? 'bg-purple-500' :
+                                                (item.strength || 0) >= 63 ? 'bg-blue-500' :
+                                                    'bg-yellow-500'
                                                 }`}></div>
-                                            <span className="text-base md:text-lg font-bold text-white">{item.strength.toFixed(0)}%</span>
+                                            <span className="text-base md:text-lg font-bold text-white">{item.strength?.toFixed(0) || '0'}%</span>
                                         </div>
                                     </div>
                                 </div>

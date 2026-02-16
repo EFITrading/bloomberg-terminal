@@ -1,4 +1,4 @@
-import { premiumScanner } from '@/lib/premiumImbalanceScanner';
+import { contractionScanner } from '@/lib/contractionScanner';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -7,9 +7,6 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
 
     const symbolsParam = searchParams.get('symbols') || 'AAPL,TSLA,NVDA,MSFT,GOOGL,META,AMD,SPY,QQQ,AMZN';
-    const maxSpread = parseFloat(searchParams.get('maxSpread') || '5');
-    const expiry = searchParams.get('expiry') || undefined; // Optional expiry parameter
-
     const symbols = symbolsParam.split(',');
 
     // Create a ReadableStream for Server-Sent Events
@@ -32,7 +29,7 @@ export async function GET(request: Request) {
 
             try {
                 // Use the streaming scanner
-                for await (const event of premiumScanner.scanSymbolsStream(symbols, maxSpread, expiry)) {
+                for await (const event of contractionScanner.scanSymbolsStream(symbols)) {
                     if (isClosed) break; // Stop if stream is closed
 
                     // Send event to client
@@ -46,7 +43,7 @@ export async function GET(request: Request) {
                     controller.close();
                 }
             } catch (error) {
-                console.error('Streaming error:', error);
+                console.error('Contraction streaming error:', error);
 
                 if (!isClosed) {
                     const errorData = `data: ${JSON.stringify({
@@ -62,7 +59,7 @@ export async function GET(request: Request) {
         },
         cancel() {
             // Client disconnected - clean up resources
-            console.log('OTM Premium stream cancelled by client');
+            console.log('Contraction stream cancelled by client');
         }
     });
 

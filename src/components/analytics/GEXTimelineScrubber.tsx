@@ -14,6 +14,30 @@ interface GEXTimelineScrubberProps {
     currentPrice?: number;
 }
 
+// US Market Holidays (2025-2027)
+const US_MARKET_HOLIDAYS = [
+    '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
+    '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+    '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
+    '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+    '2027-01-01', '2027-01-18', '2027-02-15', '2027-04-02', '2027-05-31',
+    '2027-07-05', '2027-09-06', '2027-11-25', '2027-12-24',
+];
+
+// Check if market is open on a given date
+const isMarketOpen = (dateStr: string): boolean => {
+    const date = new Date(dateStr + 'T12:00:00'); // Use noon to avoid timezone issues
+    const dayOfWeek = date.getDay();
+
+    // Check if weekend (0 = Sunday, 6 = Saturday)
+    if (dayOfWeek === 0 || dayOfWeek === 6) return false;
+
+    // Check if holiday
+    if (US_MARKET_HOLIDAYS.includes(dateStr)) return false;
+
+    return true;
+};
+
 const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
     ticker,
     date,
@@ -57,8 +81,11 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
                     setSelectedIndex(timeline.length - 1);
                     onTimeChange(null, currentPrice); // null = use current/live data
                 } else {
-                    // No data available, set empty but don't fail
-                    console.warn('No historical data available for', ticker, 'on', date);
+                    // No data available - only warn if market should be open
+                    if (isMarketOpen(date)) {
+                        console.warn('No historical data available for', ticker, 'on', date, '(trading day)');
+                    }
+                    // For weekends/holidays, silently set empty data
                 }
             } catch (error) {
                 console.error('Failed to fetch timeline data:', error);
@@ -139,10 +166,17 @@ const GEXTimelineScrubber: React.FC<GEXTimelineScrubberProps> = ({
     }
 
     if (timelineData.length === 0) {
+        // Only show warning if market should be open
+        if (!isMarketOpen(date)) {
+            // Weekend or holiday - don't show a warning
+            return null;
+        }
+
+        // Market should be open but no data available
         return (
             <div className="bg-gray-900/50 border border-yellow-600/50 rounded-lg p-4">
                 <div className="flex items-center justify-center gap-2 text-yellow-400">
-                    <span className="text-sm">⚠ No historical data available for {ticker} on {date} (market may be closed or data not yet available)</span>
+                    <span className="text-sm">⚠ No historical data available for {ticker} on {date}</span>
                 </div>
             </div>
         );

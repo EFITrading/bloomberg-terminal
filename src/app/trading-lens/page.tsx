@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+
+const EFIChart = dynamic(() => import('@/components/trading/EFICharting'), { ssr: false });
 
 type IVDataPoint = {
     date: string;
@@ -370,7 +373,7 @@ export default function TradingLensPage() {
             {/* Compact Search Bar - Top Left Corner */}
             <div style={{
                 position: 'absolute',
-                top: '-100px',
+                top: '-50px',
                 left: '20px',
                 maxWidth: '600px',
                 background: 'linear-gradient(145deg, #020B14, #000508)',
@@ -1100,6 +1103,65 @@ export default function TradingLensPage() {
                     </div>
                 )}
             </div>
+
+            {/* EFI Chart - Top Right */}
+            {currentTicker && (
+                <div style={{
+                    position: 'absolute',
+                    top: '-50px',
+                    right: '20px',
+                    width: '52%',
+                    height: '600px'
+                }}>
+                    <style jsx global>{`
+                        /* Hide sidebar completely */
+                        .sidebar-container {
+                            display: none !important;
+                        }
+                        /* Make chart full width without sidebar */
+                        .w-full.h-full.flex > div:first-child {
+                            width: 100% !important;
+                        }
+                        /* Hide star and multi chart buttons */
+                        button[title*="Watchlist"],
+                        button[title*="watchlist"],
+                        button[title*="favorite"],
+                        button[title*="star"],
+                        button:has(svg > path[d*="M12 2"]),
+                        button[title*="layout"],
+                        button[title*="Layout"],
+                        button[title*="chart"],
+                        button[title*="multi"] {
+                            display: none !important;
+                        }
+                    `}</style>
+                    <EFIChart
+                        symbol={currentTicker}
+                        initialTimeframe="1d"
+                        height={600}
+                    />
+                </div>
+            )}
+
+            {/* Hide unwanted buttons after render */}
+            {currentTicker && typeof window !== 'undefined' && (() => {
+                setTimeout(() => {
+                    const buttons = Array.from(document.querySelectorAll('.navigation-bar-premium button span'));
+                    buttons.forEach((span: any) => {
+                        const text = span.textContent || '';
+                        if (text.includes('TECHNALYSIS') || text.includes('IV & HV') ||
+                            text.includes('FlowMoves') || text.includes('RRG')) {
+                            const parent = span.closest('.ml-4') || span.closest('div[class*="relative"]');
+                            if (parent) parent.style.display = 'none';
+                        }
+                    });
+                    // Hide chart type icons and drawing tools
+                    document.querySelectorAll('.chart-type-dropdown, button[title*="Trend"], button[title*="Line"], button[title*="Channel"], button[title*="Box"]').forEach((el: any) => {
+                        if (el) el.style.display = 'none';
+                    });
+                }, 200);
+                return null;
+            })()}
 
             {/* IV Charts Panel - Bottom Left */}
             <div style={{

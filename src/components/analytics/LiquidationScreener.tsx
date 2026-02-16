@@ -30,10 +30,11 @@ const LiquidationScreener: React.FC = () => {
   const [sortBy, setSortBy] = useState<'mli' | 'structure' | 'volume'>('mli');
   const [filterThreshold, setFilterThreshold] = useState(0.6);
   const [scanning, setScanning] = useState(false);
+  const [customTicker, setCustomTicker] = useState('');
 
   const calculateATR = (prices: number[], highs: number[], lows: number[], period: number = 20): number => {
     if (prices.length < period + 1) return 0;
-    
+
     let atrSum = 0;
     for (let i = prices.length - period; i < prices.length; i++) {
       const tr = Math.max(
@@ -57,23 +58,23 @@ const LiquidationScreener: React.FC = () => {
       // Fetch 90 days of data
       const endDate = new Date().toISOString().split('T')[0];
       const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      
+
       const response = await fetch(`/api/historical-data?symbol=${ticker}&startDate=${startDate}&endDate=${endDate}`);
       if (!response.ok) return null;
-      
+
       const result = await response.json();
       if (!result?.results || result.results.length < 60) return null;
-      
+
       const data = result.results;
       const prices = data.map((d: any) => d.c);
       const volumes = data.map((d: any) => d.v);
       const highs = data.map((d: any) => d.h);
       const lows = data.map((d: any) => d.l);
-      
+
       const currentPrice = prices[prices.length - 1];
       const price20d = prices[prices.length - 21];
       const price60d = prices[prices.length - 61];
-      
+
       // COMPONENT 1: STRUCTURE BREAKDOWN
       const range3M = {
         high: Math.max(...prices.slice(-60)),
@@ -82,7 +83,7 @@ const LiquidationScreener: React.FC = () => {
       const atr20 = calculateATR(prices, highs, lows, 20);
       const structureBreak = currentPrice < range3M.low && currentPrice < price20d ? 1 : 0;
       const structureScore = structureBreak ? (range3M.low - currentPrice) / Math.max(atr20, 0.01) : 0;
-      
+
       // COMPONENT 2: VOLUME INEFFICIENCY
       const volSMA10 = calculateSMA(volumes, 10);
       const volSMA50 = calculateSMA(volumes, 50);
@@ -90,30 +91,30 @@ const LiquidationScreener: React.FC = () => {
       const priceChange = Math.abs(currentPrice - price20d) / price20d;
       const efficiency = priceChange / Math.max(volRatio, 0.1);
       const volInefficiencyScore = Math.min(5, volRatio / Math.max(efficiency, 0.001));
-      
+
       // COMPONENT 3: VOLATILITY DIVERGENCE (simplified - using realized vol only)
       const returns20 = [];
       for (let i = prices.length - 20; i < prices.length; i++) {
         returns20.push((prices[i] - prices[i - 1]) / prices[i - 1]);
       }
       const rv20 = Math.sqrt(returns20.reduce((sum, r) => sum + r * r, 0) / 20) * Math.sqrt(252);
-      
+
       const returns60 = [];
       for (let i = prices.length - 60; i < prices.length - 40; i++) {
         returns60.push((prices[i] - prices[i - 1]) / prices[i - 1]);
       }
       const rv60 = Math.sqrt(returns60.reduce((sum, r) => sum + r * r, 0) / 20) * Math.sqrt(252);
-      
+
       const volExpansion = rv20 / Math.max(rv60, 0.01);
       const volDivergenceScore = volExpansion > 1.4 ? volExpansion : 0;
-      
+
       // COMPONENT 4: RELATIVE WEAKNESS (vs simple market proxy)
       const perfStock = (currentPrice / price20d) - 1;
       const relWeaknessScore = perfStock < -0.05 ? Math.abs(perfStock) * 10 : 0;
-      
+
       // COMPONENT 5: CORRELATION SHIFT (simplified)
       const corrShift = volExpansion > 1.5 ? 0.3 : 0.1;
-      
+
       // COMPONENT 6: MOMENTUM DECAY
       const ema20 = calculateSMA(prices.slice(-20), 20);
       const ema40 = calculateSMA(prices.slice(-40, -20), 20);
@@ -122,10 +123,10 @@ const LiquidationScreener: React.FC = () => {
       const range5 = Math.max(...prices.slice(-5)) - Math.min(...prices.slice(-5));
       const rangeExpansion = range5 / Math.max(range20, 0.01);
       const momentumScore = momentumSlope < 0 ? rangeExpansion * Math.abs(momentumSlope) : 0;
-      
+
       // NORMALIZE SCORES (0-1 scale)
       const normalize = (score: number, max: number) => Math.min(1, score / max);
-      
+
       // COMPOSITE MLI
       const mli = (
         0.25 * normalize(structureScore, 3) +
@@ -135,12 +136,12 @@ const LiquidationScreener: React.FC = () => {
         0.10 * normalize(corrShift, 0.5) +
         0.05 * normalize(momentumScore, 2)
       );
-      
+
       let interpretation = 'Normal';
       if (mli > 0.8) interpretation = 'Institutional Capitulation';
       else if (mli > 0.6) interpretation = 'Controlled Liquidation';
       else if (mli > 0.4) interpretation = 'Distribution Phase';
-      
+
       return {
         ticker,
         mli,
@@ -160,29 +161,55 @@ const LiquidationScreener: React.FC = () => {
     }
   };
 
+  const scanCustomTicker = async () => {
+    if (!customTicker.trim()) return;
+
+    setScanning(true);
+    setLoading(true);
+    setLiquidationData([]);
+
+    try {
+      const result = await scanTicker(customTicker.toUpperCase().trim());
+
+      // When searching single ticker, always show results regardless of threshold
+      if (result) {
+        setLiquidationData([result]);
+      } else {
+        setLiquidationData([]);
+      }
+
+      setCustomTicker('');
+    } catch (error) {
+      console.error('Error scanning custom ticker:', error);
+    } finally {
+      setScanning(false);
+      setLoading(false);
+    }
+  };
+
   const runScan = async () => {
     setScanning(true);
     setLoading(true);
     setLiquidationData([]);
-    
+
     try {
       // Scan in parallel batches of 20 to avoid overwhelming API
       const batchSize = 20;
       const results: LiquidationData[] = [];
-      
+
       for (let i = 0; i < TOP_1000_TICKERS.length; i += batchSize) {
         const batch = TOP_1000_TICKERS.slice(i, i + batchSize);
         const batchPromises = batch.map(ticker => scanTicker(ticker));
         const batchResults = await Promise.all(batchPromises);
-        
-        const validResults = batchResults.filter((r): r is LiquidationData => 
+
+        const validResults = batchResults.filter((r): r is LiquidationData =>
           r !== null && r.mli >= filterThreshold
         );
-        
+
         results.push(...validResults);
         setLiquidationData([...results]);
       }
-      
+
       console.log(`✅ Scan complete: ${results.length} tickers meet liquidation criteria (MLI >= ${filterThreshold})`);
     } catch (error) {
       console.error('Scan error:', error);
@@ -264,6 +291,54 @@ const LiquidationScreener: React.FC = () => {
           }}
         >
           {scanning ? 'SCANNING...' : 'RUN SCAN'}
+        </button>
+
+        {/* Custom Ticker Search */}
+        <input
+          type="text"
+          value={customTicker}
+          onChange={(e) => setCustomTicker(e.target.value.toUpperCase())}
+          onKeyPress={(e) => {
+            if (e.key === 'Enter' && customTicker.trim()) {
+              scanCustomTicker();
+            }
+          }}
+          placeholder="OR ENTER TICKER"
+          disabled={scanning}
+          style={{
+            padding: '10px 12px',
+            fontFamily: '"Roboto Mono", monospace',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            background: '#000',
+            color: '#ffffff',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '3px',
+            outline: 'none',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            width: '200px',
+            opacity: scanning ? 0.4 : 1,
+            cursor: scanning ? 'not-allowed' : 'text'
+          }}
+        />
+        <button
+          onClick={scanCustomTicker}
+          disabled={!customTicker.trim() || scanning}
+          style={{
+            padding: '10px 20px',
+            background: customTicker.trim() && !scanning ? '#ff9900' : '#333',
+            color: customTicker.trim() && !scanning ? '#000' : '#666',
+            border: 'none',
+            borderRadius: '3px',
+            fontSize: '12px',
+            fontWeight: 'bold',
+            fontFamily: '"Roboto Mono", monospace',
+            cursor: customTicker.trim() && !scanning ? 'pointer' : 'not-allowed',
+            transition: 'all 0.2s'
+          }}
+        >
+          SCAN
         </button>
 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -348,7 +423,7 @@ const LiquidationScreener: React.FC = () => {
           <table style={{
             width: '100%',
             borderCollapse: 'collapse',
-            fontSize: '11px',
+            fontSize: '17px',
             fontFamily: '"Roboto Mono", monospace'
           }}>
             <thead>
@@ -368,9 +443,9 @@ const LiquidationScreener: React.FC = () => {
               {sortedData.map((item, index) => {
                 const mliColor = item.mli > 0.8 ? '#ff3333' : item.mli > 0.6 ? '#ff9900' : '#ffaa00';
                 const priceColor = item.priceChange20d >= 0 ? '#00ff88' : '#ff3333';
-                
+
                 return (
-                  <tr 
+                  <tr
                     key={item.ticker}
                     style={{
                       borderBottom: '1px solid #333',
