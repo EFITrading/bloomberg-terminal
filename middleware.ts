@@ -7,7 +7,7 @@ export async function middleware(request: NextRequest) {
 
   // Allow public routes
   if (
-    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api') || // Allow all API routes (they handle their own auth)
     pathname === '/login' ||
     pathname === '/' ||
     pathname.startsWith('/_next') ||
