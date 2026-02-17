@@ -26,15 +26,15 @@ export default function RootLayout({
     children: React.ReactNode
 }>) {
     return (
-        <html lang="en">
-            <body className={`${inter.variable} antialiased`}>
+        <html lang="en" style={{ overflowX: 'hidden', width: '100%' }}>
+            <body className={`${inter.variable} antialiased`} style={{ overflowX: 'hidden', width: '100%', position: 'relative' }}>
                 <ClientSessionProvider>
                     <MarketRegimeProvider>
                         <AuthGuard>
-                            <div className="terminal-app">
+                            <div className="terminal-app" style={{ overflowX: 'hidden', width: '100%', maxWidth: '100vw' }}>
                                 <Background />
                                 <ConditionalNavigation />
-                                <main className="main-content">
+                                <main className="main-content" style={{ overflowX: 'hidden', width: '100%', maxWidth: '100vw' }}>
                                     {children}
                                 </main>
                             </div>

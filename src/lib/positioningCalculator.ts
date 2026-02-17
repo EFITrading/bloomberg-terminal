@@ -11,6 +11,7 @@ export interface PositioningResult {
   scores: {
     expiration: number;
     contractPrice: number;
+    relativeStrength: number;
     combo: number;
     priceAction: number;
     stockReaction: number;
@@ -35,6 +36,7 @@ export interface EnrichmentData {
   currentPrices: Record<string, number>;
   historicalStdDevs: Map<string, number>;
   allTrades: TradeData[];
+  relativeStrengthData: Map<string, number>;
 }
 
 export function calculatePositioningGrade(
@@ -45,7 +47,8 @@ export function calculatePositioningGrade(
     currentOptionPrices = {},
     currentPrices = {},
     historicalStdDevs = new Map(),
-    allTrades = []
+    allTrades = [],
+    relativeStrengthData = new Map()
   } = enrichmentData;
 
   // Get option ticker for current price lookup
@@ -60,6 +63,7 @@ export function calculatePositioningGrade(
   const scores = {
     expiration: 0,
     contractPrice: 0,
+    relativeStrength: 0,
     combo: 0,
     priceAction: 0,
     stockReaction: 0
@@ -74,23 +78,38 @@ export function calculatePositioningGrade(
   else if (daysToExpiry <= 42) scores.expiration = 5;
   confidenceScore += scores.expiration;
 
-  // 2. Contract Price Score (25 points max) - based on position P&L
+  // 2. Contract Price Score (15 points max) - based on position P&L
   if (currentPrice && currentPrice > 0) {
     const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
 
-    if (percentChange <= -40) scores.contractPrice = 25;
-    else if (percentChange <= -20) scores.contractPrice = 20;
-    else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 15;
-    else if (percentChange >= 20) scores.contractPrice = 5;
-    else scores.contractPrice = 10;
+    if (percentChange <= -40) scores.contractPrice = 15;
+    else if (percentChange <= -20) scores.contractPrice = 12;
+    else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 10;
+    else if (percentChange >= 20) scores.contractPrice = 3;
+    else scores.contractPrice = 6;
   } else {
-    scores.contractPrice = 12;
+    scores.contractPrice = 0;
   }
   confidenceScore += scores.contractPrice;
 
-  // 3. Combo Trade Score (10 points max)
+  // 3. Relative Strength Score (10 points max)
+  const relativeStrength = relativeStrengthData.get(trade.underlying_ticker);
   const isCall = trade.type === 'call';
   const fillStyle = trade.fill_style || '';
+
+  if (relativeStrength !== undefined) {
+    const isBullishTrade = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) || (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+    const isBearishTrade = (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) || (isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+
+    if (isBullishTrade && relativeStrength > 0) {
+      scores.relativeStrength = 10;
+    } else if (isBearishTrade && relativeStrength < 0) {
+      scores.relativeStrength = 10;
+    }
+  }
+  confidenceScore += scores.relativeStrength;
+
+  // 4. Combo Trade Score (10 points max)
   const hasComboTrade = allTrades.some(t => {
     if (t.underlying_ticker !== trade.underlying_ticker) return false;
     if (t.expiry !== trade.expiry) return false;
@@ -125,31 +144,45 @@ export function calculatePositioningGrade(
   const tradeTime = new Date(trade.trade_timestamp);
   const currentTime = new Date();
 
-  // 4. Price Action Score (25 points max) - Stock within standard deviation
+  // 5. Price Action Score (25 points max) - Consolidation OR Reversal Bet
   const stdDev = historicalStdDevs.get(trade.underlying_ticker);
 
   if (currentStockPrice && entryStockPrice && stdDev) {
     const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
-    const tradingDaysElapsed = Math.floor(hoursElapsed / 6.5); // 6.5-hour trading day
+    const tradingDaysElapsed = Math.floor(hoursElapsed / 6.5);
 
-    // Calculate current stock move in percentage
     const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
     const absMove = Math.abs(stockPercentChange);
-
-    // Check if stock is within 1 standard deviation
     const withinStdDev = absMove <= stdDev;
 
-    // Award points based on how many days stock stayed within std dev
-    if (withinStdDev && tradingDaysElapsed >= 3) scores.priceAction = 25;
-    else if (withinStdDev && tradingDaysElapsed >= 2) scores.priceAction = 20;
-    else if (withinStdDev && tradingDaysElapsed >= 1) scores.priceAction = 15;
-    else scores.priceAction = 10;
+    // SCENARIO A: Stock stayed calm (consolidation)
+    if (withinStdDev) {
+      if (tradingDaysElapsed >= 3) scores.priceAction = 25;
+      else if (tradingDaysElapsed >= 2) scores.priceAction = 20;
+      else if (tradingDaysElapsed >= 1) scores.priceAction = 15;
+      else scores.priceAction = 10;
+    }
+    // SCENARIO B: Stock moved big - check if flow is contrarian reversal bet
+    else {
+      const isBullishFlow = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) || (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+      const isBearishFlow = (isCall && (fillStyle === 'B' || fillStyle === 'BB')) || (!isCall && (fillStyle === 'A' || fillStyle === 'AA'));
+      const isReversalBet = (stockPercentChange < -stdDev && isBullishFlow) || (stockPercentChange > stdDev && isBearishFlow);
+
+      if (isReversalBet) {
+        if (tradingDaysElapsed >= 3) scores.priceAction = 25;
+        else if (tradingDaysElapsed >= 2) scores.priceAction = 20;
+        else if (tradingDaysElapsed >= 1) scores.priceAction = 15;
+        else scores.priceAction = 12;
+      } else {
+        scores.priceAction = 10;
+      }
+    }
   } else {
-    scores.priceAction = 12;
+    scores.priceAction = 0;
   }
   confidenceScore += scores.priceAction;
 
-  // 5. Stock Reaction Score (15 points max)
+  // 6. Stock Reaction Score (15 points max)
   // Measure stock movement 1 hour and 3 hours after trade placement
   if (currentStockPrice && entryStockPrice) {
     const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
@@ -212,7 +245,8 @@ export function calculatePositioningGrade(
   // Create breakdown tooltip text
   const breakdown = `Score: ${confidenceScore}/100
 Expiration: ${scores.expiration}/25
-Contract P&L: ${scores.contractPrice}/25
+Contract P&L: ${scores.contractPrice}/15
+Relative Strength: ${scores.relativeStrength}/10
 Combo Trade: ${scores.combo}/10
 Price Action: ${scores.priceAction}/25
 Stock Reaction: ${scores.stockReaction}/15`;

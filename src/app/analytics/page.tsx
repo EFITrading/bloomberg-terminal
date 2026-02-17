@@ -260,6 +260,9 @@ export default function Analytics() {
             transform: translateY(-50%) scale(1.3);
           }
         }
+        .main-content {
+          padding-top: 0 !important;
+        }
       `}</style>
       <div style={{
         display: 'flex',

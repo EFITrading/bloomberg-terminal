@@ -77,6 +77,7 @@ export default function TickerScroller() {
         <>
             <div className="ticker-scroller-container" style={{
                 width: '100%',
+                maxWidth: '100vw',
                 background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
                 borderBottom: '1px solid rgba(255, 165, 0, 0.2)',
                 overflow: 'hidden',
@@ -84,7 +85,9 @@ export default function TickerScroller() {
                 height: '29px',
                 zIndex: 10000,
                 display: 'flex',
-                alignItems: 'center'
+                alignItems: 'center',
+                overflowX: 'hidden',
+                overflowY: 'hidden'
             }}>
 
                 <div style={{

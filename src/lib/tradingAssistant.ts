@@ -20,9 +20,9 @@ export class TradingAssistant {
     this.knowledge = {
       patterns: [
         // Greetings
-        { 
-          trigger: /^(hi|hello|hey|greetings)/i, 
-          response: "Hello! I'm your Trading Guide AI assistant. I can help you with technical analysis, trading strategies, market insights, and more. What would you like to know?" 
+        {
+          trigger: /^(hi|hello|hey|greetings)/i,
+          response: "Hello! I'm your Trading Guide AI assistant. I can help you with technical analysis, trading strategies, market insights, and more. What would you like to know?"
         },
 
         // Open Interest queries with specific expiration (ticker first: e.g., "AAPL oi weekly")
@@ -42,20 +42,20 @@ export class TradingAssistant {
             const ticker = match[1].toUpperCase();
             let startDate = match[2];
             let endDate = match[3];
-            
+
             // Convert MM/DD/YY to YYYY-MM-DD
             if (startDate.includes('/')) {
               const [month, day, year] = startDate.split('/');
               const fullYear = year.length === 2 ? `20${year}` : year;
               startDate = `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             }
-            
+
             if (endDate.includes('/')) {
               const [month, day, year] = endDate.split('/');
               const fullYear = year.length === 2 ? `20${year}` : year;
               endDate = `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             }
-            
+
             return await this.getOIData(ticker, 'range', undefined, startDate, endDate);
           }
         },
@@ -66,13 +66,13 @@ export class TradingAssistant {
           response: async (match: RegExpMatchArray) => {
             const ticker = match[1].toUpperCase();
             let dateStr = match[2];
-            
+
             // Convert MM/DD/YYYY to YYYY-MM-DD
             if (dateStr.includes('/')) {
               const [month, day, year] = dateStr.split('/');
               dateStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             }
-            
+
             return await this.getOIData(ticker, 'custom', dateStr);
           }
         },
@@ -101,14 +101,14 @@ export class TradingAssistant {
           response: async (match: RegExpMatchArray) => {
             const ticker = match[1].toUpperCase();
             let dateStr = match[2];
-            
+
             // Convert MM/DD/YY to YYYY-MM-DD
             if (dateStr.includes('/')) {
               const [month, day, year] = dateStr.split('/');
               const fullYear = year.length === 2 ? `20${year}` : year;
               dateStr = `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             }
-            
+
             return await this.getExpectedRange(ticker, 'weekly', dateStr);
           }
         },
@@ -128,14 +128,14 @@ export class TradingAssistant {
           response: async (match: RegExpMatchArray) => {
             const ticker = match[1].toUpperCase();
             let dateStr = match[2];
-            
+
             // Convert MM/DD/YY to YYYY-MM-DD
             if (dateStr.includes('/')) {
               const [month, day, year] = dateStr.split('/');
               const fullYear = year.length === 2 ? `20${year}` : year;
               dateStr = `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             }
-            
+
             return await this.getExpectedRange(ticker, 'monthly', dateStr);
           }
         },
@@ -241,67 +241,67 @@ export class TradingAssistant {
         },
 
         // Market Analysis
-        { 
+        {
           trigger: /(market regime|regime analysis)/i,
           response: "**Market Regime Analysis**\n\nIdentifying the current market environment to adapt your strategy.\n\n**Four Main Regimes:**\n\n**1. Trending Bull:**\n- Higher highs, higher lows\n- Strategy: Buy dips, momentum plays\n- Indicators: Price > MA(200), RSI > 50\n\n**2. Trending Bear:**\n- Lower highs, lower lows\n- Strategy: Sell rallies, short momentum\n- Indicators: Price < MA(200), RSI < 50\n\n**3. Range-Bound:**\n- Sideways price action\n- Strategy: Mean reversion, sell volatility\n- Indicators: Flat MAs, low ADX\n\n**4. High Volatility:**\n- Erratic swings\n- Strategy: Wait for clarity or trade breakouts\n- Indicators: High VIX, wide BB\n\n**Adaptation is Key:** Most traders fail by using wrong strategy for current regime"
         },
 
-        { 
+        {
           trigger: /(volume|volume analysis)/i,
           response: "**Volume Analysis**\n\nVolume is the number of shares/contracts traded and validates price movements.\n\n**Key Principles:**\n\n**1. Volume Confirmation:**\n- Rising prices + rising volume = Strong uptrend ✓\n- Rising prices + falling volume = Weak, potential reversal ⚠\n- Falling prices + rising volume = Strong downtrend ✓\n- Falling prices + falling volume = Weak, potential reversal ⚠\n\n**2. Volume Patterns:**\n- **Climax Volume:** Extreme volume often marks tops/bottoms\n- **Dry Up:** Very low volume before major moves\n- **Accumulation:** Quiet volume near support\n- **Distribution:** Quiet volume near resistance\n\n**3. Key Indicators:**\n- VWAP (Volume Weighted Average Price)\n- OBV (On Balance Volume)\n- Volume Profile\n- Money Flow Index\n\n**Rule:** Never trade breakouts without volume confirmation!"
         },
 
         // Risk Management
-        { 
+        {
           trigger: /(risk management|risk|money management)/i,
           response: "**Risk Management - The Most Important Skill**\n\nProper risk management is what separates profitable traders from losers.\n\n**Core Rules:**\n\n**1. Position Sizing:**\n- Risk 1-2% of capital per trade\n- Formula: Position Size = (Account × Risk%) / (Entry - Stop)\n- Never risk more because you're confident\n\n**2. Stop Losses:**\n- Always use stops (no exceptions)\n- Place at technical levels (not arbitrary)\n- Never move stops against you\n\n**3. Risk/Reward:**\n- Minimum 2:1 ratio\n- Better to take fewer high-quality setups\n\n**4. Diversification:**\n- Don't concentrate in one sector\n- Maximum 5% of portfolio in single position\n- Correlation matters\n\n**5. Max Daily Loss:**\n- Set daily loss limit (3-5%)\n- Stop trading when hit\n- Prevents revenge trading\n\n**Remember:** Protect your capital first, profits second!"
         },
 
-        { 
+        {
           trigger: /(psychology|trading psychology|mental|mindset)/i,
           response: "**Trading Psychology**\n\nYour mindset determines 80% of your success.\n\n**Common Psychological Traps:**\n\n**1. Fear of Missing Out (FOMO)**\n- Chasing trades after breakout\n- Solution: Wait for pullbacks, trade plan\n\n**2. Revenge Trading**\n- Trying to win back losses immediately\n- Solution: Take break after loss, follow rules\n\n**3. Overconfidence**\n- Increasing size after winning streak\n- Solution: Stick to risk management always\n\n**4. Analysis Paralysis**\n- Too much information, can't decide\n- Solution: Simplify system, trust setups\n\n**5. Loss Aversion**\n- Holding losers too long\n- Solution: Accept losses quickly, cut fast\n\n**Mental Edge Builders:**\n- Keep trading journal\n- Meditate before session\n- Exercise regularly\n- Have life outside trading\n- Review mistakes, not P&L\n\n**Truth:** Technical skills matter, but psychology wins"
         },
 
         // Platform Features
-        { 
+        {
           trigger: /(how to use|how do i use|what is) (this platform|the platform|efi chart)/i,
           response: "**Your EFI Platform Features**\n\nYou have access to professional-grade tools:\n\n**📊 Chart Tools:**\n- Multiple timeframes (5M, 1H, Daily)\n- Advanced drawing tools (trend lines, channels, Fib)\n- Custom indicators overlay\n\n**📈 Analysis Suite:**\n- **GEX Analysis:** Gamma exposure visualization\n- **IV & HV Screeners:** Find volatility opportunities\n- **Seasonal Patterns:** Historical trend analysis\n- **RRG Analysis:** Relative rotation graphs\n\n**⚡ Options Tools:**\n- Real-time options flow\n- Live FlowMoves tracking\n- Expansion/Liquidation signals\n- Dealer attraction levels\n\n**💡 Pro Tips:**\n- Use GEX to identify support/resistance\n- Check seasonal patterns for edge\n- Monitor options flow for institutional activity\n- Combine multiple indicators for confirmation\n\n**Need specific help?** Ask me about any feature!"
         },
 
-        { 
+        {
           trigger: /(seasonal|seasonality)/i,
           response: "**Seasonal Analysis**\n\nHistorical patterns that repeat based on time of year.\n\n**Key Seasonal Patterns:**\n\n**Monthly:**\n- January Effect: Small caps outperform\n- September: Historically weakest month\n- December: Santa Rally (last week)\n\n**Weekly:**\n- Monday: Often weak (weekend news)\n- Tuesday-Wednesday: Strongest days\n- Friday: Profit-taking\n\n**Intraday:**\n- First hour: High volatility\n- 10:30 AM: Trend often established\n- Lunch: Low volume doldrums\n- Last hour: Power hour volatility\n\n**Election Cycle:**\n- Year 1-2: Generally weaker\n- Year 3-4: Pre-election rally\n\n**How to Use:**\n1. Know the seasonal bias\n2. Combine with technical analysis\n3. Don't trade against strong seasonal trends\n4. Use for timing entries/exits\n\n**Your Platform:** Click SEASONAL button for historical data"
         },
 
         // Help and general
-        { 
+        {
           trigger: /(help|what can you do|capabilities|features)/i,
           response: "**I Can Help You With:**\n\n**📊 Technical Analysis:**\n- Indicators (RSI, MACD, Bollinger Bands, etc.)\n- Chart patterns and formations\n- Support/resistance identification\n- Trend analysis\n\n**🎯 Trading Strategies:**\n- Day trading setups\n- Swing trading techniques\n- Scalping methods\n- Options strategies\n\n**📈 Options Trading:**\n- GEX (Gamma Exposure)\n- IV vs HV analysis\n- Options flow interpretation\n- Greeks explanation\n\n**💰 Risk Management:**\n- Position sizing\n- Stop loss placement\n- Portfolio management\n- Risk/reward optimization\n\n**🧠 Trading Psychology:**\n- Mental discipline\n- Emotional control\n- Trading journal tips\n\n**🔧 Platform Features:**\n- How to use EFI tools\n- Feature explanations\n\n**Just ask me anything!** Examples:\n- \"Explain RSI\"\n- \"Best scalping strategy\"\n- \"How to manage risk\"\n- \"What is GEX\""
         },
 
         // Default fallback
-        { 
+        {
           trigger: /.*/,
           response: (match: RegExpMatchArray) => {
             const query = match[0].toLowerCase();
-            
+
             if (query.includes('trade') || query.includes('strategy')) {
               return "What type of trading strategy are you interested in?";
             }
-            
+
             if (query.includes('indicator') || query.includes('technical')) {
               return "Which technical indicator would you like to learn about?";
             }
-            
+
             if (query.includes('option')) {
               return "What aspect of options trading interests you?";
             }
-            
+
             return "I can help with trading strategies, technical analysis, and options. What would you like to know?";
           }
         }
       ],
-      
+
       indicators: {},
       strategies: {},
       terminology: {}
@@ -311,7 +311,7 @@ export class TradingAssistant {
   async generateResponse(userMessage: string, conversationHistory: Message[]): Promise<string> {
     // Clean and normalize input
     const normalizedMessage = userMessage.trim();
-    
+
     // Check for empty message
     if (!normalizedMessage) {
       return "I didn't receive a message. How can I help you with trading today?";
@@ -401,7 +401,7 @@ export class TradingAssistant {
       }
 
       let currentPrice = result.currentPrice || 0;
-      
+
       // If currentPrice not in top level, try to extract from data
       if (currentPrice === 0) {
         const firstExp = Object.keys(result.data)[0];
@@ -424,7 +424,7 @@ export class TradingAssistant {
 
       // Find the appropriate expiration
       let expiration: string | null = null;
-      
+
       if (customDate) {
         // Use custom date if provided
         if (!allExpirations.includes(customDate)) {
@@ -437,7 +437,7 @@ export class TradingAssistant {
         const daysUntilFriday = (5 - today.getDay() + 7) % 7 || 7;
         const nextFriday = new Date(today.getTime() + daysUntilFriday * 24 * 60 * 60 * 1000);
         const nextFridayStr = nextFriday.toISOString().split('T')[0];
-        
+
         expiration = allExpirations.find(exp => exp >= nextFridayStr) || null;
       } else if (expType === 'monthly') {
         // Find next monthly (3rd Friday of the month)
@@ -449,16 +449,16 @@ export class TradingAssistant {
           const thirdFriday = firstFriday + 14;
           return new Date(year, month, thirdFriday);
         };
-        
+
         let thirdFriday = findThirdFriday(today);
         if (thirdFriday <= today) {
           const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
           thirdFriday = findThirdFriday(nextMonth);
         }
-        
+
         const thirdFridayStr = thirdFriday.toISOString().split('T')[0];
-        expiration = allExpirations.find(exp => exp === thirdFridayStr) || 
-                     allExpirations.find(exp => exp >= thirdFridayStr) || null;
+        expiration = allExpirations.find(exp => exp === thirdFridayStr) ||
+          allExpirations.find(exp => exp >= thirdFridayStr) || null;
       }
 
       if (!expiration) {
@@ -500,7 +500,7 @@ export class TradingAssistant {
       const pct90Up = (((call90 - currentPrice) / currentPrice) * 100).toFixed(1);
       const pct80Down = (((currentPrice - put80) / currentPrice) * 100).toFixed(1);
       const pct80Up = (((call80 - currentPrice) / currentPrice) * 100).toFixed(1);
-      
+
       return `## ${ticker} - ${label} Expected Range
 
 **Current Price:** $${currentPrice.toFixed(2)} | **Expiration:** ${expiration} | **DTE:** ${daysToExpiry} | **IV:** ${(avgIV * 100).toFixed(1)}%
@@ -530,7 +530,7 @@ export class TradingAssistant {
       }
 
       let currentPrice = result.currentPrice || 0;
-      
+
       // If currentPrice not in top level, try to extract from data
       if (currentPrice === 0) {
         const firstExp = Object.keys(result.data)[0];
@@ -544,7 +544,7 @@ export class TradingAssistant {
           }
         }
       }
-      
+
       if (currentPrice === 0) {
         return `❌ Unable to determine current price for ${ticker}.`;
       }
@@ -555,7 +555,7 @@ export class TradingAssistant {
       }
 
       const today = new Date();
-      
+
       // Helper function to get next expiration of a type
       const getNextExpiration = (type: 'weekly' | 'monthly' | 'quad') => {
         return allExpirations.find(exp => {
@@ -563,7 +563,7 @@ export class TradingAssistant {
           const dayOfWeek = expDate.getDay();
           const isThirdFriday = expDate.getDate() >= 15 && expDate.getDate() <= 21 && dayOfWeek === 5;
           const isQuadMonth = [2, 5, 8, 11].includes(expDate.getMonth()); // March, June, Sept, Dec (0-indexed)
-          
+
           if (type === 'weekly') return expDate > today && !isThirdFriday;
           if (type === 'monthly') return expDate > today && isThirdFriday && !isQuadMonth;
           if (type === 'quad') return expDate > today && isThirdFriday && isQuadMonth;
@@ -571,29 +571,29 @@ export class TradingAssistant {
         });
       };
 
-      const calculatePCRatio = async (expiration: string): Promise<{ratio: string, put90: number, call90: number, totalCallOI: number, totalPutOI: number}> => {
+      const calculatePCRatio = async (expiration: string): Promise<{ ratio: string, put90: number, call90: number, totalCallOI: number, totalPutOI: number }> => {
         const expData = result.data[expiration];
-        
+
         // Get ATM strike and IV
         const strikes = Object.keys(expData.calls || {}).map(Number);
-        const atmStrike = strikes.reduce((prev, curr) => 
+        const atmStrike = strikes.reduce((prev, curr) =>
           Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) ? curr : prev
         );
-        
+
         const callIV = expData.calls?.[atmStrike]?.implied_volatility || 0.3;
         const putIV = expData.puts?.[atmStrike]?.implied_volatility || 0.3;
         const avgIV = (callIV + putIV) / 2;
-        
+
         // Calculate time to expiry
         const expDate = new Date(expiration + 'T16:00:00');
         const daysToExpiry = Math.max(1, Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
         const T = daysToExpiry / 365;
         const r = 0.0387;
-        
+
         // Calculate 90% range
         const call90 = this.findStrikeForProbability(currentPrice, r, avgIV, T, 90, true);
         const put90 = this.findStrikeForProbability(currentPrice, r, avgIV, T, 90, false);
-        
+
         console.log(`[OI 90% Range Debug] ${expiration}:`, {
           currentPrice,
           put90,
@@ -602,11 +602,11 @@ export class TradingAssistant {
           T,
           daysToExpiry
         });
-        
+
         // Calculate OI within range
         let totalCallOI = 0;
         let totalPutOI = 0;
-        
+
         if (expData.calls) {
           Object.entries(expData.calls).forEach(([strike, callData]: [string, any]) => {
             const strikeNum = parseFloat(strike);
@@ -615,7 +615,7 @@ export class TradingAssistant {
             }
           });
         }
-        
+
         if (expData.puts) {
           Object.entries(expData.puts).forEach(([strike, putData]: [string, any]) => {
             const strikeNum = parseFloat(strike);
@@ -624,7 +624,7 @@ export class TradingAssistant {
             }
           });
         }
-        
+
         const ratio = totalCallOI === 0 ? '∞' : (totalPutOI / totalCallOI).toFixed(2);
         return { ratio, put90, call90, totalCallOI, totalPutOI };
       };
@@ -636,9 +636,9 @@ export class TradingAssistant {
           const available = allExpirations.slice(0, 5).join(', ');
           return `❌ Expiration ${customDate} not found for ${ticker}.\n\nAvailable expirations: ${available}${allExpirations.length > 5 ? '...' : ''}`;
         }
-        
+
         const data = await calculatePCRatio(customDate);
-        
+
         return `## ${ticker} - OI Analysis
 
 **Current Price:** $${currentPrice.toFixed(2)}
@@ -659,26 +659,26 @@ export class TradingAssistant {
 
 **Interpretation:** ${data.ratio === '∞' ? 'No call OI - extremely bearish positioning' : parseFloat(data.ratio) > 1 ? 'Bearish - More put OI than calls' : 'Bullish - More call OI than puts'}`;
       }
-      
+
       if (expType === 'range' && startDate && endDate) {
         // Find all expirations within the date range
         const start = new Date(startDate + 'T00:00:00');
         const end = new Date(endDate + 'T23:59:59');
-        
+
         const expsInRange = allExpirations.filter(exp => {
           const expDate = new Date(exp + 'T16:00:00');
           return expDate >= start && expDate <= end;
         });
-        
+
         if (expsInRange.length === 0) {
           return `❌ No expirations found between ${startDate} and ${endDate} for ${ticker}.`;
         }
-        
+
         // Aggregate OI across all expirations in range
         let totalCallOI = 0, totalPutOI = 0;
         const furthestExp = expsInRange[expsInRange.length - 1];
         const rangeData = await calculatePCRatio(furthestExp);
-        
+
         for (const exp of expsInRange) {
           const expData = result.data[exp];
           if (expData.calls) {
@@ -698,7 +698,7 @@ export class TradingAssistant {
             });
           }
         }
-        
+
         const ratioRange = totalCallOI === 0 ? '∞' : (totalPutOI / totalCallOI).toFixed(2);
         return `## ${ticker} - OI Analysis
 
@@ -716,12 +716,12 @@ export class TradingAssistant {
 
 **Interpretation:** ${ratioRange === '∞' ? 'No call OI - extremely bearish positioning' : parseFloat(ratioRange) > 1 ? 'Bearish - More put OI than calls' : 'Bullish - More call OI than puts'}`;
       }
-      
+
       if (expType === 'all') {
         const weekly = getNextExpiration('weekly');
         const monthly = getNextExpiration('monthly');
         const quad = getNextExpiration('quad');
-        
+
         let output = `## ${ticker} - OI Analysis
 
 **Current Price:** $${currentPrice.toFixed(2)}
@@ -729,7 +729,7 @@ export class TradingAssistant {
 ---
 
 `;
-        
+
         if (weekly) {
           const data = await calculatePCRatio(weekly);
           console.log(`[Weekly Output Debug]`, {
@@ -753,19 +753,19 @@ export class TradingAssistant {
 
 `;
         }
-        
+
         // 45d aggregated
         const fortyFiveDaysFromNow = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000);
         const exps45d = allExpirations.filter(exp => {
           const expDate = new Date(exp + 'T16:00:00');
           return expDate >= today && expDate <= fortyFiveDaysFromNow;
         });
-        
+
         if (exps45d.length > 0) {
           let totalCallOI45 = 0, totalPutOI45 = 0;
           const furthestExp = exps45d[exps45d.length - 1];
           const rangeData = await calculatePCRatio(furthestExp);
-          
+
           for (const exp of exps45d) {
             const expData = result.data[exp];
             if (expData.calls) {
@@ -785,7 +785,7 @@ export class TradingAssistant {
               });
             }
           }
-          
+
           const ratio45 = totalCallOI45 === 0 ? '∞' : (totalPutOI45 / totalCallOI45).toFixed(2);
           output += `### 45-Day Aggregate (${exps45d.length} expirations)
 
@@ -802,7 +802,7 @@ export class TradingAssistant {
 
 `;
         }
-        
+
         if (monthly) {
           const data = await calculatePCRatio(monthly);
           output += `### Monthly (${monthly})
@@ -820,7 +820,7 @@ export class TradingAssistant {
 
 `;
         }
-        
+
         if (quad) {
           const data = await calculatePCRatio(quad);
           output += `### Quad Witching (${quad})
@@ -834,14 +834,14 @@ export class TradingAssistant {
 `;
           output += `**Interpretation:** ${data.ratio === '∞' ? 'No call OI' : parseFloat(data.ratio) > 1 ? 'Bearish - More put OI than calls' : 'Bullish - More call OI than puts'}`;
         }
-        
+
         return output;
       }
-      
+
       // Handle specific expiration types
       let expiration: string | undefined;
       let label = '';
-      
+
       if (expType === 'weekly') {
         expiration = getNextExpiration('weekly');
         label = 'Weekly';
@@ -858,12 +858,12 @@ export class TradingAssistant {
           const expDate = new Date(exp + 'T16:00:00');
           return expDate >= today && expDate <= fortyFiveDaysFromNow;
         });
-        
+
         if (exps45d.length > 0) {
           let totalCallOI45 = 0, totalPutOI45 = 0;
           const furthestExp = exps45d[exps45d.length - 1];
           const rangeData = await calculatePCRatio(furthestExp);
-          
+
           for (const exp of exps45d) {
             const expData = result.data[exp];
             if (expData.calls) {
@@ -883,7 +883,7 @@ export class TradingAssistant {
               });
             }
           }
-          
+
           const ratio45 = totalCallOI45 === 0 ? '∞' : (totalPutOI45 / totalCallOI45).toFixed(2);
           return `## ${ticker} - OI Analysis
 
@@ -906,13 +906,13 @@ export class TradingAssistant {
 **Interpretation:** ${ratio45 === '∞' ? 'No call OI - extremely bearish positioning' : parseFloat(ratio45) > 1 ? 'Bearish - More put OI than calls' : 'Bullish - More call OI than puts'}`;
         }
       }
-      
+
       if (!expiration) {
         return `❌ No ${label} expiration found for ${ticker}.`;
       }
-      
+
       const data = await calculatePCRatio(expiration);
-      
+
       return `## ${ticker} - ${label} OI Analysis
 
 **Current Price:** $${currentPrice.toFixed(2)}
@@ -932,7 +932,7 @@ export class TradingAssistant {
 ---
 
 **Interpretation:** ${data.ratio === '∞' ? 'No call OI - extremely bearish positioning' : parseFloat(data.ratio) > 1 ? 'Bearish - More put OI than calls' : 'Bullish - More call OI than puts'}`;
-      
+
     } catch (error) {
       console.error('Error fetching OI data:', error);
       return `❌ Error fetching options data for ${ticker}. Please try again.`;
@@ -940,7 +940,7 @@ export class TradingAssistant {
   }
 
   private async fetchVolumeAndOpenInterest(trades: any[]): Promise<any[]> {
-    
+
     // Group trades by underlying ticker to minimize API calls
     const tradesByUnderlying = trades.reduce((acc: Record<string, any[]>, trade: any) => {
       const underlying = trade.underlying_ticker;
@@ -950,25 +950,25 @@ export class TradingAssistant {
       acc[underlying].push(trade);
       return acc;
     }, {} as Record<string, any[]>);
-    
+
     const updatedTrades: any[] = [];
-    
+
     // Process each underlying separately
     for (const [underlying, underlyingTrades] of Object.entries(tradesByUnderlying)) {
       try {
         // Get unique expiration dates
         const uniqueExpirations = [...new Set(underlyingTrades.map(t => t.expiry))];
-        
+
         let allContracts = new Map();
-        
+
         // Fetch data for each expiration date
         for (const expiry of uniqueExpirations) {
           const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry;
-          
+
           const response = await fetch(
             `https://api.polygon.io/v3/snapshot/options/${underlying}?expiration_date=${expiryParam}&limit=250&apikey=${this.POLYGON_API_KEY}`
           );
-          
+
           if (response.ok) {
             const chainData = await response.json();
             if (chainData.results) {
@@ -983,7 +983,7 @@ export class TradingAssistant {
             }
           }
         }
-        
+
         if (allContracts.size === 0) {
           updatedTrades.push(...underlyingTrades.map((trade: any) => ({
             ...trade,
@@ -992,13 +992,13 @@ export class TradingAssistant {
           })));
           continue;
         }
-        
+
         const contractLookup = allContracts;
-        
+
         // Match trades to contracts
         for (const trade of underlyingTrades) {
           const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-          
+
           let expiryDate;
           if (trade.expiry.includes('T')) {
             expiryDate = new Date(trade.expiry);
@@ -1006,13 +1006,13 @@ export class TradingAssistant {
             const [year, month, day] = trade.expiry.split('-').map(Number);
             expiryDate = new Date(year, month - 1, day);
           }
-          
+
           const formattedExpiry = `${expiryDate.getFullYear().toString().slice(-2)}${(expiryDate.getMonth() + 1).toString().padStart(2, '0')}${expiryDate.getDate().toString().padStart(2, '0')}`;
           const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
           const optionTicker = `O:${trade.underlying_ticker}${formattedExpiry}${optionType}${strikeFormatted}`;
-          
+
           const contractData = contractLookup.get(optionTicker);
-          
+
           if (contractData) {
             updatedTrades.push({
               ...trade,
@@ -1027,7 +1027,7 @@ export class TradingAssistant {
             });
           }
         }
-        
+
       } catch (error) {
         console.error(`Error fetching data for ${underlying}:`, error);
         updatedTrades.push(...underlyingTrades.map(trade => ({
@@ -1037,45 +1037,45 @@ export class TradingAssistant {
         })));
       }
     }
-    
+
     return updatedTrades;
   }
 
   // FILL STYLE ENRICHMENT - Exact copy from options-flow page
   private async analyzeBidAskExecution(trades: any[]): Promise<any[]> {
     if (trades.length === 0) return trades;
-    
+
     const tradesWithFillStyle: any[] = [];
     const BATCH_SIZE = 50; // Increased from 20 to 50 for faster processing
-    
+
     for (let i = 0; i < trades.length; i += BATCH_SIZE) {
       const batch = trades.slice(i, i + BATCH_SIZE);
-      
+
       const batchPromises = batch.map(async (trade) => {
         try {
           const expiry = trade.expiry.replace(/-/g, '').slice(2);
           const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
           const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
           const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-          
+
           const tradeTime = new Date(trade.trade_timestamp);
           const checkTimestamp = tradeTime.getTime() * 1000000;
-          
+
           const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${this.POLYGON_API_KEY}`;
-          
+
           const response = await fetch(quotesUrl);
           const data = await response.json();
-          
+
           if (data.results && data.results.length > 0) {
             const quote = data.results[0];
             const bid = quote.bid_price;
             const ask = quote.ask_price;
             const fillPrice = trade.premium_per_contract;
-            
+
             if (bid && ask && fillPrice) {
               let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
               const midpoint = (bid + ask) / 2;
-              
+
               if (fillPrice > ask) {
                 fillStyle = 'AA';
               } else if (fillPrice < bid) {
@@ -1085,21 +1085,21 @@ export class TradingAssistant {
               } else {
                 fillStyle = 'B';
               }
-              
+
               return { ...trade, fill_style: fillStyle };
             }
           }
-          
+
           return { ...trade, fill_style: 'N/A' as const };
         } catch (error) {
           return { ...trade, fill_style: 'N/A' as const };
         }
       });
-      
+
       const batchResults = await Promise.all(batchPromises);
       tradesWithFillStyle.push(...batchResults);
     }
-    
+
     return tradesWithFillStyle;
   }
 
@@ -1107,30 +1107,30 @@ export class TradingAssistant {
   private async enrichWithCurrentPrices(trades: any[]): Promise<any[]> {
     const enrichedTrades: any[] = [];
     const BATCH_SIZE = 50; // Process in batches of 50
-    
+
     for (let i = 0; i < trades.length; i += BATCH_SIZE) {
       const batch = trades.slice(i, i + BATCH_SIZE);
-      
+
       const batchPromises = batch.map(async (trade) => {
         try {
           const expiry = trade.expiry.replace(/-/g, '').slice(2);
           const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
           const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
           const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-          
+
           const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${this.POLYGON_API_KEY}`;
-          
+
           const response = await fetch(snapshotUrl, {
             signal: AbortSignal.timeout(3000)
           });
-          
+
           if (response.ok) {
             const data = await response.json();
             if (data.results && data.results.last_quote) {
               const bid = data.results.last_quote.bid || 0;
               const ask = data.results.last_quote.ask || 0;
               const currentPrice = (bid + ask) / 2;
-              
+
               if (currentPrice > 0) {
                 return { ...trade, current_price: currentPrice };
               }
@@ -1141,11 +1141,11 @@ export class TradingAssistant {
           return { ...trade, current_price: trade.premium_per_contract };
         }
       });
-      
+
       const batchResults = await Promise.all(batchPromises);
       enrichedTrades.push(...batchResults);
     }
-    
+
     return enrichedTrades;
   }
 
@@ -1153,13 +1153,13 @@ export class TradingAssistant {
   private async enrichWithCurrentStockPrices(trades: any[]): Promise<any[]> {
     const uniqueTickers = [...new Set(trades.map(t => t.underlying_ticker))];
     const stockPrices: Record<string, number> = {};
-    
+
     // Fetch all stock prices in parallel
     const pricePromises = uniqueTickers.map(async (ticker) => {
       try {
         const url = `https://api.polygon.io/v2/last/trade/${ticker}?apikey=${this.POLYGON_API_KEY}`;
         const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
-        
+
         if (response.ok) {
           const data = await response.json();
           if (data.results && data.results.p) {
@@ -1171,14 +1171,14 @@ export class TradingAssistant {
       }
       return null;
     });
-    
+
     const results = await Promise.all(pricePromises);
     results.forEach(result => {
       if (result) {
         stockPrices[result.ticker] = result.price;
       }
     });
-    
+
     return trades.map(trade => ({
       ...trade,
       current_stock_price: stockPrices[trade.underlying_ticker] || trade.spot_price
@@ -1207,41 +1207,41 @@ export class TradingAssistant {
       // For EFI queries, use the new API endpoint that calculates positioning with real-time data
       if (efiOnly) {
         const url = `${this.baseUrl}/api/efi-with-positioning?ticker=${ticker}`;
-        
+
         const response = await fetch(url);
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const data = await response.json();
-        
+
         if (!data.trades || data.trades.length === 0) {
           return `❌ No EFI Highlights found for ${ticker}.`;
         }
-        
+
         let finalTrades = data.trades;
-        
+
         // Filter by grade if specified
         if (gradeFilter) {
           finalTrades = data.trades.filter((trade: any) => {
             if (!trade.positioning) return false;
-            
+
             if (gradeFilter === 'A') {
               return ['A+', 'A', 'A-'].includes(trade.positioning.grade);
             }
-            
+
             return trade.positioning.grade === gradeFilter;
           });
-          
+
           if (finalTrades.length === 0) {
             return `❌ No ${gradeFilter} grade flows found for ${ticker}.`;
           }
         }
-        
+
         return this.buildOptionsFlowTable(ticker, finalTrades, efiOnly, gradeFilter);
       }
-      
+
       // For non-EFI queries, use the old streaming approach
       // Map scan categories - EXACT same as options-flow page
       let tickerParam = ticker;
@@ -1252,39 +1252,39 @@ export class TradingAssistant {
       } else if (ticker === 'ALL') {
         tickerParam = 'ALL_EXCLUDE_ETF_MAG7';
       }
-      
+
       // Use the EXACT same streaming endpoint as options-flow page
       const url = `${this.baseUrl}/api/stream-options-flow?ticker=${tickerParam}`;
-      
+
       const response = await fetch(url);
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       if (!response.body) {
         throw new Error('No response body');
       }
-      
+
       // Parse the EventSource stream manually
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       let allTrades: any[] = [];
-      
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-        
+
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              
+
               if (data.type === 'complete' && data.trades) {
                 allTrades = data.trades;
                 break;
@@ -1296,14 +1296,14 @@ export class TradingAssistant {
             }
           }
         }
-        
+
         if (allTrades.length > 0) break;
       }
-      
+
       if (allTrades.length === 0) {
         return `❌ No options flow data found for ${ticker}.`;
       }
-      
+
       // Parallel enrichment - Run all enrichments simultaneously for speed
       const [tradesWithVolOI, tradesWithFillStyles, tradesWithCurrentPrices, tradesWithStockPrices] = await Promise.all([
         this.fetchVolumeAndOpenInterest(allTrades),
@@ -1311,7 +1311,7 @@ export class TradingAssistant {
         this.enrichWithCurrentPrices(allTrades),
         this.enrichWithCurrentStockPrices(allTrades)
       ]);
-      
+
       // Merge all enrichments into final trades
       const fullyEnrichedTrades = allTrades.map((trade, index) => ({
         ...trade,
@@ -1321,7 +1321,7 @@ export class TradingAssistant {
         current_price: tradesWithCurrentPrices[index]?.current_price ?? trade.premium_per_contract,
         current_stock_price: tradesWithStockPrices[index]?.current_stock_price ?? trade.spot_price
       }));
-      
+
       // Filter by premium amount ($50k+)
       let displayTrades = fullyEnrichedTrades;
       if (minPremium > 0) {
@@ -1330,14 +1330,14 @@ export class TradingAssistant {
           return premium >= minPremium;
         });
       }
-      
+
       if (displayTrades.length === 0) {
         return `❌ No options flow data found for ${ticker}.`;
       }
-      
+
       // Build table output (no positioning for non-EFI)
       return this.buildOptionsFlowTable(ticker, displayTrades, false, undefined);
-      
+
     } catch (error) {
       console.error('Error fetching options flow:', error);
       return `❌ Error fetching options flow for ${ticker}: ${error instanceof Error ? error.message : String(error)}`;
@@ -1352,7 +1352,7 @@ export class TradingAssistant {
     }
     let output = `## ${ticker} ${title}\n\n`;
     output += `**Total Trades:** ${trades.length}\n\n`;
-    
+
     // Table header with exact colors from OptionsFlowTable
     output += `<table style="width: 100%; border-collapse: collapse; background: #000;">\n`;
     output += `<thead>\n<tr style="background: linear-gradient(135deg, #000 0%, #1a1a1a 100%); border-bottom: 2px solid #ff8500;">\n`;
@@ -1369,50 +1369,50 @@ export class TradingAssistant {
       output += `<th style="padding: 12px 8px; text-align: center; color: #ff8500; font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Position</th>\n`;
     }
     output += `</tr>\n</thead>\n<tbody>\n`;
-    
+
     // Show all trades - no limit
     for (const trade of trades) {
-      const time = new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
+      const time = new Date(trade.trade_timestamp).toLocaleTimeString('en-US', {
+        hour: '2-digit',
         minute: '2-digit',
-        hour12: false 
+        hour12: false
       });
-      
+
       const isCall = trade.type.toLowerCase() === 'call';
       const cpColor = isCall ? '#22c55e' : '#ef4444';
       const cpText = isCall ? 'C' : 'P';
-      
+
       // Fill style badge
       const fillStyle = trade.fill_style || 'N/A';
       const fillColor = (fillStyle === 'AA' || fillStyle === 'A') ? '#22c55e' : '#ef4444';
-      const fillBadge = fillStyle !== 'N/A' 
-        ? `<span style="display: inline-block; padding: 2px 6px; background: ${fillColor}22; color: ${fillColor}; border: 1px solid ${fillColor}; border-radius: 4px; font-size: 10px; font-weight: bold; margin-left: 4px;">${fillStyle}</span>` 
+      const fillBadge = fillStyle !== 'N/A'
+        ? `<span style="display: inline-block; padding: 2px 6px; background: ${fillColor}22; color: ${fillColor}; border: 1px solid ${fillColor}; border-radius: 4px; font-size: 10px; font-weight: bold; margin-left: 4px;">${fillStyle}</span>`
         : '';
-      
+
       // Trade type badge
       const typeColor = trade.trade_type === 'SWEEP' ? '#eab308' : '#3b82f6';
       const typeBadge = `<span style="display: inline-block; padding: 2px 8px; background: ${typeColor}22; color: ${typeColor}; border: 1px solid ${typeColor}; border-radius: 4px; font-size: 10px; font-weight: bold;">${trade.trade_type}</span>`;
-      
+
       // VOL/OI
-      const volOI = trade.volume && trade.open_interest 
+      const volOI = trade.volume && trade.open_interest
         ? `<span style="color: #06b6d4;">${trade.volume.toLocaleString()}</span> / <span style="color: #a855f7;">${trade.open_interest.toLocaleString()}</span>`
         : '<span style="color: #666;">N/A</span>';
-      
+
       // Positioning grade (EFI only)
       let positionCell = '';
       if (efiOnly && trade.positioning) {
         const { grade, color } = trade.positioning;
-        
+
         // Calculate actual position metrics
         const entryPrice = trade.premium_per_contract;
         const currentPrice = trade.current_option_price || trade.current_price || entryPrice;
-        const percentChangeNum = entryPrice > 0 
+        const percentChangeNum = entryPrice > 0
           ? ((currentPrice - entryPrice) / entryPrice) * 100
           : 0;
         const percentChange = percentChangeNum.toFixed(2);
         const percentColor = percentChangeNum > 0 ? '#22c55e' : percentChangeNum < 0 ? '#ef4444' : '#6b7280';
         const currentValue = (currentPrice * trade.trade_size * 100).toFixed(0);
-        
+
         positionCell = `<td style="padding: 8px; text-align: center;">
           <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
             <div style="width: 78px; height: 78px; border-radius: 50%; border: 6px solid ${color}; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #000;">
@@ -1425,7 +1425,7 @@ export class TradingAssistant {
           </div>
         </td>`;
       }
-      
+
       output += `<tr style="border-bottom: 1px solid #1a1a1a;">\n`;
       output += `<td style="padding: 8px; color: #fff; font-size: 12px;">${time}</td>\n`;
       output += `<td style="padding: 8px;"><span style="color: #ff8500; font-weight: bold; font-size: 12px;">${trade.underlying_ticker}</span></td>\n`;
@@ -1442,12 +1442,12 @@ export class TradingAssistant {
       }
       output += `</tr>\n`;
     }
-    
+
     output += `</tbody>\n</table>\n`;
-    
+
     return output;
   }
-  
+
   // Calculate positioning grade - EXACT same logic as OptionsFlowTable.tsx
   private calculatePositioningGrade(trade: any, allTrades: any[]): { grade: string; score: number; color: string } {
     // Get option ticker for current price lookup
@@ -1485,7 +1485,7 @@ export class TradingAssistant {
       else if (percentChange >= 20) scores.contractPrice = 5;
       else scores.contractPrice = 10;
     } else {
-      scores.contractPrice = 12;
+      scores.contractPrice = 0;
     }
     confidenceScore += scores.contractPrice;
 
@@ -1527,8 +1527,8 @@ export class TradingAssistant {
     const currentTime = new Date();
 
     // 4. Price Action Score (25 points max) - simplified without std dev
-    // Since we don't have historical std devs, give default score
-    scores.priceAction = 12;
+    // Since we don't have historical std devs, give no points
+    scores.priceAction = 0;
     confidenceScore += scores.priceAction;
 
     // 5. Stock Reaction Score (15 points max)
@@ -1604,23 +1604,23 @@ export class TradingAssistant {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
       let url = `${baseUrl}/api/seasonal-data?symbol=${ticker}&years=${years}`;
-      
+
       if (isElectionMode && electionPeriod) {
         url += `&electionMode=${encodeURIComponent(electionPeriod)}`;
       }
-      
+
       const response = await fetch(url);
-      
+
       if (!response.ok) {
         return `❌ Unable to fetch seasonal data for ${ticker}.`;
       }
-      
+
       const seasonalData = await response.json();
-      
+
       if (!seasonalData || !seasonalData.dailyData) {
         return `❌ Unable to fetch seasonal data for ${ticker}.`;
       }
-      
+
       // Return JSON format for chart rendering
       return JSON.stringify({
         type: 'seasonal-chart',
@@ -1636,19 +1636,19 @@ export class TradingAssistant {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
       const response = await fetch(`${baseUrl}/api/seasonal-data?symbol=${ticker}&years=${years}`);
-      
+
       if (!response.ok) {
         return `❌ Unable to fetch 30-day period data for ${ticker}.`;
       }
-      
+
       const seasonalData = await response.json();
-      
+
       const period = seasonalData?.spyComparison?.best30DayPeriod || seasonalData?.best30DayPeriod;
-      
+
       if (!seasonalData || !period) {
         return `❌ Unable to fetch 30-day period data for ${ticker}.`;
       }
-      
+
       return `## ${ticker} - Best 30-Day Period
 
 **📈 Most Bullish 30-Day Window (${years} Year Analysis)**
@@ -1675,19 +1675,19 @@ export class TradingAssistant {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
       const response = await fetch(`${baseUrl}/api/seasonal-data?symbol=${ticker}&years=${years}`);
-      
+
       if (!response.ok) {
         return `❌ Unable to fetch 30-day period data for ${ticker}.`;
       }
-      
+
       const seasonalData = await response.json();
-      
+
       const period = seasonalData?.spyComparison?.worst30DayPeriod || seasonalData?.worst30DayPeriod;
-      
+
       if (!seasonalData || !period) {
         return `❌ Unable to fetch 30-day period data for ${ticker}.`;
       }
-      
+
       return `## ${ticker} - Worst 30-Day Period
 
 **📉 Most Bearish 30-Day Window (${years} Year Analysis)**
@@ -1717,13 +1717,13 @@ export class TradingAssistant {
     output += `**Total Return:** ${data.statistics?.totalReturn?.toFixed(2) || '0.00'}%\n`;
     output += `**Win Rate:** ${data.statistics?.winRate?.toFixed(1) || '0.0'}%\n\n`;
     output += `---\n\n`;
-    
+
     // Display monthly seasonal pattern (12 months)
     if (data.dailyData && data.dailyData.length > 0) {
       output += `### 📅 Monthly Seasonal Pattern\n\n`;
-      
+
       const monthlyData: { [month: number]: { returns: number[], cumulative: number } } = {};
-      
+
       // Aggregate by month
       data.dailyData.forEach((day: any) => {
         if (!monthlyData[day.month]) {
@@ -1731,15 +1731,15 @@ export class TradingAssistant {
         }
         monthlyData[day.month].returns.push(day.avgReturn);
       });
-      
+
       // Calculate monthly averages
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       let cumulativeReturn = 0;
-      
+
       months.forEach((monthName, index) => {
         const monthNum = index + 1;
         const monthData = monthlyData[monthNum];
-        
+
         if (monthData && monthData.returns.length > 0) {
           const avgReturn = monthData.returns.reduce((sum: number, r: number) => sum + r, 0) / monthData.returns.length;
           cumulativeReturn += avgReturn;
@@ -1748,10 +1748,10 @@ export class TradingAssistant {
           output += `**${monthName}**: <span style="color: ${color};">${sign}${avgReturn.toFixed(2)}%</span> (Cumulative: ${cumulativeReturn.toFixed(2)}%)\\n`;
         }
       });
-      
+
       output += `\n---\n\n`;
     }
-    
+
     if (data.bestMonths && data.bestMonths.length > 0) {
       output += `### 📊 Best Performing Months\n\n`;
       data.bestMonths.forEach((month: any, index: number) => {
@@ -1759,7 +1759,7 @@ export class TradingAssistant {
         output += `${emoji} **${month.month}**: <span style="color: #22c55e;">${month.avgReturn.toFixed(2)}%</span>\n`;
       });
     }
-    
+
     if (data.worstMonths && data.worstMonths.length > 0) {
       output += `\n### 📉 Worst Performing Months\n\n`;
       data.worstMonths.forEach((month: any, index: number) => {
@@ -1767,9 +1767,9 @@ export class TradingAssistant {
         output += `${emoji} **${month.month}**: <span style="color: #ef4444;">${month.avgReturn.toFixed(2)}%</span>\n`;
       });
     }
-    
+
     output += `\n---\n\n`;
-    
+
     if (data.bestQuarter) {
       output += `### 📅 Quarterly Performance\n`;
       output += `**Best Quarter:** ${data.bestQuarter.quarter} (${data.bestQuarter.return.toFixed(2)}%)\n`;
@@ -1777,7 +1777,7 @@ export class TradingAssistant {
         output += `**Worst Quarter:** ${data.worstQuarter.quarter} (${data.worstQuarter.return.toFixed(2)}%)\n`;
       }
     }
-    
+
     return output;
   }
 
@@ -1790,39 +1790,39 @@ export class TradingAssistant {
     output += `**Annualized Return:** ${data.statistics.annualizedReturn.toFixed(2)}%\n`;
     output += `**Win Rate:** ${data.statistics.winRate.toFixed(1)}%\n\n`;
     output += `---\n\n`;
-    
+
     if (data.spyComparison) {
       output += `### 📊 vs SPY Comparison\n\n`;
-      
+
       output += `**Best Months (Outperformance):**\n`;
       data.spyComparison.bestMonths.slice(0, 3).forEach((month: any) => {
         output += `• **${month.month}**: <span style="color: #22c55e;">+${month.outperformance.toFixed(2)}%</span>\n`;
       });
-      
+
       output += `\n**Worst Months (Underperformance):**\n`;
       data.spyComparison.worstMonths.slice(0, 3).forEach((month: any) => {
         output += `• **${month.month}**: <span style="color: #ef4444;">${month.outperformance.toFixed(2)}%</span>\n`;
       });
-      
+
       if (data.spyComparison.best30DayPeriod) {
         output += `\n---\n\n`;
         output += `### 📈 Best 30-Day Period\n`;
         output += `**${data.spyComparison.best30DayPeriod.period}**: <span style="color: #22c55e; font-weight: bold;">${data.spyComparison.best30DayPeriod.return.toFixed(2)}%</span>\n\n`;
       }
-      
+
       if (data.spyComparison.worst30DayPeriod) {
         output += `### 📉 Worst 30-Day Period\n`;
         output += `**${data.spyComparison.worst30DayPeriod.period}**: <span style="color: #ef4444; font-weight: bold;">${data.spyComparison.worst30DayPeriod.return.toFixed(2)}%</span>\n\n`;
       }
     }
-    
+
     output += `---\n\n`;
     output += `### 📊 Statistics\n`;
     output += `**Best Year:** ${data.statistics.bestYear.year} (${data.statistics.bestYear.return.toFixed(2)}%)\n`;
     output += `**Worst Year:** ${data.statistics.worstYear.year} (${data.statistics.worstYear.return.toFixed(2)}%)\n`;
     output += `**Max Drawdown:** ${data.statistics.maxDrawdown.toFixed(2)}%\n`;
     output += `**Volatility:** ${data.statistics.volatility.toFixed(2)}%\n`;
-    
+
     return output;
   }
 }

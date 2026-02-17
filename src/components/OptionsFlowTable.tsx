@@ -996,6 +996,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [historicalRanges, setHistoricalRanges] = useState<Map<string, { high: number, low: number }[]>>(new Map());
 
+  const [historicalStdDevs, setHistoricalStdDevs] = useState<Map<string, number>>(new Map());
+
+  const [relativeStrengthData, setRelativeStrengthData] = useState<Map<string, number>>(new Map()); // ticker -> RS value
+
   const [historicalDataLoading, setHistoricalDataLoading] = useState<Set<string>>(new Set());
 
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null);
@@ -1089,6 +1093,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
               const ranges = await fetchHistoricalRanges(ticker);
 
               setHistoricalRanges(prev => new Map(prev).set(ticker, ranges));
+
+              // Set default std dev (client-side estimate - server calculates precise value)
+
+              setHistoricalStdDevs(prev => new Map(prev).set(ticker, 2.5));
 
             } catch (error) {
 
@@ -1501,6 +1509,14 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       if (rangesMap.size > 0) {
 
         setHistoricalRanges(prev => new Map([...prev, ...rangesMap]));
+
+        // Set default std devs for all fetched tickers
+
+        const stdDevsMap = new Map<string, number>();
+
+        rangesMap.forEach((_, ticker) => stdDevsMap.set(ticker, 2.5));
+
+        setHistoricalStdDevs(prev => new Map([...prev, ...stdDevsMap]));
 
       }
 
@@ -2158,6 +2174,176 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
 
 
+  // Calculate Relative Strength for trades - fetches historical data for stock and SPY
+
+  const calculateRelativeStrength = async (trades: OptionsFlowData[]): Promise<Map<string, number>> => {
+
+    const rsMap = new Map<string, number>();
+
+
+
+    // Get unique tickers from trades
+
+    const tickers = [...new Set(trades.map(t => t.underlying_ticker))];
+
+
+
+    // Batch process tickers
+
+    const BATCH_SIZE = 20;
+
+    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+
+      const batch = tickers.slice(i, i + BATCH_SIZE);
+
+
+
+      await Promise.all(batch.map(async (ticker, idx) => {
+
+        await new Promise(resolve => setTimeout(resolve, idx * 50)); // Stagger requests
+
+
+
+        try {
+
+          // Get trades for this ticker to determine date range
+
+          const tickerTrades = trades.filter(t => t.underlying_ticker === ticker);
+
+          if (tickerTrades.length === 0) return;
+
+
+
+          // Use earliest trade timestamp to determine lookback period
+
+          const earliestTrade = new Date(Math.min(...tickerTrades.map(t => new Date(t.trade_timestamp).getTime())));
+
+
+
+          // Fetch 1-3 days before earliest trade
+
+          const endDate = new Date(earliestTrade);
+
+          endDate.setDate(endDate.getDate() - 1); // 1 day before trade
+
+          const startDate = new Date(earliestTrade);
+
+          startDate.setDate(startDate.getDate() - 5); // 5 days to ensure we get 3 trading days
+
+
+
+          const endStr = endDate.toISOString().split('T')[0];
+
+          const startStr = startDate.toISOString().split('T')[0];
+
+
+
+          // Fetch stock data
+
+          const stockUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+
+          const spyUrl = `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
+
+
+
+          const [stockRes, spyRes] = await Promise.all([
+
+            fetch(stockUrl, { signal: AbortSignal.timeout(5000) }),
+
+            fetch(spyUrl, { signal: AbortSignal.timeout(5000) })
+
+          ]);
+
+
+
+          if (!stockRes.ok || !spyRes.ok) return;
+
+
+
+          const stockData = await stockRes.json();
+
+          const spyData = await spyRes.json();
+
+
+
+          if (stockData.results && spyData.results && stockData.results.length >= 2 && spyData.results.length >= 2) {
+
+            // Calculate % change over last 1-3 days
+
+            const stockOld = stockData.results[0].c;
+
+            const stockNew = stockData.results[stockData.results.length - 1].c;
+
+            const stockChange = ((stockNew - stockOld) / stockOld) * 100;
+
+
+
+            const spyOld = spyData.results[0].c;
+
+            const spyNew = spyData.results[spyData.results.length - 1].c;
+
+            const spyChange = ((spyNew - spyOld) / spyOld) * 100;
+
+
+
+            // RS = stock % change - SPY % change
+
+            const rs = stockChange - spyChange;
+
+            rsMap.set(ticker, rs);
+
+
+
+            // Also calculate and store actual std dev
+
+            const returns = [];
+
+            for (let j = 1; j < stockData.results.length; j++) {
+
+              const prevClose = stockData.results[j - 1].c;
+
+              const currClose = stockData.results[j].c;
+
+              const dailyReturn = ((currClose - prevClose) / prevClose) * 100;
+
+              returns.push(dailyReturn);
+
+            }
+
+
+
+            if (returns.length > 1) {
+
+              const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+
+              const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
+
+              const stdDev = Math.sqrt(variance);
+
+              setHistoricalStdDevs(prev => new Map(prev).set(ticker, stdDev));
+
+            }
+
+          }
+
+        } catch (error) {
+
+          // Silent fail
+
+        }
+
+      }));
+
+    }
+
+
+
+    return rsMap;
+
+  };
+
+
+
   // Calculate positioning grade for EFI trades - COMPLETE 100-POINT SYSTEM
 
   const calculatePositioningGrade = (trade: OptionsFlowData, comboMap: Map<string, boolean>): {
@@ -2175,6 +2361,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       expiration: number;
 
       contractPrice: number;
+
+      relativeStrength: number;
 
       combo: number;
 
@@ -2211,6 +2399,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       expiration: 0,
 
       contractPrice: 0,
+
+      relativeStrength: 0,
 
       combo: 0,
 
@@ -2254,7 +2444,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
         color: '#9ca3af',
 
-        breakdown: `Score: ${confidenceScore}/110\nExpiration: ${scores.expiration}/25\nContract P&L: 0/25\nCombo Trade: 0/10\nPrice Action: 0/25\nStock Reaction: 0/25`,
+        breakdown: `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: 0/15\nRelative Strength: 0/10\nCombo Trade: 0/10\nPrice Action: 0/25\nStock Reaction: 0/15`,
 
         scores
 
@@ -2268,15 +2458,15 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
 
 
-    if (percentChange <= -40) scores.contractPrice = 25;
+    if (percentChange <= -40) scores.contractPrice = 15;
 
-    else if (percentChange <= -20) scores.contractPrice = 20;
+    else if (percentChange <= -20) scores.contractPrice = 12;
 
-    else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 15;
+    else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 10;
 
-    else if (percentChange >= 20) scores.contractPrice = 5;
+    else if (percentChange >= 20) scores.contractPrice = 3;
 
-    else scores.contractPrice = 10;
+    else scores.contractPrice = 6;
 
 
 
@@ -2284,7 +2474,39 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
 
 
-    // 3. Combo Trade Score (10 points max) - using pre-computed map for O(1) lookup
+    // 3. Relative Strength Score (10 points max) - Award points if trade aligns with RS
+
+    const rs = relativeStrengthData.get(trade.underlying_ticker);
+
+    if (rs !== undefined) {
+
+      const fillStyle = trade.fill_style || '';
+
+      const isCall = trade.type === 'call';
+
+      const isBullishFlow = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) ||
+
+        (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+
+      const isBearishFlow = (isCall && (fillStyle === 'B' || fillStyle === 'BB')) ||
+
+        (!isCall && (fillStyle === 'A' || fillStyle === 'AA'));
+
+
+
+      // Award 10 points if trade direction aligns with RS
+
+      const aligned = (isBullishFlow && rs > 0) || (isBearishFlow && rs < 0);
+
+      if (aligned) scores.relativeStrength = 10;
+
+    }
+
+    confidenceScore += scores.relativeStrength;
+
+
+
+    // 4. Combo Trade Score (10 points max) - using pre-computed map for O(1) lookup
 
     const fillStyle = trade.fill_style || '';
 
@@ -2298,309 +2520,132 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
 
 
-    // Shared variables for sections 4 and 5
-
+    // Shared variables for sections 5 and 6
     const entryStockPrice = trade.spot_price;
-
     const currentStockPrice = currentPrices[trade.underlying_ticker];
-
     const tradeTime = new Date(trade.trade_timestamp);
-
     const currentTime = new Date();
-
-
-
-    // 4. Price Action Score (25 points max) - Range-based scoring
-
-    const ranges = historicalRanges.get(trade.underlying_ticker);
-
-
-
-    // Skip price action scoring if we don't have the required data yet
-
-    if (!currentStockPrice || !entryStockPrice || !ranges || ranges.length < 3) {
-
-      // Give partial points if data is still loading
-
-      scores.priceAction = 0;
-
-      confidenceScore += scores.priceAction;
-
-    } else {
-
-      const day0 = ranges[2]; // Current/most recent day
-
-      const day1 = ranges[1]; // Previous day
-
-      const day2 = ranges[0]; // 2 days ago
-
-
-
-      const day0Spread = day0.high - day0.low;
-
-      const day1Spread = day1.high - day1.low;
-
-      const day2Spread = day2.high - day2.low;
-
-
-
-      // Condition 1: Day 0 within Day 1 range
-
-      const day0WithinDay1 = (day0.low >= day1.low && day0.high <= day1.high);
-
-      if (day0WithinDay1) {
-
-        scores.priceAction += 5;
-
-      }
-
-
-
-      // Condition 2: Day 0 within Day 2 range
-
-      const day0WithinDay2 = (day0.low >= day2.low && day0.high <= day2.high);
-
-      if (day0WithinDay2) {
-
-        scores.priceAction += 5;
-
-      }
-
-
-
-      // Condition 3: Day 1 within Day 2 range
-
-      const day1WithinDay2 = (day1.low >= day2.low && day1.high <= day2.high);
-
-      if (day1WithinDay2) {
-
-        scores.priceAction += 5;
-
-      }
-
-
-
-      // Condition 4: Day 0 spread < Day 1 spread
-
-      const day0SmallerThanDay1 = (day0Spread < day1Spread);
-
-      if (day0SmallerThanDay1) {
-
-        scores.priceAction += 5;
-
-      }
-
-
-
-      // Condition 5: Day 1 spread < Day 2 spread
-
-      const day1SmallerThanDay2 = (day1Spread < day2Spread);
-
-      if (day1SmallerThanDay2) {
-
-        scores.priceAction += 5;
-
-      }
-
-
-
-      confidenceScore += scores.priceAction;
-
-    }
-
-
-
-    // 5. Stock Reaction Score (25 points max) - OPTIONS PRICE APPROACH
-
-    // Measure option price changes at 1hr/3hr checkpoints and stock inverse moves at 2hr
-
-    const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
-
     const isCall = trade.type === 'call';
 
+    // 5. Price Action Score (25 points max) - Consolidation OR Reversal Bet
+    const stdDev = historicalStdDevs.get(trade.underlying_ticker);
 
+    if (currentStockPrice && entryStockPrice && stdDev) {
+      const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
+      const tradingDaysElapsed = Math.floor(hoursElapsed / 6.5);
 
-    // Get or fetch checkpoint data
+      const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
+      const absMove = Math.abs(stockPercentChange);
+      const withinStdDev = absMove <= stdDev;
 
-    const checkpointKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}`;
+      // SCENARIO A: Stock stayed calm (consolidation)
+      if (withinStdDev) {
+        if (tradingDaysElapsed >= 3) scores.priceAction = 25;
+        else if (tradingDaysElapsed >= 2) scores.priceAction = 20;
+        else if (tradingDaysElapsed >= 1) scores.priceAction = 15;
+        else scores.priceAction = 10;
+      }
+      // SCENARIO B: Stock moved big - check if flow is contrarian reversal bet
+      else {
+        const isBullishFlow = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) || (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+        const isBearishFlow = (isCall && (fillStyle === 'B' || fillStyle === 'BB')) || (!isCall && (fillStyle === 'A' || fillStyle === 'AA'));
+        const isReversalBet = (stockPercentChange < -stdDev && isBullishFlow) || (stockPercentChange > stdDev && isBearishFlow);
 
-    let checkpoints = optionPriceCheckpoints.get(checkpointKey);
-
-
-
-    // If checkpoints not loaded yet, try to fetch them
-
-    if (!checkpoints && hoursElapsed >= 1) {
-
-      // Fetch option prices at checkpoints
-
-      // For now, we'll use the current option price as a proxy since we need historical intraday option data
-
-      // In production, you'd fetch actual historical option prices from Polygon
-
-      checkpoints = {
-
-        optionPrice1Hr: currentPrice, // Using current as proxy
-
-        optionPrice3Hr: currentPrice, // Using current as proxy
-
-        stockPrice2Hr: currentStockPrice || null
-
-      };
-
-      setOptionPriceCheckpoints(prev => new Map(prev).set(checkpointKey, checkpoints!));
-
+        if (isReversalBet) {
+          if (tradingDaysElapsed >= 3) scores.priceAction = 25;
+          else if (tradingDaysElapsed >= 2) scores.priceAction = 20;
+          else if (tradingDaysElapsed >= 1) scores.priceAction = 15;
+          else scores.priceAction = 12;
+        } else {
+          scores.priceAction = 10;
+        }
+      }
+    } else {
+      scores.priceAction = 0;
     }
 
-
-
-    if (checkpoints && currentPrice && entryPrice) {
-
-      const { optionPrice1Hr, optionPrice3Hr, stockPrice2Hr } = checkpoints;
+    confidenceScore += scores.priceAction;
 
 
 
-      // Calculate option price changes
+    // 6. Stock Reaction Score (15 points max)
+    // Measure stock movement 1 hour and 3 hours after trade placement
+    if (currentStockPrice && entryStockPrice) {
+      const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
 
-      const optionChange1Hr = optionPrice1Hr ? ((optionPrice1Hr - entryPrice) / entryPrice) * 100 : null;
+      // Determine trade direction (bullish or bearish)
+      const isBullish = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) ||
+        (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+      const isBearish = (isCall && (fillStyle === 'B' || fillStyle === 'BB')) ||
+        (!isCall && (fillStyle === 'A' || fillStyle === 'AA'));
 
-      const optionChange3Hr = optionPrice3Hr ? ((optionPrice3Hr - entryPrice) / entryPrice) * 100 : null;
+      // Check if stock reversed against trade direction
+      const reversed = (isBullish && stockPercentChange <= -1.0) ||
+        (isBearish && stockPercentChange >= 1.0);
+      const followed = (isBullish && stockPercentChange >= 1.0) ||
+        (isBearish && stockPercentChange <= -1.0);
+      const chopped = Math.abs(stockPercentChange) < 1.0;
 
+      // Calculate time elapsed since trade
+      const hoursElapsed = (currentTime.getTime() - tradeTime.getTime()) / (1000 * 60 * 60);
 
+      // Award points based on time checkpoints
+      if (hoursElapsed >= 1) {
+        // 1-hour checkpoint (50% of points)
+        if (reversed) scores.stockReaction += 7.5;
+        else if (chopped) scores.stockReaction += 5;
+        else if (followed) scores.stockReaction += 2.5;
 
-      // Condition 1: Option loses 15-25% in first hour (+5 pts)
-
-      if (optionChange1Hr !== null && optionChange1Hr >= -25 && optionChange1Hr <= -15) {
-
-        scores.stockReaction += 5;
-
-      }
-
-
-
-      // Condition 2: Option loses >30% after 3 hours (+5 pts)
-
-      if (hoursElapsed >= 3 && optionChange3Hr !== null && optionChange3Hr <= -30) {
-
-        scores.stockReaction += 5;
-
-      }
-
-
-
-      // Condition 3: Option gains 15-25% in first hour (+5 pts)
-
-      if (optionChange1Hr !== null && optionChange1Hr >= 15 && optionChange1Hr <= 25) {
-
-        scores.stockReaction += 5;
-
-      }
-
-
-
-      // Condition 4: Option gains 20-30% after 3 hours (+5 pts)
-
-      if (hoursElapsed >= 3 && optionChange3Hr !== null && optionChange3Hr >= 20 && optionChange3Hr <= 30) {
-
-        scores.stockReaction += 5;
-
-      }
-
-
-
-      // Condition 5: Stock moved inverse to trade direction by ≥0.6% after 2 hours (+5 pts)
-
-      if (hoursElapsed >= 2 && stockPrice2Hr && entryStockPrice) {
-
-        const stockChange2Hr = ((stockPrice2Hr - entryStockPrice) / entryStockPrice) * 100;
-
-
-
-        // Determine trade direction
-
-        const isBullish = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) ||
-
-          (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
-
-
-
-        // Check if stock moved inverse (bullish trade = stock down, bearish trade = stock up)
-
-        const isInverse = (isBullish && stockChange2Hr <= -0.6) || (!isBullish && stockChange2Hr >= 0.6);
-
-
-
-        if (isInverse) {
-
-          scores.stockReaction += 5;
-
+        if (hoursElapsed >= 3) {
+          // 3-hour checkpoint (remaining 50%)
+          if (reversed) scores.stockReaction += 7.5;
+          else if (chopped) scores.stockReaction += 5;
+          else if (followed) scores.stockReaction += 2.5;
         }
-
       }
-
     }
 
     confidenceScore += scores.stockReaction;
 
 
 
-    // Color code confidence score (adjusted for 110-point scale)
-
+    // Color code confidence score
     let scoreColor = '#ff0000'; // F = Red
+    if (confidenceScore >= 85) scoreColor = '#00ff00'; // A = Bright Green
+    else if (confidenceScore >= 70) scoreColor = '#84cc16'; // B = Lime Green
+    else if (confidenceScore >= 50) scoreColor = '#fbbf24'; // C = Yellow
+    else if (confidenceScore >= 33) scoreColor = '#3b82f6'; // D = Blue
 
-    if (confidenceScore >= 94) scoreColor = '#00ff00'; // A = Bright Green (85% of 110)
-
-    else if (confidenceScore >= 77) scoreColor = '#84cc16'; // B = Lime Green (70% of 110)
-
-    else if (confidenceScore >= 55) scoreColor = '#fbbf24'; // C = Yellow (50% of 110)
-
-    else if (confidenceScore >= 36) scoreColor = '#3b82f6'; // D = Blue (33% of 110)
-
-
-
-    // Grade letter (adjusted for 110-point scale)
-
+    // Grade letter
     let grade = 'F';
-
-    if (confidenceScore >= 94) grade = 'A+';  // 85%
-
-    else if (confidenceScore >= 88) grade = 'A';   // 80%
-
-    else if (confidenceScore >= 83) grade = 'A-';  // 75%
-
-    else if (confidenceScore >= 77) grade = 'B+';  // 70%
-
-    else if (confidenceScore >= 72) grade = 'B';   // 65%
-
-    else if (confidenceScore >= 66) grade = 'B-';  // 60%
-
-    else if (confidenceScore >= 61) grade = 'C+';  // 55%
-
-    else if (confidenceScore >= 55) grade = 'C';   // 50%
-
-    else if (confidenceScore >= 53) grade = 'C-';  // 48%
-
-    else if (confidenceScore >= 47) grade = 'D+';  // 43%
-
-    else if (confidenceScore >= 42) grade = 'D';   // 38%
-
-    else if (confidenceScore >= 36) grade = 'D-';  // 33%
-
-
+    if (confidenceScore >= 85) grade = 'A+';
+    else if (confidenceScore >= 80) grade = 'A';
+    else if (confidenceScore >= 75) grade = 'A-';
+    else if (confidenceScore >= 70) grade = 'B+';
+    else if (confidenceScore >= 65) grade = 'B';
+    else if (confidenceScore >= 60) grade = 'B-';
+    else if (confidenceScore >= 55) grade = 'C+';
+    else if (confidenceScore >= 50) grade = 'C';
+    else if (confidenceScore >= 48) grade = 'C-';
+    else if (confidenceScore >= 43) grade = 'D+';
+    else if (confidenceScore >= 38) grade = 'D';
+    else if (confidenceScore >= 33) grade = 'D-';
 
     // Create breakdown tooltip text
 
-    const breakdown = `Score: ${confidenceScore}/110
+    const breakdown = `Score: ${confidenceScore}/100
 
 Expiration: ${scores.expiration}/25
 
-Contract P&L: ${scores.contractPrice}/25
+Contract P&L: ${scores.contractPrice}/15
+
+Relative Strength: ${scores.relativeStrength}/10
 
 Combo Trade: ${scores.combo}/10
 
 Price Action: ${scores.priceAction}/25
 
-Stock Reaction: ${scores.stockReaction}/25`;
+Stock Reaction: ${scores.stockReaction}/15`;
 
 
 
@@ -2799,6 +2844,10 @@ Stock Reaction: ${scores.stockReaction}/25`;
         const ranges = await fetchHistoricalRanges(trade.underlying_ticker);
 
         setHistoricalRanges(prev => new Map(prev).set(trade.underlying_ticker, ranges));
+
+        // Set default std dev
+
+        setHistoricalStdDevs(prev => new Map(prev).set(trade.underlying_ticker, 2.5));
 
       } catch (error) {
 
@@ -3718,7 +3767,7 @@ Stock Reaction: ${scores.stockReaction}/25`;
 
     return cache;
 
-  }, [filteredAndSortedData, historicalRanges, currentPrices, currentOptionPrices, optionPriceCheckpoints, comboTradeMap]);
+  }, [filteredAndSortedData, historicalRanges, currentPrices, currentOptionPrices, optionPriceCheckpoints, comboTradeMap, relativeStrengthData, historicalStdDevs]);
 
 
 
@@ -3743,36 +3792,6 @@ Stock Reaction: ${scores.stockReaction}/25`;
     // Backend now returns: vol, OI, vol/OI ratio, Greeks, bid/ask, fill_style, classification
 
     // Just pass through the data directly - instant display like Unusual Whales!
-
-
-
-    // Debug: Log first trade to verify enrichment data
-
-    if (data && data.length > 0) {
-      console.log('First trade enrichment data:', {
-        ticker: data[0].ticker,
-
-        underlying: data[0].underlying_ticker,
-
-        spot_price: data[0].spot_price,
-
-        volume: data[0].volume,
-
-        open_interest: data[0].open_interest,
-
-        current_price: (data[0] as any).current_price,
-
-        fill_style: (data[0] as any).fill_style,
-
-        classification: (data[0] as any).classification,
-
-        trade_type: data[0].trade_type
-
-      });
-
-    }
-
-
 
     setTradesWithFillStyles(data);
 
@@ -6218,7 +6237,15 @@ Stock Reaction: ${scores.stockReaction}/25`;
 
                 <button
 
-                  onClick={() => setEfiHighlightsActive(!efiHighlightsActive)}
+                  onClick={async () => {
+                    const newState = !efiHighlightsActive;
+                    setEfiHighlightsActive(newState);
+                    if (newState) {
+                      const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria);
+                      const rsData = await calculateRelativeStrength(efiTrades);
+                      setRelativeStrengthData(rsData);
+                    }
+                  }}
 
                   className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
 
@@ -7584,7 +7611,15 @@ Stock Reaction: ${scores.stockReaction}/25`;
 
                 <button
 
-                  onClick={() => setEfiHighlightsActive(!efiHighlightsActive)}
+                  onClick={async () => {
+                    const newState = !efiHighlightsActive;
+                    setEfiHighlightsActive(newState);
+                    if (newState) {
+                      const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria);
+                      const rsData = await calculateRelativeStrength(efiTrades);
+                      setRelativeStrengthData(rsData);
+                    }
+                  }}
 
                   className="px-4 md:px-8 text-white font-black uppercase transition-all duration-200 flex items-center gap-2 md:gap-3 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
 

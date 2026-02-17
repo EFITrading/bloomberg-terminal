@@ -33,7 +33,8 @@ function calculatePositioningGrade(
   allTrades: any[],
   currentOptionPrices: Record<string, number>,
   currentPrices: Record<string, number>,
-  historicalStdDevs: Map<string, number>
+  historicalStdDevs: Map<string, number>,
+  relativeStrengthData: Map<string, number> = new Map()
 ): { grade: string; score: number; color: string; breakdown: string } {
   // Get option ticker for current price lookup
   const expiry = trade.expiry.replace(/-/g, '').slice(2);
@@ -47,6 +48,7 @@ function calculatePositioningGrade(
   const scores = {
     expiration: 0,
     contractPrice: 0,
+    relativeStrength: 0,
     combo: 0,
     priceAction: 0,
     stockReaction: 0
@@ -61,23 +63,38 @@ function calculatePositioningGrade(
   else if (daysToExpiry <= 42) scores.expiration = 5;
   confidenceScore += scores.expiration;
 
-  // 2. Contract Price Score (25 points max) - based on position P&L
+  // 2. Contract Price Score (15 points max) - based on position P&L
   if (currentPrice && currentPrice > 0) {
     const percentChange = ((currentPrice - entryPrice) / entryPrice) * 100;
 
-    if (percentChange <= -40) scores.contractPrice = 25;
-    else if (percentChange <= -20) scores.contractPrice = 20;
-    else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 15;
-    else if (percentChange >= 20) scores.contractPrice = 5;
-    else scores.contractPrice = 10;
+    if (percentChange <= -40) scores.contractPrice = 15;
+    else if (percentChange <= -20) scores.contractPrice = 12;
+    else if (percentChange >= -10 && percentChange <= 10) scores.contractPrice = 10;
+    else if (percentChange >= 20) scores.contractPrice = 3;
+    else scores.contractPrice = 6;
   } else {
-    scores.contractPrice = 12;
+    scores.contractPrice = 0;
   }
   confidenceScore += scores.contractPrice;
 
-  // 3. Combo Trade Score (10 points max)
+  // 3. Relative Strength Score (10 points max)
+  const relativeStrength = relativeStrengthData.get(trade.underlying_ticker);
   const isCall = trade.type === 'call';
   const fillStyle = trade.fill_style || '';
+
+  if (relativeStrength !== undefined) {
+    const isBullishTrade = (isCall && (fillStyle === 'A' || fillStyle === 'AA')) || (!isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+    const isBearishTrade = (!isCall && (fillStyle === 'A' || fillStyle === 'AA')) || (isCall && (fillStyle === 'B' || fillStyle === 'BB'));
+
+    if (isBullishTrade && relativeStrength > 0) {
+      scores.relativeStrength = 10;
+    } else if (isBearishTrade && relativeStrength < 0) {
+      scores.relativeStrength = 10;
+    }
+  }
+  confidenceScore += scores.relativeStrength;
+
+  // 4. Combo Trade Score (10 points max)
   const hasComboTrade = allTrades.some(t => {
     if (t.underlying_ticker !== trade.underlying_ticker) return false;
     if (t.expiry !== trade.expiry) return false;
@@ -112,7 +129,7 @@ function calculatePositioningGrade(
   const tradeTime = new Date(trade.trade_timestamp);
   const currentTime = new Date();
 
-  // 4. Price Action Score (25 points max) - Stock within standard deviation
+  // 5. Price Action Score (25 points max)
   const stdDev = historicalStdDevs.get(trade.underlying_ticker);
 
   if (currentStockPrice && entryStockPrice && stdDev) {
@@ -132,11 +149,11 @@ function calculatePositioningGrade(
     else if (withinStdDev && tradingDaysElapsed >= 1) scores.priceAction = 15;
     else scores.priceAction = 10;
   } else {
-    scores.priceAction = 12;
+    scores.priceAction = 0;
   }
   confidenceScore += scores.priceAction;
 
-  // 5. Stock Reaction Score (15 points max)
+  // 6. Stock Reaction Score (15 points max)
   if (currentStockPrice && entryStockPrice) {
     const stockPercentChange = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100;
 
@@ -198,7 +215,8 @@ function calculatePositioningGrade(
   // Create breakdown tooltip text
   const breakdown = `Score: ${confidenceScore}/100
 Expiration: ${scores.expiration}/25
-Contract P&L: ${scores.contractPrice}/25
+Contract P&L: ${scores.contractPrice}/15
+Relative Strength: ${scores.relativeStrength}/10
 Combo Trade: ${scores.combo}/10
 Price Action: ${scores.priceAction}/25
 Stock Reaction: ${scores.stockReaction}/15`;
@@ -208,8 +226,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
 
 async function fetchCurrentOptionPrices(trades: any[]): Promise<Record<string, number>> {
   const pricesUpdate: Record<string, number> = {};
-
-  console.log(`📊 Fetching current option prices for ${trades.length} EFI trades...`);
 
   // Batch in parallel groups of 100
   const BATCH_SIZE = 100;
@@ -278,14 +294,11 @@ async function fetchCurrentOptionPrices(trades: any[]): Promise<Record<string, n
     });
   }
 
-  console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} option prices`);
   return pricesUpdate;
 }
 
 async function fetchCurrentStockPrices(tickers: string[]): Promise<Record<string, number>> {
   const pricesUpdate: Record<string, number> = {};
-
-  console.log(`📊 Fetching current stock prices for ${tickers.length} tickers...`);
 
   // Batch in parallel groups of 50
   const BATCH_SIZE = 50;
@@ -328,14 +341,11 @@ async function fetchCurrentStockPrices(tickers: string[]): Promise<Record<string
     });
   }
 
-  console.log(`✅ Fetched ${Object.keys(pricesUpdate).length} stock prices`);
   return pricesUpdate;
 }
 
 async function calculateHistoricalStdDevs(tickers: string[]): Promise<Map<string, number>> {
   const stdDevs = new Map<string, number>();
-
-  console.log(`📊 Calculating historical std devs for ${tickers.length} tickers...`);
 
   // Batch in parallel groups of 50
   const BATCH_SIZE = 50;
@@ -397,8 +407,86 @@ async function calculateHistoricalStdDevs(tickers: string[]): Promise<Map<string
     });
   }
 
-  console.log(`✅ Calculated ${stdDevs.size} std devs`);
   return stdDevs;
+}
+
+async function calculateRelativeStrength(trades: any[]): Promise<Map<string, number>> {
+  const rsData = new Map<string, number>();
+  if (trades.length === 0) return rsData;
+
+  const tickerDates = new Map<string, Date>();
+  trades.forEach(trade => {
+    const tradeDate = new Date(trade.trade_timestamp);
+    const existing = tickerDates.get(trade.underlying_ticker);
+    if (!existing || tradeDate < existing) {
+      tickerDates.set(trade.underlying_ticker, tradeDate);
+    }
+  });
+
+  const tickers = Array.from(tickerDates.keys());
+
+  try {
+    const allTickers = [...tickers, 'SPY'];
+    const pricePromises = allTickers.map(async (ticker, index) => {
+      await new Promise(resolve => setTimeout(resolve, index * 10));
+
+      try {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 10);
+
+        const formattedEnd = endDate.toISOString().split('T')[0];
+        const formattedStart = startDate.toISOString().split('T')[0];
+
+        const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${formattedStart}/${formattedEnd}?adjusted=true&sort=asc&limit=50000&apikey=${POLYGON_API_KEY}`;
+
+        const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.results && data.results.length > 0) {
+            return { ticker, bars: data.results };
+          }
+        }
+      } catch (error) { }
+      return null;
+    });
+
+    const results = await Promise.all(pricePromises);
+    const priceData = new Map<string, any[]>();
+    results.forEach(result => {
+      if (result) priceData.set(result.ticker, result.bars);
+    });
+
+    const spyBars = priceData.get('SPY');
+    if (!spyBars || spyBars.length < 5) return rsData;
+
+    tickers.forEach(ticker => {
+      const stockBars = priceData.get(ticker);
+      const tradeDate = tickerDates.get(ticker);
+
+      if (!stockBars || !tradeDate || stockBars.length < 5) return;
+
+      try {
+        const tradeDateMs = tradeDate.getTime();
+        const threeDaysBeforeMs = tradeDateMs - (3 * 24 * 60 * 60 * 1000);
+        const fourDaysBeforeMs = tradeDateMs - (4 * 24 * 60 * 60 * 1000);
+
+        const startBar = stockBars.find(bar => bar.t >= fourDaysBeforeMs && bar.t <= threeDaysBeforeMs);
+        const endBar = stockBars.find(bar => bar.t >= threeDaysBeforeMs && bar.t <= tradeDateMs);
+        const spyStartBar = spyBars.find(bar => bar.t >= fourDaysBeforeMs && bar.t <= threeDaysBeforeMs);
+        const spyEndBar = spyBars.find(bar => bar.t >= threeDaysBeforeMs && bar.t <= tradeDateMs);
+
+        if (startBar && endBar && spyStartBar && spyEndBar) {
+          const stockChange = ((endBar.c - startBar.c) / startBar.c) * 100;
+          const spyChange = ((spyEndBar.c - spyStartBar.c) / spyStartBar.c) * 100;
+          rsData.set(ticker, stockChange - spyChange);
+        }
+      } catch (error) { }
+    });
+  } catch (error) { }
+
+  return rsData;
 }
 
 export async function GET(request: Request) {
@@ -460,10 +548,11 @@ export async function GET(request: Request) {
     const uniqueTickers = [...new Set(efiTrades.map(t => t.underlying_ticker))];
 
     // Fetch all required data in parallel
-    const [currentOptionPrices, currentPrices, historicalStdDevs] = await Promise.all([
+    const [currentOptionPrices, currentPrices, historicalStdDevs, relativeStrengthData] = await Promise.all([
       fetchCurrentOptionPrices(efiTrades),
       fetchCurrentStockPrices(uniqueTickers),
-      calculateHistoricalStdDevs(uniqueTickers)
+      calculateHistoricalStdDevs(uniqueTickers),
+      calculateRelativeStrength(efiTrades)
     ]);
 
     // Calculate positioning for each EFI trade
@@ -473,7 +562,8 @@ export async function GET(request: Request) {
         efiTrades,
         currentOptionPrices,
         currentPrices,
-        historicalStdDevs
+        historicalStdDevs,
+        relativeStrengthData
       );
 
       // Add current prices to trade data

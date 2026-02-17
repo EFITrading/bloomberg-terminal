@@ -75,8 +75,11 @@ export default function Navigation() {
         background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 100%)',
         borderBottom: '1px solid rgba(255, 133, 0, 0.3)',
         boxShadow: '0 4px 20px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 133, 0, 0.1)',
-        position: 'relative',
-        overflow: 'hidden'
+        position: 'sticky',
+        top: 0,
+        width: '100%',
+        overflow: 'hidden',
+        zIndex: 1000
       }}>
         {/* Animated background accent */}
         <div style={{

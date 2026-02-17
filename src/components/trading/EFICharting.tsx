@@ -23634,6 +23634,29 @@ export default function TradingViewChart({
                               position: relative !important;
                               z-index: 10000 !important;
                             }
+                            
+                            /* FIX: Black backgrounds for all select dropdown options */
+                            .seasonality-controls-row-1 select option,
+                            .seasonality-custom-panel select option {
+                              background-color: #000000 !important;
+                              background: #000000 !important;
+                              color: #ffffff !important;
+                              padding: 8px !important;
+                            }
+                            
+                            .seasonality-controls-row-1 select option:hover,
+                            .seasonality-custom-panel select option:hover {
+                              background-color: #1a1a1a !important;
+                              background: #1a1a1a !important;
+                            }
+                            
+                            .seasonality-controls-row-1 select option:checked,
+                            .seasonality-controls-row-1 select option:active,
+                            .seasonality-custom-panel select option:checked,
+                            .seasonality-custom-panel select option:active {
+                              background-color: #1a1a1a !important;
+                              background: linear-gradient(90deg, #1a1a1a 0%, #000000 100%) !important;
+                            }
                           `}</style>
 
                           {/* Row 1: Controls */}

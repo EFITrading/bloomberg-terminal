@@ -264,7 +264,7 @@ export default function FearGreedGauge({ regimeAnalysis }: FearGreedGaugeProps) 
           letterSpacing: '-0.5px',
           transition: 'all 0.4s ease',
         }}>
-          {score > 0 ? '+' : ''}{score.toFixed(2)}
+          {score > 0 ? '+' : ''}{score.toFixed(1)}%
         </div>
       </div>
 
