@@ -1033,7 +1033,15 @@ export class OptionsFlowService {
 
     // Filter by ticker if specified (but not for 'ALL' requests)
     if (targetTicker && targetTicker.toLowerCase() !== 'all' && targetTicker !== 'ALL_EXCLUDE_ETF_MAG7') {
-      filtered = filtered.filter(trade => trade.underlying_ticker === targetTicker);
+      // Handle comma-separated ticker lists (MAG7, ETF scans)
+      if (targetTicker.includes(',')) {
+        const tickerList = targetTicker.split(',').map(t => t.trim().toUpperCase());
+        filtered = filtered.filter(trade => tickerList.includes(trade.underlying_ticker));
+        console.log(`🔍 Filtering for multiple tickers: ${tickerList.join(', ')} - ${filtered.length} trades match`);
+      } else {
+        // Single ticker filter
+        filtered = filtered.filter(trade => trade.underlying_ticker === targetTicker);
+      }
     }
 
     // Skip classification if trades are already classified (have trade_type)

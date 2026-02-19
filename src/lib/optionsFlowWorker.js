@@ -63,13 +63,10 @@ if (parentPort) {
               const priceCache = new Map();
 
               // Get historical spot price at exact trade time (cached)
+              // NOTE: Historical data is PRE-FETCHED before processing contracts
+              // This function just looks up the cache - no API calls happen here
               async function getHistoricalSpotPrice(ticker, tradeTimestamp, currentSpotPrice) {
                      try {
-                            // For SPX/VIX ODTE, skip historical lookup - use current price (saves massive API calls)
-                            if (ticker === 'SPX' || ticker === 'VIX') {
-                                   return currentSpotPrice;
-                            }
-
                             if (!tradeTimestamp) {
                                    console.warn(` Worker: No timestamp for ${ticker}, cannot get historical price`);
                                    return 0; // Don't use fake fallbacks
@@ -79,7 +76,7 @@ if (parentPort) {
                             const dateStr = tradeDate.toISOString().split('T')[0];
                             const cacheKey = `${ticker}-${dateStr}`;
 
-                            // Check cache first
+                            // Check cache (should already be populated by pre-fetch)
                             if (priceCache.has(cacheKey)) {
                                    const cachedData = priceCache.get(cacheKey);
                                    // Find closest minute for this specific trade
@@ -99,34 +96,7 @@ if (parentPort) {
                                    return closestBar ? closestBar.c : currentSpotPrice;
                             }
 
-                            // Get minute-level data for the trade date
-                            const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${dateStr}/${dateStr}?adjusted=true&sort=asc&apikey=${apiKey}`;
-                            const response = await makePolygonRequest(url);
-
-                            if (response.results && response.results.length > 0) {
-                                   // Cache the results for this ticker-date
-                                   priceCache.set(cacheKey, response.results);
-
-                                   // Find the closest minute bar to the trade timestamp
-                                   const tradeTime = tradeDate.getTime();
-                                   let closestBar = null;
-                                   let closestTimeDiff = Infinity;
-
-                                   for (const bar of response.results) {
-                                          const barTime = bar.t; // Bar timestamp in milliseconds
-                                          const timeDiff = Math.abs(tradeTime - barTime);
-                                          if (timeDiff < closestTimeDiff) {
-                                                 closestTimeDiff = timeDiff;
-                                                 closestBar = bar;
-                                          }
-                                   }
-
-                                   if (closestBar) {
-                                          return closestBar.c; // Use close price of closest minute bar
-                                   }
-                            }
-
-                            // If no historical data, use current as last resort
+                            // Cache miss (shouldn't happen with pre-fetch, but fallback to current price)
                             return currentSpotPrice;
                      } catch (error) {
                             console.error(` Worker: Error getting historical price for ${ticker}:`, error.message);
@@ -354,6 +324,34 @@ if (parentPort) {
                                           continue;
                                    }
 
+                                   // ===============================
+                                   // PRE-FETCH HISTORICAL PRICE DATA ONCE
+                                   // ===============================
+                                   // Do this BEFORE processing any contracts to avoid race conditions
+                                   // This fetches minute-level data ONCE per ticker, then all contracts use the cache
+                                   try {
+                                          const dateStr = timeRange.date;
+                                          const cacheKey = `${ticker}-${dateStr}`;
+
+                                          // Only fetch if not already cached
+                                          if (!priceCache.has(cacheKey)) {
+                                                 console.log(` Worker ${workerIndex}: Pre-fetching historical minute data for ${ticker}...`);
+                                                 const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${dateStr}/${dateStr}?adjusted=true&sort=asc&apikey=${apiKey}`;
+                                                 const response = await makePolygonRequest(url);
+
+                                                 if (response.results && response.results.length > 0) {
+                                                        priceCache.set(cacheKey, response.results);
+                                                        console.log(` Worker ${workerIndex}: ✅ Cached ${response.results.length} minute bars for ${ticker}`);
+                                                 } else {
+                                                        console.log(` Worker ${workerIndex}: No historical data for ${ticker}, will use current price`);
+                                                 }
+                                          } else {
+                                                 console.log(` Worker ${workerIndex}: ${ticker} historical data already cached`);
+                                          }
+                                   } catch (error) {
+                                          console.log(` Worker ${workerIndex}: Could not pre-fetch ${ticker} data, will use current price:`, error.message);
+                                   }
+
                                    if (contractsResponse.results && contractsResponse.results.length > 0) {
                                           // ===============================
                                           // STEP 3 — FILTER CONTRACTS
@@ -438,6 +436,11 @@ if (parentPort) {
                                                  // Wait for entire batch to complete
                                                  console.log(` Worker ${workerIndex}: ⏳ Waiting for ${contractBatch.length} contract API calls to complete...`);
                                                  const batchResults = await Promise.all(batchPromises);
+
+                                                 // Add small delay between batches to prevent socket overload
+                                                 if (batchIndex < contractBatches.length - 1) {
+                                                        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
+                                                 }
 
                                                  // Process all trade results from this batch
                                                  for (let resultIdx = 0; resultIdx < batchResults.length; resultIdx++) {
@@ -589,7 +592,8 @@ if (parentPort) {
 
                      // Send results back to main thread in chunks to avoid size limits
                      try {
-                            const CHUNK_SIZE = 10000; // Send 10k trades at a time
+                            // Smaller chunks for high-volume scans to prevent worker crashes
+                            const CHUNK_SIZE = results.length > 50000 ? 5000 : 10000; // 5k for huge scans, 10k normal
 
                             if (results.length > CHUNK_SIZE) {
                                    console.log(` Worker ${workerIndex}: Sending ${results.length} trades in chunks of ${CHUNK_SIZE}...`);
