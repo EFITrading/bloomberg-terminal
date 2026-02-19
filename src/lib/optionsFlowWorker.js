@@ -63,10 +63,19 @@ if (parentPort) {
               const priceCache = new Map();
 
               // Get historical spot price at exact trade time (cached)
-              // NOTE: Historical data is PRE-FETCHED before processing contracts
+              // NOTE: Historical data is now PRE-FETCHED before processing contracts
               // This function just looks up the cache - no API calls happen here
               async function getHistoricalSpotPrice(ticker, tradeTimestamp, currentSpotPrice) {
                      try {
+                            // For SPX/VIX/MAG7/ETFs, we skip historical lookup entirely
+                            const SKIP_HISTORICAL = ['SPX', 'VIX', 'AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG',
+                                   'SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV',
+                                   'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC',
+                                   'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'];
+                            if (SKIP_HISTORICAL.includes(ticker)) {
+                                   return currentSpotPrice;
+                            }
+
                             if (!tradeTimestamp) {
                                    console.warn(` Worker: No timestamp for ${ticker}, cannot get historical price`);
                                    return 0; // Don't use fake fallbacks
@@ -328,28 +337,37 @@ if (parentPort) {
                                    // PRE-FETCH HISTORICAL PRICE DATA ONCE
                                    // ===============================
                                    // Do this BEFORE processing any contracts to avoid race conditions
-                                   // This fetches minute-level data ONCE per ticker, then all contracts use the cache
-                                   try {
-                                          const dateStr = timeRange.date;
-                                          const cacheKey = `${ticker}-${dateStr}`;
+                                   // Skip for tickers that don't need historical data
+                                   const SKIP_HISTORICAL = ['SPX', 'VIX', 'AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG',
+                                          'SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV',
+                                          'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC',
+                                          'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'];
 
-                                          // Only fetch if not already cached
-                                          if (!priceCache.has(cacheKey)) {
-                                                 console.log(` Worker ${workerIndex}: Pre-fetching historical minute data for ${ticker}...`);
-                                                 const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${dateStr}/${dateStr}?adjusted=true&sort=asc&apikey=${apiKey}`;
-                                                 const response = await makePolygonRequest(url);
+                                   if (!SKIP_HISTORICAL.includes(ticker)) {
+                                          try {
+                                                 const dateStr = timeRange.date;
+                                                 const cacheKey = `${ticker}-${dateStr}`;
 
-                                                 if (response.results && response.results.length > 0) {
-                                                        priceCache.set(cacheKey, response.results);
-                                                        console.log(` Worker ${workerIndex}: ✅ Cached ${response.results.length} minute bars for ${ticker}`);
+                                                 // Only fetch if not already cached
+                                                 if (!priceCache.has(cacheKey)) {
+                                                        console.log(` Worker ${workerIndex}: Pre-fetching historical minute data for ${ticker}...`);
+                                                        const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${dateStr}/${dateStr}?adjusted=true&sort=asc&apikey=${apiKey}`;
+                                                        const response = await makePolygonRequest(url);
+
+                                                        if (response.results && response.results.length > 0) {
+                                                               priceCache.set(cacheKey, response.results);
+                                                               console.log(` Worker ${workerIndex}: ✅ Cached ${response.results.length} minute bars for ${ticker}`);
+                                                        } else {
+                                                               console.log(` Worker ${workerIndex}: No historical data for ${ticker}, will use current price`);
+                                                        }
                                                  } else {
-                                                        console.log(` Worker ${workerIndex}: No historical data for ${ticker}, will use current price`);
+                                                        console.log(` Worker ${workerIndex}: ${ticker} historical data already cached`);
                                                  }
-                                          } else {
-                                                 console.log(` Worker ${workerIndex}: ${ticker} historical data already cached`);
+                                          } catch (error) {
+                                                 console.log(` Worker ${workerIndex}: Could not pre-fetch ${ticker} data, will use current price:`, error.message);
                                           }
-                                   } catch (error) {
-                                          console.log(` Worker ${workerIndex}: Could not pre-fetch ${ticker} data, will use current price:`, error.message);
+                                   } else {
+                                          console.log(` Worker ${workerIndex}: Skipping historical data for ${ticker} (using current price)`);
                                    }
 
                                    if (contractsResponse.results && contractsResponse.results.length > 0) {

@@ -3273,14 +3273,14 @@ export class OptionsFlowService {
               // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
               const optionTicker = trade.ticker;
 
-              // Use snapshot endpoint - VIX/SPX weeklies need different format
+              // STEP 1: Get snapshot for volume/OI (current is fine for these)
               const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
                 ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
                 : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
 
               const response = await fetch(snapshotUrl);
               if (!response.ok) {
-                console.log(`❌ Enrichment API error: ${response.status} for ${optionTicker}`);
+                console.log(`❌ Snapshot API error: ${response.status} for ${optionTicker}`);
                 return trade;
               }
 
@@ -3293,15 +3293,6 @@ export class OptionsFlowService {
                   snapshot = Array.isArray(data.results)
                     ? data.results.find((r: any) => r.details?.ticker === optionTicker)
                     : data.results;
-
-                  if (batchIndex === 0 && batch.indexOf(trade) === 0) {
-                    console.log(`🔍 VIX/SPX Enrichment - Looking for: ${optionTicker}`);
-                    console.log(`📦 Found ${data.results.length} contracts in bulk snapshot`);
-                    console.log(`✅ Match found: ${snapshot ? 'YES' : 'NO'}`);
-                    if (snapshot) {
-                      console.log(`Bid: ${snapshot.last_quote?.bid}, Ask: ${snapshot.last_quote?.ask}, Vol: ${snapshot.day?.volume}, OI: ${snapshot.open_interest}`);
-                    }
-                  }
                 } else {
                   snapshot = data.results;
                 }
@@ -3311,17 +3302,48 @@ export class OptionsFlowService {
                   return trade;
                 }
 
-                // Extract Vol/OI
+                // Extract Vol/OI from snapshot
                 const volume = snapshot.day?.volume || trade.volume;
                 const openInterest = snapshot.open_interest || trade.open_interest;
 
-                // Calculate Fill Style from bid/ask
+                // STEP 2: Get HISTORICAL quote at trade timestamp for bid/ask
+                let bid: number | undefined;
+                let ask: number | undefined;
                 let fillStyle = 'N/A';
-                const lastPrice = trade.premium_per_contract;
-                const bid = snapshot.last_quote?.bid;
-                const ask = snapshot.last_quote?.ask;
 
-                if (bid && ask && ask > bid) {
+                // Get trade timestamp (convert from ISO string to nanoseconds)
+                const tradeDate = new Date(trade.trade_timestamp);
+                const tradeTimestampNano = tradeDate.getTime() * 1000000; // Convert ms to nanoseconds
+
+                try {
+                  const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
+                  const quoteResponse = await fetch(quoteUrl);
+
+                  if (quoteResponse.ok) {
+                    const quoteData = await quoteResponse.json();
+
+                    if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
+                      bid = quoteData.results[0].bid_price;
+                      ask = quoteData.results[0].ask_price;
+
+                      if (batchIndex === 0 && batch.indexOf(trade) === 0) {
+                        console.log(`\n✅ Got historical quote for ${optionTicker}:`);
+                        console.log(`  Trade time: ${tradeDate.toISOString()}`);
+                        console.log(`  Quote time: ${new Date(quoteData.results[0].sip_timestamp / 1000000).toISOString()}`);
+                        console.log(`  Bid: $${bid}, Ask: $${ask}`);
+                      }
+                    } else {
+                      console.log(`⚠️ No historical quote found for ${optionTicker} at ${tradeDate.toISOString()}`);
+                    }
+                  }
+                } catch (quoteError) {
+                  console.log(`⚠️ Quote fetch error for ${optionTicker}:`, quoteError);
+                }
+
+                // Calculate Fill Style from historical bid/ask
+                const lastPrice = trade.premium_per_contract;
+
+                if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
                   const midpoint = (bid + ask) / 2;
                   const spread = ask - bid;
                   const distanceFromMid = lastPrice - midpoint;
@@ -3330,6 +3352,12 @@ export class OptionsFlowService {
                   else if (distanceFromMid > 0) fillStyle = 'AA';
                   else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
                   else if (distanceFromMid < 0) fillStyle = 'BB';
+
+                  if (batchIndex === 0 && batch.indexOf(trade) === 0) {
+                    console.log(`  Midpoint: $${midpoint.toFixed(4)}, Spread: $${spread.toFixed(4)}`);
+                    console.log(`  Trade Price: $${lastPrice.toFixed(4)}, Distance: $${distanceFromMid.toFixed(4)}`);
+                    console.log(`  ✅ Fill Style: ${fillStyle}`);
+                  }
                 }
 
                 return {
@@ -3431,19 +3459,42 @@ export class OptionsFlowService {
                 }
 
                 if (!snapshot) {
+                  console.log(`❌ No snapshot found for ${optionTicker} in enrichTradesWithHistoricalVolOI`);
                   return trade;
                 }
 
                 // Use snapshot OI (current OI is fine even for historical trades)
                 openInterest = snapshot.open_interest || openInterest;
 
-                // Calculate Fill Style from bid/ask
+                // STEP 2: Get HISTORICAL quote at trade timestamp for bid/ask
+                let bid: number | undefined;
+                let ask: number | undefined;
                 let fillStyle = 'N/A';
-                const lastPrice = trade.premium_per_contract;
-                const bid = snapshot.last_quote?.bid;
-                const ask = snapshot.last_quote?.ask;
 
-                if (bid && ask && ask > bid) {
+                // Get trade timestamp (convert from ISO string to nanoseconds)
+                const tradeDate = new Date(trade.trade_timestamp);
+                const tradeTimestampNano = tradeDate.getTime() * 1000000; // Convert ms to nanoseconds
+
+                try {
+                  const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
+                  const quoteResponse = await fetch(quoteUrl);
+
+                  if (quoteResponse.ok) {
+                    const quoteData = await quoteResponse.json();
+
+                    if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
+                      bid = quoteData.results[0].bid_price;
+                      ask = quoteData.results[0].ask_price;
+                    }
+                  }
+                } catch (quoteError) {
+                  // Silent fail - fill_style stays N/A
+                }
+
+                // Calculate Fill Style from historical bid/ask
+                const lastPrice = trade.premium_per_contract;
+
+                if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
                   const midpoint = (bid + ask) / 2;
                   const spread = ask - bid;
                   const distanceFromMid = lastPrice - midpoint;
