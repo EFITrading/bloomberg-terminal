@@ -126,12 +126,17 @@ export async function GET(request: NextRequest) {
         return;
       }
 
+      // Track execution time from the very start
+      const TIMER_START = Date.now();
+      console.error(`⏱️ [+0.0s] TIMER_START: ${new Date(TIMER_START).toISOString()}`);
+
       // Send heartbeat to keep connection alive
       let heartbeatCount = 0;
       streamState.heartbeatInterval = setInterval(() => {
         heartbeatCount++;
         const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-        console.log(`💓 Heartbeat interval fired #${heartbeatCount} - Memory: ${mem}MB - Active: ${streamState.isActive}`);
+        const elapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+        console.error(`[+${elapsed}s] 💓 Heartbeat interval fired #${heartbeatCount} - Memory: ${mem}MB - Active: ${streamState.isActive}`);
         
         if (streamState.isActive) {
           try {
@@ -141,13 +146,13 @@ export async function GET(request: NextRequest) {
               heartbeatNumber: heartbeatCount,
               memoryMB: mem
             });
-            console.log(`   ✅ Heartbeat #${heartbeatCount} sent successfully`);
+            console.error(`[+${elapsed}s]    ✅ Heartbeat #${heartbeatCount} sent successfully (memory: ${mem}MB)`);
           } catch (error) {
-            console.error(`   ❌ Heartbeat #${heartbeatCount} send failed:`, error);
+            console.error(`[+${elapsed}s]    ❌ Heartbeat #${heartbeatCount} FAILED:`, error);
             streamState.isActive = false;
           }
         } else {
-          console.log(`   ⚠️ Heartbeat #${heartbeatCount} skipped - stream inactive`);
+          console.error(`[+${elapsed}s]    ⚠️ Heartbeat #${heartbeatCount} skipped - stream inactive`);
         }
       }, 15000); // Every 15 seconds
 
@@ -159,11 +164,9 @@ export async function GET(request: NextRequest) {
       process.on('uncaughtException', crashHandler);
       
       try {
-        const TIMER_START = Date.now();
         const scanType = ticker || 'MARKET-WIDE';
-        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
-        console.log(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
-        console.log(`⏱️ Start time: ${new Date(TIMER_START).toISOString()}`);
+        console.error(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
+        console.error(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
 
         // Send initial status with connection confirmation
         sendData({
@@ -180,12 +183,12 @@ export async function GET(request: NextRequest) {
         // Create a streaming callback - ONLY send status, not progressive trades
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
           const elapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-          console.log(`📞 [+${elapsed}s] Callback: "${status}" (${trades.length} trades)`);
+          console.error(`[+${elapsed}s] 📞 CALLBACK: "${status}" | Trades: ${trades.length} | Stream active: ${streamState.isActive}`);
           
           // ❌ DISABLED: Don't send progressive updates
           // Only send status messages to show scan progress
           if (!streamState.isActive) {
-            console.log(`   ⚠️ Stream inactive, callback aborting`);
+            console.error(`[+${elapsed}s]    ⚠️ Stream inactive, callback aborting`);
             return; // Check if stream is still active
           }
 
