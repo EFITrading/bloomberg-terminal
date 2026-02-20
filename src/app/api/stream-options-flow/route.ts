@@ -67,17 +67,18 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Enhanced headers for better EventSource compatibility
+  // Enhanced headers for better EventSource compatibility + Vercel edge
   const headers = {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform',
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-store, must-revalidate, no-transform',
     'Connection': 'keep-alive',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET',
     'Access-Control-Allow-Headers': 'Cache-Control',
     'X-Accel-Buffering': 'no', // Disable nginx buffering
-    'Transfer-Encoding': 'chunked',
-    'Content-Encoding': 'none' // Prevent compression that can delay SSE
+    'X-Content-Type-Options': 'nosniff', // Prevent content sniffing delays
+    'Transfer-Encoding': 'chunked'
+    // Note: Removed 'Content-Encoding' to let Vercel handle compression
   };
 
   // Create shared state for the stream
@@ -91,12 +92,16 @@ export async function GET(request: NextRequest) {
     async start(controller) {
       const encoder = new TextEncoder();
 
-      // Send IMMEDIATE connection comment to establish the stream
-      // This ensures Vercel/edge doesn't buffer the response
+      // CRITICAL: Send MULTIPLE small chunks IMMEDIATELY to force Vercel edge to flush
+      // This prevents buffering that causes "initial connection" failures
       try {
-        controller.enqueue(encoder.encode(': connected\n\n'));
+        // Send padding + comment to force immediate flush (Vercel edge workaround)
+        const padding = ': ' + 'x'.repeat(2048) + '\n\n'; // 2KB padding to trigger flush
+        controller.enqueue(encoder.encode(padding));
+        controller.enqueue(encoder.encode(': stream-established\n\n'));
+        controller.enqueue(encoder.encode(': vercel-edge-bypass\n\n'));
       } catch (error) {
-        console.error('Failed to send initial comment:', error);
+        console.error('Failed to send initial padding:', error);
       }
 
       // Enhanced data sending with error handling

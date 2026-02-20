@@ -396,10 +396,14 @@ export default function OptionsFlowPage() {
       // Map scan categories to appropriate ticker parameter
       let tickerParam = tickerOverride || selectedTicker;
 
-      // Fix: Default to 'ALL' if ticker is empty or just whitespace
+      // Error if ticker is empty or just whitespace
       if (!tickerParam || tickerParam.trim() === '') {
-        console.log('⚠️ Empty ticker parameter detected, defaulting to ALL');
-        tickerParam = 'ALL';
+        const errorMsg = 'No ticker selected. Please select a ticker, MAG7, ETF, or ALL to scan.';
+        console.error('❌', errorMsg);
+        setStreamError(errorMsg);
+        setLoading(false);
+        setStreamingStatus('');
+        return;
       }
 
       if (tickerParam === 'MAG7') {
