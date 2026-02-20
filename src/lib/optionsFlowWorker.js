@@ -451,13 +451,24 @@ if (parentPort) {
                                                         }
                                                  });
 
-                                                 // Wait for entire batch to complete
-                                                 console.log(` Worker ${workerIndex}: ⏳ Waiting for ${contractBatch.length} contract API calls to complete...`);
-                                                 const batchResults = await Promise.all(batchPromises);
-
-                                                 // Add small delay between batches to prevent socket overload
-                                                 if (batchIndex < contractBatches.length - 1) {
-                                                        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
+                                                 // Process contracts sequentially to keep stream alive
+                                                 console.log(` Worker ${workerIndex}: Processing ${contractBatch.length} contracts sequentially...`);
+                                                 const batchResults = [];
+                                                 
+                                                 for (let i = 0; i < batchPromises.length; i++) {
+                                                        const result = await batchPromises[i];
+                                                        batchResults.push(result);
+                                                        
+                                                        // Send progress update to keep connection alive
+                                                        if (result && parentPort) {
+                                                               parentPort.postMessage({
+                                                                      type: 'ticker_progress',
+                                                                      workerIndex: workerIndex,
+                                                                      ticker: ticker,
+                                                                      message: `${ticker} - ${i + 1}/${batchPromises.length} contracts processed`,
+                                                                      success: true
+                                                               });
+                                                        }
                                                  }
 
                                                  // Process all trade results from this batch
