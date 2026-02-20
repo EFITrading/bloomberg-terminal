@@ -391,24 +391,14 @@ export class OptionsFlowService {
       );
 
       console.log(`✅ SCAN COMPLETE: Found ${allTrades.length} total trades`);
-      
-      // Send progress update to keep connection alive
-      if (onProgress) {
-        onProgress([], `✅ Scan complete: ${allTrades.length} trades found - starting classification...`);
-      }
 
       // Workers now include Vol/OI data directly - no enrichment needed!
       console.log(`✅ Vol/OI data included by workers - skipping enrichment step`);
 
       // CRITICAL: Classify all trades after collection to enable proper SWEEP/BLOCK/MINI detection
       console.log(`🔍 CLASSIFYING TRADES: Analyzing ${allTrades.length} trades for sweep patterns...`);
-      const classifiedTrades = await this.classifyAllTradesAsync(allTrades, onProgress);
+      const classifiedTrades = this.classifyAllTrades(allTrades);
       console.log(`✅ CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades`);
-      
-      // Send progress update to keep connection alive
-      if (onProgress) {
-        onProgress([], `✅ Classification complete: ${classifiedTrades.length} trades classified - applying filters...`);
-      }
 
       // Apply institutional filters (premium, ITM, market hours, etc.)
       console.log(`🔍 FILTERING: Applying institutional criteria to ${classifiedTrades.length} trades...`);
@@ -1159,7 +1149,15 @@ export class OptionsFlowService {
       const exchanges = [...new Set(tradesInGroup.map(t => t.exchange))];
       const representativeTrade = tradesInGroup[0];
 
-      // 3-second window grouping (logging removed for performance)
+      // Debug: Show 3-second window grouping for significant trades
+      if (tradesInGroup.length > 1 && totalPremium >= 50000) {
+        const time = new Date(representativeTrade.sip_timestamp / 1000000).toLocaleTimeString();
+        console.log(`\n🔍 3-SECOND WINDOW GROUP: ${tradesInGroup.length} trades within 3-second window at ~${time}:`);
+        console.log(`   ${representativeTrade.ticker} $${representativeTrade.strike} ${representativeTrade.type.toUpperCase()}S - Total: ${totalContracts} contracts, $${totalPremium.toLocaleString()}`);
+        tradesInGroup.forEach((trade, idx) => {
+          console.log(`     ${idx + 1}. ${trade.trade_size} contracts @$${trade.premium_per_contract.toFixed(2)} [${trade.exchange}]`);
+        });
+      }
 
       // YOUR EXACT LOGIC: Classify based on exchange count
       if (exchanges.length >= 2) {
@@ -1180,6 +1178,7 @@ export class OptionsFlowService {
           related_trades: exchanges.map(ex => `${ex}`)
         };
 
+        console.log(`🧹 SWEEP DETECTED: ${sweepTrade.ticker} $${sweepTrade.strike} ${sweepTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} across ${exchanges.length} exchanges`);
         categorizedTrades.push(sweepTrade);
 
       } else if (exchanges.length === 1) {
@@ -1201,7 +1200,10 @@ export class OptionsFlowService {
         };
 
         if (totalPremium >= 50000) {
+          console.log(`🧱 BLOCK DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`);
           blockCount++;
+        } else {
+          console.log(`💼 MINI DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`);
         }
 
         categorizedTrades.push(combinedTrade);
@@ -1212,113 +1214,6 @@ export class OptionsFlowService {
     console.log(`✅ 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps, ${blockCount} blocks, and ${miniCount} minis from ${unclassifiedTrades.length} individual trades`);
 
     // Return multi-leg trades + newly classified trades
-    return [...multiLegTrades, ...categorizedTrades];
-  }
-
-  // ASYNC version with event loop yields
-  private async detectSweepsAsync(
-    trades: ProcessedTrade[],
-    onProgress?: (message: string) => void
-  ): Promise<ProcessedTrade[]> {
-    console.log(`🔍 3-SECOND WINDOW SWEEP DETECTION (ASYNC): Processing ${trades.length} trades...`);
-
-    const multiLegTrades = trades.filter(t => t.trade_type === 'MULTI-LEG');
-    const unclassifiedTrades = trades.filter(t => t.trade_type !== 'MULTI-LEG');
-
-    console.log(`🔍 Preserving ${multiLegTrades.length} MULTI-LEG trades, processing ${unclassifiedTrades.length} remaining trades`);
-
-    unclassifiedTrades.sort((a, b) => a.sip_timestamp - b.sip_timestamp);
-
-    const exactTimeGroups = new Map<string, ProcessedTrade[]>();
-    let processedCount = 0;
-
-    for (const trade of unclassifiedTrades) {
-      const contractKey = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}`;
-      const timeInMs = Math.floor(trade.sip_timestamp / 1000000);
-      const threeSecondWindow = Math.floor(timeInMs / 3000) * 3000;
-      const groupKey = `${contractKey}_${threeSecondWindow}`;
-
-      if (!exactTimeGroups.has(groupKey)) {
-        exactTimeGroups.set(groupKey, []);
-      }
-      exactTimeGroups.get(groupKey)!.push(trade);
-
-      // Yield every 5000 trades to prevent blocking
-      processedCount++;
-      if (processedCount % 5000 === 0) {
-        await new Promise(resolve => setImmediate(resolve));
-        if (onProgress) {
-          onProgress(`Grouping trades: ${processedCount}/${unclassifiedTrades.length}`);
-        }
-      }
-    }
-
-    const categorizedTrades: ProcessedTrade[] = [];
-    let sweepCount = 0;
-    let blockCount = 0;
-    let groupCount = 0;
-
-    for (const [groupKey, tradesInGroup] of exactTimeGroups) {
-      const totalContracts = tradesInGroup.reduce((sum, t) => sum + t.trade_size, 0);
-      const totalPremium = tradesInGroup.reduce((sum, t) => sum + t.total_premium, 0);
-      const exchanges = [...new Set(tradesInGroup.map(t => t.exchange))];
-      const representativeTrade = tradesInGroup[0];
-
-      if (exchanges.length >= 2) {
-        sweepCount++;
-        const weightedPrice = tradesInGroup.reduce((sum, trade) => {
-          return sum + (trade.premium_per_contract * trade.trade_size);
-        }, 0) / totalContracts;
-
-        const sweepTrade: ProcessedTrade = {
-          ...representativeTrade,
-          trade_size: totalContracts,
-          premium_per_contract: weightedPrice,
-          total_premium: totalPremium,
-          trade_type: 'SWEEP',
-          exchange_name: `MULTI-EXCHANGE (${tradesInGroup.length} fills across ${exchanges.length} exchanges)`,
-          window_group: `sweep_${groupKey}`,
-          related_trades: exchanges.map(ex => `${ex}`)
-        };
-
-        categorizedTrades.push(sweepTrade);
-
-      } else if (exchanges.length === 1) {
-        const weightedPrice = tradesInGroup.reduce((sum, trade) => {
-          return sum + (trade.premium_per_contract * trade.trade_size);
-        }, 0) / totalContracts;
-
-        const combinedTrade: ProcessedTrade = {
-          ...representativeTrade,
-          trade_size: totalContracts,
-          premium_per_contract: weightedPrice,
-          total_premium: totalPremium,
-          trade_type: totalPremium >= 50000 ? 'BLOCK' : 'MINI',
-          exchange_name: this.exchangeNames[exchanges[0]] || `Exchange ${exchanges[0]}`,
-          window_group: totalPremium >= 50000 ? `block_${groupKey}` : `mini_${groupKey}`,
-          related_trades: []
-        };
-
-        if (totalPremium >= 50000) {
-          blockCount++;
-        }
-
-        categorizedTrades.push(combinedTrade);
-      }
-
-      // Yield every 1000 groups
-      groupCount++;
-      if (groupCount % 1000 === 0) {
-        await new Promise(resolve => setImmediate(resolve));
-        if (onProgress) {
-          onProgress(`Classifying groups: ${groupCount}/${exactTimeGroups.size}`);
-        }
-      }
-    }
-
-    const miniCount = categorizedTrades.filter(t => t.trade_type === 'MINI').length;
-    console.log(`✅ 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps, ${blockCount} blocks, and ${miniCount} minis from ${unclassifiedTrades.length} individual trades`);
-
     return [...multiLegTrades, ...categorizedTrades];
   }
 
@@ -2452,10 +2347,12 @@ export class OptionsFlowService {
     const convertedTrades = uniqueTrades.map(trade => {
       // If already a ProcessedTrade with classification, don't reprocess
       if (trade.trade_timestamp instanceof Date && trade.trade_type !== undefined) {
+        console.log(`♻️ Trade already classified: ${trade.ticker} - ${trade.trade_type}`);
         return trade as ProcessedTrade;
       }
 
       // Convert worker trade to ProcessedTrade format
+      console.log(`🔄 Converting worker trade: ${trade.ticker || trade.option_ticker} - $${trade.total_premium}`);
       return {
         ticker: trade.ticker || trade.option_ticker,
         underlying_ticker: trade.underlying_ticker,
@@ -2530,107 +2427,6 @@ export class OptionsFlowService {
       console.log(`   ${i + 1}. ${trade.ticker} - Type: '${trade.trade_type}' - Premium: $${trade.total_premium}`);
     });
 
-    return allClassified.sort((a, b) => b.total_premium - a.total_premium);
-  }
-
-  // ASYNC version with progress updates to keep EventSource alive
-  private async classifyAllTradesAsync(
-    allTrades: any[], 
-    onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
-  ): Promise<ProcessedTrade[]> {
-    console.log(`🎯 Starting ASYNC trade classification for ${allTrades.length} trades`);
-
-    if (allTrades.length === 0) {
-      return [];
-    }
-
-    // Deduplicate trades
-    const seenTrades = new Set<string>();
-    const uniqueTrades: any[] = [];
-
-    for (const trade of allTrades) {
-      const tradeId = `${trade.ticker || trade.option_ticker}_${trade.timestamp || trade.sip_timestamp}_${trade.total_premium}_${trade.exchange}`;
-      if (!seenTrades.has(tradeId)) {
-        seenTrades.add(tradeId);
-        uniqueTrades.push(trade);
-      }
-    }
-
-    console.log(`🔍 After deduplication: ${uniqueTrades.length} unique trades`);
-    
-    // Send progress update
-    if (onProgress) {
-      onProgress([], `Deduplication complete: ${uniqueTrades.length} unique trades`);
-    }
-
-    // Convert trades to ProcessedTrade format
-    const convertedTrades = uniqueTrades.map(trade => {
-      if (trade.trade_timestamp instanceof Date && trade.trade_type !== undefined) {
-        return trade as ProcessedTrade;
-      }
-      return {
-        ticker: trade.ticker || trade.option_ticker,
-        underlying_ticker: trade.underlying_ticker,
-        strike: trade.strike,
-        expiry: trade.expiry,
-        type: trade.type,
-        trade_size: trade.trade_size,
-        premium_per_contract: trade.premium_per_contract,
-        total_premium: trade.total_premium,
-        spot_price: trade.spot_price,
-        exchange: trade.exchange,
-        exchange_name: trade.exchange_name,
-        sip_timestamp: trade.sip_timestamp,
-        conditions: trade.conditions || [],
-        trade_timestamp: trade.trade_timestamp instanceof Date ? trade.trade_timestamp : new Date(trade.timestamp),
-        trade_type: undefined,
-        moneyness: trade.moneyness,
-        days_to_expiry: trade.days_to_expiry
-      } as ProcessedTrade;
-    });
-
-    // Step 1: Multi-leg detection (still synchronous - rarely a bottleneck)
-    if (onProgress) {
-      onProgress([], `Detecting multi-leg strategies...`);
-    }
-    await new Promise(resolve => setImmediate(resolve)); // Yield to event loop
-    
-    const withMultiLeg = this.detectMultiLegTrades(convertedTrades);
-    console.log(`📊 Found ${withMultiLeg.filter(t => t.trade_type === 'MULTI-LEG').length} MULTI-LEG trades`);
-
-    // Step 2: Sweep detection with async and progress
-    const sweeps = await this.detectSweepsAsync(withMultiLeg, (message) => {
-      if (onProgress) {
-        onProgress([], message);
-      }
-    });
-    console.log(`📊 Found ${sweeps.filter(t => t.trade_type === 'SWEEP').length} SWEEP trades`);
-
-    // Step 3: Classify remaining as BLOCK/MINI
-    if (onProgress) {
-      onProgress([], `Classifying remaining trades...`);
-    }
-    await new Promise(resolve => setImmediate(resolve)); // Yield to event loop
-    
-    const classifiedKeys = new Set<string>();
-    sweeps.forEach(trade => {
-      if (trade.trade_type) {
-        const key = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp?.getTime()}`;
-        classifiedKeys.add(key);
-      }
-    });
-
-    const remainingTrades = sweeps.filter(trade => {
-      const key = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp?.getTime()}`;
-      return !classifiedKeys.has(key);
-    });
-
-    const classifiedRemaining = remainingTrades.map(trade => ({
-      ...trade,
-      trade_type: trade.total_premium >= 50000 ? 'BLOCK' : 'MINI'
-    } as ProcessedTrade));
-
-    const allClassified = [...sweeps, ...classifiedRemaining];
     return allClassified.sort((a, b) => b.total_premium - a.total_premium);
   }
 
@@ -3456,10 +3252,7 @@ export class OptionsFlowService {
   }
 
   // 🚀 ULTRA-FAST PARALLEL ENRICHMENT - Enriches trades with Vol/OI + Fill Style using all CPU cores
-  async enrichTradesWithVolOIParallel(
-    trades: ProcessedTrade[],
-    progressCallback?: (current: number, total: number, message: string) => void
-  ): Promise<ProcessedTrade[]> {
+  async enrichTradesWithVolOIParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
 
     const BATCH_SIZE = 50; // Process 50 trades per API call batch
@@ -3471,141 +3264,128 @@ export class OptionsFlowService {
 
     console.log(`🚀 PARALLEL ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
 
-    // Process batches SEQUENTIALLY to send progress updates and keep EventSource alive
-    const enrichedBatches: ProcessedTrade[][] = [];
+    // Process all batches in parallel
+    const enrichedBatches = await Promise.all(
+      batches.map(async (batch, batchIndex) => {
+        const enrichedTrades = await Promise.all(
+          batch.map(async (trade) => {
+            try {
+              // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
+              const optionTicker = trade.ticker;
 
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
+              // STEP 1: Get snapshot for volume/OI (current is fine for these)
+              const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
+                ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
+                : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
 
-      // Process trades within THIS batch in parallel
-      const enrichedTrades = await Promise.all(
-        batch.map(async (trade) => {
-          try {
-            // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
-            const optionTicker = trade.ticker;
-
-            // STEP 1: Get snapshot for volume/OI (current is fine for these)
-            const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
-              ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
-              : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
-
-            const response = await fetch(snapshotUrl);
-            if (!response.ok) {
-              console.log(`❌ Snapshot API error: ${response.status} for ${optionTicker}`);
-              return trade;
-            }
-
-            const data = await response.json();
-
-            if (data.status === 'OK' && data.results) {
-              // For VIX/SPX bulk snapshot, find the specific contract
-              let snapshot;
-              if (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX') {
-                snapshot = Array.isArray(data.results)
-                  ? data.results.find((r: any) => r.details?.ticker === optionTicker)
-                  : data.results;
-              } else {
-                snapshot = data.results;
-              }
-
-              if (!snapshot) {
-                console.log(`❌ No snapshot found for ${optionTicker}`);
+              const response = await fetch(snapshotUrl);
+              if (!response.ok) {
+                console.log(`❌ Snapshot API error: ${response.status} for ${optionTicker}`);
                 return trade;
               }
 
-              // Extract Vol/OI from snapshot
-              const volume = snapshot.day?.volume || trade.volume;
-              const openInterest = snapshot.open_interest || trade.open_interest;
+              const data = await response.json();
 
-              // STEP 2: Get HISTORICAL quote at trade timestamp for bid/ask
-              let bid: number | undefined;
-              let ask: number | undefined;
-              let fillStyle = 'N/A';
+              if (data.status === 'OK' && data.results) {
+                // For VIX/SPX bulk snapshot, find the specific contract
+                let snapshot;
+                if (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX') {
+                  snapshot = Array.isArray(data.results)
+                    ? data.results.find((r: any) => r.details?.ticker === optionTicker)
+                    : data.results;
+                } else {
+                  snapshot = data.results;
+                }
 
-              // Get trade timestamp (convert from ISO string to nanoseconds)
-              const tradeDate = new Date(trade.trade_timestamp);
-              const tradeTimestampNano = tradeDate.getTime() * 1000000; // Convert ms to nanoseconds
+                if (!snapshot) {
+                  console.log(`❌ No snapshot found for ${optionTicker}`);
+                  return trade;
+                }
 
-              try {
-                const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
-                const quoteResponse = await fetch(quoteUrl);
+                // Extract Vol/OI from snapshot
+                const volume = snapshot.day?.volume || trade.volume;
+                const openInterest = snapshot.open_interest || trade.open_interest;
 
-                if (quoteResponse.ok) {
-                  const quoteData = await quoteResponse.json();
+                // STEP 2: Get HISTORICAL quote at trade timestamp for bid/ask
+                let bid: number | undefined;
+                let ask: number | undefined;
+                let fillStyle = 'N/A';
 
-                  if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
-                    bid = quoteData.results[0].bid_price;
-                    ask = quoteData.results[0].ask_price;
+                // Get trade timestamp (convert from ISO string to nanoseconds)
+                const tradeDate = new Date(trade.trade_timestamp);
+                const tradeTimestampNano = tradeDate.getTime() * 1000000; // Convert ms to nanoseconds
 
-                    if (batchIndex === 0 && batch.indexOf(trade) === 0) {
-                      console.log(`\n✅ Got historical quote for ${optionTicker}:`);
-                      console.log(`  Trade time: ${tradeDate.toISOString()}`);
-                      console.log(`  Quote time: ${new Date(quoteData.results[0].sip_timestamp / 1000000).toISOString()}`);
-                      console.log(`  Bid: $${bid}, Ask: $${ask}`);
+                try {
+                  const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
+                  const quoteResponse = await fetch(quoteUrl);
+
+                  if (quoteResponse.ok) {
+                    const quoteData = await quoteResponse.json();
+
+                    if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
+                      bid = quoteData.results[0].bid_price;
+                      ask = quoteData.results[0].ask_price;
+
+                      if (batchIndex === 0 && batch.indexOf(trade) === 0) {
+                        console.log(`\n✅ Got historical quote for ${optionTicker}:`);
+                        console.log(`  Trade time: ${tradeDate.toISOString()}`);
+                        console.log(`  Quote time: ${new Date(quoteData.results[0].sip_timestamp / 1000000).toISOString()}`);
+                        console.log(`  Bid: $${bid}, Ask: $${ask}`);
+                      }
+                    } else {
+                      console.log(`⚠️ No historical quote found for ${optionTicker} at ${tradeDate.toISOString()}`);
                     }
-                  } else {
-                    console.log(`⚠️ No historical quote found for ${optionTicker} at ${tradeDate.toISOString()}`);
+                  }
+                } catch (quoteError) {
+                  console.log(`⚠️ Quote fetch error for ${optionTicker}:`, quoteError);
+                }
+
+                // Calculate Fill Style from historical bid/ask
+                const lastPrice = trade.premium_per_contract;
+
+                if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
+                  const midpoint = (bid + ask) / 2;
+                  const spread = ask - bid;
+                  const distanceFromMid = lastPrice - midpoint;
+
+                  if (distanceFromMid > spread * 0.25) fillStyle = 'A';
+                  else if (distanceFromMid > 0) fillStyle = 'AA';
+                  else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
+                  else if (distanceFromMid < 0) fillStyle = 'BB';
+
+                  if (batchIndex === 0 && batch.indexOf(trade) === 0) {
+                    console.log(`  Midpoint: $${midpoint.toFixed(4)}, Spread: $${spread.toFixed(4)}`);
+                    console.log(`  Trade Price: $${lastPrice.toFixed(4)}, Distance: $${distanceFromMid.toFixed(4)}`);
+                    console.log(`  ✅ Fill Style: ${fillStyle}`);
                   }
                 }
-              } catch (quoteError) {
-                console.log(`⚠️ Quote fetch error for ${optionTicker}:`, quoteError);
+
+                return {
+                  ...trade,
+                  volume,
+                  open_interest: openInterest,
+                  vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
+                  fill_style: fillStyle,
+                  bid,
+                  ask,
+                  bid_ask_spread: bid && ask ? ask - bid : undefined
+                };
               }
 
-              // Calculate Fill Style from historical bid/ask
-              const lastPrice = trade.premium_per_contract;
-
-              if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
-                const midpoint = (bid + ask) / 2;
-                const spread = ask - bid;
-                const distanceFromMid = lastPrice - midpoint;
-
-                if (distanceFromMid > spread * 0.25) fillStyle = 'A';
-                else if (distanceFromMid > 0) fillStyle = 'AA';
-                else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
-                else if (distanceFromMid < 0) fillStyle = 'BB';
-
-                if (batchIndex === 0 && batch.indexOf(trade) === 0) {
-                  console.log(`  Midpoint: $${midpoint.toFixed(4)}, Spread: $${spread.toFixed(4)}`);
-                  console.log(`  Trade Price: $${lastPrice.toFixed(4)}, Distance: $${distanceFromMid.toFixed(4)}`);
-                  console.log(`  ✅ Fill Style: ${fillStyle}`);
-                }
-              }
-
-              return {
-                ...trade,
-                volume,
-                open_interest: openInterest,
-                vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
-                fill_style: fillStyle,
-                bid,
-                ask,
-                bid_ask_spread: bid && ask ? ask - bid : undefined
-              };
+              return trade;
+            } catch (error) {
+              return trade;
             }
-
-            return trade;
-          } catch (error) {
-            return trade;
-          }
-        })
-      );
-
-      // Send progress update AFTER EACH BATCH to keep EventSource alive
-      const tradesEnriched = (batchIndex + 1) * BATCH_SIZE;
-      if (progressCallback) {
-        progressCallback(
-          Math.min(tradesEnriched, trades.length),
-          trades.length,
-          `Enriching trades: ${Math.min(tradesEnriched, trades.length)}/${trades.length}`
+          })
         );
-      }
 
-      if (batchIndex % 10 === 0 || batchIndex === batches.length - 1) {
-        console.log(`📦 Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
-      }
+        if (batchIndex % 10 === 0) {
+          console.log(`📦 Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
+        }
 
-      enrichedBatches.push(enrichedTrades);
-    }
+        return enrichedTrades;
+      })
+    );
 
     const allEnriched = enrichedBatches.flat();
     console.log(`✅ PARALLEL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);

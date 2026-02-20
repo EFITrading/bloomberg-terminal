@@ -142,9 +142,12 @@ export async function GET(request: NextRequest) {
       }, 15000); // Every 15 seconds
 
       try {
-        const scanStartTime = Date.now();
+        // ⏱️ START TIMING
+        const TIMER_START = Date.now();
+        console.log(`⏱️ TIMER START: ${new Date(TIMER_START).toISOString()}`);
+        
         const scanType = ticker || 'MARKET-WIDE';
-        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan at ${new Date().toISOString()}`);
+        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
         console.log(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
 
         // Send initial status with connection confirmation
@@ -154,35 +157,40 @@ export async function GET(request: NextRequest) {
           timestamp: new Date().toISOString(),
           connectionId: Math.random().toString(36).substring(7),
           scanType: scanType,
-          scanStartTime: scanStartTime
+          timerStart: TIMER_START
         });
 
         // Initialize the options flow service with streaming callback
         const optionsFlowService = new OptionsFlowService(polygonApiKey);
 
-        // Create a streaming callback - send status updates to keep connection alive
+        // Create a streaming callback - ONLY send status, not progressive trades
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
-          // Always send status updates to prevent EventSource timeout
+          // ❌ DISABLED: Don't send progressive updates
+          // Only send status messages to show scan progress
           if (!streamState.isActive) return; // Check if stream is still active
 
-          // Send status updates regardless of trades (keeps connection alive during scan)
-          sendData({
-            type: 'status',
-            message: status,
-            progress: progress,
-            timestamp: new Date().toISOString()
-          });
+          if (trades.length === 0) {
+            sendData({
+              type: 'status',
+              message: status,
+              progress: progress,
+              timestamp: new Date().toISOString()
+            });
+          }
         };
 
         console.log('📊 Starting parallel flow scan...');
 
         let finalTrades: any[];
-        let totalDuration = '0';
 
         if (timeframe === '1D') {
           // Single day: Use existing fast path
           const { getSmartDateRange } = require('../../../lib/optionsFlowService');
           const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange();
+
+          // ⏱️ SCAN PHASE START
+          const scanStartTime = Date.now();
+          console.log(`⏱️ SCAN PHASE START [+${((scanStartTime - TIMER_START) / 1000).toFixed(2)}s]: Fetching options flow...`);
 
           const scanPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(
             ticker || undefined,
@@ -195,40 +203,21 @@ export async function GET(request: NextRequest) {
 
           const scanEndTime = Date.now();
           const scanDuration = ((scanEndTime - scanStartTime) / 1000).toFixed(2);
-          console.log(`✅ Scan complete: ${finalTrades.length} trades found in ${scanDuration}s`);
-
-          // Send status update before starting enrichment to keep connection alive
-          sendData({
-            type: 'status',
-            message: `✅ Scan complete: ${finalTrades.length} trades - starting enrichment...`,
-            timestamp: new Date().toISOString()
-          });
+          const totalElapsed = ((scanEndTime - TIMER_START) / 1000).toFixed(2);
+          console.log(`⏱️ SCAN COMPLETE [+${totalElapsed}s] (scan: ${scanDuration}s): ${finalTrades.length} trades found`);
 
           // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
           const enrichStartTime = Date.now();
-          console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
-          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(
-            finalTrades,
-            (current, total, message) => {
-              const elapsed = ((Date.now() - scanStartTime) / 1000).toFixed(1);
-              // Send progress to keep EventSource alive during enrichment
-              sendData({
-                type: 'status',
-                message: `${message} (${elapsed}s elapsed)`,
-                progress: { current, total },
-                timestamp: new Date().toISOString(),
-                elapsedTime: elapsed
-              });
-            }
-          );
+          console.log(`⏱️ ENRICHMENT START [+${((enrichStartTime - TIMER_START) / 1000).toFixed(2)}s]: Enriching ${finalTrades.length} trades...`);
+          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
           const enrichEndTime = Date.now();
           const enrichDuration = ((enrichEndTime - enrichStartTime) / 1000).toFixed(2);
-          const totalDuration = ((enrichEndTime - scanStartTime) / 1000).toFixed(2);
-          console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched in ${enrichDuration}s (total: ${totalDuration}s)`);
+          const totalElapsed2 = ((enrichEndTime - TIMER_START) / 1000).toFixed(2);
+          console.log(`⏱️ ENRICHMENT COMPLETE [+${totalElapsed2}s] (enrich: ${enrichDuration}s): ${finalTrades.length} trades enriched`);
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           const multiDayStartTime = Date.now();
-          console.log(`🔥 Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
+          console.log(`⏱️ MULTI-DAY SCAN START [+${((multiDayStartTime - TIMER_START) / 1000).toFixed(2)}s]: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
           const scanPromise = optionsFlowService.fetchMultiDayFlow(
             ticker || undefined,
             timeframe,
@@ -238,8 +227,9 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
           const multiDayEndTime = Date.now();
-          totalDuration = ((multiDayEndTime - scanStartTime) / 1000).toFixed(2);
-          console.log(`✅ Multi-Day Scan Complete: ${finalTrades.length} trades found in ${totalDuration}s`);
+          const multiDayDuration = ((multiDayEndTime - multiDayStartTime) / 1000).toFixed(2);
+          const totalElapsed = ((multiDayEndTime - TIMER_START) / 1000).toFixed(2);
+          console.log(`⏱️ MULTI-DAY SCAN COMPLETE [+${totalElapsed}s] (scan: ${multiDayDuration}s): ${finalTrades.length} trades found`);
         }
 
         // DEBUG: Check if trades are enriched
@@ -274,29 +264,40 @@ export async function GET(request: NextRequest) {
           processing_time_ms: 0
         };
 
+        // ⏱️ FINAL TIMING
+        const TIMER_END = Date.now();
+        const TOTAL_DURATION = ((TIMER_END - TIMER_START) / 1000).toFixed(2);
+        console.log(`⏱️ TIMER END: ${new Date(TIMER_END).toISOString()}`);
+        console.log(`⏱️ ⚡ TOTAL DURATION: ${TOTAL_DURATION} seconds (${(TOTAL_DURATION / 60).toFixed(2)} minutes)`);
+        console.log(`⏱️ 📊 Vercel Limit: 300s (${((TOTAL_DURATION / 300) * 100).toFixed(1)}% used)`);
+        
         // ✅ SEND ALL TRADES IN ONE BATCH (already enriched by backend)
         sendData({
           type: 'complete',
           trades: finalTrades,
-          summary: {
-            ...summary,
-            processing_time_s: totalDuration
-          },
+          summary: summary,
           market_info: {
             status: 'LIVE',
             is_live: true,
             data_date: new Date().toISOString().split('T')[0],
             market_open: true
           },
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          performance: {
+            totalDuration: TOTAL_DURATION,
+            percentOfLimit: ((TOTAL_DURATION / 300) * 100).toFixed(1),
+            vercelLimit: 300
+          }
         });
 
-        console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed in ${totalDuration}s`);
+        console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed in ${TOTAL_DURATION}s`);
 
       } catch (error) {
+        const ERROR_TIME = Date.now();
+        const errorElapsed = ((ERROR_TIME - TIMER_START) / 1000).toFixed(2);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         const errorStack = error instanceof Error ? error.stack : '';
-        console.error('❌ STREAMING ERROR:', errorMessage);
+        console.error(`⏱️ ❌ ERROR at [+${errorElapsed}s]: ${errorMessage}`);
         console.error('Stack trace:', errorStack);
 
         // Send detailed error information

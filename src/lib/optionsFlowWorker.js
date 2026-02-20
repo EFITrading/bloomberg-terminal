@@ -610,8 +610,8 @@ if (parentPort) {
 
                      // Send results back to main thread in chunks to avoid size limits
                      try {
-                            // Larger chunks for faster streaming - increased to reduce timeout issues
-                            const CHUNK_SIZE = results.length > 100000 ? 50000 : 100000; // 50k for huge scans, 100k normal
+                            // Smaller chunks for high-volume scans to prevent worker crashes
+                            const CHUNK_SIZE = results.length > 50000 ? 5000 : 10000; // 5k for huge scans, 10k normal
 
                             if (results.length > CHUNK_SIZE) {
                                    console.log(` Worker ${workerIndex}: Sending ${results.length} trades in chunks of ${CHUNK_SIZE}...`);
@@ -634,9 +634,9 @@ if (parentPort) {
                                                  }
                                           });
 
-                                          // Minimal delay between chunks for faster streaming
+                                          // Small delay between chunks to prevent overwhelming the main thread
                                           if (!isLastChunk) {
-                                                 await new Promise(resolve => setTimeout(resolve, 10));
+                                                 await new Promise(resolve => setTimeout(resolve, 50));
                                           }
                                    }
 
