@@ -161,7 +161,9 @@ export async function GET(request: NextRequest) {
               type: 'heartbeat',
               timestamp: new Date().toISOString(),
               heartbeatNumber: heartbeatCount,
-              memoryMB: mem
+              memoryMB: mem,
+              elapsedSeconds: parseFloat(elapsed), // Add timing to stream so frontend can see it
+              message: `Heartbeat #${heartbeatCount} - ${elapsed}s elapsed, ${mem}MB memory`
             });
             console.error(`[+${elapsed}s]    ✅ Heartbeat #${heartbeatCount} sent successfully (memory: ${mem}MB)`);
           } catch (error) {
@@ -293,6 +295,7 @@ export async function GET(request: NextRequest) {
         };
 
         // ✅ SEND ALL TRADES IN ONE BATCH (already enriched by backend)
+        const completionElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
         sendData({
           type: 'complete',
           trades: finalTrades,
@@ -303,7 +306,9 @@ export async function GET(request: NextRequest) {
             data_date: new Date().toISOString().split('T')[0],
             market_open: true
           },
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          vercel_execution_time_seconds: parseFloat(completionElapsed),
+          vercel_execution_time_minutes: parseFloat((parseFloat(completionElapsed) / 60).toFixed(2))
         });
 
         const finalElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);

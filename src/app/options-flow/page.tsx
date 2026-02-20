@@ -447,6 +447,13 @@ export default function OptionsFlowPage() {
               setStreamingStatus(streamData.message);
               break;
 
+            case 'heartbeat':
+              // Display heartbeat timing information from backend
+              const hbMsg = streamData.message || `Heartbeat #${streamData.heartbeatNumber}`;
+              console.log(`💓 [+${elapsed}s] Event #${eventCount}: ${hbMsg} - Backend elapsed: ${streamData.elapsedSeconds}s, Memory: ${streamData.memoryMB}MB`);
+              setStreamingStatus(`Processing... (${streamData.elapsedSeconds}s elapsed, ${streamData.memoryMB}MB memory)`);
+              break;
+
             case 'trades':
               // Accumulate trades progressively as they come in (show immediately, enrich later)
               if (streamData.trades && streamData.trades.length > 0) {
@@ -478,13 +485,16 @@ export default function OptionsFlowPage() {
               break;
 
             case 'complete':
+              const execTime = streamData.vercel_execution_time_seconds || 'unknown';
+              const execMins = streamData.vercel_execution_time_minutes || (execTime !== 'unknown' ? (execTime / 60).toFixed(2) : 'unknown');
               console.log(`🎯 [+${elapsed}s] Event #${eventCount}: Complete (${streamData.summary.total_trades} trades)`);
+              console.log(`🏁 VERCEL EXECUTION TIME: ${execTime}s (${execMins} minutes)`);
               clearInterval(silenceMonitor);
               // SET COMPLETE FLAG FIRST to prevent error handler from firing
               setIsStreamComplete(true);
 
               // CLOSE STREAM to prevent errors
-              console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades`);
+              console.log(`✅ Stream Complete: Total ${streamData.summary.total_trades} trades`);
               eventSource.close();
 
               // Extract trades from the complete event (backend sends them here!)
