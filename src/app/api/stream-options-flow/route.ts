@@ -86,6 +86,9 @@ export async function GET(request: NextRequest) {
     heartbeatInterval: null as NodeJS.Timeout | null
   };
 
+  // Track execution time from the very start (accessible to cancel handler)
+  const TIMER_START = Date.now();
+
   // Create a readable stream for Server-Sent Events with enhanced error handling
   const stream = new ReadableStream({
     async start(controller) {
@@ -126,8 +129,7 @@ export async function GET(request: NextRequest) {
         return;
       }
 
-      // Track execution time from the very start
-      const TIMER_START = Date.now();
+      // Log the timer start (TIMER_START declared in outer scope for cancel handler access)
       console.error(`⏱️ [+0.0s] TIMER_START: ${new Date(TIMER_START).toISOString()}`);
 
       // TEST: Verify setTimeout/setInterval works on Vercel before log truncation
@@ -235,12 +237,14 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
 
-          console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
+          const scanElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+          console.error(`[+${scanElapsed}s] ✅ SCAN COMPLETE: ${finalTrades.length} trades found`);
 
           // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
-          console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
+          console.error(`[+${scanElapsed}s] 🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
           finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-          console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
+          const enrichElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+          console.error(`[+${enrichElapsed}s] ✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           console.log(`🔥 Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
@@ -252,7 +256,8 @@ export async function GET(request: NextRequest) {
 
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
-          console.log(`✅ Multi-Day Scan Complete: ${finalTrades.length} trades found`);
+          const scanElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+          console.error(`[+${scanElapsed}s] ✅ Multi-Day Scan Complete: ${finalTrades.length} trades found`);
         }
 
         // DEBUG: Check if trades are enriched
@@ -301,7 +306,9 @@ export async function GET(request: NextRequest) {
           timestamp: new Date().toISOString()
         });
 
-        console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed`);
+        const finalElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+        console.error(`[+${finalElapsed}s] ✅ STREAMING COMPLETE: ${finalTrades.length} trades sent to frontend`);
+        console.error(`[+${finalElapsed}s] 🏁 TOTAL VERCEL EXECUTION TIME: ${finalElapsed}s (${(parseFloat(finalElapsed) / 60).toFixed(2)} minutes)`);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -328,6 +335,9 @@ export async function GET(request: NextRequest) {
           streamState.heartbeatInterval = null;
         }
 
+        const cleanupElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+        console.error(`[+${cleanupElapsed}s] 🧹 CLEANUP: Stream closing after ${cleanupElapsed}s (${(parseFloat(cleanupElapsed) / 60).toFixed(2)} minutes)`);
+
         // Send final close message
         try {
           sendData({
@@ -335,17 +345,21 @@ export async function GET(request: NextRequest) {
             message: 'Stream connection closing',
             timestamp: new Date().toISOString()
           });
+          console.error(`[+${cleanupElapsed}s] 📤 CLOSE MESSAGE SENT successfully`);
         } catch (closeError) {
-          console.error('Error sending close message:', closeError);
+          console.error(`[+${cleanupElapsed}s] ❌ Error sending close message:`, closeError);
         } finally {
           controller.close();
+          const finalCloseTime = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+          console.error(`[+${finalCloseTime}s] 🏁 CONTROLLER CLOSED - Function ending`);
         }
       }
     },
 
     // Handle client disconnection
     cancel() {
-      console.log('Client disconnected from options flow stream');
+      const cancelTime = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+      console.error(`[+${cancelTime}s] 🚫 CLIENT DISCONNECTED from options flow stream (after ${cancelTime}s)`);
       streamState.isActive = false;
       if (streamState.heartbeatInterval) {
         clearInterval(streamState.heartbeatInterval);
