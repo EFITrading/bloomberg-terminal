@@ -3267,11 +3267,15 @@ export class OptionsFlowService {
 
     console.log(`🚀 PARALLEL ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
 
-    // Process all batches in parallel
-    const enrichedBatches = await Promise.all(
-      batches.map(async (batch, batchIndex) => {
-        const enrichedTrades = await Promise.all(
-          batch.map(async (trade) => {
+    // Process batches SEQUENTIALLY to send progress updates and keep EventSource alive
+    const enrichedBatches: ProcessedTrade[][] = [];
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      
+      // Process trades within THIS batch in parallel
+      const enrichedTrades = await Promise.all(
+        batch.map(async (trade) => {
             try {
               // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
               const optionTicker = trade.ticker;
@@ -3380,25 +3384,24 @@ export class OptionsFlowService {
               return trade;
             }
           })
+      );
+
+      // Send progress update AFTER EACH BATCH to keep EventSource alive
+      const tradesEnriched = (batchIndex + 1) * BATCH_SIZE;
+      if (progressCallback) {
+        progressCallback(
+          Math.min(tradesEnriched, trades.length),
+          trades.length,
+          `Enriching trades: ${Math.min(tradesEnriched, trades.length)}/${trades.length}`
         );
+      }
 
-        // Send progress update to keep EventSource alive
-        const tradesEnriched = (batchIndex + 1) * BATCH_SIZE;
-        if (progressCallback) {
-          progressCallback(
-            Math.min(tradesEnriched, trades.length),
-            trades.length,
-            `Enriching trades: ${Math.min(tradesEnriched, trades.length)}/${trades.length}`
-          );
-        }
+      if (batchIndex % 10 === 0 || batchIndex === batches.length - 1) {
+        console.log(`📦 Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
+      }
 
-        if (batchIndex % 10 === 0) {
-          console.log(`📦 Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
-        }
-
-        return enrichedTrades;
-      })
-    );
+      enrichedBatches.push(enrichedTrades);
+    }
 
     const allEnriched = enrichedBatches.flat();
     console.log(`✅ PARALLEL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);

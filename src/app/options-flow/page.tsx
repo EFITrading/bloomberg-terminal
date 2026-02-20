@@ -557,21 +557,12 @@ export default function OptionsFlowPage() {
 
         // Check if stream is connecting (readyState 0) - this is a real connection error
         if (eventSource.readyState === 0) {
-          console.warn('⚠️ EventSource connection failed during initial connection');
+          const errorMsg = `EventSource connection timeout - scan took too long. Ticker: ${tickerParam}`;
+          console.error('❌', errorMsg);
           eventSource.close();
-
-          // Only retry once on connection failure
-          if (currentRetry === 0) {
-            console.log('🔄 Retrying connection once...');
-            setRetryCount(1);
-            setTimeout(() => {
-              fetchOptionsFlowStreaming(1);
-            }, 2000);
-          } else {
-            setStreamError('Stream connection unavailable');
-            setStreamingStatus('');
-            setLoading(false);
-          }
+          setStreamError(errorMsg);
+          setStreamingStatus('');
+          setLoading(false);
           return;
         }
 
