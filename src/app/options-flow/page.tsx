@@ -378,11 +378,6 @@ export default function OptionsFlowPage() {
 
     let connectionTimeout: NodeJS.Timeout | null = null;
 
-    // ⏱️ FRONTEND TIMER START
-    const FRONTEND_TIMER_START = Date.now();
-    console.log(`⏱️ 🖥️ FRONTEND TIMER START: ${new Date(FRONTEND_TIMER_START).toISOString()}`);
-    console.log(`⏱️ 📊 Vercel Function Limit: 300 seconds (5 minutes)`);
-
     try {
       console.log(` Fetching live streaming options flow data...`);
       // Keep existing trades and add new ones as they stream in
@@ -396,14 +391,10 @@ export default function OptionsFlowPage() {
       // Map scan categories to appropriate ticker parameter
       let tickerParam = tickerOverride || selectedTicker;
 
-      // Error if ticker is empty or just whitespace
+      // Fix: Default to 'ALL' if ticker is empty or just whitespace
       if (!tickerParam || tickerParam.trim() === '') {
-        const errorMsg = 'No ticker selected. Please select a ticker, MAG7, ETF, or ALL to scan.';
-        console.error('❌', errorMsg);
-        setStreamError(errorMsg);
-        setLoading(false);
-        setStreamingStatus('');
-        return;
+        console.log('⚠️ Empty ticker parameter detected, defaulting to ALL');
+        tickerParam = 'ALL';
       }
 
       if (tickerParam === 'MAG7') {
@@ -416,74 +407,49 @@ export default function OptionsFlowPage() {
       // Otherwise use the ticker as-is for individual ticker searches
 
       console.log(`🔌 Connecting to EventSource with ticker: ${tickerParam}`);
-      console.log(`🔗 URL: /api/stream-options-flow?ticker=${tickerParam}`);
-      console.log(`📡 Creating new EventSource connection...`);
+      const FRONTEND_START = Date.now();
+      let eventCount = 0;
+      let lastEventTime = Date.now();
       
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
       
-      console.log(`✅ EventSource created - readyState: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
-      console.log(`📊 Waiting for initial connection...`);
-      
-      // Track last event received time for monitoring silent periods
-      let lastEventTime = Date.now();
-      let eventCount = 0;
-      
-      // Monitor for silent periods - log every 5 seconds if no events received
+      // Monitor for silent periods 
       const silenceMonitor = setInterval(() => {
-        const timeSinceLastEvent = ((Date.now() - lastEventTime) / 1000).toFixed(1);
-        const totalElapsed = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
+        const now = Date.now();
+        const elapsed = ((now - FRONTEND_START) / 1000).toFixed(1);
+        const timeSinceLastEvent = ((now - lastEventTime) / 1000).toFixed(1);
         
         if (parseFloat(timeSinceLastEvent) > 5) {
-          console.warn(`⏱️ [+${totalElapsed}s] ⚠️ SILENCE: No events for ${timeSinceLastEvent}s (last event was #${eventCount})`);
-          console.warn(`   EventSource state: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
-          console.warn(`   This usually means backend is processing data...`);
+          console.warn(`⚠️ [+${elapsed}s] SILENCE: ${timeSinceLastEvent}s since last event (total: ${eventCount} events)`);
+          console.warn(`   State: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
         } else {
-          console.log(`⏱️ [+${totalElapsed}s] 🔄 Active - Last event ${timeSinceLastEvent}s ago (${eventCount} total events)`);
+          console.log(`🔄 [+${elapsed}s] Active - Last event ${timeSinceLastEvent}s ago (${eventCount} total)`);
         }
-      }, 5000); // Check every 5 seconds
+      }, 5000);
 
       eventSource.onmessage = (event) => {
-        const receiveTime = Date.now();
-        const elapsed = ((receiveTime - FRONTEND_TIMER_START) / 1000).toFixed(2);
-        const timeSinceLastEvent = ((receiveTime - lastEventTime) / 1000).toFixed(2);
-        
-        lastEventTime = receiveTime;
         eventCount++;
-        
-        console.log(`⏱️ [+${elapsed}s] 📨 Event #${eventCount} received (${timeSinceLastEvent}s since last) - Size: ${event.data.length} bytes`);
-        console.log(`   Raw data preview: ${event.data.substring(0, 100)}...`);
+        lastEventTime = Date.now();
+        const elapsed = ((lastEventTime - FRONTEND_START) / 1000).toFixed(1);
         
         try {
-          console.log(`   🔍 Parsing JSON...`);
-          const parseStart = performance.now();
           const streamData = JSON.parse(event.data);
-          const parseTime = (performance.now() - parseStart).toFixed(2);
-          console.log(`   ✅ Parsed in ${parseTime}ms - Type: ${streamData.type}`);
 
           switch (streamData.type) {
             case 'connected':
-              const connectedTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-              console.log(`⏱️ [+${connectedTime}s] ✅ Stream connected:`, streamData.message);
-              console.log(`   Connection ID: ${streamData.connectionId || 'N/A'}`);
+              console.log(`✅ [+${elapsed}s] Event #${eventCount}: Stream connected`);
               setStreamingStatus('Connected - scanning options flow...');
               setStreamError('');
               break;
 
             case 'status':
-              const statusTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
+              console.log(`📊 [+${elapsed}s] Event #${eventCount}: ${streamData.message}`);
               setStreamingStatus(streamData.message);
-              console.log(`⏱️ [+${statusTime}s] 📊 STATUS: ${streamData.message}`);
-              if (streamData.progress) {
-                console.log(`   Progress: ${streamData.progress.current || '?'}/${streamData.progress.total || '?'}`);
-              }
               break;
 
             case 'trades':
-              const tradesTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-              console.log(`⏱️ [+${tradesTime}s] 📊 TRADES event received`);
               // Accumulate trades progressively as they come in (show immediately, enrich later)
               if (streamData.trades && streamData.trades.length > 0) {
-                console.log(`   Processing ${streamData.trades.length} trades...`);
                 setData(prevData => {
                   // Create a Set of existing trade identifiers to avoid duplicates
                   const existingTradeIds = new Set(
@@ -500,8 +466,6 @@ export default function OptionsFlowPage() {
 
                   return [...prevData, ...newTrades];
                 });
-              } else {
-                console.log(`   No trades in this event`);
               }
 
               setStreamingStatus(streamData.status);
@@ -514,39 +478,14 @@ export default function OptionsFlowPage() {
               break;
 
             case 'complete':
-              const completeTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-              console.log(`⏱️ [+${completeTime}s] 🎯 COMPLETE event received`);
-              console.log(`   Total events received: ${eventCount}`);
-              
-              // Stop silence monitor
+              console.log(`🎯 [+${elapsed}s] Event #${eventCount}: Complete (${streamData.summary.total_trades} trades)`);
               clearInterval(silenceMonitor);
-              
               // SET COMPLETE FLAG FIRST to prevent error handler from firing
               setIsStreamComplete(true);
 
-              // ⏱️ FRONTEND TIMER END
-              const FRONTEND_TIMER_END = Date.now();
-              const FRONTEND_TOTAL_DURATION = ((FRONTEND_TIMER_END - FRONTEND_TIMER_START) / 1000).toFixed(2);
-              const percentOfLimit = ((parseFloat(FRONTEND_TOTAL_DURATION) / 300) * 100).toFixed(1);
-              
-              console.log(`⏱️ ═══════════════════════════════════════════════════════`);
-              console.log(`⏱️ 🖥️ FRONTEND TIMER END: ${new Date(FRONTEND_TIMER_END).toISOString()}`);
-              console.log(`⏱️ ⚡ TOTAL FRONTEND DURATION: ${FRONTEND_TOTAL_DURATION} seconds (${(parseFloat(FRONTEND_TOTAL_DURATION) / 60).toFixed(2)} minutes)`);
-              console.log(`⏱️ 📊 Vercel Limit Usage: ${percentOfLimit}% (${FRONTEND_TOTAL_DURATION}s / 300s)`);
-              console.log(`⏱️ 📈 Total Trades: ${streamData.summary.total_trades}`);
-              
-              // Show backend performance if available
-              if (streamData.performance) {
-                console.log(`⏱️ 🔧 Backend Processing: ${streamData.performance.totalDuration}s`);
-                console.log(`⏱️ 📊 Backend Limit Usage: ${streamData.performance.percentOfLimit}%`);
-              }
-              console.log(`⏱️ ═══════════════════════════════════════════════════════`);
-
               // CLOSE STREAM to prevent errors
-              console.log(`✅ Stream Complete: ${streamData.summary.total_trades} trades in ${FRONTEND_TOTAL_DURATION}s`);
-              console.log(`🔌 Closing EventSource connection...`);
+              console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades`);
               eventSource.close();
-              console.log(`✅ EventSource closed - readyState: ${eventSource.readyState}`);
 
               // Extract trades from the complete event (backend sends them here!)
               const completeTrades = streamData.trades || [];
@@ -565,7 +504,6 @@ export default function OptionsFlowPage() {
 
               // ACCUMULATE trades - don't replace, add new ones to existing
               if (completeTrades.length > 0) {
-                console.log(`📦 Processing complete trades batch...`);
                 setData(prevData => {
                   // Create a Set of existing trade identifiers to avoid duplicates
                   const existingTradeIds = new Set(
@@ -578,7 +516,7 @@ export default function OptionsFlowPage() {
                     return !existingTradeIds.has(tradeId);
                   });
 
-                  console.log(`📊 ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
+                  console.log(`� ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
 
                   const updatedTrades = [...prevData, ...newTrades];
                   console.log(`✅ Total trades now: ${updatedTrades.length}`);
@@ -597,60 +535,37 @@ export default function OptionsFlowPage() {
               break;
 
             case 'error':
-              const errorTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-              console.error(`⏱️ [+${errorTime}s] ❌ ERROR event received:`, streamData.error);
-              console.error(`   Error type: ${streamData.errorType || 'Unknown'}`);
-              console.error(`   Retryable: ${streamData.retryable}`);
-              clearInterval(silenceMonitor);
+              console.error('Stream error:', streamData.error);
               setStreamError(streamData.error || 'Stream error occurred');
               setLoading(false);
               eventSource.close();
               break;
 
             case 'close':
-              const closeTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-              console.log(`⏱️ [+${closeTime}s] 🔒 CLOSE event - Server closing connection:`, streamData.message);
-              clearInterval(silenceMonitor);
               // Server is gracefully closing the connection
+              console.log(' Stream closed by server:', streamData.message);
               setIsStreamComplete(true);
               eventSource.close();
               break;
 
             case 'heartbeat':
-              // Keep-alive ping - show elapsed time every heartbeat
-              const heartbeatTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-              const heartbeatPercent = ((parseFloat(heartbeatTime) / 300) * 100).toFixed(1);
-              console.log(`⏱️ [+${heartbeatTime}s] 💓 Heartbeat #${streamData.heartbeatNumber || '?'} (${heartbeatPercent}% of 300s limit)`);
-              console.log(`   Stream health: ${streamData.streamHealth || 'unknown'}`);
-              break;
-            
-            default:
-              console.warn(`⚠️ Unknown event type: ${streamData.type}`);
+              // Log heartbeat to track connection health
+              const hbNum = streamData.heartbeatNumber || '?';
+              const hbMem = streamData.memoryMB || '?';
+              console.log(`💓 [+${elapsed}s] Event #${eventCount}: Heartbeat #${hbNum} (Memory: ${hbMem}MB)`);
               break;
           }
         } catch (parseError) {
-          const errorTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-          console.error(`⏱️ [+${errorTime}s] ❌ JSON PARSE ERROR:`, parseError);
-          console.error(`   Event data that failed to parse:`, event.data);
-          console.error(`   Error details:`, parseError instanceof Error ? parseError.message : String(parseError));
+          console.error('Error parsing stream data:', parseError);
         }
       };
 
-      eventSource.onopen = () => {
-        const openTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-        console.log(`⏱️ [+${openTime}s] 🔓 EventSource OPENED - Connection established`);
-        console.log(`   ReadyState: ${eventSource.readyState} (should be 1=OPEN)`);
-      };
-
       eventSource.onerror = (error) => {
-        const errorTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-        console.error(`⏱️ [+${errorTime}s] ❌ EventSource ERROR fired`);
-        console.error(`   ReadyState: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
-        console.error(`   Error object:`, error);
-        console.error(`   Total events received before error: ${eventCount}`);
-        
-        // Clear silence monitor
         clearInterval(silenceMonitor);
+        const errorTime = ((Date.now() - FRONTEND_START) / 1000).toFixed(1);
+        
+        console.error(`❌ [+${errorTime}s] EventSource ERROR - State: ${eventSource.readyState}, Events: ${eventCount}`);
+        
         // Clear connection timeout
         if (connectionTimeout) {
           clearTimeout(connectionTimeout);
@@ -659,46 +574,36 @@ export default function OptionsFlowPage() {
 
         // Don't log or process errors if stream already completed successfully
         if (isStreamComplete) {
-          console.log(`ℹ️ [+${errorTime}s] Error fired but stream already completed - ignoring`);
           eventSource.close();
           return;
         }
-        
+
         // Check if this is just a normal close after completion
         if (eventSource.readyState === 2) { // CLOSED state
-          console.log(`ℹ️ [+${errorTime}s] Stream closed normally after completion`);
+          console.log('ℹ️ Stream closed normally after completion');
           eventSource.close();
           setStreamingStatus('');
           setLoading(false);
           return;
         }
 
-        // Check if stream is connecting/reconnecting (readyState 0)
+        // Check if stream is connecting (readyState 0) - this is a real connection error
         if (eventSource.readyState === 0) {
-          // If we received ANY heartbeat, this is a DISCONNECTION not initial failure
           if (parseFloat(errorTime) > 5) {
-            console.error(`❌ [+${errorTime}s] Stream DISCONNECTED unexpectedly after ${errorTime}s`);
-            console.error(`   This is NOT an initial connection failure - stream was working then closed`);
-            console.error(`   Possible causes: Backend crash, memory issue, worker error, or Vercel timeout`);
-            console.error(`   Events received before disconnect: ${eventCount}`);
-          } else {
-            console.error(`❌ [+${errorTime}s] EventSource failed to establish initial connection`);
+            console.error(`   🚨 Stream DISCONNECTED after ${errorTime}s (${eventCount} events received)`);
           }
+          console.warn('⚠️ EventSource connection failed during initial connection');
           eventSource.close();
 
           // Only retry once on connection failure
           if (currentRetry === 0) {
-            console.log(`🔄 [+${errorTime}s] Retrying connection once in 2 seconds...`);
+            console.log('🔄 Retrying connection once...');
             setRetryCount(1);
             setTimeout(() => {
-              console.log(`🔄 Starting retry attempt...`);
-              fetchOptionsFlowStreaming(1, tickerOverride);
+              fetchOptionsFlowStreaming(1);
             }, 2000);
           } else {
-            const errorMsg = parseFloat(errorTime) > 5 
-              ? `Stream disconnected after ${errorTime}s - possible backend crash or timeout`
-              : 'Stream connection unavailable';
-            setStreamError(errorMsg);
+            setStreamError('Stream connection unavailable');
             setStreamingStatus('');
             setLoading(false);
           }
@@ -707,21 +612,16 @@ export default function OptionsFlowPage() {
 
         // For any other case (readyState 1 - OPEN), this is likely normal completion
         // The browser fires onerror when the server closes the stream after sending 'complete'
-        console.log(`ℹ️ [+${errorTime}s] Stream connection closed (data transfer complete)`);
+        console.log('ℹ️ Stream connection closed (data transfer complete)');
         eventSource.close();
         setStreamingStatus('');
         setLoading(false);
       };
 
     } catch (error) {
-      const catchTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
-      console.error(`⏱️ [+${catchTime}s] ❌ OUTER CATCH - Error starting stream:`, error);
-      console.error(`   Error type:`, error instanceof Error ? error.constructor.name : typeof error);
-      console.error(`   Error message:`, error instanceof Error ? error.message : String(error));
-      console.error(`   Stack trace:`, error instanceof Error ? error.stack : 'N/A');
+      console.error('Error starting stream:', error);
       setLoading(false);
       // Fallback to regular API
-      console.log(`🔄 Attempting fallback to non-streaming API...`);
       fetchOptionsFlow();
     }
   };
