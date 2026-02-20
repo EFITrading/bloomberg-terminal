@@ -597,7 +597,7 @@ export default function OptionsFlowPage() {
             console.log('🔄 Retrying connection once...');
             setRetryCount(1);
             setTimeout(() => {
-              fetchOptionsFlowStreaming(1);
+              fetchOptionsFlowStreaming(1, tickerOverride);
             }, 2000);
           } else {
             setStreamError('Stream connection unavailable');
