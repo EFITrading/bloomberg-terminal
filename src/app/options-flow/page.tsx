@@ -378,6 +378,11 @@ export default function OptionsFlowPage() {
 
     let connectionTimeout: NodeJS.Timeout | null = null;
 
+    // ⏱️ FRONTEND TIMER START
+    const FRONTEND_TIMER_START = Date.now();
+    console.log(`⏱️ 🖥️ FRONTEND TIMER START: ${new Date(FRONTEND_TIMER_START).toISOString()}`);
+    console.log(`⏱️ 📊 Vercel Function Limit: 300 seconds (5 minutes)`);
+
     try {
       console.log(` Fetching live streaming options flow data...`);
       // Keep existing trades and add new ones as they stream in
@@ -415,14 +420,16 @@ export default function OptionsFlowPage() {
 
           switch (streamData.type) {
             case 'connected':
-              console.log('✅ Stream connected:', streamData.message);
+              const connectedTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
+              console.log(`⏱️ [+${connectedTime}s] ✅ Stream connected:`, streamData.message);
               setStreamingStatus('Connected - scanning options flow...');
               setStreamError('');
               break;
 
             case 'status':
+              const statusTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
               setStreamingStatus(streamData.message);
-              console.log(` Stream Status: ${streamData.message}`);
+              console.log(`⏱️ [+${statusTime}s] 📊 ${streamData.message}`);
               break;
 
             case 'trades':
@@ -459,8 +466,26 @@ export default function OptionsFlowPage() {
               // SET COMPLETE FLAG FIRST to prevent error handler from firing
               setIsStreamComplete(true);
 
+              // ⏱️ FRONTEND TIMER END
+              const FRONTEND_TIMER_END = Date.now();
+              const FRONTEND_TOTAL_DURATION = ((FRONTEND_TIMER_END - FRONTEND_TIMER_START) / 1000).toFixed(2);
+              const percentOfLimit = ((parseFloat(FRONTEND_TOTAL_DURATION) / 300) * 100).toFixed(1);
+              
+              console.log(`⏱️ ═══════════════════════════════════════════════════════`);
+              console.log(`⏱️ 🖥️ FRONTEND TIMER END: ${new Date(FRONTEND_TIMER_END).toISOString()}`);
+              console.log(`⏱️ ⚡ TOTAL FRONTEND DURATION: ${FRONTEND_TOTAL_DURATION} seconds (${(parseFloat(FRONTEND_TOTAL_DURATION) / 60).toFixed(2)} minutes)`);
+              console.log(`⏱️ 📊 Vercel Limit Usage: ${percentOfLimit}% (${FRONTEND_TOTAL_DURATION}s / 300s)`);
+              console.log(`⏱️ 📈 Total Trades: ${streamData.summary.total_trades}`);
+              
+              // Show backend performance if available
+              if (streamData.performance) {
+                console.log(`⏱️ 🔧 Backend Processing: ${streamData.performance.totalDuration}s`);
+                console.log(`⏱️ 📊 Backend Limit Usage: ${streamData.performance.percentOfLimit}%`);
+              }
+              console.log(`⏱️ ═══════════════════════════════════════════════════════`);
+
               // CLOSE STREAM to prevent errors
-              console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades`);
+              console.log(`✅ Stream Complete: ${streamData.summary.total_trades} trades in ${FRONTEND_TOTAL_DURATION}s`);
               eventSource.close();
 
               // Extract trades from the complete event (backend sends them here!)
@@ -525,7 +550,10 @@ export default function OptionsFlowPage() {
               break;
 
             case 'heartbeat':
-              // Keep-alive ping, no action needed (suppress logs to reduce noise)
+              // Keep-alive ping - show elapsed time every heartbeat
+              const heartbeatTime = ((Date.now() - FRONTEND_TIMER_START) / 1000).toFixed(2);
+              const heartbeatPercent = ((parseFloat(heartbeatTime) / 300) * 100).toFixed(1);
+              console.log(`⏱️ [+${heartbeatTime}s] 💓 Heartbeat (${heartbeatPercent}% of 300s limit)`);
               break;
           }
         } catch (parseError) {
