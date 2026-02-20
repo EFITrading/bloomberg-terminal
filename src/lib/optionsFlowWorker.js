@@ -451,14 +451,13 @@ if (parentPort) {
                                                         }
                                                  });
 
-                                                 // Process in small chunks of 5 to avoid socket saturation on Vercel
-                                                 console.log(` Worker ${workerIndex}: Processing ${contractBatch.length} contracts (5 concurrent max)...`);
-                                                 const batchResults = [];
-                                                 
-                                                 for (let i = 0; i < batchPromises.length; i += 5) {
-                                                        const chunk = batchPromises.slice(i, i + 5);
-                                                        const results = await Promise.all(chunk);
-                                                        batchResults.push(...results);
+                                                 // Wait for entire batch to complete
+                                                 console.log(` Worker ${workerIndex}: ⏳ Waiting for ${contractBatch.length} contract API calls to complete...`);
+                                                 const batchResults = await Promise.all(batchPromises);
+
+                                                 // Add small delay between batches to prevent socket overload
+                                                 if (batchIndex < contractBatches.length - 1) {
+                                                        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
                                                  }
 
                                                  // Process all trade results from this batch

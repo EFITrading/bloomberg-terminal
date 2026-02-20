@@ -62,37 +62,7 @@ class ParallelOptionsFlowProcessor {
     console.time('⚡ PARALLEL_EXECUTION');
     const executionStart = performance.now();
 
-    // ✅ FIX: Use Promise.allSettled() with periodic polling to allow heartbeats
-    // Don't block on Promise.all() - instead, poll completion status and yield regularly
-    const results = new Array(promises.length);
-    const settled = new Array(promises.length).fill(false);
-    let completedCount = 0;
-    
-    // Attach completion handlers to track progress without blocking
-    promises.forEach((promise, index) => {
-      promise.then(
-        (result) => {
-          results[index] = result;
-          settled[index] = true;
-          completedCount++;
-          console.log(`✅ Worker ${index} completed (${completedCount}/${promises.length})`);
-        },
-        (error) => {
-          results[index] = [];
-          settled[index] = true;
-          completedCount++;
-          console.error(`❌ Worker ${index} failed (${completedCount}/${promises.length})`, error);
-        }
-      );
-    });
-    
-    // Poll for completion, yielding every 500ms to allow heartbeat timer to fire
-    while (completedCount < promises.length) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      console.log(`📊 Polling progress: ${completedCount}/${promises.length} workers done`);
-    }
-    
-    console.log(`🎉 All ${promises.length} workers completed!`);
+    const results = await Promise.all(promises);
 
     const executionEnd = performance.now();
     console.timeEnd('⚡ PARALLEL_EXECUTION');

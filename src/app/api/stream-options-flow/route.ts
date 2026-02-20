@@ -86,9 +86,6 @@ export async function GET(request: NextRequest) {
     heartbeatInterval: null as NodeJS.Timeout | null
   };
 
-  // Track execution time from the very start (accessible to cancel handler)
-  const TIMER_START = Date.now();
-
   // Create a readable stream for Server-Sent Events with enhanced error handling
   const stream = new ReadableStream({
     async start(controller) {
@@ -129,63 +126,25 @@ export async function GET(request: NextRequest) {
         return;
       }
 
-      // Log the timer start (TIMER_START declared in outer scope for cancel handler access)
-      console.error(`⏱️ [+0.0s] TIMER_START: ${new Date(TIMER_START).toISOString()}`);
-
-      // TEST: Verify setTimeout/setInterval works on Vercel before log truncation
-      setTimeout(() => {
-        const elapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-        console.error(`[+${elapsed}s] 🧪 TEST: setTimeout fired at 1s - setInterval should work`);
-      }, 1000);
-
-      // TEST: Fast 2s interval to see if it appears in visible logs
-      let testCount = 0;
-      const testInterval = setInterval(() => {
-        testCount++;
-        const elapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-        console.error(`[+${elapsed}s] 🧪 TEST INTERVAL #${testCount} - This proves setInterval works on Vercel`);
-        if (testCount >= 3) clearInterval(testInterval); // Stop after 3 fires
-      }, 2000);
-
       // Send heartbeat to keep connection alive
-      let heartbeatCount = 0;
       streamState.heartbeatInterval = setInterval(() => {
-        heartbeatCount++;
-        const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-        const elapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-        console.error(`[+${elapsed}s] 💓 Heartbeat interval fired #${heartbeatCount} - Memory: ${mem}MB - Active: ${streamState.isActive}`);
-        
         if (streamState.isActive) {
           try {
             sendData({
               type: 'heartbeat',
-              timestamp: new Date().toISOString(),
-              heartbeatNumber: heartbeatCount,
-              memoryMB: mem,
-              elapsedSeconds: parseFloat(elapsed), // Add timing to stream so frontend can see it
-              message: `Heartbeat #${heartbeatCount} - ${elapsed}s elapsed, ${mem}MB memory`
+              timestamp: new Date().toISOString()
             });
-            console.error(`[+${elapsed}s]    ✅ Heartbeat #${heartbeatCount} sent successfully (memory: ${mem}MB)`);
           } catch (error) {
-            console.error(`[+${elapsed}s]    ❌ Heartbeat #${heartbeatCount} FAILED:`, error);
+            console.error('Heartbeat failed:', error);
             streamState.isActive = false;
           }
-        } else {
-          console.error(`[+${elapsed}s]    ⚠️ Heartbeat #${heartbeatCount} skipped - stream inactive`);
         }
       }, 15000); // Every 15 seconds
 
-      // Monitor for process crashes
-      const crashHandler = (error: Error) => {
-        console.error(`🚨 UNCAUGHT EXCEPTION DETECTED:`, error.message);
-        console.error(`   Stack:`, error.stack);
-      };
-      process.on('uncaughtException', crashHandler);
-      
       try {
         const scanType = ticker || 'MARKET-WIDE';
-        console.error(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
-        console.error(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
+        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
+        console.log(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
 
         // Send initial status with connection confirmation
         sendData({
@@ -201,15 +160,9 @@ export async function GET(request: NextRequest) {
 
         // Create a streaming callback - ONLY send status, not progressive trades
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
-          const elapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-          console.error(`[+${elapsed}s] 📞 CALLBACK: "${status}" | Trades: ${trades.length} | Stream active: ${streamState.isActive}`);
-          
           // ❌ DISABLED: Don't send progressive updates
           // Only send status messages to show scan progress
-          if (!streamState.isActive) {
-            console.error(`[+${elapsed}s]    ⚠️ Stream inactive, callback aborting`);
-            return; // Check if stream is still active
-          }
+          if (!streamState.isActive) return; // Check if stream is still active
 
           if (trades.length === 0) {
             sendData({
@@ -239,14 +192,12 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
 
-          const scanElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-          console.error(`[+${scanElapsed}s] ✅ SCAN COMPLETE: ${finalTrades.length} trades found`);
+          console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
 
           // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
-          console.error(`[+${scanElapsed}s] 🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
+          console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
           finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-          const enrichElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-          console.error(`[+${enrichElapsed}s] ✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
+          console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           console.log(`🔥 Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
@@ -258,8 +209,7 @@ export async function GET(request: NextRequest) {
 
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
-          const scanElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-          console.error(`[+${scanElapsed}s] ✅ Multi-Day Scan Complete: ${finalTrades.length} trades found`);
+          console.log(`✅ Multi-Day Scan Complete: ${finalTrades.length} trades found`);
         }
 
         // DEBUG: Check if trades are enriched
@@ -295,7 +245,6 @@ export async function GET(request: NextRequest) {
         };
 
         // ✅ SEND ALL TRADES IN ONE BATCH (already enriched by backend)
-        const completionElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
         sendData({
           type: 'complete',
           trades: finalTrades,
@@ -306,14 +255,10 @@ export async function GET(request: NextRequest) {
             data_date: new Date().toISOString().split('T')[0],
             market_open: true
           },
-          timestamp: new Date().toISOString(),
-          vercel_execution_time_seconds: parseFloat(completionElapsed),
-          vercel_execution_time_minutes: parseFloat((parseFloat(completionElapsed) / 60).toFixed(2))
+          timestamp: new Date().toISOString()
         });
 
-        const finalElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-        console.error(`[+${finalElapsed}s] ✅ STREAMING COMPLETE: ${finalTrades.length} trades sent to frontend`);
-        console.error(`[+${finalElapsed}s] 🏁 TOTAL VERCEL EXECUTION TIME: ${finalElapsed}s (${(parseFloat(finalElapsed) / 60).toFixed(2)} minutes)`);
+        console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed`);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -340,9 +285,6 @@ export async function GET(request: NextRequest) {
           streamState.heartbeatInterval = null;
         }
 
-        const cleanupElapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-        console.error(`[+${cleanupElapsed}s] 🧹 CLEANUP: Stream closing after ${cleanupElapsed}s (${(parseFloat(cleanupElapsed) / 60).toFixed(2)} minutes)`);
-
         // Send final close message
         try {
           sendData({
@@ -350,21 +292,17 @@ export async function GET(request: NextRequest) {
             message: 'Stream connection closing',
             timestamp: new Date().toISOString()
           });
-          console.error(`[+${cleanupElapsed}s] 📤 CLOSE MESSAGE SENT successfully`);
         } catch (closeError) {
-          console.error(`[+${cleanupElapsed}s] ❌ Error sending close message:`, closeError);
+          console.error('Error sending close message:', closeError);
         } finally {
           controller.close();
-          const finalCloseTime = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-          console.error(`[+${finalCloseTime}s] 🏁 CONTROLLER CLOSED - Function ending`);
         }
       }
     },
 
     // Handle client disconnection
     cancel() {
-      const cancelTime = ((Date.now() - TIMER_START) / 1000).toFixed(1);
-      console.error(`[+${cancelTime}s] 🚫 CLIENT DISCONNECTED from options flow stream (after ${cancelTime}s)`);
+      console.log('Client disconnected from options flow stream');
       streamState.isActive = false;
       if (streamState.heartbeatInterval) {
         clearInterval(streamState.heartbeatInterval);
