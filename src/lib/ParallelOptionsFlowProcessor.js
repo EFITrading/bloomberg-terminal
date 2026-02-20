@@ -62,7 +62,22 @@ class ParallelOptionsFlowProcessor {
     console.time('⚡ PARALLEL_EXECUTION');
     const executionStart = performance.now();
 
-    const results = await Promise.all(promises);
+    // ✅ FIX: Process workers with event loop yielding to allow heartbeats to fire
+    const results = [];
+    let completedCount = 0;
+    
+    // Process workers in chunks of 5 to yield to event loop periodically
+    for (let i = 0; i < promises.length; i += 5) {
+      const chunk = promises.slice(i, i + 5);
+      const chunkResults = await Promise.all(chunk);
+      results.push(...chunkResults);
+      completedCount += chunk.length;
+      
+      console.log(`📊 Progress: ${completedCount}/${promises.length} workers completed`);
+      
+      // Yield to event loop after each chunk (allows heartbeat setInterval to fire)
+      await new Promise(resolve => setImmediate(resolve));
+    }
 
     const executionEnd = performance.now();
     console.timeEnd('⚡ PARALLEL_EXECUTION');
