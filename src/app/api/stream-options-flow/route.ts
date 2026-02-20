@@ -142,8 +142,9 @@ export async function GET(request: NextRequest) {
       }, 15000); // Every 15 seconds
 
       try {
+        const scanStartTime = Date.now();
         const scanType = ticker || 'MARKET-WIDE';
-        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
+        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan at ${new Date().toISOString()}`);
         console.log(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
 
         // Send initial status with connection confirmation
@@ -152,31 +153,31 @@ export async function GET(request: NextRequest) {
           message: `Connection established, starting ${scanType} options flow scan...`,
           timestamp: new Date().toISOString(),
           connectionId: Math.random().toString(36).substring(7),
-          scanType: scanType
+          scanType: scanType,
+          scanStartTime: scanStartTime
         });
 
         // Initialize the options flow service with streaming callback
         const optionsFlowService = new OptionsFlowService(polygonApiKey);
 
-        // Create a streaming callback - ONLY send status, not progressive trades
+        // Create a streaming callback - send status updates to keep connection alive
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
-          // ❌ DISABLED: Don't send progressive updates
-          // Only send status messages to show scan progress
+          // Always send status updates to prevent EventSource timeout
           if (!streamState.isActive) return; // Check if stream is still active
 
-          if (trades.length === 0) {
-            sendData({
-              type: 'status',
-              message: status,
-              progress: progress,
-              timestamp: new Date().toISOString()
-            });
-          }
+          // Send status updates regardless of trades (keeps connection alive during scan)
+          sendData({
+            type: 'status',
+            message: status,
+            progress: progress,
+            timestamp: new Date().toISOString()
+          });
         };
 
         console.log('📊 Starting parallel flow scan...');
 
         let finalTrades: any[];
+        let totalDuration = '0';
 
         if (timeframe === '1D') {
           // Single day: Use existing fast path
@@ -192,25 +193,41 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
 
-          console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
+          const scanEndTime = Date.now();
+          const scanDuration = ((scanEndTime - scanStartTime) / 1000).toFixed(2);
+          console.log(`✅ Scan complete: ${finalTrades.length} trades found in ${scanDuration}s`);
+
+          // Send status update before starting enrichment to keep connection alive
+          sendData({
+            type: 'status',
+            message: `✅ Scan complete: ${finalTrades.length} trades - starting enrichment...`,
+            timestamp: new Date().toISOString()
+          });
 
           // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
+          const enrichStartTime = Date.now();
           console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
           finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(
             finalTrades,
             (current, total, message) => {
+              const elapsed = ((Date.now() - scanStartTime) / 1000).toFixed(1);
               // Send progress to keep EventSource alive during enrichment
               sendData({
                 type: 'status',
-                message: message,
+                message: `${message} (${elapsed}s elapsed)`,
                 progress: { current, total },
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                elapsedTime: elapsed
               });
             }
           );
-          console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
+          const enrichEndTime = Date.now();
+          const enrichDuration = ((enrichEndTime - enrichStartTime) / 1000).toFixed(2);
+          const totalDuration = ((enrichEndTime - scanStartTime) / 1000).toFixed(2);
+          console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched in ${enrichDuration}s (total: ${totalDuration}s)`);
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
+          const multiDayStartTime = Date.now();
           console.log(`🔥 Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
           const scanPromise = optionsFlowService.fetchMultiDayFlow(
             ticker || undefined,
@@ -220,7 +237,9 @@ export async function GET(request: NextRequest) {
 
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
-          console.log(`✅ Multi-Day Scan Complete: ${finalTrades.length} trades found`);
+          const multiDayEndTime = Date.now();
+          totalDuration = ((multiDayEndTime - scanStartTime) / 1000).toFixed(2);
+          console.log(`✅ Multi-Day Scan Complete: ${finalTrades.length} trades found in ${totalDuration}s`);
         }
 
         // DEBUG: Check if trades are enriched
@@ -259,7 +278,10 @@ export async function GET(request: NextRequest) {
         sendData({
           type: 'complete',
           trades: finalTrades,
-          summary: summary,
+          summary: {
+            ...summary,
+            processing_time_s: totalDuration
+          },
           market_info: {
             status: 'LIVE',
             is_live: true,
@@ -269,7 +291,7 @@ export async function GET(request: NextRequest) {
           timestamp: new Date().toISOString()
         });
 
-        console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed`);
+        console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed in ${totalDuration}s`);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
