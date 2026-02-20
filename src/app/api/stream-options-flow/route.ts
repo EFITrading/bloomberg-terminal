@@ -130,6 +130,21 @@ export async function GET(request: NextRequest) {
       const TIMER_START = Date.now();
       console.error(`⏱️ [+0.0s] TIMER_START: ${new Date(TIMER_START).toISOString()}`);
 
+      // TEST: Verify setTimeout/setInterval works on Vercel before log truncation
+      setTimeout(() => {
+        const elapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+        console.error(`[+${elapsed}s] 🧪 TEST: setTimeout fired at 1s - setInterval should work`);
+      }, 1000);
+
+      // TEST: Fast 2s interval to see if it appears in visible logs
+      let testCount = 0;
+      const testInterval = setInterval(() => {
+        testCount++;
+        const elapsed = ((Date.now() - TIMER_START) / 1000).toFixed(1);
+        console.error(`[+${elapsed}s] 🧪 TEST INTERVAL #${testCount} - This proves setInterval works on Vercel`);
+        if (testCount >= 3) clearInterval(testInterval); // Stop after 3 fires
+      }, 2000);
+
       // Send heartbeat to keep connection alive
       let heartbeatCount = 0;
       streamState.heartbeatInterval = setInterval(() => {
