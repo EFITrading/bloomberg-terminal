@@ -451,23 +451,14 @@ if (parentPort) {
                                                         }
                                                  });
 
-                                                 // Process contracts one-by-one to keep connection alive (no blocking)
-                                                 console.log(` Worker ${workerIndex}: Processing ${contractBatch.length} contracts sequentially...`);
+                                                 // Process in small chunks of 5 to avoid socket saturation on Vercel
+                                                 console.log(` Worker ${workerIndex}: Processing ${contractBatch.length} contracts (5 concurrent max)...`);
                                                  const batchResults = [];
-                                                 for (let i = 0; i < batchPromises.length; i++) {
-                                                        const result = await batchPromises[i];
-                                                        batchResults.push(result);
-                                                        
-                                                        // Send progress update every 5 contracts to keep heartbeat alive
-                                                        if (i % 5 === 0 && parentPort) {
-                                                               parentPort.postMessage({
-                                                                      type: 'ticker_progress',
-                                                                      workerIndex: workerIndex,
-                                                                      ticker: ticker,
-                                                                      message: `Processing ${ticker} - ${i}/${batchPromises.length} contracts`,
-                                                                      success: true
-                                                               });
-                                                        }
+                                                 
+                                                 for (let i = 0; i < batchPromises.length; i += 5) {
+                                                        const chunk = batchPromises.slice(i, i + 5);
+                                                        const results = await Promise.all(chunk);
+                                                        batchResults.push(...results);
                                                  }
 
                                                  // Process all trade results from this batch
