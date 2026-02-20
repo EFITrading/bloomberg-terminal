@@ -62,22 +62,37 @@ class ParallelOptionsFlowProcessor {
     console.time('⚡ PARALLEL_EXECUTION');
     const executionStart = performance.now();
 
-    // ✅ FIX: Process workers with event loop yielding to allow heartbeats to fire
-    const results = [];
+    // ✅ FIX: Use Promise.allSettled() with periodic polling to allow heartbeats
+    // Don't block on Promise.all() - instead, poll completion status and yield regularly
+    const results = new Array(promises.length);
+    const settled = new Array(promises.length).fill(false);
     let completedCount = 0;
     
-    // Process workers in chunks of 5 to yield to event loop periodically
-    for (let i = 0; i < promises.length; i += 5) {
-      const chunk = promises.slice(i, i + 5);
-      const chunkResults = await Promise.all(chunk);
-      results.push(...chunkResults);
-      completedCount += chunk.length;
-      
-      console.log(`📊 Progress: ${completedCount}/${promises.length} workers completed`);
-      
-      // Yield to event loop after each chunk (allows heartbeat setInterval to fire)
-      await new Promise(resolve => setImmediate(resolve));
+    // Attach completion handlers to track progress without blocking
+    promises.forEach((promise, index) => {
+      promise.then(
+        (result) => {
+          results[index] = result;
+          settled[index] = true;
+          completedCount++;
+          console.log(`✅ Worker ${index} completed (${completedCount}/${promises.length})`);
+        },
+        (error) => {
+          results[index] = [];
+          settled[index] = true;
+          completedCount++;
+          console.error(`❌ Worker ${index} failed (${completedCount}/${promises.length})`, error);
+        }
+      );
+    });
+    
+    // Poll for completion, yielding every 500ms to allow heartbeat timer to fire
+    while (completedCount < promises.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log(`📊 Polling progress: ${completedCount}/${promises.length} workers done`);
     }
+    
+    console.log(`🎉 All ${promises.length} workers completed!`);
 
     const executionEnd = performance.now();
     console.timeEnd('⚡ PARALLEL_EXECUTION');
