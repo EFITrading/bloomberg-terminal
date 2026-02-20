@@ -91,6 +91,29 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+      
+      // Track process crashes to debug stream disconnections
+      const processErrorHandler = (error: Error) => {
+        console.error(`🚨 PROCESS ERROR DETECTED:`, error.message);
+        console.error(`   Stack:`, error.stack);
+        console.error(`   This may cause the stream to close unexpectedly`);
+      };
+      
+      const processWarningHandler = (warning: Error) => {
+        console.warn(`⚠️ PROCESS WARNING:`, warning.message);
+      };
+      
+      // Attach process monitors
+      process.on('uncaughtException', processErrorHandler);
+      process.on('unhandledRejection', processWarningHandler as any);
+      process.on('warning', processWarningHandler);
+      
+      // Cleanup function to remove monitors
+      const cleanupProcessMonitors = () => {
+        process.off('uncaughtException', processErrorHandler);
+        process.off('unhandledRejection', processWarningHandler as any);
+        process.off('warning', processWarningHandler);
+      };
 
       // CRITICAL: Send MULTIPLE small chunks IMMEDIATELY to force Vercel edge to flush
       // This prevents buffering that causes "initial connection" failures
@@ -132,17 +155,25 @@ export async function GET(request: NextRequest) {
       }
 
       // Send heartbeat to keep connection alive
+      let heartbeatCount = 0;
       streamState.heartbeatInterval = setInterval(() => {
         if (streamState.isActive) {
           try {
+            heartbeatCount++;
             sendData({
               type: 'heartbeat',
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              heartbeatNumber: heartbeatCount,
+              streamHealth: 'active'
             });
+            console.log(`💓 Heartbeat #${heartbeatCount} sent - stream health: active`);
           } catch (error) {
-            console.error('Heartbeat failed:', error);
+            console.error(`❌ Heartbeat #${heartbeatCount} failed:`, error);
+            console.error(`   This indicates the stream controller may be closed`);
             streamState.isActive = false;
           }
+        } else {
+          console.log(`⚠️ Heartbeat #${heartbeatCount} skipped - stream marked inactive`);
         }
       }, 15000); // Every 15 seconds
 
@@ -164,6 +195,8 @@ export async function GET(request: NextRequest) {
           scanType: scanType,
           timerStart: TIMER_START
         });
+        
+        console.log(`✅ Initial status sent - stream is active and ready`);
 
         // Initialize the options flow service with streaming callback
         const optionsFlowService = new OptionsFlowService(polygonApiKey);
@@ -196,6 +229,10 @@ export async function GET(request: NextRequest) {
           // ⏱️ SCAN PHASE START
           const scanStartTime = Date.now();
           console.log(`⏱️ SCAN PHASE START [+${((scanStartTime - TIMER_START) / 1000).toFixed(2)}s]: Fetching options flow...`);
+          
+          // Monitor memory before scan
+          const memBefore = process.memoryUsage();
+          console.log(`📊 Memory before scan: ${(memBefore.heapUsed / 1024 / 1024).toFixed(2)}MB / ${(memBefore.heapTotal / 1024 / 1024).toFixed(2)}MB`);
 
           const scanPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(
             ticker || undefined,
@@ -203,22 +240,45 @@ export async function GET(request: NextRequest) {
             { startTimestamp, endTimestamp, currentDate, isLive }
           );
 
-          // No timeout - let it complete naturally
-          finalTrades = await scanPromise;
+          // No timeout - let it complete naturally, but wrap in try-catch
+          try {
+            finalTrades = await scanPromise;
+            
+            // Monitor memory after scan
+            const memAfter = process.memoryUsage();
+            console.log(`📊 Memory after scan: ${(memAfter.heapUsed / 1024 / 1024).toFixed(2)}MB / ${(memAfter.heapTotal / 1024 / 1024).toFixed(2)}MB`);
+            console.log(`📊 Memory delta: +${((memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024).toFixed(2)}MB`);
 
-          const scanEndTime = Date.now();
-          const scanDuration = ((scanEndTime - scanStartTime) / 1000).toFixed(2);
-          const totalElapsed = ((scanEndTime - TIMER_START) / 1000).toFixed(2);
-          console.log(`⏱️ SCAN COMPLETE [+${totalElapsed}s] (scan: ${scanDuration}s): ${finalTrades.length} trades found`);
+            const scanEndTime = Date.now();
+            const scanDuration = ((scanEndTime - scanStartTime) / 1000).toFixed(2);
+            const totalElapsed = ((scanEndTime - TIMER_START) / 1000).toFixed(2);
+            console.log(`⏱️ SCAN COMPLETE [+${totalElapsed}s] (scan: ${scanDuration}s): ${finalTrades.length} trades found`);
+          } catch (scanError) {
+            const scanErrorTime = Date.now();
+            const errorElapsed = ((scanErrorTime - TIMER_START) / 1000).toFixed(2);
+            console.error(`⏱️ ❌ SCAN ERROR at [+${errorElapsed}s]:`, scanError instanceof Error ? scanError.message : String(scanError));
+            console.error(`   Stack:`, scanError instanceof Error ? scanError.stack : 'N/A');
+            throw scanError; // Re-throw to be caught by outer catch
+          }
 
           // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
           const enrichStartTime = Date.now();
           console.log(`⏱️ ENRICHMENT START [+${((enrichStartTime - TIMER_START) / 1000).toFixed(2)}s]: Enriching ${finalTrades.length} trades...`);
-          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-          const enrichEndTime = Date.now();
-          const enrichDuration = ((enrichEndTime - enrichStartTime) / 1000).toFixed(2);
-          const totalElapsed2 = ((enrichEndTime - TIMER_START) / 1000).toFixed(2);
-          console.log(`⏱️ ENRICHMENT COMPLETE [+${totalElapsed2}s] (enrich: ${enrichDuration}s): ${finalTrades.length} trades enriched`);
+          
+          try {
+            finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
+            const enrichEndTime = Date.now();
+            const enrichDuration = ((enrichEndTime - enrichStartTime) / 1000).toFixed(2);
+            const totalElapsed2 = ((enrichEndTime - TIMER_START) / 1000).toFixed(2);
+            console.log(`⏱️ ENRICHMENT COMPLETE [+${totalElapsed2}s] (enrich: ${enrichDuration}s): ${finalTrades.length} trades enriched`);
+          } catch (enrichError) {
+            const enrichErrorTime = Date.now();
+            const errorElapsed = ((enrichErrorTime - TIMER_START) / 1000).toFixed(2);
+            console.error(`⏱️ ❌ ENRICHMENT ERROR at [+${errorElapsed}s]:`, enrichError instanceof Error ? enrichError.message : String(enrichError));
+            console.error(`   Stack:`, enrichError instanceof Error ? enrichError.stack : 'N/A');
+            console.log(`⚠️ Continuing with ${finalTrades.length} un-enriched trades due to enrichment failure`);
+            // Don't throw - continue with un-enriched trades
+          }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           const multiDayStartTime = Date.now();
@@ -277,25 +337,48 @@ export async function GET(request: NextRequest) {
         console.log(`⏱️ 📊 Vercel Limit: 300s (${((TOTAL_DURATION / 300) * 100).toFixed(1)}% used)`);
         
         // ✅ SEND ALL TRADES IN ONE BATCH (already enriched by backend)
-        sendData({
-          type: 'complete',
-          trades: finalTrades,
-          summary: summary,
-          market_info: {
-            status: 'LIVE',
-            is_live: true,
-            data_date: new Date().toISOString().split('T')[0],
-            market_open: true
-          },
-          timestamp: new Date().toISOString(),
-          performance: {
-            totalDuration: TOTAL_DURATION,
-            percentOfLimit: ((TOTAL_DURATION / 300) * 100).toFixed(1),
-            vercelLimit: 300
+        console.log(`📤 Preparing to send ${finalTrades.length} trades to client...`);
+        const sendStartTime = Date.now();
+        
+        try {
+          sendData({
+            type: 'complete',
+            trades: finalTrades,
+            summary: summary,
+            market_info: {
+              status: 'LIVE',
+              is_live: true,
+              data_date: new Date().toISOString().split('T')[0],
+              market_open: true
+            },
+            timestamp: new Date().toISOString(),
+            performance: {
+              totalDuration: TOTAL_DURATION,
+              percentOfLimit: ((TOTAL_DURATION / 300) * 100).toFixed(1),
+              vercelLimit: 300
+            }
+          });
+          
+          const sendEndTime = Date.now();
+          const sendDuration = ((sendEndTime - sendStartTime) / 1000).toFixed(2);
+          console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades sent in ${sendDuration}s (total: ${TOTAL_DURATION}s)`);
+        } catch (sendError) {
+          console.error(`❌ CRITICAL: Failed to send complete event:`, sendError instanceof Error ? sendError.message : String(sendError));
+          console.error(`   This will cause the client to see a disconnection`);
+          console.error(`   Attempting to send error message instead...`);
+          
+          try {
+            sendData({
+              type: 'error',
+              error: `Failed to send complete data: ${sendError instanceof Error ? sendError.message : 'Unknown error'}`,
+              errorType: 'SEND_FAILURE',
+              timestamp: new Date().toISOString(),
+              retryable: true
+            });
+          } catch (errorSendError) {
+            console.error(`❌ CRITICAL: Even error message failed to send:`, errorSendError);
           }
-        });
-
-        console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed in ${TOTAL_DURATION}s`);
+        }
 
       } catch (error) {
         const ERROR_TIME = Date.now();
@@ -318,11 +401,16 @@ export async function GET(request: NextRequest) {
         }
       } finally {
         // Cleanup resources
+        console.log(`🧹 Cleaning up stream resources...`);
+        
         streamState.isActive = false;
         if (streamState.heartbeatInterval) {
           clearInterval(streamState.heartbeatInterval);
           streamState.heartbeatInterval = null;
         }
+        
+        // Remove process monitors
+        cleanupProcessMonitors();
 
         // Send final close message
         try {
@@ -335,6 +423,7 @@ export async function GET(request: NextRequest) {
           console.error('Error sending close message:', closeError);
         } finally {
           controller.close();
+          console.log(`✅ Stream controller closed`);
         }
       }
     },
