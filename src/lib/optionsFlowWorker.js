@@ -208,7 +208,7 @@ if (parentPort) {
 
               // Process each ticker in the batch
               async function processBatch() {
-                     const results = [];
+                     let totalTradesStreamed = 0; // Track count instead of accumulating trades
 
                      // If dateRange was provided from API, use it directly instead of recalculating
                      const timeRange = dateRange ?
@@ -451,24 +451,13 @@ if (parentPort) {
                                                         }
                                                  });
 
-                                                 // Process contracts sequentially to keep stream alive
-                                                 console.log(` Worker ${workerIndex}: Processing ${contractBatch.length} contracts sequentially...`);
-                                                 const batchResults = [];
-                                                 
-                                                 for (let i = 0; i < batchPromises.length; i++) {
-                                                        const result = await batchPromises[i];
-                                                        batchResults.push(result);
-                                                        
-                                                        // Send progress update to keep connection alive
-                                                        if (result && parentPort) {
-                                                               parentPort.postMessage({
-                                                                      type: 'ticker_progress',
-                                                                      workerIndex: workerIndex,
-                                                                      ticker: ticker,
-                                                                      message: `${ticker} - ${i + 1}/${batchPromises.length} contracts processed`,
-                                                                      success: true
-                                                               });
-                                                        }
+                                                 // Wait for entire batch to complete
+                                                 console.log(` Worker ${workerIndex}: ⏳ Waiting for ${contractBatch.length} contract API calls to complete...`);
+                                                 const batchResults = await Promise.all(batchPromises);
+
+                                                 // Add small delay between batches to prevent socket overload
+                                                 if (batchIndex < contractBatches.length - 1) {
+                                                        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
                                                  }
 
                                                  // Process all trade results from this batch
@@ -605,9 +594,8 @@ if (parentPort) {
                                                                              contract: contract.ticker,
                                                                              success: true
                                                                       });
+                                                                      totalTradesStreamed += validTrades.length;
                                                                }
-
-                                                               results.push(...validTrades);
                                                         }
                                                  }
                                           }
@@ -617,51 +605,17 @@ if (parentPort) {
                             }
                      }
 
-                     console.log(` Worker ${workerIndex}: Completed batch with ${results.length} total trades`);
+                     console.log(` Worker ${workerIndex}: ✅ Completed batch - streamed ${totalTradesStreamed} total trades`);
 
-                     // Send results back to main thread in chunks to avoid size limits
+                     // Send completion message (trades already streamed incrementally)
                      try {
-                            // Smaller chunks for high-volume scans to prevent worker crashes
-                            const CHUNK_SIZE = results.length > 50000 ? 5000 : 10000; // 5k for huge scans, 10k normal
-
-                            if (results.length > CHUNK_SIZE) {
-                                   console.log(` Worker ${workerIndex}: Sending ${results.length} trades in chunks of ${CHUNK_SIZE}...`);
-
-                                   for (let i = 0; i < results.length; i += CHUNK_SIZE) {
-                                          const chunk = results.slice(i, i + CHUNK_SIZE);
-                                          const isLastChunk = i + CHUNK_SIZE >= results.length;
-
-                                          console.log(` Worker ${workerIndex}: Sending chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(results.length / CHUNK_SIZE)} (${chunk.length} trades)`);
-
-                                          parentPort.postMessage({
-                                                 success: !isLastChunk ? 'partial' : true,
-                                                 trades: chunk,
-                                                 workerIndex: workerIndex,
-                                                 processedTickers: batch.length,
-                                                 chunkInfo: {
-                                                        current: Math.floor(i / CHUNK_SIZE) + 1,
-                                                        total: Math.ceil(results.length / CHUNK_SIZE),
-                                                        isLast: isLastChunk
-                                                 }
-                                          });
-
-                                          // Small delay between chunks to prevent overwhelming the main thread
-                                          if (!isLastChunk) {
-                                                 await new Promise(resolve => setTimeout(resolve, 50));
-                                          }
-                                   }
-
-                                   console.log(` Worker ${workerIndex}: ✅ All chunks sent successfully`);
-                            } else {
-                                   // Small batch, send all at once
-                                   console.log(` Worker ${workerIndex}: Sending all ${results.length} trades in single message`);
-                                   parentPort.postMessage({
-                                          success: true,
-                                          trades: results,
-                                          workerIndex: workerIndex,
-                                          processedTickers: batch.length
-                                   });
-                            }
+                            parentPort.postMessage({
+                                   success: true,
+                                   type: 'worker_complete',
+                                   workerIndex: workerIndex,
+                                   processedTickers: batch.length,
+                                   totalTradesStreamed: totalTradesStreamed
+                            });
                      } catch (sendError) {
                             console.error(` Worker ${workerIndex}: ❌ Error sending results:`, sendError.message);
                             console.error(` Worker ${workerIndex}: Stack trace:`, sendError.stack);

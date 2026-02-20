@@ -355,7 +355,7 @@ export class OptionsFlowService {
   ): Promise<ProcessedTrade[]> {
     let tickersToScan: string[];
 
-    if (!ticker || ticker.toLowerCase() === 'all' || ticker === 'ALL_EXCLUDE_ETF_MAG7') {
+    if (ticker && (ticker.toLowerCase() === 'all' || ticker === 'ALL_EXCLUDE_ETF_MAG7')) {
       tickersToScan = this.getTop1000Symbols();
       console.log(`🎯 SCAN: ${tickersToScan.length} symbols across all CPU cores`);
     } else if (ticker && ticker.includes(',')) {
@@ -659,7 +659,7 @@ export class OptionsFlowService {
     console.log(`🌊 STREAMING: Starting live options flow${ticker ? ` for ${ticker}` : ' market-wide scan'}`);
 
     const allTrades: ProcessedTrade[] = [];
-    const tickersToScan = ticker && ticker.toLowerCase() !== 'all' ? (ticker ? [ticker.toUpperCase()] : []) : this.getTop1000Symbols();
+    const tickersToScan = ticker && ticker.toLowerCase() === 'all' ? this.getTop1000Symbols() : (ticker ? [ticker.toUpperCase()] : []);
 
     onProgress?.([], `Starting scan of ${tickersToScan.length} tickers...`);
 
@@ -756,7 +756,7 @@ export class OptionsFlowService {
     console.log(`🔍 DEBUG: ticker.toLowerCase() = "${ticker?.toLowerCase()}"`);
     console.log(`🔍 DEBUG: ticker.toLowerCase() === 'all' = ${ticker?.toLowerCase() === 'all'}`);
 
-    if (!ticker || ticker.toLowerCase() === 'all') {
+    if (ticker && ticker.toLowerCase() === 'all') {
       // FORCE USE OF 1000 STOCKS - NO UNIVERSAL TICKER
       tickersToScan = this.getTop1000Symbols();
       console.log(`🚀 FORCED 1000 STOCK SCAN: ${tickersToScan.length} symbols (NO UNIVERSAL TICKER)`);
