@@ -3252,7 +3252,10 @@ export class OptionsFlowService {
   }
 
   // 🚀 ULTRA-FAST PARALLEL ENRICHMENT - Enriches trades with Vol/OI + Fill Style using all CPU cores
-  async enrichTradesWithVolOIParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
+  async enrichTradesWithVolOIParallel(
+    trades: ProcessedTrade[],
+    progressCallback?: (current: number, total: number, message: string) => void
+  ): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
 
     const BATCH_SIZE = 50; // Process 50 trades per API call batch
@@ -3378,6 +3381,16 @@ export class OptionsFlowService {
             }
           })
         );
+
+        // Send progress update to keep EventSource alive
+        const tradesEnriched = (batchIndex + 1) * BATCH_SIZE;
+        if (progressCallback) {
+          progressCallback(
+            Math.min(tradesEnriched, trades.length),
+            trades.length,
+            `Enriching trades: ${Math.min(tradesEnriched, trades.length)}/${trades.length}`
+          );
+        }
 
         if (batchIndex % 10 === 0) {
           console.log(`📦 Enrichment batch ${batchIndex + 1}/${batches.length} complete`);

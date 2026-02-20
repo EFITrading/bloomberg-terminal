@@ -196,7 +196,18 @@ export async function GET(request: NextRequest) {
 
           // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
           console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
-          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
+          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(
+            finalTrades,
+            (current, total, message) => {
+              // Send progress to keep EventSource alive during enrichment
+              sendData({
+                type: 'status',
+                message: message,
+                progress: { current, total },
+                timestamp: new Date().toISOString()
+              });
+            }
+          );
           console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
