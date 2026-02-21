@@ -584,16 +584,21 @@ if (parentPort) {
 
                                                                console.log(` Worker ${workerIndex}: Γ£ö∩╕Å ${validTrades.length} valid trades (${contractTrades.length - validTrades.length} filtered out) for ${contract.ticker}`);
 
-                                                               // STREAM trades immediately as they're found (don't wait till end)
+                                                               // STREAM trades immediately as they're found (CHUNKED to avoid message size limits)
                                                                if (validTrades.length > 0) {
-                                                                      parentPort.postMessage({
-                                                                             type: 'trades_found',
-                                                                             trades: validTrades,
-                                                                             workerIndex: workerIndex,
-                                                                             ticker: ticker,
-                                                                             contract: contract.ticker,
-                                                                             success: true
-                                                                      });
+                                                                      // Split into chunks of 100 trades to avoid parentPort message size limits
+                                                                      const CHUNK_SIZE = 100;
+                                                                      for (let i = 0; i < validTrades.length; i += CHUNK_SIZE) {
+                                                                             const chunk = validTrades.slice(i, i + CHUNK_SIZE);
+                                                                             parentPort.postMessage({
+                                                                                    type: 'trades_found',
+                                                                                    trades: chunk,
+                                                                                    workerIndex: workerIndex,
+                                                                                    ticker: ticker,
+                                                                                    contract: contract.ticker,
+                                                                                    success: true
+                                                                             });
+                                                                      }
                                                                       totalTradesStreamed += validTrades.length;
                                                                }
                                                         }

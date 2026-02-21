@@ -277,9 +277,11 @@ class ParallelOptionsFlowProcessor {
           console.error(`Γ¥î Worker ${workerIndex} exited with code ${code}`);
           console.error(`   Accumulated ${allWorkerTrades.length} trades before exit`);
           console.error(`   This usually indicates memory issues or message size limits`);
-          console.error(`   Consider processing fewer tickers per worker or implementing chunked responses`);
-          resolve(allWorkerTrades); // Return whatever we got so far
+        } else {
+          console.warn(`⚠️ Worker ${workerIndex} exited cleanly (code 0) without sending completion message`);
+          console.warn(`   Accumulated ${allWorkerTrades.length} trades - returning partial results`);
         }
+        resolve(allWorkerTrades); // ALWAYS resolve to prevent infinite Promise.all() hang
       });
     });
   }

@@ -9,8 +9,7 @@
       "maxDuration": 300
     },
     "src/app/api/stream-options-flow/route.ts": {
-      "maxDuration": 300,
-      "memory": 3008
+      "maxDuration": 300
     },
     "src/app/api/gex-screener/route.ts": {
       "maxDuration": 300
