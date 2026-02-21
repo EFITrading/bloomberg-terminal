@@ -193,7 +193,7 @@ class ParallelOptionsFlowProcessor {
           resolve(allWorkerTrades); // Return all trades accumulated from incremental streams
           worker.terminate();
         } else if (result.success === 'partial') {
-          // 📦 LEGACY CHUNKED MESSAGE: For backwards compatibility
+          // 📦 CHUNKED MESSAGE: Accumulate partial results
           allWorkerTrades.push(...result.trades);
           console.log(`📦 Worker ${workerIndex}: Received chunk ${result.chunkInfo.current}/${result.chunkInfo.total} (${result.trades.length} trades, total: ${allWorkerTrades.length})`);
 
@@ -228,7 +228,7 @@ class ParallelOptionsFlowProcessor {
             worker.terminate();
           }
         } else if (result.success) {
-          // 🎯 LEGACY: Old-style completion with trades in message (backwards compatibility)
+          // 🎯 PERFORMANCE: Track successful worker completion
           const completionTime = performance.now();
           if (currentProcessing) {
             currentProcessing.completionTime = completionTime;
@@ -240,17 +240,12 @@ class ParallelOptionsFlowProcessor {
               ...currentProcessing,
               status: 'success',
               totalTime,
-              finalTradeCount: result.trades?.length || 0
+              finalTradeCount: result.trades.length
             });
           } else {
-            console.log(`✅ Worker ${workerIndex}: Completed batch - found ${result.trades?.length || 0} trades from ${batch.length} tickers`);
+            console.log(`✅ Worker ${workerIndex}: Completed batch - found ${result.trades.length} trades from ${batch.length} tickers`);
           }
 
-          // If trades provided in completion message, add them
-          if (result.trades && result.trades.length > 0) {
-            allWorkerTrades.push(...result.trades);
-          }
-          
           resolve(allWorkerTrades); // Return accumulated trades
           worker.terminate();
         } else {

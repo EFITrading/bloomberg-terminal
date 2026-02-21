@@ -391,14 +391,6 @@ export default function OptionsFlowPage() {
       // Map scan categories to appropriate ticker parameter
       let tickerParam = tickerOverride || selectedTicker;
 
-      // Prevent empty ticker from reaching backend
-      if (!tickerParam || tickerParam.trim() === '') {
-        console.error('❌ Cannot start scan: ticker is empty');
-        setStreamError('Please select a ticker to scan');
-        setLoading(false);
-        return;
-      }
-
       if (tickerParam === 'MAG7') {
         tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG';
       } else if (tickerParam === 'ETF') {
@@ -601,15 +593,6 @@ export default function OptionsFlowPage() {
 
       // Map scan categories to appropriate ticker parameter
       let tickerParam = selectedTicker;
-      
-      // Prevent empty ticker from reaching backend
-      if (!tickerParam || tickerParam.trim() === '') {
-        console.error('❌ Cannot start scan: ticker is empty');
-        setStreamError('Please select a ticker to scan');
-        setLoading(false);
-        return;
-      }
-      
       if (selectedTicker === 'MAG7') {
         tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG';
       } else if (selectedTicker === 'ETF') {
