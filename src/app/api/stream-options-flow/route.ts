@@ -155,13 +155,21 @@ export async function GET(request: NextRequest) {
         // Initialize the options flow service with streaming callback
         const optionsFlowService = new OptionsFlowService(polygonApiKey);
 
-        // Create a streaming callback - ONLY send status, not progressive trades
+        // Create a streaming callback - send trades as they're found
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
-          // Γ¥î DISABLED: Don't send progressive updates
-          // Only send status messages to show scan progress
           if (!streamState.isActive) return; // Check if stream is still active
 
-          if (trades.length === 0) {
+          // Send trades immediately as they're found to keep connection alive
+          if (trades.length > 0) {
+            sendData({
+              type: 'trades',
+              trades: trades,
+              status: status,
+              progress: progress,
+              timestamp: new Date().toISOString()
+            });
+          } else {
+            // Send status-only messages
             sendData({
               type: 'status',
               message: status,
