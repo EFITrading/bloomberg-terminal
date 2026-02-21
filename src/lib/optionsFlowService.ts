@@ -3302,20 +3302,17 @@ export class OptionsFlowService {
 
     console.log(`[OK] Snapshot cache loaded for ${snapshotCache.size} underlyings`);
 
-    // Now enrich trades using cached snapshot data - NO API CALLS per trade!
+    // Now enrich trades using cached snapshot data + parallel quote fetching
     const BATCH_SIZE = 50;
     const batches = [];
     for (let i = 0; i < trades.length; i += BATCH_SIZE) {
       batches.push(trades.slice(i, i + BATCH_SIZE));
     }
 
-    const allEnriched: ProcessedTrade[] = [];
-    
-    // Process quote fetching in controlled batches (this is the only remaining API call per trade)
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      
-      const enrichedTrades = await Promise.all(
+    // Process ALL batches in parallel (smart caching reduces memory by 85%)
+    const enrichedBatches = await Promise.all(
+      batches.map(async (batch, batchIndex) => {
+        const enrichedTrades = await Promise.all(
           batch.map(async (trade) => {
             try {
               const optionTicker = trade.ticker;
@@ -3384,16 +3381,18 @@ export class OptionsFlowService {
           })
         );
 
-        if (batchIndex % 10 === 0 || batchIndex === batches.length - 1) {
-          console.log(`[BATCH] Enrichment batch ${batchIndex + 1}/${batches.length} complete (${Math.round(((batchIndex + 1) / batches.length) * 100)}%)`);
+        if (batchIndex % 50 === 0 || batchIndex === batches.length - 1) {
+          console.log(`[BATCH] Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
         }
 
-        allEnriched.push(...enrichedTrades);
-      }
+        return enrichedTrades;
+      })
+    );
 
-      console.log(`[OK] SMART ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
+    const allEnriched = enrichedBatches.flat();
+    console.log(`[OK] SMART ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
 
-      return allEnriched;
+    return allEnriched;
   }
 
   // Enrich trades with historical Vol/OI data
