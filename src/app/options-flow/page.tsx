@@ -391,12 +391,6 @@ export default function OptionsFlowPage() {
       // Map scan categories to appropriate ticker parameter
       let tickerParam = tickerOverride || selectedTicker;
 
-      // Fix: Default to 'ALL' if ticker is empty or just whitespace
-      if (!tickerParam || tickerParam.trim() === '') {
-        console.log('ΓÜá∩╕Å Empty ticker parameter detected, defaulting to ALL');
-        tickerParam = 'ALL';
-      }
-
       if (tickerParam === 'MAG7') {
         tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG';
       } else if (tickerParam === 'ETF') {
@@ -548,32 +542,39 @@ export default function OptionsFlowPage() {
 
         // Check if this is just a normal close after completion
         if (eventSource.readyState === 2) { // CLOSED state
-          console.log('Γä╣∩╕Å Stream closed normally');
+          console.log('Γä╣∩╕Å Stream closed normally after completion');
           eventSource.close();
           setStreamingStatus('');
           setLoading(false);
           return;
         }
 
-        // Simplified error handling - don't spam logs
-        console.warn('ΓÜá∩╕Å EventSource connection issue - closing stream');
+        // Check if stream is connecting (readyState 0) - this is a real connection error
+        if (eventSource.readyState === 0) {
+          console.warn('ΓÜá∩╕Å EventSource connection failed during initial connection');
+          eventSource.close();
 
-        eventSource.close();
-
-        // Only retry once on connection failure
-        if (currentRetry === 0 && eventSource.readyState === 0) {
-          console.log('≡ƒöä Retrying connection once...');
-          setRetryCount(1);
-          setTimeout(() => {
-            fetchOptionsFlowStreaming(1);
-          }, 2000);
-        } else {
-          // Don't retry multiple times - just fail gracefully
-          setStreamError('Stream connection unavailable');
-          setStreamingStatus('');
-          setLoading(false);
-          console.log('Γä╣∩╕Å Stream closed, data fetching complete');
+          // Only retry once on connection failure
+          if (currentRetry === 0) {
+            console.log('≡ƒöä Retrying connection once...');
+            setRetryCount(1);
+            setTimeout(() => {
+              fetchOptionsFlowStreaming(1);
+            }, 2000);
+          } else {
+            setStreamError('Stream connection unavailable');
+            setStreamingStatus('');
+            setLoading(false);
+          }
+          return;
         }
+
+        // For any other case (readyState 1 - OPEN), this is likely normal completion
+        // The browser fires onerror when the server closes the stream after sending 'complete'
+        console.log('Γä╣∩╕Å Stream connection closed (data transfer complete)');
+        eventSource.close();
+        setStreamingStatus('');
+        setLoading(false);
       };
 
     } catch (error) {
@@ -686,9 +687,17 @@ export default function OptionsFlowPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white pt-12">
+    <div className="min-h-screen bg-black text-white">
       {/* Main Content */}
-      <div className="p-6">
+      <div className="p-0">
+        <style jsx>{`
+          @media (max-width: 768px) {
+            :global(.main-content) {
+              padding-top: 0 !important;
+              margin-top: -30px !important;
+            }
+          }
+        `}</style>
         <OptionsFlowTable
           data={data}
           summary={summary}

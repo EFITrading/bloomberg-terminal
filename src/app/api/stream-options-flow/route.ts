@@ -49,12 +49,6 @@ export async function GET(request: NextRequest) {
 
   console.log(`≡ƒöÑ ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`);
 
-  // Validate ticker parameter - empty ticker causes EventSource connection issues
-  if (ticker !== null && ticker.trim() === '') {
-    console.warn('ΓÜá∩╕Å Empty ticker parameter received, treating as undefined for market-wide scan');
-    ticker = null; // Treat empty string as no ticker (market-wide scan)
-  }
-
   const polygonApiKey = process.env.POLYGON_API_KEY;
 
   if (!polygonApiKey) {

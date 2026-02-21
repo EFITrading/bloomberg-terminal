@@ -171,6 +171,62 @@ class ParallelOptionsFlowProcessor {
               scanning: true
             });
           }
+        } else if (result.type === 'worker_complete') {
+          // ≡ƒÄ» Worker completed - all trades already streamed incrementally
+          const completionTime = performance.now();
+          if (currentProcessing) {
+            currentProcessing.completionTime = completionTime;
+            const totalTime = completionTime - currentProcessing.startTime;
+
+            console.log(`Γ£à Worker ${workerIndex}: Completed ${result.processedTickers} tickers in ${totalTime.toFixed(2)}ms, streamed ${result.totalTradesStreamed} trades (${currentProcessing.apiCalls} API calls)`);
+
+            this.benchmarks.workerCompletion.set(workerIndex, {
+              ...currentProcessing,
+              status: 'success',
+              totalTime,
+              finalTradeCount: allWorkerTrades.length
+            });
+          } else {
+            console.log(`Γ£à Worker ${workerIndex}: Completed - streamed ${result.totalTradesStreamed} trades`);
+          }
+
+          resolve(allWorkerTrades); // Return all trades accumulated from incremental streams
+          worker.terminate();
+        } else if (result.success === 'partial') {
+          // ≡ƒôª CHUNKED MESSAGE: Accumulate partial results
+          allWorkerTrades.push(...result.trades);
+          console.log(`≡ƒôª Worker ${workerIndex}: Received chunk ${result.chunkInfo.current}/${result.chunkInfo.total} (${result.trades.length} trades, total: ${allWorkerTrades.length})`);
+
+          // Send progress update for chunked data
+          if (onProgress && result.trades.length > 0) {
+            onProgress(result.trades, `Worker ${workerIndex}: Processing chunk ${result.chunkInfo.current}/${result.chunkInfo.total}`, {
+              worker: workerIndex,
+              newTrades: result.trades.length,
+              workerTotal: allWorkerTrades.length,
+              chunkProgress: result.chunkInfo,
+              progressive: true
+            });
+          }
+
+          // If this is the last chunk, complete the worker
+          if (result.chunkInfo.isLast) {
+            const completionTime = performance.now();
+            if (currentProcessing) {
+              currentProcessing.completionTime = completionTime;
+              const totalTime = completionTime - currentProcessing.startTime;
+
+              console.log(`Γ£à Worker ${workerIndex}: Completed ${currentProcessing.batchSize} tickers in ${totalTime.toFixed(2)}ms, found ${allWorkerTrades.length} trades (${currentProcessing.apiCalls} API calls)`);
+
+              this.benchmarks.workerCompletion.set(workerIndex, {
+                ...currentProcessing,
+                status: 'success',
+                totalTime,
+                finalTradeCount: allWorkerTrades.length
+              });
+            }
+            resolve(allWorkerTrades);
+            worker.terminate();
+          }
         } else if (result.success) {
           // ≡ƒÄ» PERFORMANCE: Track successful worker completion
           const completionTime = performance.now();
@@ -211,12 +267,17 @@ class ParallelOptionsFlowProcessor {
 
       worker.on('error', (error) => {
         console.error(`Γ¥î Worker ${workerIndex} crashed:`, error.message);
+        console.error(`   Stack trace:`, error.stack);
+        console.error(`   Worker had ${allWorkerTrades.length} trades accumulated before crash`);
         resolve(allWorkerTrades); // Return whatever we got so far
       });
 
       worker.on('exit', (code) => {
         if (code !== 0) {
           console.error(`Γ¥î Worker ${workerIndex} exited with code ${code}`);
+          console.error(`   Accumulated ${allWorkerTrades.length} trades before exit`);
+          console.error(`   This usually indicates memory issues or message size limits`);
+          console.error(`   Consider processing fewer tickers per worker or implementing chunked responses`);
           resolve(allWorkerTrades); // Return whatever we got so far
         }
       });
