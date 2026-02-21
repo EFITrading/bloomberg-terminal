@@ -562,9 +562,11 @@ export default function OptionsFlowPage() {
               fetchOptionsFlowStreaming(1);
             }, 2000);
           } else {
-            setStreamError('Stream connection unavailable');
-            setStreamingStatus('');
+            console.log('[FALLBACK] SSE failed twice, switching to direct fetch');
+            setStreamError('Stream connection unavailable, using fallback');
+            setStreamingStatus('Falling back to direct fetch...');
             setLoading(false);
+            fetchOptionsFlow();
           }
           return;
         }

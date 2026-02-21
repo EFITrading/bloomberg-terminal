@@ -3255,54 +3255,16 @@ export class OptionsFlowService {
   async enrichTradesWithVolOIParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
 
-    console.log(`[ENRICH] Starting enrichment for ${trades.length} trades`);
-
-    // STEP 1: Fetch snapshots for unique tickers ONCE (eliminate duplicates)
-    const uniqueTickers = new Set(trades.map(t => t.ticker));
-    const snapshotCache = new Map<string, any>();
-
-    console.log(`[CACHE] Fetching snapshots for ${uniqueTickers.size} unique tickers (not ${trades.length})`);
-
-    await Promise.all(
-      Array.from(uniqueTickers).map(async (optionTicker) => {
-        try {
-          const trade = trades.find(t => t.ticker === optionTicker)!;
-          const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
-            ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
-            : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
-
-          const response = await fetch(snapshotUrl);
-          if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'OK' && data.results) {
-              let snapshot;
-              if (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX') {
-                snapshot = Array.isArray(data.results)
-                  ? data.results.find((r: any) => r.details?.ticker === optionTicker)
-                  : data.results;
-              } else {
-                snapshot = data.results;
-              }
-              if (snapshot) {
-                snapshotCache.set(optionTicker, snapshot);
-              }
-            }
-          }
-        } catch (error) {
-          // Ignore snapshot errors
-        }
-      })
-    );
-
-    console.log(`[OK] Cached ${snapshotCache.size} snapshots`);
-
-    // STEP 2: Enrich trades using cached snapshots + individual quote calls
-    const BATCH_SIZE = 50;
+    const BATCH_SIZE = 50; // Process 50 trades per batch for quotes
     const batches = [];
+
     for (let i = 0; i < trades.length; i += BATCH_SIZE) {
       batches.push(trades.slice(i, i + BATCH_SIZE));
     }
 
+    console.log(`[ENRICH] FILL-STYLE ONLY: ${trades.length} trades in ${batches.length} batches`);
+
+    // No snapshot calls. Only quote calls for fill style.
     const enrichedBatches = await Promise.all(
       batches.map(async (batch, batchIndex) => {
         const enrichedTrades = await Promise.all(
@@ -3310,23 +3272,13 @@ export class OptionsFlowService {
             try {
               const optionTicker = trade.ticker;
 
-              // Get Vol/OI from CACHE (no duplicate API call!)
-              let volume = trade.volume;
-              let openInterest = trade.open_interest;
-
-              const snapshot = snapshotCache.get(optionTicker);
-              if (snapshot) {
-                volume = snapshot.day?.volume || trade.volume;
-                openInterest = snapshot.open_interest || trade.open_interest;
-              }
-
-              // Get HISTORICAL quote for fill style (still needs individual call per trade)
+              // STEP: Get HISTORICAL quote at trade timestamp for bid/ask
               let bid: number | undefined;
               let ask: number | undefined;
               let fillStyle = 'N/A';
 
               const tradeDate = new Date(trade.trade_timestamp);
-              const tradeTimestampNano = tradeDate.getTime() * 1000000;
+              const tradeTimestampNano = tradeDate.getTime() * 1000000; // ms → ns
 
               try {
                 const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
@@ -3358,9 +3310,7 @@ export class OptionsFlowService {
 
               return {
                 ...trade,
-                volume,
-                open_interest: openInterest,
-                vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
+                // Vol/OI removed per request
                 fill_style: fillStyle,
                 bid,
                 ask,
@@ -3373,7 +3323,7 @@ export class OptionsFlowService {
         );
 
         if (batchIndex % 10 === 0) {
-          console.log(`[BATCH] Enrichment batch ${batchIndex + 1}/${batches.length}`);
+          console.log(`[BATCH] Fill-style batch ${batchIndex + 1}/${batches.length}`);
         }
 
         return enrichedTrades;
@@ -3381,7 +3331,7 @@ export class OptionsFlowService {
     );
 
     const allEnriched = enrichedBatches.flat();
-    console.log(`[OK] Enrichment complete: ${allEnriched.length} trades`);
+    console.log(`[OK] FILL-STYLE ENRICHMENT COMPLETE: ${allEnriched.length} trades`);
 
     return allEnriched;
   }
