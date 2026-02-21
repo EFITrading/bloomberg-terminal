@@ -15,8 +15,9 @@ const enrichTradeDataCombined = async (
 ): Promise<OptionsFlowData[]> => {
   if (trades.length === 0) return trades;
 
-  const BATCH_SIZE = 100; // Process 100 trades per batch to show progress
-  const PARALLEL_LIMIT = 10; // Max 10 concurrent API calls (browser connection limit)
+  const BATCH_SIZE = 500; // Massive batch size for maximum throughput
+  const BATCH_DELAY = 0; // Zero delay
+  const REQUEST_DELAY = 0; // Zero stagger - full parallel blast
   const batches = [];
 
   for (let i = 0; i < trades.length; i += BATCH_SIZE) {
@@ -29,90 +30,90 @@ const enrichTradeDataCombined = async (
   let successCount = 0;
   let failCount = 0;
 
-  // Helper to process trades in parallel chunks (controlled concurrency)
-  const processInChunks = async (trades: OptionsFlowData[], chunkSize: number) => {
-    const results: OptionsFlowData[] = [];
-    
-    for (let i = 0; i < trades.length; i += chunkSize) {
-      const chunk = trades.slice(i, i + chunkSize);
-      
-      // Process chunk in parallel (max 10 concurrent requests)
-      const chunkResults = await Promise.all(
-        chunk.map(async (trade) => {
-          try {
-            const expiry = trade.expiry.replace(/-/g, '').slice(2);
-            const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-            const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-            const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-
-            const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
-
-            const response = await fetch(snapshotUrl, {
-              signal: AbortSignal.timeout(3000),
-              keepalive: true
-            } as RequestInit);
-
-            if (!response.ok) {
-              failCount++;
-              return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-            }
-
-            const data = await response.json();
-
-            if (data.results) {
-              const result = data.results;
-              const volume = result.day?.volume || 0;
-              const openInterest = result.open_interest || 0;
-              successCount++;
-
-              // Extract fill style from last quote
-              let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
-              if (result.last_quote) {
-                const bid = result.last_quote.bid;
-                const ask = result.last_quote.ask;
-                const fillPrice = trade.premium_per_contract;
-
-                if (bid && ask && fillPrice) {
-                  const midpoint = (bid + ask) / 2;
-                  if (fillPrice >= ask + 0.01) fillStyle = 'AA';
-                  else if (fillPrice <= bid - 0.01) fillStyle = 'BB';
-                  else if (fillPrice === ask) fillStyle = 'A';
-                  else if (fillPrice === bid) fillStyle = 'B';
-                  else if (fillPrice >= midpoint) fillStyle = 'A';
-                  else fillStyle = 'B';
-                }
-              }
-
-              return { ...trade, fill_style: fillStyle, volume, open_interest: openInterest };
-            }
-
-            failCount++;
-            return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-          } catch (error) {
-            failCount++;
-            return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-          }
-        })
-      );
-      
-      results.push(...chunkResults);
-    }
-    
-    return results;
-  };
-
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
 
-    if (batchIndex % 5 === 0 || batchIndex === batches.length - 1) {
-      console.log(`[BATCH] Batch ${batchIndex + 1}/${batches.length} (${Math.round(((batchIndex + 1) / batches.length) * 100)}%)`);
+    if (batchIndex % 20 === 0) { // Log every 20th batch instead of every 10th
+      console.log(`[BATCH] Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex / batches.length) * 100)}%)`);
     }
 
-    // Process batch in chunks of 10 concurrent requests
-    const batchResults = await processInChunks(batch, PARALLEL_LIMIT);
+    const batchResults = await Promise.all(
+      batch.map(async (trade) => {
+        // No delay - maximum parallel execution
+
+        try {
+          const expiry = trade.expiry.replace(/-/g, '').slice(2);
+          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+
+          // Use snapshot endpoint - gets EVERYTHING in one call (quotes, greeks, Vol/OI)
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+
+          const response = await fetch(snapshotUrl, {
+            signal: AbortSignal.timeout(2000), // Faster timeout
+            keepalive: true,
+            priority: 'high' // Browser prioritization hint
+          } as RequestInit);
+
+          if (!response.ok) {
+            failCount++;
+            return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+          }
+
+          const data = await response.json();
+
+          if (data.results) {
+            const result = data.results;
+
+            // Extract Vol/OI
+            const volume = result.day?.volume || 0;
+            const openInterest = result.open_interest || 0;
+
+            successCount++;
+
+            // Extract fill style from last quote
+            let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
+            if (result.last_quote) {
+              const bid = result.last_quote.bid;
+              const ask = result.last_quote.ask;
+              const fillPrice = trade.premium_per_contract;
+
+              if (bid && ask && fillPrice) {
+                const midpoint = (bid + ask) / 2;
+
+                if (fillPrice >= ask + 0.01) {
+                  fillStyle = 'AA';
+                } else if (fillPrice <= bid - 0.01) {
+                  fillStyle = 'BB';
+                } else if (fillPrice === ask) {
+                  fillStyle = 'A';
+                } else if (fillPrice === bid) {
+                  fillStyle = 'B';
+                } else if (fillPrice >= midpoint) {
+                  fillStyle = 'A';
+                } else {
+                  fillStyle = 'B';
+                }
+              }
+            }
+
+            return { ...trade, fill_style: fillStyle, volume, open_interest: openInterest };
+          }
+
+          failCount++;
+          return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+        } catch (error) {
+          failCount++;
+          return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+        }
+      })
+    );
 
     allResults.push(...batchResults);
     updateCallback([...allResults]);
+
+    // No delay - process at maximum speed
   }
 
   console.log(`[OK] Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);

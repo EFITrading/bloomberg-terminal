@@ -3255,80 +3255,135 @@ export class OptionsFlowService {
   async enrichTradesWithVolOIParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
 
-    console.log(`[ENRICH] SMART ENRICHMENT: ${trades.length} trades`);
+    console.log(`[ENRICH] Starting enrichment for ${trades.length} trades`);
 
-    // SMART APPROACH: Group by underlying ticker to minimize API calls
-    const tradesByUnderlying = new Map<string, ProcessedTrade[]>();
-    for (const trade of trades) {
-      const underlying = trade.underlying_ticker;
-      if (!tradesByUnderlying.has(underlying)) {
-        tradesByUnderlying.set(underlying, []);
-      }
-      tradesByUnderlying.get(underlying)!.push(trade);
-    }
-
-    console.log(`[CACHE] Grouped into ${tradesByUnderlying.size} unique underlyings (${trades.length} total trades)`);
-
-    // Cache for snapshot data - ONE API call per underlying instead of one per trade!
+    // STEP 1: Fetch snapshots for unique tickers ONCE (eliminate duplicates)
+    const uniqueTickers = new Set(trades.map(t => t.ticker));
     const snapshotCache = new Map<string, any>();
 
-    // Fetch snapshot data for all underlyings in parallel
+    console.log(`[CACHE] Fetching snapshots for ${uniqueTickers.size} unique tickers (not ${trades.length})`);
+
     await Promise.all(
-      Array.from(tradesByUnderlying.keys()).map(async (underlying) => {
+      Array.from(uniqueTickers).map(async (optionTicker) => {
         try {
-          // Use bulk snapshot endpoint to get ALL options for this underlying at once
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}?limit=250&apiKey=${this.polygonApiKey}`;
+          const trade = trades.find(t => t.ticker === optionTicker)!;
+          const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
+            ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
+            : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
+
           const response = await fetch(snapshotUrl);
-          
           if (response.ok) {
             const data = await response.json();
             if (data.status === 'OK' && data.results) {
-              // Cache all contracts for this underlying
-              const contractMap = new Map<string, any>();
-              for (const contract of data.results) {
-                if (contract.details?.ticker) {
-                  contractMap.set(contract.details.ticker, contract);
-                }
+              let snapshot;
+              if (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX') {
+                snapshot = Array.isArray(data.results)
+                  ? data.results.find((r: any) => r.details?.ticker === optionTicker)
+                  : data.results;
+              } else {
+                snapshot = data.results;
               }
-              snapshotCache.set(underlying, contractMap);
-              console.log(`[CACHE] Cached ${contractMap.size} contracts for ${underlying}`);
+              if (snapshot) {
+                snapshotCache.set(optionTicker, snapshot);
+              }
             }
           }
         } catch (error) {
-          console.log(`[WARN] Failed to fetch snapshot for ${underlying}`);
+          // Ignore snapshot errors
         }
       })
     );
 
-    console.log(`[OK] Snapshot cache loaded for ${snapshotCache.size} underlyings`);
+    console.log(`[OK] Cached ${snapshotCache.size} snapshots`);
 
-    // Enrich trades using ONLY cached snapshot data (no quote API calls = instant + no memory issues)
-    const enrichedTrades = trades.map((trade) => {
-      const optionTicker = trade.ticker;
-      const underlying = trade.underlying_ticker;
+    // STEP 2: Enrich trades using cached snapshots + individual quote calls
+    const BATCH_SIZE = 50;
+    const batches = [];
+    for (let i = 0; i < trades.length; i += BATCH_SIZE) {
+      batches.push(trades.slice(i, i + BATCH_SIZE));
+    }
 
-      // Get Vol/OI from CACHE (no API call!)
-      let volume = trade.volume;
-      let openInterest = trade.open_interest;
-      
-      const contractCache = snapshotCache.get(underlying);
-      if (contractCache?.has(optionTicker)) {
-        const snapshot = contractCache.get(optionTicker);
-        volume = snapshot.day?.volume || trade.volume;
-        openInterest = snapshot.open_interest || trade.open_interest;
-      }
+    const enrichedBatches = await Promise.all(
+      batches.map(async (batch, batchIndex) => {
+        const enrichedTrades = await Promise.all(
+          batch.map(async (trade) => {
+            try {
+              const optionTicker = trade.ticker;
 
-      return {
-        ...trade,
-        volume,
-        open_interest: openInterest,
-        vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
-      };
-    });
+              // Get Vol/OI from CACHE (no duplicate API call!)
+              let volume = trade.volume;
+              let openInterest = trade.open_interest;
 
-    console.log(`[OK] INSTANT ENRICHMENT COMPLETE: ${enrichedTrades.length} trades enriched`);
+              const snapshot = snapshotCache.get(optionTicker);
+              if (snapshot) {
+                volume = snapshot.day?.volume || trade.volume;
+                openInterest = snapshot.open_interest || trade.open_interest;
+              }
 
-    return enrichedTrades;
+              // Get HISTORICAL quote for fill style (still needs individual call per trade)
+              let bid: number | undefined;
+              let ask: number | undefined;
+              let fillStyle = 'N/A';
+
+              const tradeDate = new Date(trade.trade_timestamp);
+              const tradeTimestampNano = tradeDate.getTime() * 1000000;
+
+              try {
+                const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
+                const quoteResponse = await fetch(quoteUrl);
+
+                if (quoteResponse.ok) {
+                  const quoteData = await quoteResponse.json();
+                  if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
+                    bid = quoteData.results[0].bid_price;
+                    ask = quoteData.results[0].ask_price;
+                  }
+                }
+              } catch (quoteError) {
+                // Ignore quote errors
+              }
+
+              // Calculate Fill Style
+              const lastPrice = trade.premium_per_contract;
+              if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
+                const midpoint = (bid + ask) / 2;
+                const spread = ask - bid;
+                const distanceFromMid = lastPrice - midpoint;
+
+                if (distanceFromMid > spread * 0.25) fillStyle = 'A';
+                else if (distanceFromMid > 0) fillStyle = 'AA';
+                else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
+                else if (distanceFromMid < 0) fillStyle = 'BB';
+              }
+
+              return {
+                ...trade,
+                volume,
+                open_interest: openInterest,
+                vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
+                fill_style: fillStyle,
+                bid,
+                ask,
+                bid_ask_spread: bid && ask ? ask - bid : undefined
+              };
+            } catch (error) {
+              return trade;
+            }
+          })
+        );
+
+        if (batchIndex % 10 === 0) {
+          console.log(`[BATCH] Enrichment batch ${batchIndex + 1}/${batches.length}`);
+        }
+
+        return enrichedTrades;
+      })
+    );
+
+    const allEnriched = enrichedBatches.flat();
+    console.log(`[OK] Enrichment complete: ${allEnriched.length} trades`);
+
+    return allEnriched;
   }
 
   // Enrich trades with historical Vol/OI data
