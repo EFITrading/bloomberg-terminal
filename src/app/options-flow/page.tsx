@@ -400,7 +400,8 @@ export default function OptionsFlowPage() {
       }
       // Otherwise use the ticker as-is for individual ticker searches
 
-      console.log(`≡ƒöî Connecting to EventSource with ticker: ${tickerParam}`);
+      console.log(`🔌 Connecting to EventSource with ticker: ${tickerParam}`);
+      const scanStartTime = performance.now(); // Track scan duration
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
 
       eventSource.onmessage = (event) => {
@@ -409,14 +410,18 @@ export default function OptionsFlowPage() {
 
           switch (streamData.type) {
             case 'connected':
-              console.log('Γ£à Stream connected:', streamData.message);
+              console.log('✅ Stream connected:', streamData.message);
+              console.log(`⏱️  Scan started at ${new Date().toLocaleTimeString()}`);
               setStreamingStatus('Connected - scanning options flow...');
               setStreamError('');
               break;
 
             case 'status':
               setStreamingStatus(streamData.message);
-              console.log(` Stream Status: ${streamData.message}`);
+              console.log(`📊 Stream Status: ${streamData.message}`);
+              if (streamData.progress) {
+                console.log(`   Progress: ${streamData.progress.current}/${streamData.progress.total} | Worker: ${streamData.progress.worker || 'N/A'}`);
+              }
               break;
 
             case 'trades':
@@ -434,10 +439,15 @@ export default function OptionsFlowPage() {
                     return !existingTradeIds.has(tradeId);
                   });
 
-                  console.log(` Stream Update: Adding ${newTrades.length} NEW trades (${streamData.trades.length} sent, ${prevData.length} existing)`);
+                  console.log(`📈 Stream Update: +${newTrades.length} NEW trades (${streamData.trades.length} received, ${prevData.length} existing → ${prevData.length + newTrades.length} total)`);
+                  if (streamData.progress?.ticker) {
+                    console.log(`   From: ${streamData.progress.ticker} | Worker ${streamData.progress.worker || '?'}`);
+                  }
 
                   return [...prevData, ...newTrades];
                 });
+              } else {
+                console.log(`📭 Stream Update: 0 trades (status only)`);
               }
 
               setStreamingStatus(streamData.status);
@@ -453,13 +463,19 @@ export default function OptionsFlowPage() {
               // SET COMPLETE FLAG FIRST to prevent error handler from firing
               setIsStreamComplete(true);
 
+              // Calculate scan duration
+              const scanDuration = ((performance.now() - scanStartTime) / 1000).toFixed(2);
+
               // CLOSE STREAM to prevent errors
-              console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades`);
+              console.log(`✅ Stream Complete: Total ${streamData.summary.total_trades} trades in ${scanDuration}s`);
+              console.log(`   💰 Total Premium: $${(streamData.summary.total_premium / 1000000).toFixed(2)}M`);
+              console.log(`   📊 Unique Symbols: ${streamData.summary.unique_symbols}`);
+              console.log(`   🔵 BLOCKS: ${streamData.summary.trade_types?.BLOCK || 0} | 🔶 SWEEPS: ${streamData.summary.trade_types?.SWEEP || 0}`);
               eventSource.close();
 
               // Extract trades from the complete event (backend sends them here!)
               const completeTrades = streamData.trades || [];
-              console.log(`≡ƒöì COMPLETE EVENT: Received ${completeTrades.length} trades from backend`);
+              console.log(`📦 COMPLETE EVENT: Received ${completeTrades.length} trades from backend`);
 
               // Update summary/market info
               setSummary(streamData.summary);
@@ -486,19 +502,20 @@ export default function OptionsFlowPage() {
                     return !existingTradeIds.has(tradeId);
                   });
 
-                  console.log(`∩┐╜ ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
+                  console.log(`🔄 ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
 
                   const updatedTrades = [...prevData, ...newTrades];
-                  console.log(`Γ£à Total trades now: ${updatedTrades.length}`);
+                  console.log(`✅ Total trades now: ${updatedTrades.length}`);
+                  console.log(`   📊 Top 5 by premium: ${updatedTrades.slice(0, 5).map(t => `${t.underlying_ticker} $${(t.total_premium / 1000).toFixed(0)}K`).join(', ')}`);
 
-                  // Γ£à NO ENRICHMENT NEEDED - Backend sends fully enriched data with Vol/OI + Fill Style
+                  // ✅ NO ENRICHMENT NEEDED - Backend sends fully enriched data with Vol/OI + Fill Style
                   // Data comes pre-enriched from the API with snapshot data
                   setStreamingStatus('');
 
                   return updatedTrades;
                 });
               } else {
-                console.log('ΓÜá∩╕Å Complete event had no trades');
+                console.log('⚠️ Complete event had no trades');
                 setStreamingStatus('');
               }
 
@@ -536,13 +553,17 @@ export default function OptionsFlowPage() {
 
         // Don't log or process errors if stream already completed successfully
         if (isStreamComplete) {
+          console.log('ℹ️  EventSource error after completion (expected) - closing');
           eventSource.close();
           return;
         }
 
+        // Calculate elapsed time
+        const elapsedTime = ((performance.now() - scanStartTime) / 1000).toFixed(2);
+
         // Check if this is just a normal close after completion
         if (eventSource.readyState === 2) { // CLOSED state
-          console.log('Γä╣∩╕Å Stream closed normally after completion');
+          console.log(`✅ Stream closed normally after completion (${elapsedTime}s)`);
           eventSource.close();
           setStreamingStatus('');
           setLoading(false);
@@ -551,7 +572,9 @@ export default function OptionsFlowPage() {
 
         // Check if stream is connecting (readyState 0) - this is a real connection error
         if (eventSource.readyState === 0) {
-          console.warn('ΓÜá∩╕Å EventSource connection failed during initial connection');
+          console.error(`❌ EventSource connection failed during initial connection (${elapsedTime}s elapsed)`);
+          console.error(`   ReadyState: ${eventSource.readyState} (CONNECTING)`);
+          console.error(`   URL: /api/stream-options-flow?ticker=${tickerParam}`);
           eventSource.close();
 
           // Only retry once on connection failure
@@ -571,7 +594,7 @@ export default function OptionsFlowPage() {
 
         // For any other case (readyState 1 - OPEN), this is likely normal completion
         // The browser fires onerror when the server closes the stream after sending 'complete'
-        console.log('Γä╣∩╕Å Stream connection closed (data transfer complete)');
+        console.log(`✅ Stream connection closed - data transfer complete (${elapsedTime}s)`);
         eventSource.close();
         setStreamingStatus('');
         setLoading(false);
