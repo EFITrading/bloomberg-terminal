@@ -67,11 +67,8 @@ if (parentPort) {
               // This function just looks up the cache - no API calls happen here
               async function getHistoricalSpotPrice(ticker, tradeTimestamp, currentSpotPrice) {
                      try {
-                            // For SPX/VIX/MAG7/ETFs, we skip historical lookup entirely
-                            const SKIP_HISTORICAL = ['SPX', 'VIX', 'AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG',
-                                   'SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV',
-                                   'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC',
-                                   'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'];
+                            // For SPX/VIX only, we skip historical lookup (indices don't need minute-level precision)
+                            const SKIP_HISTORICAL = ['SPX', 'VIX'];
                             if (SKIP_HISTORICAL.includes(ticker)) {
                                    return currentSpotPrice;
                             }
@@ -148,7 +145,7 @@ if (parentPort) {
                                    const endTime = now.getTime() * 1000000; // Current time in nanoseconds
 
                                    console.log(` Worker ${workerIndex}: LIVE MODE - Market is OPEN`);
-                                   console.log(` ΓÇó Market Open: ${todayMarketOpen.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                                   console.log(`   - Market Open: ${todayMarketOpen.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
                                    return { startTime, endTime, isLive: true, date: eastern.toISOString().split('T')[0] };
                             } else {
                                    // HISTORICAL MODE: Market is closed
@@ -195,8 +192,8 @@ if (parentPort) {
                                    const startTime = marketOpenTime.getTime() * 1000000; // Convert to nanoseconds
                                    const endTime = marketCloseTime.getTime() * 1000000; // Convert to nanoseconds
 
-                                   console.log(` ΓÇó Historical start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-                                   console.log(` ΓÇó Historical end: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                                   console.log(`   - Historical start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                                   console.log(`   - Historical end: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
                                    return { startTime, endTime, isLive: false, date: tradingDate.toISOString().split('T')[0] };
                             }
@@ -209,10 +206,6 @@ if (parentPort) {
               // Process each ticker in the batch
               async function processBatch() {
                      let totalTradesStreamed = 0; // Track count instead of accumulating trades
-
-                     // Log initial memory
-                     const startMem = process.memoryUsage();
-                     console.log(` Worker ${workerIndex}: START | Heap: ${Math.round(startMem.heapUsed / 1024 / 1024)}MB / ${Math.round(startMem.heapTotal / 1024 / 1024)}MB | RSS: ${Math.round(startMem.rss / 1024 / 1024)}MB`);
 
                      // If dateRange was provided from API, use it directly instead of recalculating
                      const timeRange = dateRange ?
@@ -227,14 +220,12 @@ if (parentPort) {
                      console.log(` Worker ${workerIndex}: Using ${dateRange ? 'API-provided' : 'calculated'} date range: ${timeRange.date}`);
 
                      console.log(` Worker ${workerIndex}: ${timeRange.isLive ? 'LIVE' : 'HISTORICAL'} scan for ${timeRange.date}`);
-                     console.log(` ΓÇó Start: ${new Date(timeRange.startTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-                     console.log(` ΓÇó End: ${new Date(timeRange.endTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                     console.log(`   - Start: ${new Date(timeRange.startTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                     console.log(`   - End: ${new Date(timeRange.endTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
                      for (const ticker of batch) {
                             try {
-                                   // Log memory before ticker
-                                   const beforeMem = process.memoryUsage();
-                                   console.log(` Worker ${workerIndex}: Scanning ${ticker}... | Heap: ${Math.round(beforeMem.heapUsed / 1024 / 1024)}MB`);
+                                   console.log(` Worker ${workerIndex}: Scanning ${ticker}...`);
 
                                    // Send progress update for each ticker being scanned
                                    parentPort.postMessage({
@@ -343,11 +334,8 @@ if (parentPort) {
                                    // PRE-FETCH HISTORICAL PRICE DATA ONCE
                                    // ===============================
                                    // Do this BEFORE processing any contracts to avoid race conditions
-                                   // Skip for tickers that don't need historical data
-                                   const SKIP_HISTORICAL = ['SPX', 'VIX', 'AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG',
-                                          'SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV',
-                                          'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC',
-                                          'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'];
+                                   // Skip for indices only (SPX/VIX don't need minute-level precision)
+                                   const SKIP_HISTORICAL = ['SPX', 'VIX'];
 
                                    if (!SKIP_HISTORICAL.includes(ticker)) {
                                           try {
@@ -362,7 +350,7 @@ if (parentPort) {
 
                                                         if (response.results && response.results.length > 0) {
                                                                priceCache.set(cacheKey, response.results);
-                                                               console.log(` Worker ${workerIndex}: Γ£à Cached ${response.results.length} minute bars for ${ticker}`);
+                                                               console.log(` Worker ${workerIndex}: [OK] Cached ${response.results.length} minute bars for ${ticker}`);
                                                         } else {
                                                                console.log(` Worker ${workerIndex}: No historical data for ${ticker}, will use current price`);
                                                         }
@@ -458,7 +446,7 @@ if (parentPort) {
                                                  });
 
                                                  // Wait for entire batch to complete
-                                                 console.log(` Worker ${workerIndex}: ΓÅ│ Waiting for ${contractBatch.length} contract API calls to complete...`);
+                                                 console.log(` Worker ${workerIndex}: [WAIT] Waiting for ${contractBatch.length} contract API calls to complete...`);
                                                  const batchResults = await Promise.all(batchPromises);
 
                                                  // Add small delay between batches to prevent socket overload
@@ -580,7 +568,7 @@ if (parentPort) {
                                                                       })
                                                                );
 
-                                                               console.log(` Worker ${workerIndex}: Γ£à PARALLEL processing complete for ${contractTrades.length} trades`);
+                                                               console.log(` Worker ${workerIndex}: [OK] PARALLEL processing complete for ${contractTrades.length} trades`);
 
                                                                // Flatten all batches
                                                                const flattenedTrades = allProcessedTrades.flat();
@@ -588,23 +576,18 @@ if (parentPort) {
                                                                // Filter out null trades
                                                                const validTrades = flattenedTrades.filter(trade => trade !== null);
 
-                                                               console.log(` Worker ${workerIndex}: Γ£ö∩╕Å ${validTrades.length} valid trades (${contractTrades.length - validTrades.length} filtered out) for ${contract.ticker}`);
+                                                               console.log(` Worker ${workerIndex}: [FILTERED] ${validTrades.length} valid trades (${contractTrades.length - validTrades.length} filtered out) for ${contract.ticker}`);
 
-                                                               // STREAM trades immediately as they're found (CHUNKED to avoid message size limits)
+                                                               // STREAM trades immediately as they're found (don't wait till end)
                                                                if (validTrades.length > 0) {
-                                                                      // Split into chunks of 100 trades to avoid parentPort message size limits
-                                                                      const CHUNK_SIZE = 100;
-                                                                      for (let i = 0; i < validTrades.length; i += CHUNK_SIZE) {
-                                                                             const chunk = validTrades.slice(i, i + CHUNK_SIZE);
-                                                                             parentPort.postMessage({
-                                                                                    type: 'trades_found',
-                                                                                    trades: chunk,
-                                                                                    workerIndex: workerIndex,
-                                                                                    ticker: ticker,
-                                                                                    contract: contract.ticker,
-                                                                                    success: true
-                                                                             });
-                                                                      }
+                                                                      parentPort.postMessage({
+                                                                             type: 'trades_found',
+                                                                             trades: validTrades,
+                                                                             workerIndex: workerIndex,
+                                                                             ticker: ticker,
+                                                                             contract: contract.ticker,
+                                                                             success: true
+                                                                      });
                                                                       totalTradesStreamed += validTrades.length;
                                                                }
                                                         }
@@ -614,15 +597,9 @@ if (parentPort) {
                             } catch (error) {
                                    console.error(` Worker ${workerIndex}: Error with ${ticker}:`, error.message);
                             }
-                            
-                            // Log memory after ticker
-                            const afterMem = process.memoryUsage();
-                            console.log(` Worker ${workerIndex}: Finished ${ticker} | Heap: ${Math.round(afterMem.heapUsed / 1024 / 1024)}MB | Streamed: ${totalTradesStreamed} trades`);
                      }
 
-                     // Log final memory
-                     const endMem = process.memoryUsage();
-                     console.log(` Worker ${workerIndex}: Γ£à Completed batch - streamed ${totalTradesStreamed} total trades | FINAL Heap: ${Math.round(endMem.heapUsed / 1024 / 1024)}MB / ${Math.round(endMem.heapTotal / 1024 / 1024)}MB | RSS: ${Math.round(endMem.rss / 1024 / 1024)}MB`);
+                     console.log(` Worker ${workerIndex}: [DONE] Completed batch - streamed ${totalTradesStreamed} total trades`);
 
                      // Send completion message (trades already streamed incrementally)
                      try {
@@ -634,7 +611,7 @@ if (parentPort) {
                                    totalTradesStreamed: totalTradesStreamed
                             });
                      } catch (sendError) {
-                            console.error(` Worker ${workerIndex}: Γ¥î Error sending results:`, sendError.message);
+                            console.error(` Worker ${workerIndex}: [ERROR] Error sending results:`, sendError.message);
                             console.error(` Worker ${workerIndex}: Stack trace:`, sendError.stack);
                             parentPort.postMessage({
                                    success: false,

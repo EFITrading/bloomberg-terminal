@@ -46,9 +46,8 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   let ticker = searchParams.get('ticker');
   const timeframe = (searchParams.get('timeframe') || '1D') as '1D' | '3D' | '1W';
-  const skipEnrichment = searchParams.get('skipEnrichment') === 'true';
 
-  console.log(`≡ƒöÑ ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | Skip Enrichment: ${skipEnrichment} | URL: ${request.nextUrl.href}`);
+  console.log(`[ROUTE] ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`);
 
   const polygonApiKey = process.env.POLYGON_API_KEY;
 
@@ -138,11 +137,8 @@ export async function GET(request: NextRequest) {
 
       try {
         const scanType = ticker || 'MARKET-WIDE';
-        
-        // Log memory at start
-        const startMem = process.memoryUsage();
-        console.log(`≡ƒÜÇ STREAMING OPTIONS FLOW: Starting ${scanType} scan | Process Memory: Heap ${Math.round(startMem.heapUsed / 1024 / 1024)}MB / ${Math.round(startMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(startMem.rss / 1024 / 1024)}MB`);
-        console.log(`≡ƒôè Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
+        console.log(`[STREAM] STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
+        console.log(`[INFO] Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
 
         // Send initial status with connection confirmation
         sendData({
@@ -156,21 +152,13 @@ export async function GET(request: NextRequest) {
         // Initialize the options flow service with streaming callback
         const optionsFlowService = new OptionsFlowService(polygonApiKey);
 
-        // Create a streaming callback - send trades as they're found
+        // Create a streaming callback - ONLY send status, not progressive trades
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
+          // [DISABLED] Don't send progressive updates
+          // Only send status messages to show scan progress
           if (!streamState.isActive) return; // Check if stream is still active
 
-          // Send trades immediately as they're found to keep connection alive
-          if (trades.length > 0) {
-            sendData({
-              type: 'trades',
-              trades: trades,
-              status: status,
-              progress: progress,
-              timestamp: new Date().toISOString()
-            });
-          } else {
-            // Send status-only messages
+          if (trades.length === 0) {
             sendData({
               type: 'status',
               message: status,
@@ -180,7 +168,7 @@ export async function GET(request: NextRequest) {
           }
         };
 
-        console.log('≡ƒôè Starting parallel flow scan...');
+        console.log('[INFO] Starting parallel flow scan...');
 
         let finalTrades: any[];
 
@@ -198,22 +186,15 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
 
-          const afterScanMem = process.memoryUsage();
-          console.log(`Γ£à Scan complete: ${finalTrades.length} trades found | Memory: Heap ${Math.round(afterScanMem.heapUsed / 1024 / 1024)}MB / ${Math.round(afterScanMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(afterScanMem.rss / 1024 / 1024)}MB`);
+          console.log(`[OK] Scan complete: ${finalTrades.length} trades found`);
 
-          // ≡ƒÜÇ ENRICH TRADES (optional - can be skipped for speed)
-          if (skipEnrichment) {
-            console.log(`Γåû∩╕Å SKIPPING ENRICHMENT (skipEnrichment=true) for fast scan`);
-          } else {
-            console.log(`≡ƒÜÇ ENRICHING ${finalTrades.length} trades sequentially on backend...`);
-            finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-            
-            const afterEnrichMem = process.memoryUsage();
-            console.log(`Γ£à ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched | Memory: Heap ${Math.round(afterEnrichMem.heapUsed / 1024 / 1024)}MB / ${Math.round(afterEnrichMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(afterEnrichMem.rss / 1024 / 1024)}MB`);
-          }
+          // [OPT] ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
+          console.log(`[ENRICH] ENRICHING ${finalTrades.length} trades in parallel on backend...`);
+          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
+          console.log(`[OK] ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
-          console.log(`≡ƒöÑ Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
+          console.log(`[MULTIDAY] Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
           const scanPromise = optionsFlowService.fetchMultiDayFlow(
             ticker || undefined,
             timeframe,
@@ -222,13 +203,13 @@ export async function GET(request: NextRequest) {
 
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
-          console.log(`Γ£à Multi-Day Scan Complete: ${finalTrades.length} trades found`);
+          console.log(`[OK] Multi-Day Scan Complete: ${finalTrades.length} trades found`);
         }
 
         // DEBUG: Check if trades are enriched
         if (finalTrades.length > 0) {
           const sampleTrade = finalTrades[0];
-          console.log(`≡ƒöì Sample trade enrichment check:`, {
+          console.log(`[DEBUG] Sample trade enrichment check:`, {
             ticker: sampleTrade.ticker,
             has_volume: 'volume' in sampleTrade,
             volume: sampleTrade.volume,
@@ -257,7 +238,7 @@ export async function GET(request: NextRequest) {
           processing_time_ms: 0
         };
 
-        // Γ£à SEND ALL TRADES IN ONE BATCH (already enriched by backend)
+        // [SEND] SEND ALL TRADES IN ONE BATCH (already enriched by backend)
         sendData({
           type: 'complete',
           trades: finalTrades,
@@ -271,16 +252,12 @@ export async function GET(request: NextRequest) {
           timestamp: new Date().toISOString()
         });
 
-        const finalMem = process.memoryUsage();
-        console.log(`Γ£à STREAMING COMPLETE: ${finalTrades.length} trades processed | FINAL Memory: Heap ${Math.round(finalMem.heapUsed / 1024 / 1024)}MB / ${Math.round(finalMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(finalMem.rss / 1024 / 1024)}MB`);
+        console.log(`[OK] STREAMING COMPLETE: ${finalTrades.length} trades processed`);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         const errorStack = error instanceof Error ? error.stack : '';
-        
-        const errorMem = process.memoryUsage();
-        console.error(`Γ¥î STREAM ERROR: ${errorMessage} | Memory at error: Heap ${Math.round(errorMem.heapUsed / 1024 / 1024)}MB / ${Math.round(errorMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(errorMem.rss / 1024 / 1024)}MB`);
-        console.error('Γ¥î STREAMING ERROR:', errorMessage);
+        console.error('[ERROR] STREAMING ERROR:', errorMessage);
         console.error('Stack trace:', errorStack);
 
         // Send detailed error information

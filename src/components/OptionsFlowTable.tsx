@@ -858,8 +858,6 @@ interface OptionsFlowTableProps {
 
   streamError?: string;
 
-  memoryUsage?: { used: number; total: number };
-
   useDropdowns?: boolean;
 
   hideFlowTracking?: boolean;
@@ -895,8 +893,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   streamingProgress,
 
   streamError,
-
-  memoryUsage,
 
   useDropdowns = false,
 
@@ -7876,12 +7872,6 @@ Stock Reaction: ${scores.stockReaction}/15`;
                         </svg>
 
                         <span>{streamingStatus || 'SCANNING...'}</span>
-
-                        {memoryUsage && memoryUsage.used > 0 && (
-
-                          <span className="ml-2 text-xs text-yellow-400">| {memoryUsage.used}MB/{memoryUsage.total}MB</span>
-
-                        )}
 
                       </>
 

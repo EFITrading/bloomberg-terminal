@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { OptionsFlowTable } from '@/components/OptionsFlowTable';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,121 +8,120 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 // Polygon API key
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
-// ≡ƒÜÇ COMBINED ENRICHMENT - Vol/OI + Fill Style in ONE API call
+// [ENRICH] COMBINED ENRICHMENT - Vol/OI + Fill Style in ONE API call
 const enrichTradeDataCombined = async (
   trades: OptionsFlowData[],
   updateCallback: (results: OptionsFlowData[]) => void
 ): Promise<OptionsFlowData[]> => {
   if (trades.length === 0) return trades;
 
-  const BATCH_SIZE = 500; // Massive batch size for maximum throughput
-  const BATCH_DELAY = 0; // Zero delay
-  const REQUEST_DELAY = 0; // Zero stagger - full parallel blast
+  const BATCH_SIZE = 100; // Process 100 trades per batch to show progress
+  const PARALLEL_LIMIT = 10; // Max 10 concurrent API calls (browser connection limit)
   const batches = [];
 
   for (let i = 0; i < trades.length; i += BATCH_SIZE) {
     batches.push(trades.slice(i, i + BATCH_SIZE));
   }
 
-  console.log(`≡ƒÜÇ COMBINED ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+  console.log(`[ENRICH] COMBINED ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
 
   const allResults: OptionsFlowData[] = [];
   let successCount = 0;
   let failCount = 0;
 
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-    const batch = batches[batchIndex];
+  // Helper to process trades in parallel chunks (controlled concurrency)
+  const processInChunks = async (trades: OptionsFlowData[], chunkSize: number) => {
+    const results: OptionsFlowData[] = [];
+    
+    for (let i = 0; i < trades.length; i += chunkSize) {
+      const chunk = trades.slice(i, i + chunkSize);
+      
+      // Process chunk in parallel (max 10 concurrent requests)
+      const chunkResults = await Promise.all(
+        chunk.map(async (trade) => {
+          try {
+            const expiry = trade.expiry.replace(/-/g, '').slice(2);
+            const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+            const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+            const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
 
-    if (batchIndex % 20 === 0) { // Log every 20th batch instead of every 10th
-      console.log(`≡ƒôª Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex / batches.length) * 100)}%)`);
-    }
+            const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
 
-    const batchResults = await Promise.all(
-      batch.map(async (trade) => {
-        // No delay - maximum parallel execution
+            const response = await fetch(snapshotUrl, {
+              signal: AbortSignal.timeout(3000),
+              keepalive: true
+            } as RequestInit);
 
-        try {
-          const expiry = trade.expiry.replace(/-/g, '').slice(2);
-          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+            if (!response.ok) {
+              failCount++;
+              return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+            }
 
-          // Use snapshot endpoint - gets EVERYTHING in one call (quotes, greeks, Vol/OI)
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+            const data = await response.json();
 
-          const response = await fetch(snapshotUrl, {
-            signal: AbortSignal.timeout(2000), // Faster timeout
-            keepalive: true,
-            priority: 'high' // Browser prioritization hint
-          } as RequestInit);
+            if (data.results) {
+              const result = data.results;
+              const volume = result.day?.volume || 0;
+              const openInterest = result.open_interest || 0;
+              successCount++;
 
-          if (!response.ok) {
+              // Extract fill style from last quote
+              let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
+              if (result.last_quote) {
+                const bid = result.last_quote.bid;
+                const ask = result.last_quote.ask;
+                const fillPrice = trade.premium_per_contract;
+
+                if (bid && ask && fillPrice) {
+                  const midpoint = (bid + ask) / 2;
+                  if (fillPrice >= ask + 0.01) fillStyle = 'AA';
+                  else if (fillPrice <= bid - 0.01) fillStyle = 'BB';
+                  else if (fillPrice === ask) fillStyle = 'A';
+                  else if (fillPrice === bid) fillStyle = 'B';
+                  else if (fillPrice >= midpoint) fillStyle = 'A';
+                  else fillStyle = 'B';
+                }
+              }
+
+              return { ...trade, fill_style: fillStyle, volume, open_interest: openInterest };
+            }
+
+            failCount++;
+            return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+          } catch (error) {
             failCount++;
             return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
           }
+        })
+      );
+      
+      results.push(...chunkResults);
+    }
+    
+    return results;
+  };
 
-          const data = await response.json();
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
 
-          if (data.results) {
-            const result = data.results;
+    if (batchIndex % 5 === 0 || batchIndex === batches.length - 1) {
+      console.log(`[BATCH] Batch ${batchIndex + 1}/${batches.length} (${Math.round(((batchIndex + 1) / batches.length) * 100)}%)`);
+    }
 
-            // Extract Vol/OI
-            const volume = result.day?.volume || 0;
-            const openInterest = result.open_interest || 0;
-
-            successCount++;
-
-            // Extract fill style from last quote
-            let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
-            if (result.last_quote) {
-              const bid = result.last_quote.bid;
-              const ask = result.last_quote.ask;
-              const fillPrice = trade.premium_per_contract;
-
-              if (bid && ask && fillPrice) {
-                const midpoint = (bid + ask) / 2;
-
-                if (fillPrice >= ask + 0.01) {
-                  fillStyle = 'AA';
-                } else if (fillPrice <= bid - 0.01) {
-                  fillStyle = 'BB';
-                } else if (fillPrice === ask) {
-                  fillStyle = 'A';
-                } else if (fillPrice === bid) {
-                  fillStyle = 'B';
-                } else if (fillPrice >= midpoint) {
-                  fillStyle = 'A';
-                } else {
-                  fillStyle = 'B';
-                }
-              }
-            }
-
-            return { ...trade, fill_style: fillStyle, volume, open_interest: openInterest };
-          }
-
-          failCount++;
-          return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-        } catch (error) {
-          failCount++;
-          return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-        }
-      })
-    );
+    // Process batch in chunks of 10 concurrent requests
+    const batchResults = await processInChunks(batch, PARALLEL_LIMIT);
 
     allResults.push(...batchResults);
     updateCallback([...allResults]);
-
-    // No delay - process at maximum speed
   }
 
-  console.log(`Γ£à Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);
+  console.log(`[OK] Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);
   return allResults;
 };
 
 // OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
 const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
-  console.log(`≡ƒöì Fetching volume/OI data for ${trades.length} trades`);
+  console.log(`[INFO] Fetching volume/OI data for ${trades.length} trades`);
 
   // Group trades by underlying ticker to minimize API calls
   const tradesByUnderlying = trades.reduce((acc, trade) => {
@@ -139,7 +138,7 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
   // Process each underlying separately
   for (const [underlying, underlyingTrades] of Object.entries(tradesByUnderlying)) {
     try {
-      console.log(`≡ƒôè Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`);
+      console.log(`[INFO] Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`);
 
       // Get unique expiration dates
       const uniqueExpirations = [...new Set(underlyingTrades.map(t => t.expiry))];
@@ -169,7 +168,7 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
         }
       }
 
-      console.log(`Γ£à Total contracts loaded for ${underlying}: ${allContracts.size}`);
+      console.log(`[OK] Total contracts loaded for ${underlying}: ${allContracts.size}`);
 
       if (allContracts.size === 0) {
         updatedTrades.push(...underlyingTrades.map(trade => ({
@@ -230,7 +229,7 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
 
 // FILL STYLE ENRICHMENT - Same as AlgoFlow
 const analyzeBidAskExecution = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
-  console.log(`ΓÜí FILL STYLE ANALYSIS: Fetching quotes for ${trades.length} trades`);
+  console.log(`[FILL] FILL STYLE ANALYSIS: Fetching quotes for ${trades.length} trades`);
 
   if (trades.length === 0) return trades;
 
@@ -370,66 +369,11 @@ export default function OptionsFlowPage() {
   const [streamError, setStreamError] = useState<string>('');
   const [retryCount, setRetryCount] = useState<number>(0);
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
-  const [memoryUsage, setMemoryUsage] = useState<{ used: number; total: number }>({ used: 0, total: 0 });
-  const [memoryStats, setMemoryStats] = useState<{ min: number; max: number; lastValue: number }>({ min: 0, max: 0, lastValue: 0 });
-  const tradeBufferRef = useRef<OptionsFlowData[]>([]);
-
-  // Memory tracking during scans
-  useEffect(() => {
-    let memoryInterval: NodeJS.Timeout | null = null;
-
-    const updateMemory = () => {
-      const perf = performance as any;
-      if (perf.memory && perf.memory.usedJSHeapSize > 0) {
-        const used = Math.round(perf.memory.usedJSHeapSize / 1024 / 1024);
-        const total = Math.round(perf.memory.jsHeapSizeLimit / 1024 / 1024);
-        setMemoryUsage({ used, total });
-        
-        if (loading) {
-          // Track min/max
-          setMemoryStats(prev => {
-            const newMin = prev.min === 0 ? used : Math.min(prev.min, used);
-            const newMax = Math.max(prev.max, used);
-            const spike = prev.lastValue > 0 ? used - prev.lastValue : 0;
-            
-            // Detect abnormal memory spike (>100MB jump in 1 second)
-            if (spike > 100) {
-              console.warn(`[MEMORY SPIKE] +${spike}MB in 1s! (${prev.lastValue}MB → ${used}MB)`);
-            }
-            
-            // Detect high memory usage (>80% of limit)
-            const percentUsed = (used / total) * 100;
-            if (percentUsed > 80) {
-              console.error(`[MEMORY WARNING] ${percentUsed.toFixed(1)}% used (${used}MB/${total}MB) - approaching limit!`);
-            }
-            
-            console.log(`[MEMORY] ${used}MB/${total}MB | ${data.length} trades | Range: ${newMin}-${newMax}MB`);
-            
-            return { min: newMin, max: newMax, lastValue: used };
-          });
-        }
-      }
-    };
-
-    if (loading) {
-      // Reset stats on scan start
-      setMemoryStats({ min: 0, max: 0, lastValue: 0 });
-      updateMemory();
-      memoryInterval = setInterval(updateMemory, 1000);
-    } else {
-      updateMemory();
-    }
-
-    return () => {
-      if (memoryInterval) clearInterval(memoryInterval);
-    };
-  }, [loading, data.length]);
 
   // Live options flow fetch
   const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
     setLoading(true);
     setStreamError('');
-    tradeBufferRef.current = []; // Clear buffer for new scan
 
     let connectionTimeout: NodeJS.Timeout | null = null;
 
@@ -455,16 +399,8 @@ export default function OptionsFlowPage() {
       }
       // Otherwise use the ticker as-is for individual ticker searches
 
-      console.log(`[DEBUG] tickerOverride=${tickerOverride}, selectedTicker=${selectedTicker}, tickerParam=${tickerParam}`);
-      
-      // Skip enrichment for MAG7 and ETF scans (too many trades, causes OOM)
-      const skipEnrichment = (tickerOverride === 'MAG7' || tickerOverride === 'ETF');
-      const url = `/api/stream-options-flow?ticker=${encodeURIComponent(tickerParam)}${skipEnrichment ? '&skipEnrichment=true' : ''}`;
-      
-      console.log(`[DEBUG] Creating EventSource with URL: ${url}`);
-
-      const scanStartTime = performance.now();
-      const eventSource = new EventSource(url);
+      console.log(`[STREAM] Connecting to EventSource with ticker: ${tickerParam}`);
+      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
 
       eventSource.onmessage = (event) => {
         try {
@@ -472,22 +408,35 @@ export default function OptionsFlowPage() {
 
           switch (streamData.type) {
             case 'connected':
-              console.log(`[SCAN START] ${tickerParam}`);
+              console.log('[OK] Stream connected:', streamData.message);
               setStreamingStatus('Connected - scanning options flow...');
               setStreamError('');
               break;
 
             case 'status':
               setStreamingStatus(streamData.message);
+              console.log(` Stream Status: ${streamData.message}`);
               break;
 
             case 'trades':
-              // Buffer trades without rendering to prevent UI freeze
+              // Accumulate trades progressively as they come in (show immediately, enrich later)
               if (streamData.trades && streamData.trades.length > 0) {
-                // Add to buffer, don't update UI
-                tradeBufferRef.current.push(...(streamData.trades as OptionsFlowData[]));
-                const bufferSize = tradeBufferRef.current.length;
-                console.log(`[BUFFERED] +${streamData.trades.length} | Buffer: ${bufferSize} trades | Mem: ${memoryUsage.used}MB/${memoryUsage.total}MB`);
+                setData(prevData => {
+                  // Create a Set of existing trade identifiers to avoid duplicates
+                  const existingTradeIds = new Set(
+                    prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
+                  );
+
+                  // Only add truly new trades
+                  const newTrades = (streamData.trades as OptionsFlowData[]).filter((trade: OptionsFlowData) => {
+                    const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
+                    return !existingTradeIds.has(tradeId);
+                  });
+
+                  console.log(` Stream Update: Adding ${newTrades.length} NEW trades (${streamData.trades.length} sent, ${prevData.length} existing)`);
+
+                  return [...prevData, ...newTrades];
+                });
               }
 
               setStreamingStatus(streamData.status);
@@ -500,38 +449,16 @@ export default function OptionsFlowPage() {
               break;
 
             case 'complete':
+              // SET COMPLETE FLAG FIRST to prevent error handler from firing
               setIsStreamComplete(true);
-              const scanDuration = ((performance.now() - scanStartTime) / 1000).toFixed(2);
+
+              // CLOSE STREAM to prevent errors
+              console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades`);
               eventSource.close();
-              
-              // Merge buffered trades with final complete trades
-              const bufferedTrades = tradeBufferRef.current;
+
+              // Extract trades from the complete event (backend sends them here!)
               const completeTrades = streamData.trades || [];
-              const allTrades = [...bufferedTrades, ...completeTrades];
-              
-              // Clear buffer
-              tradeBufferRef.current = [];
-              
-              const perf = performance as any;
-              const finalMemMB = perf.memory && perf.memory.usedJSHeapSize > 0 
-                ? Math.round(perf.memory.usedJSHeapSize / 1024 / 1024) 
-                : 0;
-              
-              // Log final summary with memory stats
-              const memoryRange = memoryStats.min > 0 && memoryStats.max > 0 
-                ? ` | Mem: ${memoryStats.min}-${memoryStats.max}MB (Δ${memoryStats.max - memoryStats.min}MB)`
-                : (finalMemMB > 0 ? ` | ${finalMemMB}MB` : '');
-              
-              console.log(`[COMPLETE] ${streamData.summary.total_trades} trades (${bufferedTrades.length} buffered + ${completeTrades.length} final) | ${scanDuration}s | $${(streamData.summary.total_premium / 1000000).toFixed(1)}M${memoryRange}`);
-              
-              // Detailed memory summary
-              if (memoryStats.min > 0) {
-                const memoryDelta = memoryStats.max - memoryStats.min;
-                const avgPerTrade = streamData.summary.total_trades > 0 
-                  ? Math.round((memoryDelta * 1024) / streamData.summary.total_trades) 
-                  : 0;
-                console.log(`[MEMORY SUMMARY] Range: ${memoryStats.min}MB → ${memoryStats.max}MB | Growth: ${memoryDelta}MB | ~${avgPerTrade}KB/trade`);
-              }
+              console.log(`[OK] COMPLETE EVENT: Received ${completeTrades.length} trades from backend`);
 
               // Update summary/market info
               setSummary(streamData.summary);
@@ -545,28 +472,39 @@ export default function OptionsFlowPage() {
               setRetryCount(0);
 
               // ACCUMULATE trades - don't replace, add new ones to existing
-              if (allTrades.length > 0) {
+              if (completeTrades.length > 0) {
                 setData(prevData => {
+                  // Create a Set of existing trade identifiers to avoid duplicates
                   const existingTradeIds = new Set(
                     prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
                   );
-                  const newTrades = allTrades.filter((trade: OptionsFlowData) => {
+
+                  // Only add truly new trades
+                  const newTrades = completeTrades.filter((trade: OptionsFlowData) => {
                     const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
                     return !existingTradeIds.has(tradeId);
                   });
+
+                  console.log(`[ACCUM] ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
+
                   const updatedTrades = [...prevData, ...newTrades];
+                  console.log(`[OK] Total trades now: ${updatedTrades.length}`);
+
+                  // [OK] NO ENRICHMENT NEEDED - Backend sends fully enriched data with Vol/OI + Fill Style
+                  // Data comes pre-enriched from the API with snapshot data
                   setStreamingStatus('');
+
                   return updatedTrades;
                 });
               } else {
+                console.log('[WARN] Complete event had no trades');
                 setStreamingStatus('');
               }
 
               break;
 
             case 'error':
-              console.error('[STREAM ERROR]', streamData.error);
-              console.error(`[ERROR CONTEXT] Trades: ${data.length} | Memory: ${memoryUsage.used}MB/${memoryUsage.total}MB | Range: ${memoryStats.min}-${memoryStats.max}MB`);
+              console.error('Stream error:', streamData.error);
               setStreamError(streamData.error || 'Stream error occurred');
               setLoading(false);
               eventSource.close();
@@ -595,39 +533,44 @@ export default function OptionsFlowPage() {
           connectionTimeout = null;
         }
 
+        // Don't log or process errors if stream already completed successfully
         if (isStreamComplete) {
           eventSource.close();
           return;
         }
 
-        const elapsedTime = ((performance.now() - scanStartTime) / 1000).toFixed(2);
-
-        if (eventSource.readyState === 2) {
+        // Check if this is just a normal close after completion
+        if (eventSource.readyState === 2) { // CLOSED state
+          console.log('[OK] Stream closed normally after completion');
           eventSource.close();
           setStreamingStatus('');
           setLoading(false);
           return;
         }
 
+        // Check if stream is connecting (readyState 0) - this is a real connection error
         if (eventSource.readyState === 0) {
-          console.error(`[ERROR] Connection failed | ${elapsedTime}s | Mem: ${memoryUsage.used}MB/${memoryUsage.total}MB`);
-          
-          // Memory diagnostics
-          if (memoryStats.max > 0) {
-            console.error(`[ERROR DIAGNOSTICS] Memory range: ${memoryStats.min}MB → ${memoryStats.max}MB | Peak: ${memoryStats.max}MB | Trades: ${data.length}`);
-            const percentUsed = (memoryStats.max / memoryUsage.total) * 100;
-            if (percentUsed > 70) {
-              console.error(`[POSSIBLE CAUSE] High memory usage detected (${percentUsed.toFixed(1)}%) - may have triggered serverless function limit`);
-            }
-          }
-          
+          console.warn('[WARN] EventSource connection failed during initial connection');
           eventSource.close();
-          setStreamError('EventSource connection failed during initial connection');
-          setStreamingStatus('');
-          setLoading(false);
+
+          // Only retry once on connection failure
+          if (currentRetry === 0) {
+            console.log('[RETRY] Retrying connection once...');
+            setRetryCount(1);
+            setTimeout(() => {
+              fetchOptionsFlowStreaming(1);
+            }, 2000);
+          } else {
+            setStreamError('Stream connection unavailable');
+            setStreamingStatus('');
+            setLoading(false);
+          }
           return;
         }
 
+        // For any other case (readyState 1 - OPEN), this is likely normal completion
+        // The browser fires onerror when the server closes the stream after sending 'complete'
+        console.log('[OK] Stream connection closed (data transfer complete)');
         eventSource.close();
         setStreamingStatus('');
         setLoading(false);
@@ -645,7 +588,7 @@ export default function OptionsFlowPage() {
     setLoading(true);
     setStreamError('');
     try {
-      console.log(`≡ƒôè Fetching live options flow data...`);
+      console.log(`[INFO] Fetching live options flow data...`);
 
       // Map scan categories to appropriate ticker parameter
       let tickerParam = selectedTicker;
@@ -767,7 +710,6 @@ export default function OptionsFlowPage() {
           streamingStatus={streamingStatus}
           streamingProgress={streamingProgress}
           streamError={streamError}
-          memoryUsage={memoryUsage}
         />
       </div>
 
