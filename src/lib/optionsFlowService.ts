@@ -3302,97 +3302,33 @@ export class OptionsFlowService {
 
     console.log(`[OK] Snapshot cache loaded for ${snapshotCache.size} underlyings`);
 
-    // Now enrich trades using cached snapshot data + parallel quote fetching
-    const BATCH_SIZE = 50;
-    const batches = [];
-    for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-      batches.push(trades.slice(i, i + BATCH_SIZE));
-    }
+    // Enrich trades using ONLY cached snapshot data (no quote API calls = instant + no memory issues)
+    const enrichedTrades = trades.map((trade) => {
+      const optionTicker = trade.ticker;
+      const underlying = trade.underlying_ticker;
 
-    // Process ALL batches in parallel (smart caching reduces memory by 85%)
-    const enrichedBatches = await Promise.all(
-      batches.map(async (batch, batchIndex) => {
-        const enrichedTrades = await Promise.all(
-          batch.map(async (trade) => {
-            try {
-              const optionTicker = trade.ticker;
-              const underlying = trade.underlying_ticker;
+      // Get Vol/OI from CACHE (no API call!)
+      let volume = trade.volume;
+      let openInterest = trade.open_interest;
+      
+      const contractCache = snapshotCache.get(underlying);
+      if (contractCache?.has(optionTicker)) {
+        const snapshot = contractCache.get(optionTicker);
+        volume = snapshot.day?.volume || trade.volume;
+        openInterest = snapshot.open_interest || trade.open_interest;
+      }
 
-              // Get Vol/OI from CACHE (no API call!)
-              let volume = trade.volume;
-              let openInterest = trade.open_interest;
-              
-              const contractCache = snapshotCache.get(underlying);
-              if (contractCache?.has(optionTicker)) {
-                const snapshot = contractCache.get(optionTicker);
-                volume = snapshot.day?.volume || trade.volume;
-                openInterest = snapshot.open_interest || trade.open_interest;
-              }
+      return {
+        ...trade,
+        volume,
+        open_interest: openInterest,
+        vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
+      };
+    });
 
-              // STEP 2: Get HISTORICAL quote for fill style (still needs API call)
-              let bid: number | undefined;
-              let ask: number | undefined;
-              let fillStyle = 'N/A';
+    console.log(`[OK] INSTANT ENRICHMENT COMPLETE: ${enrichedTrades.length} trades enriched`);
 
-              const tradeDate = new Date(trade.trade_timestamp);
-              const tradeTimestampNano = tradeDate.getTime() * 1000000;
-
-              try {
-                const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
-                const quoteResponse = await fetch(quoteUrl);
-
-                if (quoteResponse.ok) {
-                  const quoteData = await quoteResponse.json();
-                  if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
-                    bid = quoteData.results[0].bid_price;
-                    ask = quoteData.results[0].ask_price;
-                  }
-                }
-              } catch (quoteError) {
-                // Ignore quote errors
-              }
-
-              // Calculate Fill Style
-              const lastPrice = trade.premium_per_contract;
-              if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
-                const midpoint = (bid + ask) / 2;
-                const spread = ask - bid;
-                const distanceFromMid = lastPrice - midpoint;
-
-                if (distanceFromMid > spread * 0.25) fillStyle = 'A';
-                else if (distanceFromMid > 0) fillStyle = 'AA';
-                else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
-                else if (distanceFromMid < 0) fillStyle = 'BB';
-              }
-
-              return {
-                ...trade,
-                volume,
-                open_interest: openInterest,
-                vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
-                fill_style: fillStyle,
-                bid,
-                ask,
-                bid_ask_spread: bid && ask ? ask - bid : undefined
-              };
-            } catch (error) {
-              return trade;
-            }
-          })
-        );
-
-        if (batchIndex % 50 === 0 || batchIndex === batches.length - 1) {
-          console.log(`[BATCH] Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
-        }
-
-        return enrichedTrades;
-      })
-    );
-
-    const allEnriched = enrichedBatches.flat();
-    console.log(`[OK] SMART ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
-
-    return allEnriched;
+    return enrichedTrades;
   }
 
   // Enrich trades with historical Vol/OI data
