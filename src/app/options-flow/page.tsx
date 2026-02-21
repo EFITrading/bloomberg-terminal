@@ -371,28 +371,58 @@ export default function OptionsFlowPage() {
   const [retryCount, setRetryCount] = useState<number>(0);
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
   const [memoryUsage, setMemoryUsage] = useState<{ used: number; total: number }>({ used: 0, total: 0 });
+  const [memoryStats, setMemoryStats] = useState<{ min: number; max: number; lastValue: number }>({ min: 0, max: 0, lastValue: 0 });
 
   // Memory tracking during scans
   useEffect(() => {
     let memoryInterval: NodeJS.Timeout | null = null;
 
-    if (loading) {
-      // Update memory every second
-      memoryInterval = setInterval(() => {
-        if ((performance as any).memory) {
-          const mem = (performance as any).memory;
-          setMemoryUsage({
-            used: Math.round(mem.usedJSHeapSize / 1024 / 1024),
-            total: Math.round(mem.totalJSHeapSize / 1024 / 1024)
+    const updateMemory = () => {
+      const perf = performance as any;
+      if (perf.memory && perf.memory.usedJSHeapSize > 0) {
+        const used = Math.round(perf.memory.usedJSHeapSize / 1024 / 1024);
+        const total = Math.round(perf.memory.jsHeapSizeLimit / 1024 / 1024);
+        setMemoryUsage({ used, total });
+        
+        if (loading) {
+          // Track min/max
+          setMemoryStats(prev => {
+            const newMin = prev.min === 0 ? used : Math.min(prev.min, used);
+            const newMax = Math.max(prev.max, used);
+            const spike = prev.lastValue > 0 ? used - prev.lastValue : 0;
+            
+            // Detect abnormal memory spike (>100MB jump in 1 second)
+            if (spike > 100) {
+              console.warn(`[MEMORY SPIKE] +${spike}MB in 1s! (${prev.lastValue}MB → ${used}MB)`);
+            }
+            
+            // Detect high memory usage (>80% of limit)
+            const percentUsed = (used / total) * 100;
+            if (percentUsed > 80) {
+              console.error(`[MEMORY WARNING] ${percentUsed.toFixed(1)}% used (${used}MB/${total}MB) - approaching limit!`);
+            }
+            
+            console.log(`[MEMORY] ${used}MB/${total}MB | ${data.length} trades | Range: ${newMin}-${newMax}MB`);
+            
+            return { min: newMin, max: newMax, lastValue: used };
           });
         }
-      }, 1000);
+      }
+    };
+
+    if (loading) {
+      // Reset stats on scan start
+      setMemoryStats({ min: 0, max: 0, lastValue: 0 });
+      updateMemory();
+      memoryInterval = setInterval(updateMemory, 1000);
+    } else {
+      updateMemory();
     }
 
     return () => {
       if (memoryInterval) clearInterval(memoryInterval);
     };
-  }, [loading]);
+  }, [loading, data.length]);
 
   // Live options flow fetch
   const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
@@ -432,7 +462,7 @@ export default function OptionsFlowPage() {
 
           switch (streamData.type) {
             case 'connected':
-              console.log(`[SCAN START] ${tickerParam} | Memory: ${memoryUsage.used}MB`);
+              console.log(`[SCAN START] ${tickerParam}`);
               setStreamingStatus('Connected - scanning options flow...');
               setStreamError('');
               break;
@@ -470,9 +500,29 @@ export default function OptionsFlowPage() {
             case 'complete':
               setIsStreamComplete(true);
               const scanDuration = ((performance.now() - scanStartTime) / 1000).toFixed(2);
-              console.log(`[COMPLETE] ${streamData.summary.total_trades} trades | ${scanDuration}s | $${(streamData.summary.total_premium / 1000000).toFixed(1)}M | Mem: ${memoryUsage.used}MB`);
               eventSource.close();
               const completeTrades = streamData.trades || [];
+              
+              const perf = performance as any;
+              const finalMemMB = perf.memory && perf.memory.usedJSHeapSize > 0 
+                ? Math.round(perf.memory.usedJSHeapSize / 1024 / 1024) 
+                : 0;
+              
+              // Log final summary with memory stats
+              const memoryRange = memoryStats.min > 0 && memoryStats.max > 0 
+                ? ` | Mem: ${memoryStats.min}-${memoryStats.max}MB (Δ${memoryStats.max - memoryStats.min}MB)`
+                : (finalMemMB > 0 ? ` | ${finalMemMB}MB` : '');
+              
+              console.log(`[COMPLETE] ${streamData.summary.total_trades} trades | ${scanDuration}s | $${(streamData.summary.total_premium / 1000000).toFixed(1)}M${memoryRange}`);
+              
+              // Detailed memory summary
+              if (memoryStats.min > 0) {
+                const memoryDelta = memoryStats.max - memoryStats.min;
+                const avgPerTrade = streamData.summary.total_trades > 0 
+                  ? Math.round((memoryDelta * 1024) / streamData.summary.total_trades) 
+                  : 0;
+                console.log(`[MEMORY SUMMARY] Range: ${memoryStats.min}MB → ${memoryStats.max}MB | Growth: ${memoryDelta}MB | ~${avgPerTrade}KB/trade`);
+              }
 
               // Update summary/market info
               setSummary(streamData.summary);
@@ -488,17 +538,13 @@ export default function OptionsFlowPage() {
               // ACCUMULATE trades - don't replace, add new ones to existing
               if (completeTrades.length > 0) {
                 setData(prevData => {
-                  // Create a Set of existing trade identifiers to avoid duplicates
                   const existingTradeIds = new Set(
                     prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
                   );
-
-                  // Only add truly new trades
                   const newTrades = completeTrades.filter((trade: OptionsFlowData) => {
                     const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
                     return !existingTradeIds.has(tradeId);
                   });
-
                   const updatedTrades = [...prevData, ...newTrades];
                   setStreamingStatus('');
                   return updatedTrades;
@@ -510,7 +556,8 @@ export default function OptionsFlowPage() {
               break;
 
             case 'error':
-              console.error('Stream error:', streamData.error);
+              console.error('[STREAM ERROR]', streamData.error);
+              console.error(`[ERROR CONTEXT] Trades: ${data.length} | Memory: ${memoryUsage.used}MB/${memoryUsage.total}MB | Range: ${memoryStats.min}-${memoryStats.max}MB`);
               setStreamError(streamData.error || 'Stream error occurred');
               setLoading(false);
               eventSource.close();
@@ -554,7 +601,17 @@ export default function OptionsFlowPage() {
         }
 
         if (eventSource.readyState === 0) {
-          console.error(`[ERROR] Connection failed | ${elapsedTime}s | Mem: ${memoryUsage.used}MB`);
+          console.error(`[ERROR] Connection failed | ${elapsedTime}s | Mem: ${memoryUsage.used}MB/${memoryUsage.total}MB`);
+          
+          // Memory diagnostics
+          if (memoryStats.max > 0) {
+            console.error(`[ERROR DIAGNOSTICS] Memory range: ${memoryStats.min}MB → ${memoryStats.max}MB | Peak: ${memoryStats.max}MB | Trades: ${data.length}`);
+            const percentUsed = (memoryStats.max / memoryUsage.total) * 100;
+            if (percentUsed > 70) {
+              console.error(`[POSSIBLE CAUSE] High memory usage detected (${percentUsed.toFixed(1)}%) - may have triggered serverless function limit`);
+            }
+          }
+          
           eventSource.close();
 
           if (currentRetry === 0) {

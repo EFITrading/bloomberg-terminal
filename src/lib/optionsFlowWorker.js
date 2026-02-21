@@ -210,6 +210,10 @@ if (parentPort) {
               async function processBatch() {
                      let totalTradesStreamed = 0; // Track count instead of accumulating trades
 
+                     // Log initial memory
+                     const startMem = process.memoryUsage();
+                     console.log(` Worker ${workerIndex}: START | Heap: ${Math.round(startMem.heapUsed / 1024 / 1024)}MB / ${Math.round(startMem.heapTotal / 1024 / 1024)}MB | RSS: ${Math.round(startMem.rss / 1024 / 1024)}MB`);
+
                      // If dateRange was provided from API, use it directly instead of recalculating
                      const timeRange = dateRange ?
                             {
@@ -228,7 +232,9 @@ if (parentPort) {
 
                      for (const ticker of batch) {
                             try {
-                                   console.log(` Worker ${workerIndex}: Scanning ${ticker}...`);
+                                   // Log memory before ticker
+                                   const beforeMem = process.memoryUsage();
+                                   console.log(` Worker ${workerIndex}: Scanning ${ticker}... | Heap: ${Math.round(beforeMem.heapUsed / 1024 / 1024)}MB`);
 
                                    // Send progress update for each ticker being scanned
                                    parentPort.postMessage({
@@ -608,9 +614,15 @@ if (parentPort) {
                             } catch (error) {
                                    console.error(` Worker ${workerIndex}: Error with ${ticker}:`, error.message);
                             }
+                            
+                            // Log memory after ticker
+                            const afterMem = process.memoryUsage();
+                            console.log(` Worker ${workerIndex}: Finished ${ticker} | Heap: ${Math.round(afterMem.heapUsed / 1024 / 1024)}MB | Streamed: ${totalTradesStreamed} trades`);
                      }
 
-                     console.log(` Worker ${workerIndex}: Γ£à Completed batch - streamed ${totalTradesStreamed} total trades`);
+                     // Log final memory
+                     const endMem = process.memoryUsage();
+                     console.log(` Worker ${workerIndex}: Γ£à Completed batch - streamed ${totalTradesStreamed} total trades | FINAL Heap: ${Math.round(endMem.heapUsed / 1024 / 1024)}MB / ${Math.round(endMem.heapTotal / 1024 / 1024)}MB | RSS: ${Math.round(endMem.rss / 1024 / 1024)}MB`);
 
                      // Send completion message (trades already streamed incrementally)
                      try {

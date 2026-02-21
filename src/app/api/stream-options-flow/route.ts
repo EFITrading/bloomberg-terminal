@@ -137,7 +137,10 @@ export async function GET(request: NextRequest) {
 
       try {
         const scanType = ticker || 'MARKET-WIDE';
-        console.log(`≡ƒÜÇ STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
+        
+        // Log memory at start
+        const startMem = process.memoryUsage();
+        console.log(`≡ƒÜÇ STREAMING OPTIONS FLOW: Starting ${scanType} scan | Process Memory: Heap ${Math.round(startMem.heapUsed / 1024 / 1024)}MB / ${Math.round(startMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(startMem.rss / 1024 / 1024)}MB`);
         console.log(`≡ƒôè Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
 
         // Send initial status with connection confirmation
@@ -186,12 +189,15 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
 
-          console.log(`Γ£à Scan complete: ${finalTrades.length} trades found`);
+          const afterScanMem = process.memoryUsage();
+          console.log(`Γ£à Scan complete: ${finalTrades.length} trades found | Memory: Heap ${Math.round(afterScanMem.heapUsed / 1024 / 1024)}MB / ${Math.round(afterScanMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(afterScanMem.rss / 1024 / 1024)}MB`);
 
           // ≡ƒÜÇ ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
           console.log(`≡ƒÜÇ ENRICHING ${finalTrades.length} trades in parallel on backend...`);
           finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-          console.log(`Γ£à ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
+          
+          const afterEnrichMem = process.memoryUsage();
+          console.log(`Γ£à ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched | Memory: Heap ${Math.round(afterEnrichMem.heapUsed / 1024 / 1024)}MB / ${Math.round(afterEnrichMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(afterEnrichMem.rss / 1024 / 1024)}MB`);
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           console.log(`≡ƒöÑ Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
@@ -252,11 +258,15 @@ export async function GET(request: NextRequest) {
           timestamp: new Date().toISOString()
         });
 
-        console.log(`Γ£à STREAMING COMPLETE: ${finalTrades.length} trades processed`);
+        const finalMem = process.memoryUsage();
+        console.log(`Γ£à STREAMING COMPLETE: ${finalTrades.length} trades processed | FINAL Memory: Heap ${Math.round(finalMem.heapUsed / 1024 / 1024)}MB / ${Math.round(finalMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(finalMem.rss / 1024 / 1024)}MB`);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         const errorStack = error instanceof Error ? error.stack : '';
+        
+        const errorMem = process.memoryUsage();
+        console.error(`Γ¥î STREAM ERROR: ${errorMessage} | Memory at error: Heap ${Math.round(errorMem.heapUsed / 1024 / 1024)}MB / ${Math.round(errorMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(errorMem.rss / 1024 / 1024)}MB`);
         console.error('Γ¥î STREAMING ERROR:', errorMessage);
         console.error('Stack trace:', errorStack);
 

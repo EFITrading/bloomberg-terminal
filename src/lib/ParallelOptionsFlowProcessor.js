@@ -22,8 +22,8 @@ class ParallelOptionsFlowProcessor {
   // Process tickers in parallel using all CPU cores with detailed benchmarking
   async processTickersInParallel(tickers, optionsFlowService, onProgress, dateRange) {
     // ≡ƒÄ» PERFORMANCE: Start overall timing
-    const overallStartTime = performance.now();
-    console.time('≡ƒöÑ TOTAL_PARALLEL_PROCESSING');
+    const overallStartTime = performance.now();    const startMem = process.memoryUsage();
+    console.log(`📊 PARALLEL START: Memory Heap ${(startMem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(startMem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(startMem.rss / 1024 / 1024).toFixed(0)}MB`);    console.time('≡ƒöÑ TOTAL_PARALLEL_PROCESSING');
 
     console.log(`≡ƒöÑ PARALLEL: Processing ${tickers.length} tickers across ${this.numWorkers} workers`);
 
@@ -78,7 +78,9 @@ class ParallelOptionsFlowProcessor {
 
     const overallEndTime = performance.now();
     console.timeEnd('≡ƒöÑ TOTAL_PARALLEL_PROCESSING');
-
+    const endMem = process.memoryUsage();
+    console.log(`📊 PARALLEL COMPLETE: Memory Heap ${(endMem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(endMem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(endMem.rss / 1024 / 1024).toFixed(0)}MB`);
+    console.log(`📊 MEMORY DELTA: Heap +${((endMem.heapUsed - startMem.heapUsed) / 1024 / 1024).toFixed(0)}MB | RSS +${((endMem.rss - startMem.rss) / 1024 / 1024).toFixed(0)}MB`);
     // ≡ƒÄ» PERFORMANCE: Store phase timings in bottlenecks for analysis
     this.benchmarks.bottlenecks.set('WORKER_CREATION_PHASE', workerCreationEnd - workerCreationStart);
     this.benchmarks.bottlenecks.set('PARALLEL_EXECUTION', executionEnd - executionStart);
@@ -266,20 +268,25 @@ class ParallelOptionsFlowProcessor {
       });
 
       worker.on('error', (error) => {
-        console.error(`Γ¥î Worker ${workerIndex} crashed:`, error.message);
+        const mem = process.memoryUsage();
+        console.error(`⚠️ Worker ${workerIndex} crashed:`, error.message);
         console.error(`   Stack trace:`, error.stack);
         console.error(`   Worker had ${allWorkerTrades.length} trades accumulated before crash`);
+        console.error(`   Memory at crash: Heap ${(mem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(mem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(mem.rss / 1024 / 1024).toFixed(0)}MB`);
         resolve(allWorkerTrades); // Return whatever we got so far
       });
 
       worker.on('exit', (code) => {
+        const mem = process.memoryUsage();
         if (code !== 0) {
-          console.error(`Γ¥î Worker ${workerIndex} exited with code ${code}`);
+          console.error(`⚠️ Worker ${workerIndex} exited with code ${code}`);
           console.error(`   Accumulated ${allWorkerTrades.length} trades before exit`);
+          console.error(`   Memory at exit: Heap ${(mem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(mem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(mem.rss / 1024 / 1024).toFixed(0)}MB`);
           console.error(`   This usually indicates memory issues or message size limits`);
         } else {
           console.warn(`⚠️ Worker ${workerIndex} exited cleanly (code 0) without sending completion message`);
           console.warn(`   Accumulated ${allWorkerTrades.length} trades - returning partial results`);
+          console.warn(`   Memory at exit: Heap ${(mem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(mem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(mem.rss / 1024 / 1024).toFixed(0)}MB`);
         }
         resolve(allWorkerTrades); // ALWAYS resolve to prevent infinite Promise.all() hang
       });
