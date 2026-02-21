@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { OptionsFlowService, getSmartDateRange } from '@/lib/optionsFlowService';
 
 // Configure runtime for streaming
@@ -47,7 +47,13 @@ export async function GET(request: NextRequest) {
   let ticker = searchParams.get('ticker');
   const timeframe = (searchParams.get('timeframe') || '1D') as '1D' | '3D' | '1W';
 
-  console.log(`🔥 ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`);
+  console.log(`≡ƒöÑ ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`);
+
+  // Validate ticker parameter - empty ticker causes EventSource connection issues
+  if (ticker !== null && ticker.trim() === '') {
+    console.warn('ΓÜá∩╕Å Empty ticker parameter received, treating as undefined for market-wide scan');
+    ticker = null; // Treat empty string as no ticker (market-wide scan)
+  }
 
   const polygonApiKey = process.env.POLYGON_API_KEY;
 
@@ -137,8 +143,8 @@ export async function GET(request: NextRequest) {
 
       try {
         const scanType = ticker || 'MARKET-WIDE';
-        console.log(`🚀 STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
-        console.log(`📊 Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
+        console.log(`≡ƒÜÇ STREAMING OPTIONS FLOW: Starting ${scanType} scan`);
+        console.log(`≡ƒôè Ticker parameter: "${ticker}" (null=${ticker === null}, undefined=${ticker === undefined})`);
 
         // Send initial status with connection confirmation
         sendData({
@@ -154,7 +160,7 @@ export async function GET(request: NextRequest) {
 
         // Create a streaming callback - ONLY send status, not progressive trades
         const streamingCallback = (trades: any[], status: string, progress?: any) => {
-          // ❌ DISABLED: Don't send progressive updates
+          // Γ¥î DISABLED: Don't send progressive updates
           // Only send status messages to show scan progress
           if (!streamState.isActive) return; // Check if stream is still active
 
@@ -168,7 +174,7 @@ export async function GET(request: NextRequest) {
           }
         };
 
-        console.log('📊 Starting parallel flow scan...');
+        console.log('≡ƒôè Starting parallel flow scan...');
 
         let finalTrades: any[];
 
@@ -186,15 +192,15 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
 
-          console.log(`✅ Scan complete: ${finalTrades.length} trades found`);
+          console.log(`Γ£à Scan complete: ${finalTrades.length} trades found`);
 
-          // 🚀 ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
-          console.log(`🚀 ENRICHING ${finalTrades.length} trades in parallel on backend...`);
+          // ≡ƒÜÇ ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
+          console.log(`≡ƒÜÇ ENRICHING ${finalTrades.length} trades in parallel on backend...`);
           finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-          console.log(`✅ ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
+          console.log(`Γ£à ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
-          console.log(`🔥 Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
+          console.log(`≡ƒöÑ Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
           const scanPromise = optionsFlowService.fetchMultiDayFlow(
             ticker || undefined,
             timeframe,
@@ -203,13 +209,13 @@ export async function GET(request: NextRequest) {
 
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
-          console.log(`✅ Multi-Day Scan Complete: ${finalTrades.length} trades found`);
+          console.log(`Γ£à Multi-Day Scan Complete: ${finalTrades.length} trades found`);
         }
 
         // DEBUG: Check if trades are enriched
         if (finalTrades.length > 0) {
           const sampleTrade = finalTrades[0];
-          console.log(`🔍 Sample trade enrichment check:`, {
+          console.log(`≡ƒöì Sample trade enrichment check:`, {
             ticker: sampleTrade.ticker,
             has_volume: 'volume' in sampleTrade,
             volume: sampleTrade.volume,
@@ -238,7 +244,7 @@ export async function GET(request: NextRequest) {
           processing_time_ms: 0
         };
 
-        // ✅ SEND ALL TRADES IN ONE BATCH (already enriched by backend)
+        // Γ£à SEND ALL TRADES IN ONE BATCH (already enriched by backend)
         sendData({
           type: 'complete',
           trades: finalTrades,
@@ -252,12 +258,12 @@ export async function GET(request: NextRequest) {
           timestamp: new Date().toISOString()
         });
 
-        console.log(`✅ STREAMING COMPLETE: ${finalTrades.length} trades processed`);
+        console.log(`Γ£à STREAMING COMPLETE: ${finalTrades.length} trades processed`);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         const errorStack = error instanceof Error ? error.stack : '';
-        console.error('❌ STREAMING ERROR:', errorMessage);
+        console.error('Γ¥î STREAMING ERROR:', errorMessage);
         console.error('Stack trace:', errorStack);
 
         // Send detailed error information

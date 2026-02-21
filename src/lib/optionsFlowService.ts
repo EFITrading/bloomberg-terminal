@@ -1,4 +1,4 @@
-import { TOP_1800_SYMBOLS } from './Top1000Symbols';
+﻿import { TOP_1800_SYMBOLS } from './Top1000Symbols';
 import { withCircuitBreaker } from './circuitBreaker';
 
 // Check if market is actually open (includes holiday check via Polygon API)
@@ -149,11 +149,11 @@ export function getTodaysMarketOpenTimestamp(): number {
       throw new Error(`Market open timestamp seems invalid: ${new Date(finalTimestamp).toISOString()}`);
     }
 
-    console.log(`📅 Market Open Timestamp: ${new Date(finalTimestamp).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+    console.log(`≡ƒôà Market Open Timestamp: ${new Date(finalTimestamp).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
     return finalTimestamp;
 
   } catch (error) {
-    console.error(`❌ Error calculating market open timestamp:`, error);
+    console.error(`Γ¥î Error calculating market open timestamp:`, error);
     throw error;
   }
 }
@@ -168,9 +168,9 @@ export async function getSmartDateRange(): Promise<{ currentDate: string; isLive
     const todayMarketOpen = getTodaysMarketOpenTimestamp();
     const currentTime = Date.now();
 
-    console.log(`🔴 LIVE MODE: Market is OPEN, scanning from market open to now`);
-    console.log(`   • Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-    console.log(`   • End: ${new Date(currentTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET (LIVE)`);
+    console.log(`≡ƒö┤ LIVE MODE: Market is OPEN, scanning from market open to now`);
+    console.log(`   ΓÇó Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+    console.log(`   ΓÇó End: ${new Date(currentTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET (LIVE)`);
 
     return {
       currentDate: now.toISOString().split('T')[0],
@@ -203,10 +203,10 @@ export async function getSmartDateRange(): Promise<{ currentDate: string; isLive
       const todayMarketClose = new Date(todayMarketOpen);
       todayMarketClose.setHours(16, 0, 0, 0);
 
-      console.log(`📊 AFTER-HOURS MODE: Scanning today's completed session`);
-      console.log(`   • Date: ${today}`);
-      console.log(`   • Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-      console.log(`   • End: ${todayMarketClose.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+      console.log(`≡ƒôè AFTER-HOURS MODE: Scanning today's completed session`);
+      console.log(`   ΓÇó Date: ${today}`);
+      console.log(`   ΓÇó Start: ${new Date(todayMarketOpen).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+      console.log(`   ΓÇó End: ${todayMarketClose.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
       return {
         currentDate: today,
@@ -216,9 +216,9 @@ export async function getSmartDateRange(): Promise<{ currentDate: string; isLive
       };
     } else {
       // Weekend or holiday - scan last full trading day
-      console.log(`📚 HISTORICAL MODE: Scanning last trading day (${lastTradingDay})`);
-      console.log(`   • Start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-      console.log(`   • End: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+      console.log(`≡ƒôÜ HISTORICAL MODE: Scanning last trading day (${lastTradingDay})`);
+      console.log(`   ΓÇó Start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+      console.log(`   ΓÇó End: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
       return {
         currentDate: lastTradingDay,
@@ -336,15 +336,15 @@ export class OptionsFlowService {
 
   constructor(apiKey: string) {
     if (!apiKey || apiKey.trim() === '') {
-      throw new Error('❌ Polygon API key is required but not provided');
+      throw new Error('Γ¥î Polygon API key is required but not provided');
     }
 
     if (apiKey.length < 10) {
-      throw new Error('❌ Polygon API key appears to be invalid (too short)');
+      throw new Error('Γ¥î Polygon API key appears to be invalid (too short)');
     }
 
     this.polygonApiKey = apiKey.trim();
-    console.log(`✅ Options Flow Service initialized with API key: ${apiKey.substring(0, 8)}...`);
+    console.log(`Γ£à Options Flow Service initialized with API key: ${apiKey.substring(0, 8)}...`);
   }
 
   // PARALLEL VERSION - Uses all CPU cores for maximum speed
@@ -355,19 +355,19 @@ export class OptionsFlowService {
   ): Promise<ProcessedTrade[]> {
     let tickersToScan: string[];
 
-    if (ticker && (ticker.toLowerCase() === 'all' || ticker === 'ALL_EXCLUDE_ETF_MAG7')) {
+    if (!ticker || ticker.toLowerCase() === 'all' || ticker === 'ALL_EXCLUDE_ETF_MAG7') {
       tickersToScan = this.getTop1000Symbols();
-      console.log(`🎯 SCAN: ${tickersToScan.length} symbols across all CPU cores`);
+      console.log(`≡ƒÄ» SCAN: ${tickersToScan.length} symbols across all CPU cores`);
     } else if (ticker && ticker.includes(',')) {
       tickersToScan = ticker.split(',').map(t => t && t.trim() ? t.trim().toUpperCase() : '').filter(t => t);
-      console.log(`📋 SCAN: ${tickersToScan.length} specific tickers`);
+      console.log(`≡ƒôï SCAN: ${tickersToScan.length} specific tickers`);
     } else {
       tickersToScan = ticker ? [ticker.toUpperCase()] : [];
-      console.log(`🎯 Single ticker scan: ${ticker ? ticker.toUpperCase() : 'NONE'}`);
+      console.log(`≡ƒÄ» Single ticker scan: ${ticker ? ticker.toUpperCase() : 'NONE'}`);
     }
 
-    // ✅ REMOVED TEMPORARY RESTRICTION: Now scanning all symbols from your list
-    console.log(`🎯 Scanning ${tickersToScan.length} symbols from your complete list`);
+    // Γ£à REMOVED TEMPORARY RESTRICTION: Now scanning all symbols from your list
+    console.log(`≡ƒÄ» Scanning ${tickersToScan.length} symbols from your complete list`);
 
     // Use parallel processor to scan all tickers using all CPU cores
     const { ParallelOptionsFlowProcessor } = require('./ParallelOptionsFlowProcessor.js');
@@ -375,13 +375,13 @@ export class OptionsFlowService {
 
     const apiKey = process.env.POLYGON_API_KEY;
     if (!apiKey) {
-      console.error('❌ No API key found');
+      console.error('Γ¥î No API key found');
       return [];
     }
 
     try {
       // Use the parallel processor for real scanning
-      console.log(`🚀 PARALLEL PROCESSING: Starting scan of ${tickersToScan.length} tickers`);
+      console.log(`≡ƒÜÇ PARALLEL PROCESSING: Starting scan of ${tickersToScan.length} tickers`);
 
       const allTrades = await parallelProcessor.processTickersInParallel(
         tickersToScan,
@@ -390,31 +390,31 @@ export class OptionsFlowService {
         dateRange
       );
 
-      console.log(`✅ SCAN COMPLETE: Found ${allTrades.length} total trades`);
+      console.log(`Γ£à SCAN COMPLETE: Found ${allTrades.length} total trades`);
 
       // Workers now include Vol/OI data directly - no enrichment needed!
-      console.log(`✅ Vol/OI data included by workers - skipping enrichment step`);
+      console.log(`Γ£à Vol/OI data included by workers - skipping enrichment step`);
 
       // CRITICAL: Classify all trades after collection to enable proper SWEEP/BLOCK/MINI detection
-      console.log(`🔍 CLASSIFYING TRADES: Analyzing ${allTrades.length} trades for sweep patterns...`);
+      console.log(`≡ƒöì CLASSIFYING TRADES: Analyzing ${allTrades.length} trades for sweep patterns...`);
       const classifiedTrades = this.classifyAllTrades(allTrades);
-      console.log(`✅ CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades`);
+      console.log(`Γ£à CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades`);
 
       // Apply institutional filters (premium, ITM, market hours, etc.)
-      console.log(`🔍 FILTERING: Applying institutional criteria to ${classifiedTrades.length} trades...`);
+      console.log(`≡ƒöì FILTERING: Applying institutional criteria to ${classifiedTrades.length} trades...`);
       const filteredTrades = this.filterAndClassifyTrades(classifiedTrades, ticker);
-      console.log(`✅ FILTERING COMPLETE: ${filteredTrades.length} trades passed filters`);
+      console.log(`Γ£à FILTERING COMPLETE: ${filteredTrades.length} trades passed filters`);
 
       // Send filtered trades to frontend
       if (onProgress && filteredTrades.length > 0) {
-        onProgress(filteredTrades, `✅ Classification complete - sending ${filteredTrades.length} trades`);
+        onProgress(filteredTrades, `Γ£à Classification complete - sending ${filteredTrades.length} trades`);
       }
 
       return filteredTrades;
 
     } catch (error) {
-      console.error(`❌ PARALLEL PROCESSING ERROR:`, error);
-      console.error(`❌ ERROR DETAILS:`, error instanceof Error ? error.message : String(error));
+      console.error(`Γ¥î PARALLEL PROCESSING ERROR:`, error);
+      console.error(`Γ¥î ERROR DETAILS:`, error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
@@ -425,16 +425,16 @@ export class OptionsFlowService {
     timeframe: '3D' | '1W' = '3D',
     onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
   ): Promise<ProcessedTrade[]> {
-    console.log(`🔥 Multi-Day Scan: ${ticker || 'MARKET-WIDE'} - ${timeframe}`);
+    console.log(`≡ƒöÑ Multi-Day Scan: ${ticker || 'MARKET-WIDE'} - ${timeframe}`);
 
     // Step 1: Calculate trading days
     const numDays = timeframe === '3D' ? 3 : 5;
     const tradingDays = this.getLastNTradingDays(numDays);
-    console.log(`📅 Trading days: ${tradingDays.join(', ')}`);
+    console.log(`≡ƒôà Trading days: ${tradingDays.join(', ')}`);
 
     // Step 2: Fetch Day 1 (most recent) using existing fast path
     const day1Date = tradingDays[tradingDays.length - 1];
-    console.log(`📊 Day 1 (${day1Date}): Using snapshot endpoint`);
+    console.log(`≡ƒôè Day 1 (${day1Date}): Using snapshot endpoint`);
     onProgress?.([], `Fetching most recent day (${day1Date})...`);
 
     const dateRange = await getSmartDateRange();
@@ -445,14 +445,14 @@ export class OptionsFlowService {
       trade.trading_date = day1Date;
     });
 
-    console.log(`✅ Day 1 complete: ${day1Trades.length} trades`);
+    console.log(`Γ£à Day 1 complete: ${day1Trades.length} trades`);
 
     // Step 3: Extract unique contracts from Day 1
     const uniqueContracts = [...new Set(day1Trades.map(t => t.ticker))];
-    console.log(`📜 Found ${uniqueContracts.length} unique contracts to fetch historically`);
+    console.log(`≡ƒô£ Found ${uniqueContracts.length} unique contracts to fetch historically`);
 
     if (uniqueContracts.length === 0) {
-      console.log(`⚠️ No contracts found on Day 1, returning empty result`);
+      console.log(`ΓÜá∩╕Å No contracts found on Day 1, returning empty result`);
       return day1Trades;
     }
 
@@ -471,16 +471,16 @@ export class OptionsFlowService {
           if (spotData.results && spotData.results.length > 0) {
             const spotPrice = spotData.results[0].c; // Close price
             historicalSpotPrices.set(date, spotPrice);
-            console.log(`  📍 ${ticker} spot on ${date}: $${spotPrice}`);
+            console.log(`  ≡ƒôì ${ticker} spot on ${date}: $${spotPrice}`);
           }
         }
       } catch (error) {
-        console.error(`  ❌ Failed to fetch spot price for ${ticker} on ${date}`);
+        console.error(`  Γ¥î Failed to fetch spot price for ${ticker} on ${date}`);
       }
     }
 
     for (const date of historicalDays) {
-      console.log(`📅 Fetching historical: ${date}`);
+      console.log(`≡ƒôà Fetching historical: ${date}`);
       onProgress?.([], `Fetching historical data for ${date}...`);
 
       const historicalSpot = historicalSpotPrices.get(date) || 0;
@@ -558,7 +558,7 @@ export class OptionsFlowService {
             return transformedTrades;
 
           } catch (error) {
-            console.error(`  ❌ Error fetching ${contract} on ${date}:`, error);
+            console.error(`  Γ¥î Error fetching ${contract} on ${date}:`, error);
             return [];
           }
         })
@@ -567,40 +567,40 @@ export class OptionsFlowService {
       // Flatten and add to historical trades
       const dayTrades = contractTrades.flat();
       historicalTrades.push(...dayTrades);
-      console.log(`📊 ${date}: ${dayTrades.length} total trades`);
+      console.log(`≡ƒôè ${date}: ${dayTrades.length} total trades`);
     }
 
     // Step 5: Combine all days
     const allTrades = [...historicalTrades, ...day1Trades];
-    console.log(`🎯 Combined: ${allTrades.length} trades across ${tradingDays.length} days`);
+    console.log(`≡ƒÄ» Combined: ${allTrades.length} trades across ${tradingDays.length} days`);
 
     // Step 6: Enrich ALL trades with Vol/OI
     // - Day 1: Use snapshot endpoint (current data)
     // - Historical: Use daily aggregates for volume + snapshot for current OI
     onProgress?.([], `Enriching ${allTrades.length} trades with Vol/OI data...`);
-    console.log(`🚀 ENRICHING ${allTrades.length} trades (including historical)...`);
+    console.log(`≡ƒÜÇ ENRICHING ${allTrades.length} trades (including historical)...`);
     const enrichedTrades = await this.enrichTradesWithHistoricalVolOI(allTrades);
-    console.log(`✅ ENRICHMENT COMPLETE: ${enrichedTrades.length} trades enriched`);
+    console.log(`Γ£à ENRICHMENT COMPLETE: ${enrichedTrades.length} trades enriched`);
 
     // Step 7: Classify trades (SWEEP/BLOCK/MINI detection)
     onProgress?.([], `Classifying trades for SWEEP/BLOCK/MINI patterns...`);
-    console.log(`🔍 CLASSIFYING TRADES: Analyzing ${enrichedTrades.length} trades...`);
+    console.log(`≡ƒöì CLASSIFYING TRADES: Analyzing ${enrichedTrades.length} trades...`);
     const classifiedTrades = this.classifyAllTrades(enrichedTrades);
-    console.log(`✅ CLASSIFICATION COMPLETE: ${classifiedTrades.length} trades classified`);
+    console.log(`Γ£à CLASSIFICATION COMPLETE: ${classifiedTrades.length} trades classified`);
 
     // Step 8: Filter by institutional criteria
     onProgress?.([], `Applying institutional filters...`);
-    console.log(`🔍 FILTERING: Applying institutional criteria...`);
+    console.log(`≡ƒöì FILTERING: Applying institutional criteria...`);
     const filteredTrades = this.filterAndClassifyTrades(classifiedTrades, ticker);
-    console.log(`✅ FILTERING COMPLETE: ${filteredTrades.length} trades passed filters`);
+    console.log(`Γ£à FILTERING COMPLETE: ${filteredTrades.length} trades passed filters`);
 
     // Final summary
-    console.log(`\n🎯 MULTI-DAY SCAN COMPLETE:`);
-    console.log(`   📅 Dates Scanned: ${tradingDays.join(', ')}`);
-    console.log(`   📊 Total Trading Days: ${tradingDays.length}`);
-    console.log(`   📈 Day 1 (${day1Date}): ${day1Trades.length} trades (snapshot)`);
-    console.log(`   📈 Historical Days: ${historicalTrades.length} trades`);
-    console.log(`   ✅ Final Result: ${filteredTrades.length} trades after filtering\n`);
+    console.log(`\n≡ƒÄ» MULTI-DAY SCAN COMPLETE:`);
+    console.log(`   ≡ƒôà Dates Scanned: ${tradingDays.join(', ')}`);
+    console.log(`   ≡ƒôè Total Trading Days: ${tradingDays.length}`);
+    console.log(`   ≡ƒôê Day 1 (${day1Date}): ${day1Trades.length} trades (snapshot)`);
+    console.log(`   ≡ƒôê Historical Days: ${historicalTrades.length} trades`);
+    console.log(`   Γ£à Final Result: ${filteredTrades.length} trades after filtering\n`);
 
     return filteredTrades;
   }
@@ -656,10 +656,10 @@ export class OptionsFlowService {
     ticker?: string,
     onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
   ): Promise<ProcessedTrade[]> {
-    console.log(`🌊 STREAMING: Starting live options flow${ticker ? ` for ${ticker}` : ' market-wide scan'}`);
+    console.log(`≡ƒîè STREAMING: Starting live options flow${ticker ? ` for ${ticker}` : ' market-wide scan'}`);
 
     const allTrades: ProcessedTrade[] = [];
-    const tickersToScan = ticker && ticker.toLowerCase() === 'all' ? this.getTop1000Symbols() : (ticker ? [ticker.toUpperCase()] : []);
+    const tickersToScan = ticker && ticker.toLowerCase() !== 'all' ? (ticker ? [ticker.toUpperCase()] : []) : this.getTop1000Symbols();
 
     onProgress?.([], `Starting scan of ${tickersToScan.length} tickers...`);
 
@@ -721,7 +721,7 @@ export class OptionsFlowService {
         }
       });
 
-      console.log(`✅ Batch ${batchIndex + 1} complete: ${allTrades.length} total trades`);
+      console.log(`Γ£à Batch ${batchIndex + 1} complete: ${allTrades.length} total trades`);
 
       // No delay needed with unlimited API
     }
@@ -743,50 +743,50 @@ export class OptionsFlowService {
     const marketOpenTime = new Date(marketOpenTimestamp).toLocaleString('en-US', { timeZone: 'America/New_York' });
     const currentTime = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
 
-    console.log(`🎯 FETCHING ${marketStatus} OPTIONS FLOW WITH SWEEP DETECTION FOR: ${ticker || 'NO TICKER SPECIFIED'}`);
-    console.log(`� DEBUG: Received ticker parameter: "${ticker}" (type: ${typeof ticker})`);
-    console.log(`�📅 Using date: ${currentDate} (${isLive ? 'Market Open' : 'Market Closed - Historical Data'})`);
-    console.log(`⏰ Time range: ${marketOpenTime} ET → ${currentTime} ET (${isLive ? 'LIVE UPDATE' : 'HISTORICAL'})`);
+    console.log(`≡ƒÄ» FETCHING ${marketStatus} OPTIONS FLOW WITH SWEEP DETECTION FOR: ${ticker || 'NO TICKER SPECIFIED'}`);
+    console.log(`∩┐╜ DEBUG: Received ticker parameter: "${ticker}" (type: ${typeof ticker})`);
+    console.log(`∩┐╜≡ƒôà Using date: ${currentDate} (${isLive ? 'Market Open' : 'Market Closed - Historical Data'})`);
+    console.log(`ΓÅ░ Time range: ${marketOpenTime} ET ΓåÆ ${currentTime} ET (${isLive ? 'LIVE UPDATE' : 'HISTORICAL'})`);
 
     // Determine which tickers to scan
     let tickersToScan: string[];
 
-    console.log(`🔍 DEBUG: Checking ticker conditions...`);
-    console.log(`🔍 DEBUG: !ticker = ${!ticker}`);
-    console.log(`🔍 DEBUG: ticker.toLowerCase() = "${ticker?.toLowerCase()}"`);
-    console.log(`🔍 DEBUG: ticker.toLowerCase() === 'all' = ${ticker?.toLowerCase() === 'all'}`);
+    console.log(`≡ƒöì DEBUG: Checking ticker conditions...`);
+    console.log(`≡ƒöì DEBUG: !ticker = ${!ticker}`);
+    console.log(`≡ƒöì DEBUG: ticker.toLowerCase() = "${ticker?.toLowerCase()}"`);
+    console.log(`≡ƒöì DEBUG: ticker.toLowerCase() === 'all' = ${ticker?.toLowerCase() === 'all'}`);
 
-    if (ticker && ticker.toLowerCase() === 'all') {
+    if (!ticker || ticker.toLowerCase() === 'all') {
       // FORCE USE OF 1000 STOCKS - NO UNIVERSAL TICKER
       tickersToScan = this.getTop1000Symbols();
-      console.log(`🚀 FORCED 1000 STOCK SCAN: ${tickersToScan.length} symbols (NO UNIVERSAL TICKER)`);
-      console.log(`🎯 First 20 tickers: ${tickersToScan.slice(0, 20).join(', ')}...`);
-      console.log(`⚡ Using individual ticker processing - NO 'ALL' as single ticker`);
+      console.log(`≡ƒÜÇ FORCED 1000 STOCK SCAN: ${tickersToScan.length} symbols (NO UNIVERSAL TICKER)`);
+      console.log(`≡ƒÄ» First 20 tickers: ${tickersToScan.slice(0, 20).join(', ')}...`);
+      console.log(`ΓÜí Using individual ticker processing - NO 'ALL' as single ticker`);
     } else if (ticker && ticker.includes(',')) {
       // Handle comma-separated tickers
       tickersToScan = ticker.split(',').map(t => t && t.trim() ? t.trim().toUpperCase() : '').filter(t => t);
-      console.log(`📋 SCANNING SPECIFIC TICKERS: ${tickersToScan.join(', ')}`);
+      console.log(`≡ƒôï SCANNING SPECIFIC TICKERS: ${tickersToScan.join(', ')}`);
     } else {
       // Single ticker
       tickersToScan = ticker ? [ticker.toUpperCase()] : [];
-      console.log(`🎯 SCANNING SINGLE TICKER: ${ticker ? ticker.toUpperCase() : 'NONE'}`);
+      console.log(`≡ƒÄ» SCANNING SINGLE TICKER: ${ticker ? ticker.toUpperCase() : 'NONE'}`);
     }
 
-    console.log(`🔍 DEBUG: Final tickersToScan.length = ${tickersToScan.length}`);
-    console.log(`🔍 DEBUG: First 10 tickers: ${tickersToScan.slice(0, 10).join(', ')}`);
+    console.log(`≡ƒöì DEBUG: Final tickersToScan.length = ${tickersToScan.length}`);
+    console.log(`≡ƒöì DEBUG: First 10 tickers: ${tickersToScan.slice(0, 10).join(', ')}`);
     if (tickersToScan.length === 1) {
-      console.log(`⚠️ WARNING: Only scanning 1 ticker: ${tickersToScan[0]} - this suggests the 'ALL' logic failed`);
+      console.log(`ΓÜá∩╕Å WARNING: Only scanning 1 ticker: ${tickersToScan[0]} - this suggests the 'ALL' logic failed`);
     }
 
-    console.log(`⚡ LIVE TRADES SCANNING ${tickersToScan.length} tickers from today's market open...`);
+    console.log(`ΓÜí LIVE TRADES SCANNING ${tickersToScan.length} tickers from today's market open...`);
 
     const allTrades: ProcessedTrade[] = [];
 
     // For live data, prioritize TODAY's actual trades over snapshots
     if (isLive) {
-      console.log(`🔴 LIVE MODE: Fetching today's trades from market open instead of snapshots`);
+      console.log(`≡ƒö┤ LIVE MODE: Fetching today's trades from market open instead of snapshots`);
     } else {
-      console.log(`📸 HISTORICAL MODE: Using snapshot data for last trading day`);
+      console.log(`≡ƒô╕ HISTORICAL MODE: Using snapshot data for last trading day`);
     }
 
     // UNLIMITED API BATCHING: Process larger batches for maximum speed
@@ -796,12 +796,12 @@ export class OptionsFlowService {
       tickerBatches.push(tickersToScan.slice(i, i + tickerBatchSize));
     }
 
-    console.log(`📊 Processing ${tickerBatches.length} batches of ${tickerBatchSize} stocks each with rate limiting...`);
+    console.log(`≡ƒôè Processing ${tickerBatches.length} batches of ${tickerBatchSize} stocks each with rate limiting...`);
 
     // Process ticker batches sequentially to avoid overwhelming the API
     for (let batchIndex = 0; batchIndex < tickerBatches.length; batchIndex++) {
       const batch = tickerBatches[batchIndex];
-      console.log(`⚡ Processing batch ${batchIndex + 1}/${tickerBatches.length}: ${batch.slice(0, 5).join(', ')}...`);
+      console.log(`ΓÜí Processing batch ${batchIndex + 1}/${tickerBatches.length}: ${batch.slice(0, 5).join(', ')}...`);
 
       // PARALLEL PROCESSING within each batch with ROBUST ERROR HANDLING
       const tradesPromises = batch.map(async (symbol: string) => {
@@ -814,15 +814,15 @@ export class OptionsFlowService {
               // LIVE MODE: Force today's trades only, with robust connection handling
               trades = await this.fetchLiveStreamingTradesRobust(symbol);
               if (trades.length > 0) {
-                console.log(`🔴 LIVE ${symbol}: ${trades.length} streaming trades from today`);
+                console.log(`≡ƒö┤ LIVE ${symbol}: ${trades.length} streaming trades from today`);
               } else {
-                console.log(`⚠️ ${symbol}: No live trades yet today - this is normal early in trading`);
+                console.log(`ΓÜá∩╕Å ${symbol}: No live trades yet today - this is normal early in trading`);
               }
             } else {
               // HISTORICAL MODE: Use snapshot data with robust connection
               trades = await this.fetchOptionsSnapshotRobust(symbol);
               if (trades.length > 0) {
-                console.log(`⚡ ${symbol}: ${trades.length} historical snapshot trades`);
+                console.log(`ΓÜí ${symbol}: ${trades.length} historical snapshot trades`);
               }
             }
 
@@ -831,14 +831,14 @@ export class OptionsFlowService {
           } catch (error) {
             retries--;
             if (error instanceof Error && (error.message.includes('Failed to fetch') || error.message.includes('CONNECTION_RESET'))) {
-              console.warn(`🔄 ${symbol}: Connection reset, retrying... (${retries} attempts left)`);
+              console.warn(`≡ƒöä ${symbol}: Connection reset, retrying... (${retries} attempts left)`);
               if (retries > 0) {
                 // Wait before retry with exponential backoff
                 await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
                 continue;
               }
             }
-            console.error(`❌ Final error for ${symbol} after retries:`, error);
+            console.error(`Γ¥î Final error for ${symbol} after retries:`, error);
             return [];
           }
         }
@@ -855,7 +855,7 @@ export class OptionsFlowService {
         }
       });
 
-      console.log(`✅ Batch ${batchIndex + 1} complete: ${allTrades.length} total trades found so far`);
+      console.log(`Γ£à Batch ${batchIndex + 1} complete: ${allTrades.length} total trades found so far`);
 
       // No delay needed with unlimited API
     }
@@ -865,7 +865,7 @@ export class OptionsFlowService {
 
     // Results already collected in batched processing above
 
-    console.log(`⚡ INDIVIDUAL TRADES COMPLETE: ${allTrades.length} total individual trades collected`);
+    console.log(`ΓÜí INDIVIDUAL TRADES COMPLETE: ${allTrades.length} total individual trades collected`);
 
     if (allTrades.length > 0) {
       // Apply your criteria filtering and classification
@@ -879,17 +879,17 @@ export class OptionsFlowService {
   private async fetchOptionsSnapshot(ticker: string): Promise<ProcessedTrade[]> {
     const url = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`;
 
-    console.log(`📸 SNAPSHOT REQUEST for ${ticker}: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
+    console.log(`≡ƒô╕ SNAPSHOT REQUEST for ${ticker}: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
 
     try {
       const response = await fetch(url);
       if (!response.ok) {
-        console.warn(`⚠️ Failed to fetch ${ticker} snapshot: ${response.status}`);
+        console.warn(`ΓÜá∩╕Å Failed to fetch ${ticker} snapshot: ${response.status}`);
         return [];
       }
 
       const data = await response.json();
-      console.log(`📊 ${ticker} snapshot: ${data.results?.length || 0} contracts`);
+      console.log(`≡ƒôè ${ticker} snapshot: ${data.results?.length || 0} contracts`);
 
       if (!data.results || data.results.length === 0) {
         return [];
@@ -950,11 +950,11 @@ export class OptionsFlowService {
         trades.push(trade);
       }
 
-      console.log(`✅ Extracted ${trades.length} trades from ${ticker} snapshot`);
+      console.log(`Γ£à Extracted ${trades.length} trades from ${ticker} snapshot`);
       return trades;
 
     } catch (error) {
-      console.error(`❌ Error fetching ${ticker} snapshot:`, error);
+      console.error(`Γ¥î Error fetching ${ticker} snapshot:`, error);
       return [];
     }
   }
@@ -968,7 +968,7 @@ export class OptionsFlowService {
 
       // Validate market open timestamp
       if (isNaN(marketOpenTimestamp) || marketOpenTimestamp <= 0) {
-        console.error(`❌ Invalid market open timestamp for ${optionTicker}`);
+        console.error(`Γ¥î Invalid market open timestamp for ${optionTicker}`);
         return [];
       }
 
@@ -976,7 +976,7 @@ export class OptionsFlowService {
       const nanosecondTimestamp = marketOpenTimestamp * 1000000;
       const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${nanosecondTimestamp}&apikey=${this.polygonApiKey}`;
 
-      console.log(`📈 Fetching ${optionTicker} trades from market open: ${marketOpenDate.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+      console.log(`≡ƒôê Fetching ${optionTicker} trades from market open: ${marketOpenDate.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
       const response = await this.robustFetch(url);
 
@@ -985,7 +985,7 @@ export class OptionsFlowService {
         const responseText = await response.text();
         data = JSON.parse(responseText);
       } catch (parseError) {
-        console.error(`❌ JSON parse error for ${optionTicker}:`, parseError);
+        console.error(`Γ¥î JSON parse error for ${optionTicker}:`, parseError);
         return [];
       }
 
@@ -1015,11 +1015,11 @@ export class OptionsFlowService {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       if (errorMessage.includes('HTTP 403')) {
-        console.error(`❌ 403 Forbidden for ${optionTicker} - check API permissions`);
+        console.error(`Γ¥î 403 Forbidden for ${optionTicker} - check API permissions`);
       } else if (errorMessage.includes('HTTP 429')) {
-        console.warn(`⏱️ Rate limited for ${optionTicker}`);
+        console.warn(`ΓÅ▒∩╕Å Rate limited for ${optionTicker}`);
       } else {
-        console.warn(`⚠️ Error fetching trades for ${optionTicker}: ${errorMessage}`);
+        console.warn(`ΓÜá∩╕Å Error fetching trades for ${optionTicker}: ${errorMessage}`);
       }
 
       return [];
@@ -1033,31 +1033,23 @@ export class OptionsFlowService {
 
     // Filter by ticker if specified (but not for 'ALL' requests)
     if (targetTicker && targetTicker.toLowerCase() !== 'all' && targetTicker !== 'ALL_EXCLUDE_ETF_MAG7') {
-      // Handle comma-separated ticker lists (MAG7, ETF scans)
-      if (targetTicker.includes(',')) {
-        const tickerList = targetTicker.split(',').map(t => t.trim().toUpperCase());
-        filtered = filtered.filter(trade => tickerList.includes(trade.underlying_ticker));
-        console.log(`🔍 Filtering for multiple tickers: ${tickerList.join(', ')} - ${filtered.length} trades match`);
-      } else {
-        // Single ticker filter
-        filtered = filtered.filter(trade => trade.underlying_ticker === targetTicker);
-      }
+      filtered = filtered.filter(trade => trade.underlying_ticker === targetTicker);
     }
 
     // Skip classification if trades are already classified (have trade_type)
     const alreadyClassified = filtered.every(t => t.trade_type !== undefined);
-    console.log(`🔍 Classification check: ${filtered.length} trades, alreadyClassified=${alreadyClassified}`);
+    console.log(`≡ƒöì Classification check: ${filtered.length} trades, alreadyClassified=${alreadyClassified}`);
 
     if (!alreadyClassified) {
-      console.log(`🚀 Starting multi-leg detection on ${filtered.length} unclassified trades...`);
+      console.log(`≡ƒÜÇ Starting multi-leg detection on ${filtered.length} unclassified trades...`);
       // MULTI-LEG DETECTION MUST RUN FIRST (before sweeps bundle trades together)
       filtered = this.detectMultiLegTrades(filtered);
 
-      console.log(`🚀 Starting sweep detection on ${filtered.length} trades...`);
+      console.log(`≡ƒÜÇ Starting sweep detection on ${filtered.length} trades...`);
       // SWEEP DETECTION (runs after multi-leg to avoid bundling multi-leg strategies)
       filtered = this.detectSweeps(filtered);
     } else {
-      console.log(`⏭️ Skipping classification - trades already classified`);
+      console.log(`ΓÅ¡∩╕Å Skipping classification - trades already classified`);
     }
 
     // YOUR ACTUAL CRITERIA - Use existing institutional tiers system
@@ -1083,7 +1075,7 @@ export class OptionsFlowService {
       return b.trade_timestamp.getTime() - a.trade_timestamp.getTime();
     });
 
-    console.log(`✅ Filtered: ${filtered.length} trades passed all criteria`);
+    console.log(`Γ£à Filtered: ${filtered.length} trades passed all criteria`);
     return filtered;
   }
 
@@ -1102,7 +1094,7 @@ export class OptionsFlowService {
     const isWithinHours = timeInMinutes >= marketOpen && timeInMinutes <= marketClose;
 
     if (!isWithinHours) {
-      console.log(`🚫 After-hours trade filtered: ${etTime.toLocaleTimeString()} ET`);
+      console.log(`≡ƒÜ½ After-hours trade filtered: ${etTime.toLocaleTimeString()} ET`);
     }
 
     return isWithinHours;
@@ -1110,14 +1102,14 @@ export class OptionsFlowService {
 
   // YOUR SPECIFICATION: 3-SECOND WINDOW SWEEP DETECTION: Bundle trades executed within 3-second windows across exchanges
   private detectSweeps(trades: ProcessedTrade[]): ProcessedTrade[] {
-    console.log(`🔍 3-SECOND WINDOW SWEEP DETECTION: Processing ${trades.length} trades...`);
-    console.log(`🔍 DEBUG detectSweeps: Sample input trade:`, trades[0]);
+    console.log(`≡ƒöì 3-SECOND WINDOW SWEEP DETECTION: Processing ${trades.length} trades...`);
+    console.log(`≡ƒöì DEBUG detectSweeps: Sample input trade:`, trades[0]);
 
     // CRITICAL: Preserve MULTI-LEG classifications - don't reprocess them
     const multiLegTrades = trades.filter(t => t.trade_type === 'MULTI-LEG');
     const unclassifiedTrades = trades.filter(t => t.trade_type !== 'MULTI-LEG');
 
-    console.log(`🔍 Preserving ${multiLegTrades.length} MULTI-LEG trades, processing ${unclassifiedTrades.length} remaining trades`);
+    console.log(`≡ƒöì Preserving ${multiLegTrades.length} MULTI-LEG trades, processing ${unclassifiedTrades.length} remaining trades`);
 
     // Sort trades by timestamp
     unclassifiedTrades.sort((a, b) => a.sip_timestamp - b.sip_timestamp);
@@ -1152,7 +1144,7 @@ export class OptionsFlowService {
       // Debug: Show 3-second window grouping for significant trades
       if (tradesInGroup.length > 1 && totalPremium >= 50000) {
         const time = new Date(representativeTrade.sip_timestamp / 1000000).toLocaleTimeString();
-        console.log(`\n🔍 3-SECOND WINDOW GROUP: ${tradesInGroup.length} trades within 3-second window at ~${time}:`);
+        console.log(`\n≡ƒöì 3-SECOND WINDOW GROUP: ${tradesInGroup.length} trades within 3-second window at ~${time}:`);
         console.log(`   ${representativeTrade.ticker} $${representativeTrade.strike} ${representativeTrade.type.toUpperCase()}S - Total: ${totalContracts} contracts, $${totalPremium.toLocaleString()}`);
         tradesInGroup.forEach((trade, idx) => {
           console.log(`     ${idx + 1}. ${trade.trade_size} contracts @$${trade.premium_per_contract.toFixed(2)} [${trade.exchange}]`);
@@ -1178,7 +1170,7 @@ export class OptionsFlowService {
           related_trades: exchanges.map(ex => `${ex}`)
         };
 
-        console.log(`🧹 SWEEP DETECTED: ${sweepTrade.ticker} $${sweepTrade.strike} ${sweepTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} across ${exchanges.length} exchanges`);
+        console.log(`≡ƒº╣ SWEEP DETECTED: ${sweepTrade.ticker} $${sweepTrade.strike} ${sweepTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} across ${exchanges.length} exchanges`);
         categorizedTrades.push(sweepTrade);
 
       } else if (exchanges.length === 1) {
@@ -1200,10 +1192,10 @@ export class OptionsFlowService {
         };
 
         if (totalPremium >= 50000) {
-          console.log(`🧱 BLOCK DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`);
+          console.log(`≡ƒº▒ BLOCK DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`);
           blockCount++;
         } else {
-          console.log(`💼 MINI DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`);
+          console.log(`≡ƒÆ╝ MINI DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`);
         }
 
         categorizedTrades.push(combinedTrade);
@@ -1211,7 +1203,7 @@ export class OptionsFlowService {
     });
 
     const miniCount = categorizedTrades.filter(t => t.trade_type === 'MINI').length;
-    console.log(`✅ 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps, ${blockCount} blocks, and ${miniCount} minis from ${unclassifiedTrades.length} individual trades`);
+    console.log(`Γ£à 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps, ${blockCount} blocks, and ${miniCount} minis from ${unclassifiedTrades.length} individual trades`);
 
     // Return multi-leg trades + newly classified trades
     return [...multiLegTrades, ...categorizedTrades];
@@ -1219,7 +1211,7 @@ export class OptionsFlowService {
 
   // MULTI-LEG DETECTION: Identify complex options strategies (spreads, straddles, etc.)
   private detectMultiLegTrades(trades: ProcessedTrade[]): ProcessedTrade[] {
-    console.log(`🔍 MULTI-LEG DETECTION: Processing ${trades.length} trades...`);
+    console.log(`≡ƒöì MULTI-LEG DETECTION: Processing ${trades.length} trades...`);
 
     // Group trades by underlying ticker and 2-second time window (multi-leg trades execute within seconds)
     const exactTimeGroups = new Map<string, ProcessedTrade[]>();
@@ -1236,7 +1228,7 @@ export class OptionsFlowService {
       exactTimeGroups.get(groupKey)!.push(trade);
     }
 
-    console.log(`🔍 Created ${exactTimeGroups.size} time-based groups`);
+    console.log(`≡ƒöì Created ${exactTimeGroups.size} time-based groups`);
 
     // Log groups with multiple trades
     let groupsWithMultiple = 0;
@@ -1244,14 +1236,14 @@ export class OptionsFlowService {
       if (groupTrades.length >= 2) {
         groupsWithMultiple++;
         const totalPremium = groupTrades.reduce((sum, t) => sum + t.total_premium, 0);
-        console.log(`🔍 Group [${groupKey}]: ${groupTrades.length} trades, $${totalPremium.toFixed(0)} total`);
+        console.log(`≡ƒöì Group [${groupKey}]: ${groupTrades.length} trades, $${totalPremium.toFixed(0)} total`);
         groupTrades.forEach((t, i) => {
           console.log(`    ${i + 1}. ${t.ticker} ${t.trade_size} contracts @$${t.premium_per_contract.toFixed(2)}`);
         });
       }
     });
 
-    console.log(`🔍 Found ${groupsWithMultiple} groups with 2+ trades`);
+    console.log(`≡ƒöì Found ${groupsWithMultiple} groups with 2+ trades`);
 
     let multiLegCount = 0;
     const processedTrades: ProcessedTrade[] = [];
@@ -1268,7 +1260,7 @@ export class OptionsFlowService {
       if (groupTrades.length >= 2) {
         const totalPremium = groupTrades.reduce((sum, t) => sum + t.total_premium, 0);
         if (totalPremium >= 25000) {
-          console.log(`🔍 Multi-leg candidate: ${groupTrades[0].underlying_ticker} - ${groupTrades.length} legs, $${totalPremium.toFixed(0)} premium`);
+          console.log(`≡ƒöì Multi-leg candidate: ${groupTrades[0].underlying_ticker} - ${groupTrades.length} legs, $${totalPremium.toFixed(0)} premium`);
           groupTrades.forEach((t, i) => {
             console.log(`   Leg ${i + 1}: ${t.ticker} ${t.trade_size} contracts @$${t.premium_per_contract.toFixed(2)} = $${t.total_premium.toFixed(0)}`);
           });
@@ -1279,7 +1271,7 @@ export class OptionsFlowService {
       const isMultiLeg = this.analyzeMultiLegPattern(groupTrades);
 
       if (isMultiLeg) {
-        console.log(`✅ MULTI-LEG CONFIRMED: ${groupTrades.length} legs for ${groupTrades[0].underlying_ticker}`);
+        console.log(`Γ£à MULTI-LEG CONFIRMED: ${groupTrades.length} legs for ${groupTrades[0].underlying_ticker}`);
         multiLegCount++;
 
         // Mark all trades in this group as multi-leg
@@ -1297,7 +1289,7 @@ export class OptionsFlowService {
       }
     }
 
-    console.log(`✅ MULTI-LEG DETECTION COMPLETE: Found ${multiLegCount} multi-leg strategies from ${trades.length} individual trades`);
+    console.log(`Γ£à MULTI-LEG DETECTION COMPLETE: Found ${multiLegCount} multi-leg strategies from ${trades.length} individual trades`);
     return processedTrades;
   }
 
@@ -1307,7 +1299,7 @@ export class OptionsFlowService {
 
     // YOUR SPECIFICATION: Max 4 legs limit
     if (trades.length > 4) {
-      console.log(`   ❌ Rejected: Too many legs (${trades.length} > 4)`);
+      console.log(`   Γ¥î Rejected: Too many legs (${trades.length} > 4)`);
       return false;
     }
 
@@ -1322,7 +1314,7 @@ export class OptionsFlowService {
     const allLegsHave100Plus = trades.every(trade => trade.trade_size >= 100);
     if (!allLegsHave100Plus) {
       const smallLegs = trades.filter(t => t.trade_size < 100);
-      console.log(`   ❌ Rejected: Legs with <100 contracts: ${smallLegs.map(t => `${t.ticker}:${t.trade_size}`).join(', ')}`);
+      console.log(`   Γ¥î Rejected: Legs with <100 contracts: ${smallLegs.map(t => `${t.ticker}:${t.trade_size}`).join(', ')}`);
       return false;
     }
 
@@ -1340,19 +1332,19 @@ export class OptionsFlowService {
     const substantialPremium = totalPremium >= 25000; // $25k+ combined (lowered from $50k)
 
     if (!substantialPremium) {
-      console.log(`   ❌ Rejected: Premium too low ($${totalPremium.toFixed(0)} < $25,000)`);
+      console.log(`   Γ¥î Rejected: Premium too low ($${totalPremium.toFixed(0)} < $25,000)`);
       return false;
     }
 
     if (!hasMultipleStrikes && !hasMultipleTypes && !hasMultipleExpirations) {
-      console.log(`   ❌ Rejected: All same strike (${uniqueStrikes.size}), type (${uniqueTypes.size}), expiry (${uniqueExpirations.size})`);
+      console.log(`   Γ¥î Rejected: All same strike (${uniqueStrikes.size}), type (${uniqueTypes.size}), expiry (${uniqueExpirations.size})`);
       return false;
     }
 
     const isMultiLeg = substantialPremium && (hasMultipleStrikes || hasMultipleTypes || hasMultipleExpirations);
 
     if (isMultiLeg) {
-      console.log(`   ✅ Multi-leg PASSED: ${trades.length} legs (≤4), ` +
+      console.log(`   Γ£à Multi-leg PASSED: ${trades.length} legs (Γëñ4), ` +
         `${uniqueStrikes.size} strikes, ${uniqueTypes.size} types, ` +
         `${uniqueExpirations.size} expirations, $${totalPremium.toFixed(0)} premium`);
     }
@@ -1368,7 +1360,7 @@ export class OptionsFlowService {
 
     // Debug logging for all trades to see what's being filtered
     if (totalPremium > 500) {
-      console.log(`🔍 TRADE ANALYSIS: ${trade.ticker} - $${tradePrice.toFixed(2)} × ${tradeSize} = $${totalPremium.toFixed(0)} premium`);
+      console.log(`≡ƒöì TRADE ANALYSIS: ${trade.ticker} - $${tradePrice.toFixed(2)} ├ù ${tradeSize} = $${totalPremium.toFixed(0)} premium`);
     }
 
     // ENHANCED TIER SYSTEM - More permissive for mini trades
@@ -1403,7 +1395,7 @@ export class OptionsFlowService {
       const passesTotal = tier.minTotal ? totalPremium >= tier.minTotal : true;
 
       if (passesPrice && passesSize && passesTotal) {
-        console.log(`✅ ${trade.ticker}: Passes ${tier.name} - $${tradePrice.toFixed(2)} × ${tradeSize} = $${totalPremium.toFixed(0)}`);
+        console.log(`Γ£à ${trade.ticker}: Passes ${tier.name} - $${tradePrice.toFixed(2)} ├ù ${tradeSize} = $${totalPremium.toFixed(0)}`);
         return true;
       }
       return false;
@@ -1411,7 +1403,7 @@ export class OptionsFlowService {
 
     // Debug logging for failed trades to understand filtering
     if (totalPremium > 500 && !passes) {
-      console.log(`❌ FILTERED OUT: ${trade.ticker} - $${tradePrice.toFixed(2)} × ${tradeSize} = $${totalPremium.toFixed(0)} - doesn't meet any tier`);
+      console.log(`Γ¥î FILTERED OUT: ${trade.ticker} - $${tradePrice.toFixed(2)} ├ù ${tradeSize} = $${totalPremium.toFixed(0)} - doesn't meet any tier`);
     }
 
     return passes;
@@ -1459,7 +1451,7 @@ export class OptionsFlowService {
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => {
-            console.warn(`⏰ Aborting request after 3s timeout (attempt ${attempt}/${maxRetries})`);
+            console.warn(`ΓÅ░ Aborting request after 3s timeout (attempt ${attempt}/${maxRetries})`);
             controller.abort();
           }, 3000); // OPTIMIZED: 3s timeout for faster failure (was 5s)
 
@@ -1487,30 +1479,30 @@ export class OptionsFlowService {
             const errorMsg = `HTTP ${response.status}: ${response.statusText}`;
 
             // Log specific error details for debugging
-            console.error(`❌ API Error: ${errorMsg} for URL: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
+            console.error(`Γ¥î API Error: ${errorMsg} for URL: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
 
             // Handle specific error codes with progressive backoff
             if (response.status === 403) {
-              console.error(`🚫 HTTP 403 Forbidden - Check API key permissions and rate limits`);
+              console.error(`≡ƒÜ½ HTTP 403 Forbidden - Check API key permissions and rate limits`);
               if (attempt < maxRetries) {
                 const delay = Math.min(Math.pow(2, attempt) * 2000, 30000); // Cap at 30s
-                console.warn(`⏳ Waiting ${delay / 1000}s before retry due to 403 error...`);
+                console.warn(`ΓÅ│ Waiting ${delay / 1000}s before retry due to 403 error...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
               }
             } else if (response.status === 429) {
-              console.error(`⏱️ HTTP 429 Rate Limited - Implementing exponential backoff`);
+              console.error(`ΓÅ▒∩╕Å HTTP 429 Rate Limited - Implementing exponential backoff`);
               if (attempt < maxRetries) {
                 const delay = Math.min(Math.pow(2, attempt) * 5000, 60000); // Cap at 60s
-                console.warn(`⏳ Rate limit delay: ${delay / 1000}s...`);
+                console.warn(`ΓÅ│ Rate limit delay: ${delay / 1000}s...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
               }
             } else if (response.status >= 500 && response.status < 600) {
-              console.error(`🔧 HTTP ${response.status} Server Error - Server is experiencing issues`);
+              console.error(`≡ƒöº HTTP ${response.status} Server Error - Server is experiencing issues`);
               if (attempt < maxRetries) {
                 const delay = Math.min(Math.pow(2, attempt) * 3000, 45000); // Cap at 45s
-                console.warn(`⏳ Server error delay: ${delay / 1000}s...`);
+                console.warn(`ΓÅ│ Server error delay: ${delay / 1000}s...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
               }
@@ -1527,18 +1519,18 @@ export class OptionsFlowService {
           // Enhanced error handling for connection issues
           if (error instanceof Error) {
             if (error.name === 'AbortError') {
-              console.warn(`⏰ Request timeout (attempt ${attempt}/${maxRetries}) - Network may be slow`);
+              console.warn(`ΓÅ░ Request timeout (attempt ${attempt}/${maxRetries}) - Network may be slow`);
             } else if (error.message.includes('Failed to fetch') ||
               error.message.includes('ERR_CONNECTION_RESET') ||
               error.message.includes('ERR_CONNECTION_REFUSED') ||
               error.message.includes('net::ERR_CONNECTION_RESET') ||
               error.message.includes('net::ERR_CONNECTION_REFUSED')) {
-              console.warn(`🌐 Connection error (attempt ${attempt}/${maxRetries}): ${error.message}`);
-              console.warn(`🔄 This could indicate network issues or server downtime`);
+              console.warn(`≡ƒîÉ Connection error (attempt ${attempt}/${maxRetries}): ${error.message}`);
+              console.warn(`≡ƒöä This could indicate network issues or server downtime`);
             } else if (error.message.includes('ERR_NETWORK') || error.message.includes('network')) {
-              console.warn(`🔌 Network connectivity issue (attempt ${attempt}/${maxRetries}): ${error.message}`);
+              console.warn(`≡ƒöî Network connectivity issue (attempt ${attempt}/${maxRetries}): ${error.message}`);
             } else {
-              console.warn(`🔄 Fetch attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+              console.warn(`≡ƒöä Fetch attempt ${attempt}/${maxRetries} failed: ${error.message}`);
             }
           }
 
@@ -1564,41 +1556,41 @@ export class OptionsFlowService {
             const jitter = Math.random() * 1000;
             const delay = Math.min(baseDelay + jitter, 60000); // Cap total delay at 60s
 
-            console.warn(`⏳ Retrying in ${(delay / 1000).toFixed(1)}s... (${maxRetries - attempt} attempts remaining)`);
+            console.warn(`ΓÅ│ Retrying in ${(delay / 1000).toFixed(1)}s... (${maxRetries - attempt} attempts remaining)`);
             await new Promise(resolve => setTimeout(resolve, delay));
           }
         }
       }
 
-      console.error(`❌ All ${maxRetries} attempts failed for URL: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
-      console.error(`❌ Final error: ${lastError.message}`);
+      console.error(`Γ¥î All ${maxRetries} attempts failed for URL: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`);
+      console.error(`Γ¥î Final error: ${lastError.message}`);
       throw new Error(`Network request failed after ${maxRetries} attempts: ${lastError.message}`);
     });
   }
 
   // PROPER ALL-EXPIRATION STREAMING WITH 5% ITM FILTERING
   async fetchLiveStreamingTradesRobust(ticker: string): Promise<ProcessedTrade[]> {
-    console.log(`🔧 STREAMING ALL EXPIRATIONS: Fetching ${ticker} with proper filtering`);
+    console.log(`≡ƒöº STREAMING ALL EXPIRATIONS: Fetching ${ticker} with proper filtering`);
 
     try {
       // Get current stock price first
       const spotPrice = await this.getCurrentStockPrice(ticker);
       if (spotPrice <= 0) {
-        console.log(`❌ ${ticker}: Cannot get spot price`);
+        console.log(`Γ¥î ${ticker}: Cannot get spot price`);
         return [];
       }
 
-      console.log(`💰 ${ticker} CURRENT PRICE: $${spotPrice}`);
+      console.log(`≡ƒÆ░ ${ticker} CURRENT PRICE: $${spotPrice}`);
 
       // Get ALL options contracts with pagination for comprehensive coverage
       const allContracts = await this.fetchAllContractsPaginated(ticker);
 
       if (allContracts.length === 0) {
-        console.log(`📭 ${ticker}: No options contracts found`);
+        console.log(`≡ƒô¡ ${ticker}: No options contracts found`);
         return [];
       }
 
-      console.log(`📋 ${ticker}: Found ${allContracts.length} total contracts across all pages`);
+      console.log(`≡ƒôï ${ticker}: Found ${allContracts.length} total contracts across all pages`);
 
       // Apply 5% ITM filtering BEFORE scanning trades
       const validContracts = allContracts.filter((contract: any) => {
@@ -1615,8 +1607,8 @@ export class OptionsFlowService {
         }
       });
 
-      console.log(`✅ ${ticker}: ${validContracts.length} contracts pass 5% ITM filter`);
-      console.log(`❌ ${ticker}: ${allContracts.length - validContracts.length} deep ITM contracts filtered out`);
+      console.log(`Γ£à ${ticker}: ${validContracts.length} contracts pass 5% ITM filter`);
+      console.log(`Γ¥î ${ticker}: ${allContracts.length - validContracts.length} deep ITM contracts filtered out`);
 
       // Get today's market open timestamp
       const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
@@ -1625,19 +1617,19 @@ export class OptionsFlowService {
       // Scan ALL valid contracts - no artificial limits, only your criteria filters
       let contractsWithTrades = 0;
 
-      console.log(`📊 ${ticker}: Scanning trades for ALL ${validContracts.length} valid contracts (all expirations)...`);
+      console.log(`≡ƒôè ${ticker}: Scanning trades for ALL ${validContracts.length} valid contracts (all expirations)...`);
 
-      // 🚀 BATCHED PROCESSING: Maximum throughput
+      // ≡ƒÜÇ BATCHED PROCESSING: Maximum throughput
       const BATCH_SIZE = 500; // INCREASED from 250 to 500 - DOUBLE THE SPEED!
       const contractBatches = this.chunkArray(validContracts, BATCH_SIZE);
 
-      console.log(`⚡ MODE: ${validContracts.length} contracts → ${contractBatches.length} batches (${BATCH_SIZE} each)`);
-      console.log(`� API calls reduced from ${validContracts.length} to ${contractBatches.length} (${((1 - contractBatches.length / validContracts.length) * 100).toFixed(1)}% reduction)`);
+      console.log(`ΓÜí MODE: ${validContracts.length} contracts ΓåÆ ${contractBatches.length} batches (${BATCH_SIZE} each)`);
+      console.log(`∩┐╜ API calls reduced from ${validContracts.length} to ${contractBatches.length} (${((1 - contractBatches.length / validContracts.length) * 100).toFixed(1)}% reduction)`);
 
       // Process batches with MINIMAL delay for maximum speed
       for (let batchIndex = 0; batchIndex < contractBatches.length; batchIndex++) {
         const batch = contractBatches[batchIndex];
-        console.log(`🔥 Batch ${batchIndex + 1}/${contractBatches.length} (${batch.length} contracts)`);
+        console.log(`≡ƒöÑ Batch ${batchIndex + 1}/${contractBatches.length} (${batch.length} contracts)`);
 
         try {
           // Fetch trades for this entire batch
@@ -1657,7 +1649,7 @@ export class OptionsFlowService {
           // Debug logging for significant trades found
           const largeTrades = batchTrades.filter(t => t.total_premium > 10000);
           if (largeTrades.length > 0) {
-            console.log(`💰 Batch ${batchIndex + 1}: Found ${largeTrades.length} large trades, ${batchTrades.length} total trades`);
+            console.log(`≡ƒÆ░ Batch ${batchIndex + 1}: Found ${largeTrades.length} large trades, ${batchTrades.length} total trades`);
           }
 
           // MINIMAL rate limiting - reduced from 200ms to 50ms for 4x faster processing
@@ -1667,25 +1659,25 @@ export class OptionsFlowService {
 
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error(`❌ Batch ${batchIndex + 1} failed: ${errorMessage}`);
+          console.error(`Γ¥î Batch ${batchIndex + 1} failed: ${errorMessage}`);
 
           // Continue with next batch instead of failing completely
           continue;
         }
       }
 
-      console.log(`✅ ${ticker}: Found ${allTrades.length} trades across ${contractsWithTrades} active contracts`);
+      console.log(`Γ£à ${ticker}: Found ${allTrades.length} trades across ${contractsWithTrades} active contracts`);
       return allTrades;
 
     } catch (error) {
-      console.error(`❌ All-expiration streaming error for ${ticker}:`, error);
+      console.error(`Γ¥î All-expiration streaming error for ${ticker}:`, error);
       return [];
     }
   }
 
   // SNAPSHOT WITH ALL-EXPIRATION 5% ITM FILTERING
   async fetchOptionsSnapshotRobust(ticker: string): Promise<ProcessedTrade[]> {
-    console.log(`🔧 ALL-EXPIRATION SNAPSHOT: Fetching ${ticker} with 5% ITM filter`);
+    console.log(`≡ƒöº ALL-EXPIRATION SNAPSHOT: Fetching ${ticker} with 5% ITM filter`);
 
     try {
       // Get smart date range for proper historical data
@@ -1695,7 +1687,7 @@ export class OptionsFlowService {
       // Get current spot price
       const spotPrice = await this.getCurrentStockPrice(ticker);
       if (spotPrice <= 0) {
-        console.log(`❌ ${ticker}: Cannot get spot price`);
+        console.log(`Γ¥î ${ticker}: Cannot get spot price`);
         return [];
       }
 
@@ -1704,11 +1696,11 @@ export class OptionsFlowService {
       const data = await response.json();
 
       if (!data.results || data.results.length === 0) {
-        console.log(`📭 ${ticker}: No options contracts found`);
+        console.log(`≡ƒô¡ ${ticker}: No options contracts found`);
         return [];
       }
 
-      console.log(`📊 ${ticker}: ${data.results.length} total contracts in snapshot`);
+      console.log(`≡ƒôè ${ticker}: ${data.results.length} total contracts in snapshot`);
 
       const trades: ProcessedTrade[] = [];
       let validContracts = 0;
@@ -1778,26 +1770,26 @@ export class OptionsFlowService {
         trades.push(trade);
       }
 
-      console.log(`✅ ${ticker}: ${validContracts} valid contracts, ${filteredOut} deep ITM filtered out`);
-      console.log(`✅ ${ticker}: Extracted ${trades.length} today's trades`);
+      console.log(`Γ£à ${ticker}: ${validContracts} valid contracts, ${filteredOut} deep ITM filtered out`);
+      console.log(`Γ£à ${ticker}: Extracted ${trades.length} today's trades`);
       return trades;
 
     } catch (error) {
-      console.error(`❌ All-expiration snapshot error for ${ticker}:`, error);
+      console.error(`Γ¥î All-expiration snapshot error for ${ticker}:`, error);
       throw error;
     }
   }
 
   // LIVE STREAMING METHOD: Get only TODAY's real-time trades, no fallback
   async fetchLiveStreamingTrades(ticker: string): Promise<ProcessedTrade[]> {
-    console.log(`🔴 LIVE STREAMING: Fetching ${ticker} real-time options trades`);
+    console.log(`≡ƒö┤ LIVE STREAMING: Fetching ${ticker} real-time options trades`);
 
     // Get today's market open timestamp
     const marketOpenTimestamp = getTodaysMarketOpenTimestamp();
     const todayStart = new Date(marketOpenTimestamp);
     const now = new Date();
 
-    console.log(`📅 Live data range: ${todayStart.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET → ${now.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+    console.log(`≡ƒôà Live data range: ${todayStart.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET ΓåÆ ${now.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
     try {
       // Use Polygon's aggregates endpoint for TODAY's options activity
@@ -1806,12 +1798,12 @@ export class OptionsFlowService {
       // Get options chains with proper API limits
       const chainUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&apikey=${this.polygonApiKey}`;
 
-      console.log(`🔗 Fetching options chain for ${ticker}...`);
+      console.log(`≡ƒöù Fetching options chain for ${ticker}...`);
       const chainResponse = await fetch(chainUrl);
       const chainData = await chainResponse.json();
 
       if (!chainData.results || chainData.results.length === 0) {
-        console.log(`⚠️ No options contracts found for ${ticker}`);
+        console.log(`ΓÜá∩╕Å No options contracts found for ${ticker}`);
         return [];
       }
 
@@ -1825,7 +1817,7 @@ export class OptionsFlowService {
         return daysToExpiry > 0; // Not expired
       });
 
-      console.log(`📊 Processing ALL ${allContracts.length} active contracts for ${ticker} (all expirations)...`);
+      console.log(`≡ƒôè Processing ALL ${allContracts.length} active contracts for ${ticker} (all expirations)...`);
 
       // Fetch trades for each contract from TODAY only
       for (const contract of allContracts) {
@@ -1837,7 +1829,7 @@ export class OptionsFlowService {
           const tradesData = await tradesResponse.json();
 
           if (tradesData.results && tradesData.results.length > 0) {
-            console.log(`✅ ${contract.ticker}: Found ${tradesData.results.length} live trades`);
+            console.log(`Γ£à ${contract.ticker}: Found ${tradesData.results.length} live trades`);
 
             // Process each trade from today
             for (const trade of tradesData.results) {
@@ -1874,25 +1866,25 @@ export class OptionsFlowService {
           // No delay with unlimited API
 
         } catch (error) {
-          console.error(`❌ Error fetching trades for contract ${contract.ticker}:`, error);
+          console.error(`Γ¥î Error fetching trades for contract ${contract.ticker}:`, error);
         }
       }
 
       // Sort by most recent first
       liveTradesResults.sort((a, b) => new Date(b.trade_timestamp).getTime() - new Date(a.trade_timestamp).getTime());
 
-      console.log(`🔴 LIVE RESULT: Found ${liveTradesResults.length} real-time trades for ${ticker} from today`);
+      console.log(`≡ƒö┤ LIVE RESULT: Found ${liveTradesResults.length} real-time trades for ${ticker} from today`);
       return liveTradesResults;
 
     } catch (error) {
-      console.error(`❌ Error in live streaming trades for ${ticker}:`, error);
+      console.error(`Γ¥î Error in live streaming trades for ${ticker}:`, error);
       return [];
     }
   }
 
   // NEW METHOD: Fetch today's options trades from market open
   async fetchTodaysOptionsFlow(ticker: string): Promise<ProcessedTrade[]> {
-    console.log(`🔴 TODAY'S TRADES: Fetching ${ticker} options from market open`);
+    console.log(`≡ƒö┤ TODAY'S TRADES: Fetching ${ticker} options from market open`);
 
     try {
       // First get current options contracts via snapshot
@@ -1942,29 +1934,29 @@ export class OptionsFlowService {
           })));
 
         } catch (error) {
-          console.error(`❌ Error fetching today's trades for ${contract.ticker}:`, error);
+          console.error(`Γ¥î Error fetching today's trades for ${contract.ticker}:`, error);
         }
       }
 
-      console.log(`✅ Found ${todaysTrades.length} trades for ${ticker} from today's market open`);
+      console.log(`Γ£à Found ${todaysTrades.length} trades for ${ticker} from today's market open`);
       return todaysTrades;
 
     } catch (error) {
-      console.error(`❌ Error fetching today's options flow for ${ticker}:`, error);
+      console.error(`Γ¥î Error fetching today's options flow for ${ticker}:`, error);
       return [];
     }
   }
 
   // REAL OPTIONS TRADES METHOD - FIXED TO USE CORRECT ENDPOINT
   async fetchOptionsSnapshotFast(ticker: string): Promise<ProcessedTrade[]> {
-    console.log(`🎯 LIVE TRADES: Fetching TODAY's live options trades for ${ticker}`);
+    console.log(`≡ƒÄ» LIVE TRADES: Fetching TODAY's live options trades for ${ticker}`);
 
     try {
       // Get TODAY's data - Monday October 6th, 2025
       const today = new Date();
       const todayStr = today.toISOString().split('T')[0];
 
-      console.log(`📅 SCANNING TODAY: ${todayStr} (Live Options Trades)`);
+      console.log(`≡ƒôà SCANNING TODAY: ${todayStr} (Live Options Trades)`);
 
       // Use the CORRECT endpoint - get options contracts first, then get their trades
       // Get current date and 1 year from now for expiration range
@@ -1974,11 +1966,11 @@ export class OptionsFlowService {
       const oneYearStr = oneYearFromNow.toISOString().split('T')[0];
 
       const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expired=false&expiration_date.gte=${todayStr}&expiration_date.lte=${oneYearStr}&apikey=${this.polygonApiKey}`;
-      console.log(`📅 Scanning contracts from ${todayStr} to ${oneYearStr}`);
+      console.log(`≡ƒôà Scanning contracts from ${todayStr} to ${oneYearStr}`);
       const contractsResponse = await fetch(contractsUrl);
 
       if (!contractsResponse.ok) {
-        console.error(`❌ Contracts failed for ${ticker}: ${contractsResponse.status}`);
+        console.error(`Γ¥î Contracts failed for ${ticker}: ${contractsResponse.status}`);
         return [];
       }
 
@@ -1986,33 +1978,33 @@ export class OptionsFlowService {
       const contracts = contractsData.results || [];
 
       if (contracts.length === 0) {
-        console.log(`📊 No options contracts found for ${ticker}`);
+        console.log(`≡ƒôè No options contracts found for ${ticker}`);
         return [];
       }
 
-      console.log(`� Found ${contracts.length} options contracts for ${ticker}`);
+      console.log(`∩┐╜ Found ${contracts.length} options contracts for ${ticker}`);
 
       const currentPrice = await this.getCurrentStockPrice(ticker);
 
       // DEBUG: Check expiration dates in contracts
       const expirationDates = [...new Set(contracts.map((c: any) => c.expiration_date))];
-      console.log(`📅 Expiration dates found: ${expirationDates.join(', ')}`);
+      console.log(`≡ƒôà Expiration dates found: ${expirationDates.join(', ')}`);
 
       // DEBUG: Show first few contract tickers
-      console.log(`🎯 Sample contract tickers:`, contracts.slice(0, 5).map((c: any) => c.ticker));
+      console.log(`≡ƒÄ» Sample contract tickers:`, contracts.slice(0, 5).map((c: any) => c.ticker));
 
       // Filter contracts by volume and 5% ITM rule BEFORE processing
       const filteredContracts = await this.filterContractsByVolumeAndITM(contracts, currentPrice);
-      console.log(`📊 ${ticker}: Filtered to ${filteredContracts.length} contracts (within 5% ITM rule)`);
+      console.log(`≡ƒôè ${ticker}: Filtered to ${filteredContracts.length} contracts (within 5% ITM rule)`);
 
-      // ⚡ OPTIMIZED BULK PROCESSING: Use snapshots + parallel batching
+      // ΓÜí OPTIMIZED BULK PROCESSING: Use snapshots + parallel batching
       const trades = await this.fetchBulkOptionsTradesOptimized(filteredContracts, ticker, currentPrice, todayStr);
 
-      console.log(`✅ ${ticker}: ${trades.length} individual trades from minute data`);
+      console.log(`Γ£à ${ticker}: ${trades.length} individual trades from minute data`);
       return trades;
 
     } catch (error) {
-      console.error(`❌ Real trades error for ${ticker}:`, error);
+      console.error(`Γ¥î Real trades error for ${ticker}:`, error);
       return [];
     }
   }
@@ -2022,12 +2014,12 @@ export class OptionsFlowService {
   private async getCurrentStockPrice(ticker: string): Promise<number> {
     try {
       const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${this.polygonApiKey}`;
-      console.log(`💰 Fetching current price for ${ticker}...`);
+      console.log(`≡ƒÆ░ Fetching current price for ${ticker}...`);
 
       const response = await this.robustFetch(url, 3); // Use robust fetch with 3 retries
 
       if (!response.ok) {
-        console.warn(`⚠️ Price API error for ${ticker}: ${response.status}`);
+        console.warn(`ΓÜá∩╕Å Price API error for ${ticker}: ${response.status}`);
         return 0; // Return 0 instead of fake fallback
       }
 
@@ -2035,14 +2027,14 @@ export class OptionsFlowService {
       const price = data.results?.[0]?.c;
 
       if (price && price > 0) {
-        console.log(`✅ ${ticker} current price: $${price}`);
+        console.log(`Γ£à ${ticker} current price: $${price}`);
         return price;
       } else {
-        console.warn(`⚠️ No valid price data for ${ticker}`);
+        console.warn(`ΓÜá∩╕Å No valid price data for ${ticker}`);
         return 0; // Return 0 instead of fake fallback
       }
     } catch (error) {
-      console.warn(`❌ Failed to get current price for ${ticker}:`, error instanceof Error ? error.message : 'Unknown error');
+      console.warn(`Γ¥î Failed to get current price for ${ticker}:`, error instanceof Error ? error.message : 'Unknown error');
       return 0; // Return 0 instead of fake fallback - don't show fake data
     }
   }
@@ -2054,7 +2046,7 @@ export class OptionsFlowService {
       const oneYearAgo = now - (365 * 24 * 60 * 60 * 1000);
 
       if (timestamp < oneYearAgo || timestamp > now) {
-        console.warn(`⚠️ Invalid timestamp for ${ticker}: ${new Date(timestamp).toISOString()}, using current price`);
+        console.warn(`ΓÜá∩╕Å Invalid timestamp for ${ticker}: ${new Date(timestamp).toISOString()}, using current price`);
         return await this.getCurrentStockPrice(ticker);
       }
 
@@ -2109,26 +2101,26 @@ export class OptionsFlowService {
             }
           }
 
-          console.log(`📊 Historical spot price for ${ticker} at ${tradeDate.toLocaleString()}: $${closestBar.c}`);
+          console.log(`≡ƒôè Historical spot price for ${ticker} at ${tradeDate.toLocaleString()}: $${closestBar.c}`);
           return closestBar.c;
         }
       }
 
       // Fallback to current stock price method
-      console.log(`⚠️ Could not find historical data for ${ticker} at ${tradeDate.toLocaleString()}, using current price`);
+      console.log(`ΓÜá∩╕Å Could not find historical data for ${ticker} at ${tradeDate.toLocaleString()}, using current price`);
       return await this.getCurrentStockPrice(ticker);
     } catch (error) {
-      console.error(`❌ Error fetching historical spot price for ${ticker}:`, error);
+      console.error(`Γ¥î Error fetching historical spot price for ${ticker}:`, error);
       return await this.getCurrentStockPrice(ticker);
     }
   }
 
   // Keep this method for compatibility with existing API endpoints
   async processRawTradesData(rawTrades: OptionsTradeData[], requestedTicker?: string): Promise<ProcessedTrade[]> {
-    console.log(`🔧 Processing ${rawTrades.length} raw trades for ${requestedTicker || 'ALL'} tickers`);
+    console.log(`≡ƒöº Processing ${rawTrades.length} raw trades for ${requestedTicker || 'ALL'} tickers`);
 
     if (rawTrades.length === 0) {
-      console.log('⚠️ No raw trades to process');
+      console.log('ΓÜá∩╕Å No raw trades to process');
       return [];
     }
 
@@ -2204,7 +2196,7 @@ export class OptionsFlowService {
   }
 
   async scanForSweeps(ticker: string): Promise<ProcessedTrade[]> {
-    console.log(`🔍 Scanning ${ticker} for sweep activity...`);
+    console.log(`≡ƒöì Scanning ${ticker} for sweep activity...`);
 
     // Add timeout protection (3 minutes max)
     const timeoutPromise = new Promise<ProcessedTrade[]>((_, reject) => {
@@ -2216,7 +2208,7 @@ export class OptionsFlowService {
     try {
       return await Promise.race([scanPromise, timeoutPromise]);
     } catch (error) {
-      console.error(`❌ Scan failed for ${ticker}:`, error);
+      console.error(`Γ¥î Scan failed for ${ticker}:`, error);
       return [];
     }
   }
@@ -2257,7 +2249,7 @@ export class OptionsFlowService {
 
       strikes.push(...Array.from(allPossibleStrikes).sort((a, b) => a - b));
 
-      console.log(`📊 ${ticker} @ $${stockPrice}: Scanning ${strikes.length} strikes from $${minStrike.toFixed(2)} to $${maxStrike.toFixed(2)} (all increments)`);
+      console.log(`≡ƒôè ${ticker} @ $${stockPrice}: Scanning ${strikes.length} strikes from $${minStrike.toFixed(2)} to $${maxStrike.toFixed(2)} (all increments)`);
 
       // Get expiration dates (next 50 expirations up to 1 year out)
       const expirations = this.getAllExpirations(50);
@@ -2279,7 +2271,7 @@ export class OptionsFlowService {
         }
       }
 
-      console.log(`📡 Processing ${contractPromises.length} contracts concurrently for ${ticker}...`);
+      console.log(`≡ƒôí Processing ${contractPromises.length} contracts concurrently for ${ticker}...`);
 
       // Process ALL contracts simultaneously with Promise.all
       // No batching needed - let the system handle it all at once!
@@ -2291,9 +2283,9 @@ export class OptionsFlowService {
         }
       });
 
-      console.log(`⚡ Processed ALL ${contractPromises.length} contracts in parallel for ${ticker}`);
+      console.log(`ΓÜí Processed ALL ${contractPromises.length} contracts in parallel for ${ticker}`);
 
-      console.log(`📊 Found ${allTrades.length} total trades, classifying as SWEEPS/BLOCKS/MINIS...`);
+      console.log(`≡ƒôè Found ${allTrades.length} total trades, classifying as SWEEPS/BLOCKS/MINIS...`);
 
       // YOUR 3-CATEGORY SYSTEM: detectSweeps() now handles ALL classification
       const allFlowTrades = this.detectSweeps(allTrades);
@@ -2302,7 +2294,7 @@ export class OptionsFlowService {
       const blockCount = allFlowTrades.filter(t => t.trade_type === 'BLOCK').length;
       const miniCount = allFlowTrades.filter(t => t.trade_type === 'MINI').length;
 
-      console.log(`� Final Classification: ${sweepCount} sweeps, ${blockCount} blocks, ${miniCount} minis`);
+      console.log(`∩┐╜ Final Classification: ${sweepCount} sweeps, ${blockCount} blocks, ${miniCount} minis`);
 
       return allFlowTrades.sort((a, b) => b.total_premium - a.total_premium);
 
@@ -2319,13 +2311,13 @@ export class OptionsFlowService {
    * MINI: Single exchange with <$50K premium
    */
   private classifyAllTrades(allTrades: any[]): ProcessedTrade[] {
-    console.log(`🎯 Starting trade classification for ${allTrades.length} trades`);
+    console.log(`≡ƒÄ» Starting trade classification for ${allTrades.length} trades`);
 
     if (allTrades.length === 0) {
       return [];
     }
 
-    console.log(`🔍 DEBUG: Sample trade structure:`, allTrades[0]);
+    console.log(`≡ƒöì DEBUG: Sample trade structure:`, allTrades[0]);
 
     // Deduplicate trades using a unique identifier to prevent infinite loops
     const seenTrades = new Set<string>();
@@ -2341,18 +2333,18 @@ export class OptionsFlowService {
       }
     }
 
-    console.log(`🔍 After deduplication: ${uniqueTrades.length} unique trades (removed ${allTrades.length - uniqueTrades.length} duplicates)`);
+    console.log(`≡ƒöì After deduplication: ${uniqueTrades.length} unique trades (removed ${allTrades.length - uniqueTrades.length} duplicates)`);
 
     // Convert raw trades to proper format first
     const convertedTrades = uniqueTrades.map(trade => {
       // If already a ProcessedTrade with classification, don't reprocess
       if (trade.trade_timestamp instanceof Date && trade.trade_type !== undefined) {
-        console.log(`♻️ Trade already classified: ${trade.ticker} - ${trade.trade_type}`);
+        console.log(`ΓÖ╗∩╕Å Trade already classified: ${trade.ticker} - ${trade.trade_type}`);
         return trade as ProcessedTrade;
       }
 
       // Convert worker trade to ProcessedTrade format
-      console.log(`🔄 Converting worker trade: ${trade.ticker || trade.option_ticker} - $${trade.total_premium}`);
+      console.log(`≡ƒöä Converting worker trade: ${trade.ticker || trade.option_ticker} - $${trade.total_premium}`);
       return {
         ticker: trade.ticker || trade.option_ticker,
         underlying_ticker: trade.underlying_ticker,
@@ -2375,14 +2367,14 @@ export class OptionsFlowService {
     });
 
     // Step 1: Detect multi-leg trades (must be done FIRST before sweeps bundle them)
-    console.log(`🔍 Step 1: Detecting multi-leg strategies...`);
+    console.log(`≡ƒöì Step 1: Detecting multi-leg strategies...`);
     const withMultiLeg = this.detectMultiLegTrades(convertedTrades);
-    console.log(`📊 Found ${withMultiLeg.filter(t => t.trade_type === 'MULTI-LEG').length} MULTI-LEG trades`);
+    console.log(`≡ƒôè Found ${withMultiLeg.filter(t => t.trade_type === 'MULTI-LEG').length} MULTI-LEG trades`);
 
     // Step 2: Detect sweeps (cross-exchange patterns) on remaining trades
-    console.log(`🔍 Step 2: Detecting sweeps across exchanges...`);
+    console.log(`≡ƒöì Step 2: Detecting sweeps across exchanges...`);
     const sweeps = this.detectSweeps(withMultiLeg);
-    console.log(`📊 Found ${sweeps.filter(t => t.trade_type === 'SWEEP').length} SWEEP trades`);
+    console.log(`≡ƒôè Found ${sweeps.filter(t => t.trade_type === 'SWEEP').length} SWEEP trades`);
 
     // Step 3: Create set of already-classified trade keys to avoid double-classification
     const classifiedKeys = new Set<string>();
@@ -2394,7 +2386,7 @@ export class OptionsFlowService {
     });
 
     // Step 4: Classify remaining trades as BLOCK or MINI
-    console.log(`🔍 Step 3: Classifying remaining trades as BLOCK/MINI...`);
+    console.log(`≡ƒöì Step 3: Classifying remaining trades as BLOCK/MINI...`);
     const remainingTrades = sweeps.filter(trade => {
       const key = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp?.getTime()}`;
       return !classifiedKeys.has(key);
@@ -2412,17 +2404,17 @@ export class OptionsFlowService {
     const blocks = classifiedRemaining.filter(t => t.trade_type === 'BLOCK');
     const minis = classifiedRemaining.filter(t => t.trade_type === 'MINI');
 
-    console.log(`📊 Classification summary:`);
-    console.log(`   • SWEEPS: ${sweeps.length}`);
-    console.log(`   • BLOCKS: ${blocks.length}`);
-    console.log(`   • MINIS: ${minis.length}`);
-    console.log(`   • Total: ${sweeps.length + blocks.length + minis.length}`);
+    console.log(`≡ƒôè Classification summary:`);
+    console.log(`   ΓÇó SWEEPS: ${sweeps.length}`);
+    console.log(`   ΓÇó BLOCKS: ${blocks.length}`);
+    console.log(`   ΓÇó MINIS: ${minis.length}`);
+    console.log(`   ΓÇó Total: ${sweeps.length + blocks.length + minis.length}`);
 
     // Combine all classified trades
     const allClassified = [...sweeps, ...classifiedRemaining];
 
     // Debug: Check final trade types
-    console.log(`🔍 FINAL DEBUG: Sample classified trades:`);
+    console.log(`≡ƒöì FINAL DEBUG: Sample classified trades:`);
     allClassified.slice(0, 3).forEach((trade, i) => {
       console.log(`   ${i + 1}. ${trade.ticker} - Type: '${trade.trade_type}' - Premium: $${trade.total_premium}`);
     });
@@ -2600,11 +2592,11 @@ export class OptionsFlowService {
     return chunks;
   }
 
-  // 🚀 INSTANT ENRICHMENT: Add Vol/OI/Greeks/Current Price to trades after worker scan (PARALLEL VERSION)
+  // ≡ƒÜÇ INSTANT ENRICHMENT: Add Vol/OI/Greeks/Current Price to trades after worker scan (PARALLEL VERSION)
   private async enrichTradesInstantlyParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
 
-    console.log(`🚀 BACKEND ENRICHMENT: Processing ${trades.length} trades with combined snapshot approach`);
+    console.log(`≡ƒÜÇ BACKEND ENRICHMENT: Processing ${trades.length} trades with combined snapshot approach`);
 
     // Group trades by underlying ticker for efficient batch processing
     const tradesByTicker = new Map<string, ProcessedTrade[]>();
@@ -2616,7 +2608,7 @@ export class OptionsFlowService {
       tradesByTicker.get(ticker)!.push(trade);
     });
 
-    console.log(`📊 Enriching ${trades.length} trades across ${tradesByTicker.size} tickers in parallel`);
+    console.log(`≡ƒôè Enriching ${trades.length} trades across ${tradesByTicker.size} tickers in parallel`);
 
     // Process all tickers in parallel for maximum speed
     const enrichmentPromises = Array.from(tradesByTicker.entries()).map(async ([ticker, tickerTrades], idx) => {
@@ -2683,17 +2675,17 @@ export class OptionsFlowService {
               return trade;
 
             } catch (error) {
-              console.warn(`⚠️ Failed to enrich ${trade.ticker}:`, error instanceof Error ? error.message : error);
+              console.warn(`ΓÜá∩╕Å Failed to enrich ${trade.ticker}:`, error instanceof Error ? error.message : error);
               return trade; // Return unenriched on error
             }
           })
         );
 
-        console.log(`✅ ${ticker}: Enriched ${enrichedTrades.length} trades`);
+        console.log(`Γ£à ${ticker}: Enriched ${enrichedTrades.length} trades`);
         return enrichedTrades;
 
       } catch (error) {
-        console.error(`❌ Enrichment error for ${ticker}:`, error);
+        console.error(`Γ¥î Enrichment error for ${ticker}:`, error);
         return tickerTrades; // Return unenriched on error
       }
     });
@@ -2702,11 +2694,11 @@ export class OptionsFlowService {
     const enrichedTradeArrays = await Promise.all(enrichmentPromises);
     const allEnrichedTrades = enrichedTradeArrays.flat();
 
-    console.log(`✅ Backend enrichment complete: ${allEnrichedTrades.length} trades fully enriched`);
+    console.log(`Γ£à Backend enrichment complete: ${allEnrichedTrades.length} trades fully enriched`);
     return allEnrichedTrades;
   }
 
-  // 🚀 INSTANT ENRICHMENT: Add Vol/OI/Greeks/Current Price to trades after worker scan
+  // ≡ƒÜÇ INSTANT ENRICHMENT: Add Vol/OI/Greeks/Current Price to trades after worker scan
   private async enrichTradesInstantly(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
 
@@ -2720,7 +2712,7 @@ export class OptionsFlowService {
       tradesByTicker.get(ticker)!.push(trade);
     });
 
-    console.log(`📊 Enriching ${trades.length} trades across ${tradesByTicker.size} tickers`);
+    console.log(`≡ƒôè Enriching ${trades.length} trades across ${tradesByTicker.size} tickers`);
 
     // Fetch snapshot data for each ticker (batched by ticker)
     const enrichmentPromises = Array.from(tradesByTicker.entries()).map(async ([ticker, tickerTrades]) => {
@@ -2799,7 +2791,7 @@ export class OptionsFlowService {
         });
 
       } catch (error) {
-        console.error(`❌ Enrichment error for ${ticker}:`, error);
+        console.error(`Γ¥î Enrichment error for ${ticker}:`, error);
         return tickerTrades; // Return unenriched on error
       }
     });
@@ -2808,11 +2800,11 @@ export class OptionsFlowService {
     const enrichedTradeArrays = await Promise.all(enrichmentPromises);
     const allEnrichedTrades = enrichedTradeArrays.flat();
 
-    console.log(`✅ Enrichment complete: ${allEnrichedTrades.length} trades enriched`);
+    console.log(`Γ£à Enrichment complete: ${allEnrichedTrades.length} trades enriched`);
     return allEnrichedTrades;
   }
 
-  // 🚀 OPTIMIZED METHOD: Fetch trades AND enrich with snapshot data in parallel
+  // ≡ƒÜÇ OPTIMIZED METHOD: Fetch trades AND enrich with snapshot data in parallel
   private async fetchBatchedContractTrades(
     contractsBatch: any[],
     ticker: string,
@@ -2821,7 +2813,7 @@ export class OptionsFlowService {
   ): Promise<ProcessedTrade[]> {
     const batchTrades: ProcessedTrade[] = [];
 
-    console.log(`🚀 Processing ${ticker} - ${contractsBatch.length} contracts`);
+    console.log(`≡ƒÜÇ Processing ${ticker} - ${contractsBatch.length} contracts`);
 
     try {
       // Step 1: Get snapshot data for ALL contracts in ONE API call (Vol/OI/Greeks/Bid-Ask)
@@ -2848,7 +2840,7 @@ export class OptionsFlowService {
         });
       }
 
-      console.log(`✅ ${ticker}: Snapshot loaded with enrichment data for ${enrichmentMap.size} contracts`);
+      console.log(`Γ£à ${ticker}: Snapshot loaded with enrichment data for ${enrichmentMap.size} contracts`);
 
       // Step 2: Fetch actual trades for each contract in parallel
       const today = new Date();
@@ -2874,7 +2866,7 @@ export class OptionsFlowService {
 
           // Debug: Log enrichment data for first contract
           if (index === 0 && enrichment) {
-            console.log(`📊 Enrichment data for ${contract.ticker}:`, {
+            console.log(`≡ƒôè Enrichment data for ${contract.ticker}:`, {
               volume: enrichment.volume,
               open_interest: enrichment.open_interest,
               bid: enrichment.bid,
@@ -2922,7 +2914,7 @@ export class OptionsFlowService {
 
             // Debug: Log first trade to verify enrichment
             if (contractTrades.length === 0) {
-              console.log(`📋 Sample enriched trade for ${contract.ticker}:`, {
+              console.log(`≡ƒôï Sample enriched trade for ${contract.ticker}:`, {
                 ticker: contract.ticker,
                 volume,
                 openInterest,
@@ -2954,7 +2946,7 @@ export class OptionsFlowService {
               moneyness: this.getMoneyness(contract.strike_price, spotPrice, contractType as 'call' | 'put'),
               days_to_expiry: Math.ceil((new Date(contract.expiration_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
 
-              // ✅ ENRICHED DATA from snapshot
+              // Γ£à ENRICHED DATA from snapshot
               volume: volume,
               open_interest: openInterest,
               vol_oi_ratio: volOIRatio,
@@ -2979,7 +2971,7 @@ export class OptionsFlowService {
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           if (!errorMessage.includes('HTTP 403') && !errorMessage.includes('HTTP 429')) {
-            console.log(`❌ Error scanning ${contract.ticker}: ${errorMessage}`);
+            console.log(`Γ¥î Error scanning ${contract.ticker}: ${errorMessage}`);
           }
           return [];
         }
@@ -2993,11 +2985,11 @@ export class OptionsFlowService {
         batchTrades.push(...contractTrades);
       });
 
-      console.log(`✅ ${ticker}: Processed ${batchTrades.length} FULLY ENRICHED trades`);
+      console.log(`Γ£à ${ticker}: Processed ${batchTrades.length} FULLY ENRICHED trades`);
 
       // Debug: Log first enriched trade to verify data structure
       if (batchTrades.length > 0) {
-        console.log(`🔍 Sample enriched trade from ${ticker}:`, {
+        console.log(`≡ƒöì Sample enriched trade from ${ticker}:`, {
           ticker: batchTrades[0].ticker,
           spot_price: batchTrades[0].spot_price,
           volume: batchTrades[0].volume,
@@ -3013,7 +3005,7 @@ export class OptionsFlowService {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`❌ Batch processing error for ${ticker}:`, errorMessage);
+      console.error(`Γ¥î Batch processing error for ${ticker}:`, errorMessage);
       return [];
     }
   }
@@ -3094,13 +3086,13 @@ export class OptionsFlowService {
     return priorityTickers;
   }
 
-  // 📄 PAGINATION: Fetch ALL contracts across multiple pages for comprehensive coverage
+  // ≡ƒôä PAGINATION: Fetch ALL contracts across multiple pages for comprehensive coverage
   private async fetchAllContractsPaginated(ticker: string): Promise<any[]> {
     const allContracts: any[] = [];
     let cursor: string | undefined;
     let pageCount = 0;
 
-    console.log(`📄 Fetching ALL contracts for ${ticker} with pagination...`);
+    console.log(`≡ƒôä Fetching ALL contracts for ${ticker} with pagination...`);
 
     do {
       pageCount++;
@@ -3114,36 +3106,36 @@ export class OptionsFlowService {
 
         if (data.results && data.results.length > 0) {
           allContracts.push(...data.results);
-          console.log(`📄 Page ${pageCount}: +${data.results.length} contracts (Total: ${allContracts.length})`);
+          console.log(`≡ƒôä Page ${pageCount}: +${data.results.length} contracts (Total: ${allContracts.length})`);
         }
 
         cursor = data.next_url ? data.next_url.split('cursor=')[1]?.split('&')[0] : undefined;
 
       } catch (error) {
-        console.error(`❌ Pagination error on page ${pageCount}:`, error);
+        console.error(`Γ¥î Pagination error on page ${pageCount}:`, error);
         break;
       }
 
       // Safety limit - prevent infinite loops
       if (pageCount > 50) {
-        console.warn(`⚠️ Reached pagination limit (50 pages) for ${ticker}`);
+        console.warn(`ΓÜá∩╕Å Reached pagination limit (50 pages) for ${ticker}`);
         break;
       }
 
     } while (cursor);
 
-    console.log(`✅ Pagination complete: ${allContracts.length} total contracts from ${pageCount} pages`);
+    console.log(`Γ£à Pagination complete: ${allContracts.length} total contracts from ${pageCount} pages`);
     return allContracts;
   }
 
-  // ⚡ OPTIMIZED BULK PROCESSING: Fetch options trades using snapshots + parallel batching
+  // ΓÜí OPTIMIZED BULK PROCESSING: Fetch options trades using snapshots + parallel batching
   private async fetchBulkOptionsTradesOptimized(
     contracts: any[],
     ticker: string,
     currentPrice: number,
     todayStr: string
   ): Promise<ProcessedTrade[]> {
-    console.log(`🚀 BULK OPTIMIZATION: Processing ${contracts.length} contracts for ${ticker} with parallel snapshots`);
+    console.log(`≡ƒÜÇ BULK OPTIMIZATION: Processing ${contracts.length} contracts for ${ticker} with parallel snapshots`);
 
     const allTrades: ProcessedTrade[] = [];
 
@@ -3155,7 +3147,7 @@ export class OptionsFlowService {
       contractBatches.push(contracts.slice(i, i + SNAPSHOT_BATCH_SIZE));
     }
 
-    console.log(`🚀 MAXIMUM SPEED: ${contractBatches.length} batches of ${SNAPSHOT_BATCH_SIZE} contracts each`);
+    console.log(`≡ƒÜÇ MAXIMUM SPEED: ${contractBatches.length} batches of ${SNAPSHOT_BATCH_SIZE} contracts each`);
 
     // Step 2: Fire ALL batches simultaneously with Promise.all for ultimate speed!
     const batchPromises = contractBatches.map(async (batch, batchIndex) => {
@@ -3170,14 +3162,14 @@ export class OptionsFlowService {
         const snapshotResponse = await this.robustFetch(snapshotUrl, 3); // Use robustFetch with 3 retries
 
         if (!snapshotResponse.ok) {
-          console.warn(`⚠️ Snapshot failed for batch ${batchIndex + 1}: ${snapshotResponse.status}`);
+          console.warn(`ΓÜá∩╕Å Snapshot failed for batch ${batchIndex + 1}: ${snapshotResponse.status}`);
           return [];
         }
 
         const snapshotData = await snapshotResponse.json();
         const results = snapshotData.results || [];
 
-        console.log(`📊 Batch ${batchIndex + 1}: Got ${results.length} snapshot results`);
+        console.log(`≡ƒôè Batch ${batchIndex + 1}: Got ${results.length} snapshot results`);
 
         // Step 3: Process snapshot results in parallel - ALL AT ONCE
         const tradePromises = results.map(async (optionData: any) => {
@@ -3229,17 +3221,17 @@ export class OptionsFlowService {
         const batchTradeResults = await Promise.all(tradePromises);
         const batchTrades = batchTradeResults.flat();
 
-        console.log(`✅ Batch ${batchIndex + 1} complete: ${batchTrades.length} trades`);
+        console.log(`Γ£à Batch ${batchIndex + 1} complete: ${batchTrades.length} trades`);
         return batchTrades;
 
       } catch (error) {
-        console.error(`❌ Batch ${batchIndex + 1} failed:`, error);
+        console.error(`Γ¥î Batch ${batchIndex + 1} failed:`, error);
         return [];
       }
     });
 
     // Step 4: Wait for all batches to complete
-    console.log(`⏳ Waiting for all ${contractBatches.length} batches to complete...`);
+    console.log(`ΓÅ│ Waiting for all ${contractBatches.length} batches to complete...`);
     const allBatchResults = await Promise.all(batchPromises);
 
     // Step 5: Combine all results
@@ -3247,11 +3239,11 @@ export class OptionsFlowService {
       allTrades.push(...batchTrades);
     });
 
-    console.log(`🎯 BULK OPTIMIZATION COMPLETE: ${allTrades.length} trades from ${contracts.length} contracts for ${ticker}`);
+    console.log(`≡ƒÄ» BULK OPTIMIZATION COMPLETE: ${allTrades.length} trades from ${contracts.length} contracts for ${ticker}`);
     return allTrades;
   }
 
-  // 🚀 ULTRA-FAST PARALLEL ENRICHMENT - Enriches trades with Vol/OI + Fill Style using all CPU cores
+  // ≡ƒÜÇ ULTRA-FAST PARALLEL ENRICHMENT - Enriches trades with Vol/OI + Fill Style using all CPU cores
   async enrichTradesWithVolOIParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
 
@@ -3262,7 +3254,7 @@ export class OptionsFlowService {
       batches.push(trades.slice(i, i + BATCH_SIZE));
     }
 
-    console.log(`🚀 PARALLEL ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+    console.log(`≡ƒÜÇ PARALLEL ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
 
     // Process all batches in parallel
     const enrichedBatches = await Promise.all(
@@ -3273,14 +3265,14 @@ export class OptionsFlowService {
               // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
               const optionTicker = trade.ticker;
 
-              // STEP 1: Get snapshot for volume/OI (current is fine for these)
+              // Use snapshot endpoint - VIX/SPX weeklies need different format
               const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
                 ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
                 : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
 
               const response = await fetch(snapshotUrl);
               if (!response.ok) {
-                console.log(`❌ Snapshot API error: ${response.status} for ${optionTicker}`);
+                console.log(`Γ¥î Enrichment API error: ${response.status} for ${optionTicker}`);
                 return trade;
               }
 
@@ -3293,57 +3285,35 @@ export class OptionsFlowService {
                   snapshot = Array.isArray(data.results)
                     ? data.results.find((r: any) => r.details?.ticker === optionTicker)
                     : data.results;
+
+                  if (batchIndex === 0 && batch.indexOf(trade) === 0) {
+                    console.log(`≡ƒöì VIX/SPX Enrichment - Looking for: ${optionTicker}`);
+                    console.log(`≡ƒôª Found ${data.results.length} contracts in bulk snapshot`);
+                    console.log(`Γ£à Match found: ${snapshot ? 'YES' : 'NO'}`);
+                    if (snapshot) {
+                      console.log(`Bid: ${snapshot.last_quote?.bid}, Ask: ${snapshot.last_quote?.ask}, Vol: ${snapshot.day?.volume}, OI: ${snapshot.open_interest}`);
+                    }
+                  }
                 } else {
                   snapshot = data.results;
                 }
 
                 if (!snapshot) {
-                  console.log(`❌ No snapshot found for ${optionTicker}`);
+                  console.log(`Γ¥î No snapshot found for ${optionTicker}`);
                   return trade;
                 }
 
-                // Extract Vol/OI from snapshot
+                // Extract Vol/OI
                 const volume = snapshot.day?.volume || trade.volume;
                 const openInterest = snapshot.open_interest || trade.open_interest;
 
-                // STEP 2: Get HISTORICAL quote at trade timestamp for bid/ask
-                let bid: number | undefined;
-                let ask: number | undefined;
+                // Calculate Fill Style from bid/ask
                 let fillStyle = 'N/A';
-
-                // Get trade timestamp (convert from ISO string to nanoseconds)
-                const tradeDate = new Date(trade.trade_timestamp);
-                const tradeTimestampNano = tradeDate.getTime() * 1000000; // Convert ms to nanoseconds
-
-                try {
-                  const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
-                  const quoteResponse = await fetch(quoteUrl);
-
-                  if (quoteResponse.ok) {
-                    const quoteData = await quoteResponse.json();
-
-                    if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
-                      bid = quoteData.results[0].bid_price;
-                      ask = quoteData.results[0].ask_price;
-
-                      if (batchIndex === 0 && batch.indexOf(trade) === 0) {
-                        console.log(`\n✅ Got historical quote for ${optionTicker}:`);
-                        console.log(`  Trade time: ${tradeDate.toISOString()}`);
-                        console.log(`  Quote time: ${new Date(quoteData.results[0].sip_timestamp / 1000000).toISOString()}`);
-                        console.log(`  Bid: $${bid}, Ask: $${ask}`);
-                      }
-                    } else {
-                      console.log(`⚠️ No historical quote found for ${optionTicker} at ${tradeDate.toISOString()}`);
-                    }
-                  }
-                } catch (quoteError) {
-                  console.log(`⚠️ Quote fetch error for ${optionTicker}:`, quoteError);
-                }
-
-                // Calculate Fill Style from historical bid/ask
                 const lastPrice = trade.premium_per_contract;
+                const bid = snapshot.last_quote?.bid;
+                const ask = snapshot.last_quote?.ask;
 
-                if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
+                if (bid && ask && ask > bid) {
                   const midpoint = (bid + ask) / 2;
                   const spread = ask - bid;
                   const distanceFromMid = lastPrice - midpoint;
@@ -3352,12 +3322,6 @@ export class OptionsFlowService {
                   else if (distanceFromMid > 0) fillStyle = 'AA';
                   else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
                   else if (distanceFromMid < 0) fillStyle = 'BB';
-
-                  if (batchIndex === 0 && batch.indexOf(trade) === 0) {
-                    console.log(`  Midpoint: $${midpoint.toFixed(4)}, Spread: $${spread.toFixed(4)}`);
-                    console.log(`  Trade Price: $${lastPrice.toFixed(4)}, Distance: $${distanceFromMid.toFixed(4)}`);
-                    console.log(`  ✅ Fill Style: ${fillStyle}`);
-                  }
                 }
 
                 return {
@@ -3380,7 +3344,7 @@ export class OptionsFlowService {
         );
 
         if (batchIndex % 10 === 0) {
-          console.log(`📦 Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
+          console.log(`≡ƒôª Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
         }
 
         return enrichedTrades;
@@ -3388,7 +3352,7 @@ export class OptionsFlowService {
     );
 
     const allEnriched = enrichedBatches.flat();
-    console.log(`✅ PARALLEL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
+    console.log(`Γ£à PARALLEL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
 
     return allEnriched;
   }
@@ -3404,7 +3368,7 @@ export class OptionsFlowService {
       batches.push(trades.slice(i, i + BATCH_SIZE));
     }
 
-    console.log(`🚀 HISTORICAL VOL/OI ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+    console.log(`≡ƒÜÇ HISTORICAL VOL/OI ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
 
     const enrichedBatches = await Promise.all(
       batches.map(async (batch, batchIndex) => {
@@ -3459,42 +3423,19 @@ export class OptionsFlowService {
                 }
 
                 if (!snapshot) {
-                  console.log(`❌ No snapshot found for ${optionTicker} in enrichTradesWithHistoricalVolOI`);
                   return trade;
                 }
 
                 // Use snapshot OI (current OI is fine even for historical trades)
                 openInterest = snapshot.open_interest || openInterest;
 
-                // STEP 2: Get HISTORICAL quote at trade timestamp for bid/ask
-                let bid: number | undefined;
-                let ask: number | undefined;
+                // Calculate Fill Style from bid/ask
                 let fillStyle = 'N/A';
-
-                // Get trade timestamp (convert from ISO string to nanoseconds)
-                const tradeDate = new Date(trade.trade_timestamp);
-                const tradeTimestampNano = tradeDate.getTime() * 1000000; // Convert ms to nanoseconds
-
-                try {
-                  const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
-                  const quoteResponse = await fetch(quoteUrl);
-
-                  if (quoteResponse.ok) {
-                    const quoteData = await quoteResponse.json();
-
-                    if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
-                      bid = quoteData.results[0].bid_price;
-                      ask = quoteData.results[0].ask_price;
-                    }
-                  }
-                } catch (quoteError) {
-                  // Silent fail - fill_style stays N/A
-                }
-
-                // Calculate Fill Style from historical bid/ask
                 const lastPrice = trade.premium_per_contract;
+                const bid = snapshot.last_quote?.bid;
+                const ask = snapshot.last_quote?.ask;
 
-                if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
+                if (bid && ask && ask > bid) {
                   const midpoint = (bid + ask) / 2;
                   const spread = ask - bid;
                   const distanceFromMid = lastPrice - midpoint;
@@ -3525,7 +3466,7 @@ export class OptionsFlowService {
         );
 
         if (batchIndex % 10 === 0) {
-          console.log(`📦 Historical enrichment batch ${batchIndex + 1}/${batches.length} complete`);
+          console.log(`≡ƒôª Historical enrichment batch ${batchIndex + 1}/${batches.length} complete`);
         }
 
         return enrichedTrades;
@@ -3533,7 +3474,7 @@ export class OptionsFlowService {
     );
 
     const allEnriched = enrichedBatches.flat();
-    console.log(`✅ HISTORICAL VOL/OI ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
+    console.log(`Γ£à HISTORICAL VOL/OI ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
 
     return allEnriched;
   }

@@ -1,4 +1,4 @@
-const { parentPort, workerData } = require('worker_threads');
+﻿const { parentPort, workerData } = require('worker_threads');
 const https = require('https');
 
 // Simple worker that makes direct API calls to avoid module resolution issues
@@ -63,16 +63,10 @@ if (parentPort) {
               const priceCache = new Map();
 
               // Get historical spot price at exact trade time (cached)
-              // NOTE: Historical data is now PRE-FETCHED before processing contracts
-              // This function just looks up the cache - no API calls happen here
               async function getHistoricalSpotPrice(ticker, tradeTimestamp, currentSpotPrice) {
                      try {
-                            // For SPX/VIX/MAG7/ETFs, we skip historical lookup entirely
-                            const SKIP_HISTORICAL = ['SPX', 'VIX', 'AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG',
-                                   'SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV',
-                                   'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC',
-                                   'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'];
-                            if (SKIP_HISTORICAL.includes(ticker)) {
+                            // For SPX/VIX ODTE, skip historical lookup - use current price (saves massive API calls)
+                            if (ticker === 'SPX' || ticker === 'VIX') {
                                    return currentSpotPrice;
                             }
 
@@ -85,7 +79,7 @@ if (parentPort) {
                             const dateStr = tradeDate.toISOString().split('T')[0];
                             const cacheKey = `${ticker}-${dateStr}`;
 
-                            // Check cache (should already be populated by pre-fetch)
+                            // Check cache first
                             if (priceCache.has(cacheKey)) {
                                    const cachedData = priceCache.get(cacheKey);
                                    // Find closest minute for this specific trade
@@ -105,7 +99,34 @@ if (parentPort) {
                                    return closestBar ? closestBar.c : currentSpotPrice;
                             }
 
-                            // Cache miss (shouldn't happen with pre-fetch, but fallback to current price)
+                            // Get minute-level data for the trade date
+                            const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${dateStr}/${dateStr}?adjusted=true&sort=asc&apikey=${apiKey}`;
+                            const response = await makePolygonRequest(url);
+
+                            if (response.results && response.results.length > 0) {
+                                   // Cache the results for this ticker-date
+                                   priceCache.set(cacheKey, response.results);
+
+                                   // Find the closest minute bar to the trade timestamp
+                                   const tradeTime = tradeDate.getTime();
+                                   let closestBar = null;
+                                   let closestTimeDiff = Infinity;
+
+                                   for (const bar of response.results) {
+                                          const barTime = bar.t; // Bar timestamp in milliseconds
+                                          const timeDiff = Math.abs(tradeTime - barTime);
+                                          if (timeDiff < closestTimeDiff) {
+                                                 closestTimeDiff = timeDiff;
+                                                 closestBar = bar;
+                                          }
+                                   }
+
+                                   if (closestBar) {
+                                          return closestBar.c; // Use close price of closest minute bar
+                                   }
+                            }
+
+                            // If no historical data, use current as last resort
                             return currentSpotPrice;
                      } catch (error) {
                             console.error(` Worker: Error getting historical price for ${ticker}:`, error.message);
@@ -148,7 +169,7 @@ if (parentPort) {
                                    const endTime = now.getTime() * 1000000; // Current time in nanoseconds
 
                                    console.log(` Worker ${workerIndex}: LIVE MODE - Market is OPEN`);
-                                   console.log(` • Market Open: ${todayMarketOpen.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                                   console.log(` ΓÇó Market Open: ${todayMarketOpen.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
                                    return { startTime, endTime, isLive: true, date: eastern.toISOString().split('T')[0] };
                             } else {
                                    // HISTORICAL MODE: Market is closed
@@ -195,8 +216,8 @@ if (parentPort) {
                                    const startTime = marketOpenTime.getTime() * 1000000; // Convert to nanoseconds
                                    const endTime = marketCloseTime.getTime() * 1000000; // Convert to nanoseconds
 
-                                   console.log(` • Historical start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-                                   console.log(` • Historical end: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                                   console.log(` ΓÇó Historical start: ${marketOpenTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                                   console.log(` ΓÇó Historical end: ${marketCloseTime.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
                                    return { startTime, endTime, isLive: false, date: tradingDate.toISOString().split('T')[0] };
                             }
@@ -208,7 +229,7 @@ if (parentPort) {
 
               // Process each ticker in the batch
               async function processBatch() {
-                     let totalTradesStreamed = 0; // Track count instead of accumulating trades
+                     const results = [];
 
                      // If dateRange was provided from API, use it directly instead of recalculating
                      const timeRange = dateRange ?
@@ -223,8 +244,8 @@ if (parentPort) {
                      console.log(` Worker ${workerIndex}: Using ${dateRange ? 'API-provided' : 'calculated'} date range: ${timeRange.date}`);
 
                      console.log(` Worker ${workerIndex}: ${timeRange.isLive ? 'LIVE' : 'HISTORICAL'} scan for ${timeRange.date}`);
-                     console.log(` • Start: ${new Date(timeRange.startTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-                     console.log(` • End: ${new Date(timeRange.endTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                     console.log(` ΓÇó Start: ${new Date(timeRange.startTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+                     console.log(` ΓÇó End: ${new Date(timeRange.endTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
                      for (const ticker of batch) {
                             try {
@@ -240,12 +261,12 @@ if (parentPort) {
                                    });
 
                                    // ===============================
-                                   // STEP 1 — GET PRICE
+                                   // STEP 1 ΓÇö GET PRICE
                                    // ===============================
                                    let spotPrice = 0;
 
                                    // ===============================
-                                   // STEP 2 — GET OPTION CONTRACTS
+                                   // STEP 2 ΓÇö GET OPTION CONTRACTS
                                    // ===============================
                                    let contractsResponse;
 
@@ -333,46 +354,9 @@ if (parentPort) {
                                           continue;
                                    }
 
-                                   // ===============================
-                                   // PRE-FETCH HISTORICAL PRICE DATA ONCE
-                                   // ===============================
-                                   // Do this BEFORE processing any contracts to avoid race conditions
-                                   // Skip for tickers that don't need historical data
-                                   const SKIP_HISTORICAL = ['SPX', 'VIX', 'AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG',
-                                          'SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV',
-                                          'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC',
-                                          'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'];
-
-                                   if (!SKIP_HISTORICAL.includes(ticker)) {
-                                          try {
-                                                 const dateStr = timeRange.date;
-                                                 const cacheKey = `${ticker}-${dateStr}`;
-
-                                                 // Only fetch if not already cached
-                                                 if (!priceCache.has(cacheKey)) {
-                                                        console.log(` Worker ${workerIndex}: Pre-fetching historical minute data for ${ticker}...`);
-                                                        const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${dateStr}/${dateStr}?adjusted=true&sort=asc&apikey=${apiKey}`;
-                                                        const response = await makePolygonRequest(url);
-
-                                                        if (response.results && response.results.length > 0) {
-                                                               priceCache.set(cacheKey, response.results);
-                                                               console.log(` Worker ${workerIndex}: ✅ Cached ${response.results.length} minute bars for ${ticker}`);
-                                                        } else {
-                                                               console.log(` Worker ${workerIndex}: No historical data for ${ticker}, will use current price`);
-                                                        }
-                                                 } else {
-                                                        console.log(` Worker ${workerIndex}: ${ticker} historical data already cached`);
-                                                 }
-                                          } catch (error) {
-                                                 console.log(` Worker ${workerIndex}: Could not pre-fetch ${ticker} data, will use current price:`, error.message);
-                                          }
-                                   } else {
-                                          console.log(` Worker ${workerIndex}: Skipping historical data for ${ticker} (using current price)`);
-                                   }
-
                                    if (contractsResponse.results && contractsResponse.results.length > 0) {
                                           // ===============================
-                                          // STEP 3 — FILTER CONTRACTS
+                                          // STEP 3 ΓÇö FILTER CONTRACTS
                                           // ===============================
                                           const validContracts = contractsResponse.results.filter(contract => {
                                                  const strike = contract.strike_price;
@@ -404,7 +388,7 @@ if (parentPort) {
                                           const filterDesc = ticker === 'SPX'
                                                  ? 'ATM to 1% OTM (ODTE + next day only)'
                                                  : '5% ITM + all OTM';
-                                          console.log(` Worker ${workerIndex}: ${ticker} @ $${spotPrice} - ${contractsResponse.results.length} → ${validContracts.length} contracts after ${filterDesc} filter`);
+                                          console.log(` Worker ${workerIndex}: ${ticker} @ $${spotPrice} - ${contractsResponse.results.length} ΓåÆ ${validContracts.length} contracts after ${filterDesc} filter`);
 
                                           const contractsToScan = validContracts;
                                           const contractBatchSize = 50; // Process 50 contracts simultaneously with unlimited API
@@ -424,7 +408,7 @@ if (parentPort) {
                                                  console.log(` Worker ${workerIndex}: Processing batch ${batchIndex + 1}/${contractBatches.length} (${contractBatch.length} contracts)`);
 
                                                  // ===============================
-                                                 // STEP 4 — FETCH TRADES FOR EACH CONTRACT
+                                                 // STEP 4 ΓÇö FETCH TRADES FOR EACH CONTRACT
                                                  // ===============================
                                                  const batchPromises = contractBatch.map(async (contract) => {
                                                         try {
@@ -452,13 +436,8 @@ if (parentPort) {
                                                  });
 
                                                  // Wait for entire batch to complete
-                                                 console.log(` Worker ${workerIndex}: ⏳ Waiting for ${contractBatch.length} contract API calls to complete...`);
+                                                 console.log(` Worker ${workerIndex}: ΓÅ│ Waiting for ${contractBatch.length} contract API calls to complete...`);
                                                  const batchResults = await Promise.all(batchPromises);
-
-                                                 // Add small delay between batches to prevent socket overload
-                                                 if (batchIndex < contractBatches.length - 1) {
-                                                        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
-                                                 }
 
                                                  // Process all trade results from this batch
                                                  for (let resultIdx = 0; resultIdx < batchResults.length; resultIdx++) {
@@ -481,7 +460,7 @@ if (parentPort) {
                                                                                     try {
                                                                                            const tradePrice = trade.price || 0;
                                                                                            const tradeSize = trade.size || 1;
-                                                                                           const totalPremium = tradePrice * tradeSize * 100; // Price per contract × contracts × 100 shares per contract
+                                                                                           const totalPremium = tradePrice * tradeSize * 100; // Price per contract ├ù contracts ├ù 100 shares per contract
                                                                                            const strikePrice = contract.strike_price || 0;
                                                                                            // Get CORRECTED expiry date (fix 2024 -> 2025/2026 issue)
                                                                                            let expiryDate = contract.expiration_date || '';
@@ -537,7 +516,7 @@ if (parentPort) {
                                                                                                   }
                                                                                            }
 
-                                                                                           // 🔥 BUILD TRADE OBJECT WITH VOL/OI DATA - NO FAKE PRICES
+                                                                                           // ≡ƒöÑ BUILD TRADE OBJECT WITH VOL/OI DATA - NO FAKE PRICES
                                                                                            const tradeObj = {
                                                                                                   underlying_ticker: ticker,
                                                                                                   ticker: contract.ticker,
@@ -574,7 +553,7 @@ if (parentPort) {
                                                                       })
                                                                );
 
-                                                               console.log(` Worker ${workerIndex}: ✅ PARALLEL processing complete for ${contractTrades.length} trades`);
+                                                               console.log(` Worker ${workerIndex}: Γ£à PARALLEL processing complete for ${contractTrades.length} trades`);
 
                                                                // Flatten all batches
                                                                const flattenedTrades = allProcessedTrades.flat();
@@ -582,7 +561,7 @@ if (parentPort) {
                                                                // Filter out null trades
                                                                const validTrades = flattenedTrades.filter(trade => trade !== null);
 
-                                                               console.log(` Worker ${workerIndex}: ✔️ ${validTrades.length} valid trades (${contractTrades.length - validTrades.length} filtered out) for ${contract.ticker}`);
+                                                               console.log(` Worker ${workerIndex}: Γ£ö∩╕Å ${validTrades.length} valid trades (${contractTrades.length - validTrades.length} filtered out) for ${contract.ticker}`);
 
                                                                // STREAM trades immediately as they're found (don't wait till end)
                                                                if (validTrades.length > 0) {
@@ -594,8 +573,9 @@ if (parentPort) {
                                                                              contract: contract.ticker,
                                                                              success: true
                                                                       });
-                                                                      totalTradesStreamed += validTrades.length;
                                                                }
+
+                                                               results.push(...validTrades);
                                                         }
                                                  }
                                           }
@@ -605,26 +585,15 @@ if (parentPort) {
                             }
                      }
 
-                     console.log(` Worker ${workerIndex}: ✅ Completed batch - streamed ${totalTradesStreamed} total trades`);
+                     console.log(` Worker ${workerIndex}: Completed batch with ${results.length} total trades`);
 
-                     // Send completion message (trades already streamed incrementally)
-                     try {
-                            parentPort.postMessage({
-                                   success: true,
-                                   type: 'worker_complete',
-                                   workerIndex: workerIndex,
-                                   processedTickers: batch.length,
-                                   totalTradesStreamed: totalTradesStreamed
-                            });
-                     } catch (sendError) {
-                            console.error(` Worker ${workerIndex}: ❌ Error sending results:`, sendError.message);
-                            console.error(` Worker ${workerIndex}: Stack trace:`, sendError.stack);
-                            parentPort.postMessage({
-                                   success: false,
-                                   error: `Failed to send results: ${sendError.message}`,
-                                   workerIndex: workerIndex
-                            });
-                     }
+                     // Send results back to main thread
+                     parentPort.postMessage({
+                            success: true,
+                            trades: results,
+                            workerIndex: workerIndex,
+                            processedTickers: batch.length
+                     });
               }
 
               // Start processing

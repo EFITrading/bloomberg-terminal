@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { OptionsFlowTable } from '@/components/OptionsFlowTable';
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 // Polygon API key
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
-// 🚀 COMBINED ENRICHMENT - Vol/OI + Fill Style in ONE API call
+// ≡ƒÜÇ COMBINED ENRICHMENT - Vol/OI + Fill Style in ONE API call
 const enrichTradeDataCombined = async (
   trades: OptionsFlowData[],
   updateCallback: (results: OptionsFlowData[]) => void
@@ -24,7 +24,7 @@ const enrichTradeDataCombined = async (
     batches.push(trades.slice(i, i + BATCH_SIZE));
   }
 
-  console.log(`🚀 COMBINED ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+  console.log(`≡ƒÜÇ COMBINED ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
 
   const allResults: OptionsFlowData[] = [];
   let successCount = 0;
@@ -34,7 +34,7 @@ const enrichTradeDataCombined = async (
     const batch = batches[batchIndex];
 
     if (batchIndex % 20 === 0) { // Log every 20th batch instead of every 10th
-      console.log(`📦 Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex / batches.length) * 100)}%)`);
+      console.log(`≡ƒôª Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex / batches.length) * 100)}%)`);
     }
 
     const batchResults = await Promise.all(
@@ -116,13 +116,13 @@ const enrichTradeDataCombined = async (
     // No delay - process at maximum speed
   }
 
-  console.log(`✅ Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);
+  console.log(`Γ£à Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);
   return allResults;
 };
 
 // OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
 const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
-  console.log(`🔍 Fetching volume/OI data for ${trades.length} trades`);
+  console.log(`≡ƒöì Fetching volume/OI data for ${trades.length} trades`);
 
   // Group trades by underlying ticker to minimize API calls
   const tradesByUnderlying = trades.reduce((acc, trade) => {
@@ -139,7 +139,7 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
   // Process each underlying separately
   for (const [underlying, underlyingTrades] of Object.entries(tradesByUnderlying)) {
     try {
-      console.log(`📊 Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`);
+      console.log(`≡ƒôè Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`);
 
       // Get unique expiration dates
       const uniqueExpirations = [...new Set(underlyingTrades.map(t => t.expiry))];
@@ -169,7 +169,7 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
         }
       }
 
-      console.log(`✅ Total contracts loaded for ${underlying}: ${allContracts.size}`);
+      console.log(`Γ£à Total contracts loaded for ${underlying}: ${allContracts.size}`);
 
       if (allContracts.size === 0) {
         updatedTrades.push(...underlyingTrades.map(trade => ({
@@ -230,7 +230,7 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
 
 // FILL STYLE ENRICHMENT - Same as AlgoFlow
 const analyzeBidAskExecution = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
-  console.log(`⚡ FILL STYLE ANALYSIS: Fetching quotes for ${trades.length} trades`);
+  console.log(`ΓÜí FILL STYLE ANALYSIS: Fetching quotes for ${trades.length} trades`);
 
   if (trades.length === 0) return trades;
 
@@ -391,6 +391,12 @@ export default function OptionsFlowPage() {
       // Map scan categories to appropriate ticker parameter
       let tickerParam = tickerOverride || selectedTicker;
 
+      // Fix: Default to 'ALL' if ticker is empty or just whitespace
+      if (!tickerParam || tickerParam.trim() === '') {
+        console.log('ΓÜá∩╕Å Empty ticker parameter detected, defaulting to ALL');
+        tickerParam = 'ALL';
+      }
+
       if (tickerParam === 'MAG7') {
         tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG';
       } else if (tickerParam === 'ETF') {
@@ -400,7 +406,7 @@ export default function OptionsFlowPage() {
       }
       // Otherwise use the ticker as-is for individual ticker searches
 
-      console.log(`🔌 Connecting to EventSource with ticker: ${tickerParam}`);
+      console.log(`≡ƒöî Connecting to EventSource with ticker: ${tickerParam}`);
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
 
       eventSource.onmessage = (event) => {
@@ -409,7 +415,7 @@ export default function OptionsFlowPage() {
 
           switch (streamData.type) {
             case 'connected':
-              console.log('✅ Stream connected:', streamData.message);
+              console.log('Γ£à Stream connected:', streamData.message);
               setStreamingStatus('Connected - scanning options flow...');
               setStreamError('');
               break;
@@ -459,7 +465,7 @@ export default function OptionsFlowPage() {
 
               // Extract trades from the complete event (backend sends them here!)
               const completeTrades = streamData.trades || [];
-              console.log(`🔍 COMPLETE EVENT: Received ${completeTrades.length} trades from backend`);
+              console.log(`≡ƒöì COMPLETE EVENT: Received ${completeTrades.length} trades from backend`);
 
               // Update summary/market info
               setSummary(streamData.summary);
@@ -486,19 +492,19 @@ export default function OptionsFlowPage() {
                     return !existingTradeIds.has(tradeId);
                   });
 
-                  console.log(`� ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
+                  console.log(`∩┐╜ ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
 
                   const updatedTrades = [...prevData, ...newTrades];
-                  console.log(`✅ Total trades now: ${updatedTrades.length}`);
+                  console.log(`Γ£à Total trades now: ${updatedTrades.length}`);
 
-                  // ✅ NO ENRICHMENT NEEDED - Backend sends fully enriched data with Vol/OI + Fill Style
+                  // Γ£à NO ENRICHMENT NEEDED - Backend sends fully enriched data with Vol/OI + Fill Style
                   // Data comes pre-enriched from the API with snapshot data
                   setStreamingStatus('');
 
                   return updatedTrades;
                 });
               } else {
-                console.log('⚠️ Complete event had no trades');
+                console.log('ΓÜá∩╕Å Complete event had no trades');
                 setStreamingStatus('');
               }
 
@@ -542,39 +548,32 @@ export default function OptionsFlowPage() {
 
         // Check if this is just a normal close after completion
         if (eventSource.readyState === 2) { // CLOSED state
-          console.log('ℹ️ Stream closed normally after completion');
+          console.log('Γä╣∩╕Å Stream closed normally');
           eventSource.close();
           setStreamingStatus('');
           setLoading(false);
           return;
         }
 
-        // Check if stream is connecting (readyState 0) - this is a real connection error
-        if (eventSource.readyState === 0) {
-          console.warn('⚠️ EventSource connection failed during initial connection');
-          eventSource.close();
+        // Simplified error handling - don't spam logs
+        console.warn('ΓÜá∩╕Å EventSource connection issue - closing stream');
 
-          // Only retry once on connection failure
-          if (currentRetry === 0) {
-            console.log('🔄 Retrying connection once...');
-            setRetryCount(1);
-            setTimeout(() => {
-              fetchOptionsFlowStreaming(1);
-            }, 2000);
-          } else {
-            setStreamError('Stream connection unavailable');
-            setStreamingStatus('');
-            setLoading(false);
-          }
-          return;
-        }
-
-        // For any other case (readyState 1 - OPEN), this is likely normal completion
-        // The browser fires onerror when the server closes the stream after sending 'complete'
-        console.log('ℹ️ Stream connection closed (data transfer complete)');
         eventSource.close();
-        setStreamingStatus('');
-        setLoading(false);
+
+        // Only retry once on connection failure
+        if (currentRetry === 0 && eventSource.readyState === 0) {
+          console.log('≡ƒöä Retrying connection once...');
+          setRetryCount(1);
+          setTimeout(() => {
+            fetchOptionsFlowStreaming(1);
+          }, 2000);
+        } else {
+          // Don't retry multiple times - just fail gracefully
+          setStreamError('Stream connection unavailable');
+          setStreamingStatus('');
+          setLoading(false);
+          console.log('Γä╣∩╕Å Stream closed, data fetching complete');
+        }
       };
 
     } catch (error) {
@@ -589,7 +588,7 @@ export default function OptionsFlowPage() {
     setLoading(true);
     setStreamError('');
     try {
-      console.log(`📊 Fetching live options flow data...`);
+      console.log(`≡ƒôè Fetching live options flow data...`);
 
       // Map scan categories to appropriate ticker parameter
       let tickerParam = selectedTicker;
@@ -687,17 +686,9 @@ export default function OptionsFlowPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-black text-white pt-12">
       {/* Main Content */}
-      <div className="p-0">
-        <style jsx>{`
-          @media (max-width: 768px) {
-            :global(.main-content) {
-              padding-top: 0 !important;
-              margin-top: -30px !important;
-            }
-          }
-        `}</style>
+      <div className="p-6">
         <OptionsFlowTable
           data={data}
           summary={summary}
