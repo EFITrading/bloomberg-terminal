@@ -46,8 +46,9 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   let ticker = searchParams.get('ticker');
   const timeframe = (searchParams.get('timeframe') || '1D') as '1D' | '3D' | '1W';
+  const skipEnrichment = searchParams.get('skipEnrichment') === 'true';
 
-  console.log(`≡ƒöÑ ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`);
+  console.log(`≡ƒöÑ ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | Skip Enrichment: ${skipEnrichment} | URL: ${request.nextUrl.href}`);
 
   const polygonApiKey = process.env.POLYGON_API_KEY;
 
@@ -200,12 +201,16 @@ export async function GET(request: NextRequest) {
           const afterScanMem = process.memoryUsage();
           console.log(`Γ£à Scan complete: ${finalTrades.length} trades found | Memory: Heap ${Math.round(afterScanMem.heapUsed / 1024 / 1024)}MB / ${Math.round(afterScanMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(afterScanMem.rss / 1024 / 1024)}MB`);
 
-          // ≡ƒÜÇ ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
-          console.log(`≡ƒÜÇ ENRICHING ${finalTrades.length} trades in parallel on backend...`);
-          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-          
-          const afterEnrichMem = process.memoryUsage();
-          console.log(`Γ£à ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched | Memory: Heap ${Math.round(afterEnrichMem.heapUsed / 1024 / 1024)}MB / ${Math.round(afterEnrichMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(afterEnrichMem.rss / 1024 / 1024)}MB`);
+          // ≡ƒÜÇ ENRICH TRADES (optional - can be skipped for speed)
+          if (skipEnrichment) {
+            console.log(`Γåû∩╕Å SKIPPING ENRICHMENT (skipEnrichment=true) for fast scan`);
+          } else {
+            console.log(`≡ƒÜÇ ENRICHING ${finalTrades.length} trades sequentially on backend...`);
+            finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
+            
+            const afterEnrichMem = process.memoryUsage();
+            console.log(`Γ£à ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched | Memory: Heap ${Math.round(afterEnrichMem.heapUsed / 1024 / 1024)}MB / ${Math.round(afterEnrichMem.heapTotal / 1024 / 1024)}MB | RSS ${Math.round(afterEnrichMem.rss / 1024 / 1024)}MB`);
+          }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           console.log(`≡ƒöÑ Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);

@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { OptionsFlowTable } from '@/components/OptionsFlowTable';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -372,6 +372,7 @@ export default function OptionsFlowPage() {
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
   const [memoryUsage, setMemoryUsage] = useState<{ used: number; total: number }>({ used: 0, total: 0 });
   const [memoryStats, setMemoryStats] = useState<{ min: number; max: number; lastValue: number }>({ min: 0, max: 0, lastValue: 0 });
+  const tradeBufferRef = useRef<OptionsFlowData[]>([]);
 
   // Memory tracking during scans
   useEffect(() => {
@@ -428,6 +429,7 @@ export default function OptionsFlowPage() {
   const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
     setLoading(true);
     setStreamError('');
+    tradeBufferRef.current = []; // Clear buffer for new scan
 
     let connectionTimeout: NodeJS.Timeout | null = null;
 
@@ -454,10 +456,15 @@ export default function OptionsFlowPage() {
       // Otherwise use the ticker as-is for individual ticker searches
 
       console.log(`[DEBUG] tickerOverride=${tickerOverride}, selectedTicker=${selectedTicker}, tickerParam=${tickerParam}`);
-      console.log(`[DEBUG] Creating EventSource with URL: /api/stream-options-flow?ticker=${tickerParam}`);
+      
+      // Skip enrichment for MAG7 and ETF scans (too many trades, causes OOM)
+      const skipEnrichment = (tickerOverride === 'MAG7' || tickerOverride === 'ETF');
+      const url = `/api/stream-options-flow?ticker=${encodeURIComponent(tickerParam)}${skipEnrichment ? '&skipEnrichment=true' : ''}`;
+      
+      console.log(`[DEBUG] Creating EventSource with URL: ${url}`);
 
       const scanStartTime = performance.now();
-      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${encodeURIComponent(tickerParam)}`);
+      const eventSource = new EventSource(url);
 
       eventSource.onmessage = (event) => {
         try {
@@ -475,20 +482,12 @@ export default function OptionsFlowPage() {
               break;
 
             case 'trades':
-              // Accumulate trades progressively as they come in (show immediately, enrich later)
+              // Buffer trades without rendering to prevent UI freeze
               if (streamData.trades && streamData.trades.length > 0) {
-                setData(prevData => {
-                  const existingTradeIds = new Set(
-                    prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
-                  );
-                  const newTrades = (streamData.trades as OptionsFlowData[]).filter((trade: OptionsFlowData) => {
-                    const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
-                    return !existingTradeIds.has(tradeId);
-                  });
-                  const newTotal = prevData.length + newTrades.length;
-                  console.log(`[TRADES] +${newTrades.length} | Total: ${newTotal} | Mem: ${memoryUsage.used}MB/${memoryUsage.total}MB`);
-                  return [...prevData, ...newTrades];
-                });
+                // Add to buffer, don't update UI
+                tradeBufferRef.current.push(...(streamData.trades as OptionsFlowData[]));
+                const bufferSize = tradeBufferRef.current.length;
+                console.log(`[BUFFERED] +${streamData.trades.length} | Buffer: ${bufferSize} trades | Mem: ${memoryUsage.used}MB/${memoryUsage.total}MB`);
               }
 
               setStreamingStatus(streamData.status);
@@ -504,7 +503,14 @@ export default function OptionsFlowPage() {
               setIsStreamComplete(true);
               const scanDuration = ((performance.now() - scanStartTime) / 1000).toFixed(2);
               eventSource.close();
+              
+              // Merge buffered trades with final complete trades
+              const bufferedTrades = tradeBufferRef.current;
               const completeTrades = streamData.trades || [];
+              const allTrades = [...bufferedTrades, ...completeTrades];
+              
+              // Clear buffer
+              tradeBufferRef.current = [];
               
               const perf = performance as any;
               const finalMemMB = perf.memory && perf.memory.usedJSHeapSize > 0 
@@ -516,7 +522,7 @@ export default function OptionsFlowPage() {
                 ? ` | Mem: ${memoryStats.min}-${memoryStats.max}MB (Δ${memoryStats.max - memoryStats.min}MB)`
                 : (finalMemMB > 0 ? ` | ${finalMemMB}MB` : '');
               
-              console.log(`[COMPLETE] ${streamData.summary.total_trades} trades | ${scanDuration}s | $${(streamData.summary.total_premium / 1000000).toFixed(1)}M${memoryRange}`);
+              console.log(`[COMPLETE] ${streamData.summary.total_trades} trades (${bufferedTrades.length} buffered + ${completeTrades.length} final) | ${scanDuration}s | $${(streamData.summary.total_premium / 1000000).toFixed(1)}M${memoryRange}`);
               
               // Detailed memory summary
               if (memoryStats.min > 0) {
@@ -539,12 +545,12 @@ export default function OptionsFlowPage() {
               setRetryCount(0);
 
               // ACCUMULATE trades - don't replace, add new ones to existing
-              if (completeTrades.length > 0) {
+              if (allTrades.length > 0) {
                 setData(prevData => {
                   const existingTradeIds = new Set(
                     prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
                   );
-                  const newTrades = completeTrades.filter((trade: OptionsFlowData) => {
+                  const newTrades = allTrades.filter((trade: OptionsFlowData) => {
                     const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
                     return !existingTradeIds.has(tradeId);
                   });

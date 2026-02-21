@@ -19,26 +19,25 @@ class ParallelOptionsFlowProcessor {
     console.log(`≡ƒôè BENCHMARKING: Performance monitoring enabled`);
   }
 
-  // Process tickers in batches of 2 to balance speed and memory
+  // Process tickers in parallel using all workers for maximum speed
   async processTickersInParallel(tickers, optionsFlowService, onProgress, dateRange) {
     // ⏱️ PERFORMANCE: Start overall timing
     const overallStartTime = performance.now();
     const startMem = process.memoryUsage();
-    console.log(`📊 BATCH START: Memory Heap ${(startMem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(startMem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(startMem.rss / 1024 / 1024).toFixed(0)}MB`);
-    console.time('⏱️  TOTAL_BATCH_PROCESSING');
+    console.log(`📊 PARALLEL START: Memory Heap ${(startMem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(startMem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(startMem.rss / 1024 / 1024).toFixed(0)}MB`);
+    console.time('⏱️  TOTAL_PARALLEL_PROCESSING');
 
-    console.log(`⏱️  BATCHED: Processing ${tickers.length} tickers in parallel batches of 2 to balance speed and memory`);
+    console.log(`⏱️  PARALLEL: Processing ${tickers.length} tickers using ${this.numWorkers} workers for maximum speed`);
 
     // ≡ƒÄ» PERFORMANCE: Time batch preparation
     console.time('≡ƒôª BATCH_PREPARATION');
 
-    // BALANCED PROCESSING: Process 2 tickers at a time (memory-efficient + fast enough)
-    const CONCURRENT_WORKERS = 2;
-    const actualWorkers = Math.min(CONCURRENT_WORKERS, tickers.length);
+    // PARALLEL PROCESSING: Use all available workers for speed
+    const actualWorkers = Math.min(this.numWorkers, tickers.length);
     const optimalBatchSize = Math.ceil(tickers.length / actualWorkers);
     const batches = [];
 
-    console.log(`📦 BALANCED DISTRIBUTION: ${tickers.length} tickers ÷ ${actualWorkers} workers = ${optimalBatchSize} tickers per worker`);
+    console.log(`📦 PARALLEL DISTRIBUTION: ${tickers.length} tickers ÷ ${actualWorkers} workers = ${optimalBatchSize} tickers per worker`);
 
     for (let i = 0; i < tickers.length; i += optimalBatchSize) {
       batches.push(tickers.slice(i, i + optimalBatchSize));
@@ -73,9 +72,9 @@ class ParallelOptionsFlowProcessor {
     console.timeEnd('≡ƒöä RESULT_AGGREGATION');
 
     const overallEndTime = performance.now();
-    console.timeEnd('⏱️  TOTAL_BATCH_PROCESSING');
+    console.timeEnd('⏱️  TOTAL_PARALLEL_PROCESSING');
     const endMem = process.memoryUsage();
-    console.log(`📊 BATCH COMPLETE: Memory Heap ${(endMem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(endMem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(endMem.rss / 1024 / 1024).toFixed(0)}MB`);
+    console.log(`📊 PARALLEL COMPLETE: Memory Heap ${(endMem.heapUsed / 1024 / 1024).toFixed(0)}MB / ${(endMem.heapTotal / 1024 / 1024).toFixed(0)}MB | RSS ${(endMem.rss / 1024 / 1024).toFixed(0)}MB`);
     console.log(`📊 MEMORY DELTA: Heap +${((endMem.heapUsed - startMem.heapUsed) / 1024 / 1024).toFixed(0)}MB | RSS +${((endMem.rss - startMem.rss) / 1024 / 1024).toFixed(0)}MB`);
     // ⏱️ PERFORMANCE: Store phase timings in bottlenecks for analysis
     this.benchmarks.bottlenecks.set('PARALLEL_EXECUTION', executionEnd - executionStart);

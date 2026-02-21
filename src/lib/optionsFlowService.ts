@@ -3255,23 +3255,38 @@ export class OptionsFlowService {
   async enrichTradesWithVolOIParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
     if (trades.length === 0) return trades;
 
-    const BATCH_SIZE = 50; // Process 50 trades per API call batch
-    const batches = [];
-
-    for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-      batches.push(trades.slice(i, i + BATCH_SIZE));
+    // Skip trades that already have enrichment data
+    const unenrichedTrades = trades.filter(t => 
+      !t.fill_style || t.fill_style === 'N/A' || !t.volume || !t.open_interest
+    );
+    
+    if (unenrichedTrades.length === 0) {
+      console.log(`≡ƒöì All ${trades.length} trades already enriched, skipping`);
+      return trades;
     }
 
-    console.log(`≡ƒÜÇ PARALLEL ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+    console.log(`≡ƒöì ${unenrichedTrades.length}/${trades.length} trades need enrichment`);
 
-    // Process all batches in parallel
-    const enrichedBatches = await Promise.all(
-      batches.map(async (batch, batchIndex) => {
-        const enrichedTrades = await Promise.all(
-          batch.map(async (trade) => {
-            try {
-              // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
-              const optionTicker = trade.ticker;
+    const BATCH_SIZE = 100; // Process 100 trades per batch (increased from 50)
+    const batches = [];
+
+    for (let i = 0; i < unenrichedTrades.length; i += BATCH_SIZE) {
+      batches.push(unenrichedTrades.slice(i, i + BATCH_SIZE));
+    }
+
+    console.log(`≡ƒÜÇ SEQUENTIAL ENRICHMENT: ${unenrichedTrades.length} trades in ${batches.length} batches (to avoid OOM)`);
+
+    // Process batches SEQUENTIALLY to prevent memory explosion
+    const enrichedBatches: ProcessedTrade[][] = [];
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      
+      const enrichedTrades = await Promise.all(
+        batch.map(async (trade) => {
+          try {
+            // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
+            const optionTicker = trade.ticker;
 
               // STEP 1: Get snapshot for volume/OI (current is fine for these)
               const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
@@ -3376,21 +3391,28 @@ export class OptionsFlowService {
             } catch (error) {
               return trade;
             }
-          })
-        );
+        })
+      );
 
-        if (batchIndex % 10 === 0) {
-          console.log(`≡ƒôª Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
-        }
+      enrichedBatches.push(enrichedTrades);
 
-        return enrichedTrades;
-      })
+      if (batchIndex % 5 === 0 || batchIndex === batches.length - 1) {
+        const memUsage = process.memoryUsage();
+        const progress = Math.round((batchIndex + 1) / batches.length * 100);
+        console.log(`≡ƒôª Enrichment ${progress}% (${batchIndex + 1}/${batches.length} batches) | Heap: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`);
+      }
+    }
+
+    const newlyEnriched = enrichedBatches.flat();
+    console.log(`Γ£à SEQUENTIAL ENRICHMENT COMPLETE: ${newlyEnriched.length} trades enriched`);
+
+    // Merge enriched trades back into original array (preserve already-enriched trades)
+    const enrichedMap = new Map(newlyEnriched.map(t => [t.ticker + t.trade_timestamp, t]));
+    const finalTrades = trades.map(t => 
+      enrichedMap.get(t.ticker + t.trade_timestamp) || t
     );
 
-    const allEnriched = enrichedBatches.flat();
-    console.log(`Γ£à PARALLEL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
-
-    return allEnriched;
+    return finalTrades;
   }
 
   // Enrich trades with historical Vol/OI data
