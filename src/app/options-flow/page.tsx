@@ -453,8 +453,11 @@ export default function OptionsFlowPage() {
       }
       // Otherwise use the ticker as-is for individual ticker searches
 
+      console.log(`[DEBUG] tickerOverride=${tickerOverride}, selectedTicker=${selectedTicker}, tickerParam=${tickerParam}`);
+      console.log(`[DEBUG] Creating EventSource with URL: /api/stream-options-flow?ticker=${tickerParam}`);
+
       const scanStartTime = performance.now();
-      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
+      const eventSource = new EventSource(`/api/stream-options-flow?ticker=${encodeURIComponent(tickerParam)}`);
 
       eventSource.onmessage = (event) => {
         try {
@@ -613,17 +616,9 @@ export default function OptionsFlowPage() {
           }
           
           eventSource.close();
-
-          if (currentRetry === 0) {
-            setRetryCount(1);
-            setTimeout(() => {
-              fetchOptionsFlowStreaming(1);
-            }, 2000);
-          } else {
-            setStreamError('Stream connection unavailable');
-            setStreamingStatus('');
-            setLoading(false);
-          }
+          setStreamError('EventSource connection failed during initial connection');
+          setStreamingStatus('');
+          setLoading(false);
           return;
         }
 
