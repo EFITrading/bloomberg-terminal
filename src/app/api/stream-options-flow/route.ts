@@ -193,11 +193,7 @@ export async function GET(request: NextRequest) {
               { startTimestamp, endTimestamp, currentDate, isLive }
             );
 
-            sendData({ type: 'status', message: `[SERVER] ${t} scan done: ${tickerTrades.length} trades. Enriching...` });
-
-            tickerTrades = await optionsFlowService.enrichTradesWithVolOIParallel(tickerTrades);
-
-            sendData({ type: 'status', message: `[SERVER] ${t} enriched: ${tickerTrades.length} trades. Streaming now...` });
+            sendData({ type: 'status', message: `[SERVER] ${t} scan done: ${tickerTrades.length} trades. Streaming raw trades to browser...` });
 
             // Stream this ticker's trades immediately - client displays them right away
             sendData({

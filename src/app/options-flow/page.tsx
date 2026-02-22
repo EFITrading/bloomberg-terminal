@@ -495,10 +495,22 @@ export default function OptionsFlowPage() {
               setSummary(streamData.summary);
               if (streamData.market_info) setMarketInfo(streamData.market_info);
               setLastUpdate(new Date().toLocaleString());
-              setLoading(false);
               setStreamingProgress(null);
               setStreamError('');
-              setStreamingStatus('');
+              // Stream done - now enrich in browser (separate from scan, avoids server fd exhaustion)
+              setStreamingStatus('Enriching vol/OI & fill style...');
+              setData(rawTrades => {
+                console.log(`[BROWSER] Starting client-side enrichment for ${rawTrades.length} trades`);
+                enrichTradeDataCombined(rawTrades, (partial) => {
+                  setData(partial);
+                }).then(final => {
+                  setData(final);
+                  setLoading(false);
+                  setStreamingStatus('');
+                  console.log(`[BROWSER] Client-side enrichment complete`);
+                });
+                return rawTrades;
+              });
               break;
 
             case 'error':
