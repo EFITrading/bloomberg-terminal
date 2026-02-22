@@ -11,7 +11,7 @@ const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 // [ENRICH] COMBINED ENRICHMENT - Vol/OI + Fill Style in ONE API call
 const enrichTradeDataCombined = async (
   trades: OptionsFlowData[],
-  updateCallback: (results: OptionsFlowData[]) => void
+  updateCallback?: (results: OptionsFlowData[]) => void
 ): Promise<OptionsFlowData[]> => {
   if (trades.length === 0) return trades;
 
@@ -103,7 +103,7 @@ const enrichTradeDataCombined = async (
       }
       return { ...trade, fill_style: fillStyle, volume: cached.volume, open_interest: cached.open_interest };
     });
-    updateCallback(partial);
+    updateCallback?.(partial);
   }
 
   // Step 3: Final apply of full cache to all trades
@@ -407,44 +407,35 @@ export default function OptionsFlowPage() {
       } else if (tickerParam === 'ETF') {
         tickerParam = 'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY';
       }
-      // ALL scan: handled below via chunked SSE loop (20 tickers/chunk, ~14s/ticker for heavy tickers → ~280s < Vercel's 300s limit)
-
+      // ALL scan: one ticker per SSE request — scan, enrich, show, next ticker
       if (isAllScan) {
-        // Loop through 20-ticker chunks sequentially, accumulating trades, until isLastChunk
-        const CHUNK_SIZE = 20;
         let scanOffset = 0;
         let isLastChunk = false;
         let totalSymbols = 0;
 
         try {
           while (!isLastChunk) {
-            const currentChunk = Math.floor(scanOffset / CHUNK_SIZE) + 1;
-            setStreamingStatus(`[ALL Scan] Connecting – chunk ${currentChunk} (tickers ${scanOffset + 1}–${scanOffset + CHUNK_SIZE})...`);
+            // One ticker at a time — well within Vercel's 300s limit
+            const tickerNum = scanOffset + 1;
+            setStreamingStatus(`[ALL Scan] Scanning ticker ${tickerNum}${totalSymbols ? '/' + totalSymbols : ''}...`);
 
-            await new Promise<void>((chunkResolve, chunkReject) => {
-              const chunkUrl = `/api/stream-options-flow?ticker=ALL_EXCLUDE_ETF_MAG7&offset=${scanOffset}&limit=${CHUNK_SIZE}`;
-              const chunkEs = new EventSource(chunkUrl);
+            let tickerTrades: OptionsFlowData[] = [];
 
-              let chunkStallTimeout = setTimeout(() => {
-                chunkEs.close();
-                chunkReject(new Error(`ALL scan chunk at offset ${scanOffset} stalled after 5 minutes`));
+            await new Promise<void>((tickerResolve, tickerReject) => {
+              const tickerUrl = `/api/stream-options-flow?ticker=ALL_EXCLUDE_ETF_MAG7&offset=${scanOffset}&limit=1`;
+              const tickerEs = new EventSource(tickerUrl);
+
+              // 5min hard safety — one ticker should never take this long
+              const safetyTimeout = setTimeout(() => {
+                tickerEs.close();
+                tickerReject(new Error(`Ticker at offset ${scanOffset} timed out after 5 minutes`));
               }, 5 * 60 * 1000);
 
-              const resetStall = () => {
-                clearTimeout(chunkStallTimeout);
-                chunkStallTimeout = setTimeout(() => {
-                  chunkEs.close();
-                  chunkReject(new Error(`ALL scan chunk at offset ${scanOffset} stalled after 5 minutes`));
-                }, 5 * 60 * 1000);
-              };
-
-              chunkEs.onmessage = (event) => {
-                resetStall();
+              tickerEs.onmessage = (event) => {
                 try {
                   const streamData = JSON.parse(event.data);
                   switch (streamData.type) {
                     case 'connected':
-                      setStreamingStatus(`[ALL Scan] Connected – chunk ${currentChunk}...`);
                       setStreamError('');
                       break;
                     case 'status':
@@ -452,43 +443,29 @@ export default function OptionsFlowPage() {
                       break;
                     case 'ticker_complete': {
                       const incoming: OptionsFlowData[] = streamData.trades || [];
-                      if (incoming.length > 0) {
-                        setData(prevData => {
-                          const existingIds = new Set(
-                            prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
-                          );
-                          const newTrades = incoming.filter((t: OptionsFlowData) =>
-                            !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
-                          );
-                          console.log(`[ALL-ACCUM] ${streamData.ticker}: +${newTrades.length} trades`);
-                          return [...prevData, ...newTrades];
-                        });
-                      }
+                      tickerTrades = incoming;
+                      console.log(`[ALL-SCAN] ${streamData.ticker}: ${incoming.length} trades — enriching...`);
                       break;
                     }
                     case 'complete':
-                      clearTimeout(chunkStallTimeout);
+                      clearTimeout(safetyTimeout);
                       isLastChunk = streamData.isLastChunk === true;
                       totalSymbols = streamData.totalSymbols || totalSymbols;
                       setSummary(streamData.summary);
                       if (streamData.market_info) setMarketInfo(streamData.market_info);
                       setLastUpdate(new Date().toLocaleString());
-                      chunkEs.close();
-                      if (!isLastChunk) {
-                        const totalChunks = Math.ceil(totalSymbols / CHUNK_SIZE);
-                        setStreamingStatus(`Chunk ${currentChunk}/${totalChunks} done. Starting next batch...`);
-                      }
-                      chunkResolve();
+                      tickerEs.close();
+                      tickerResolve();
                       break;
                     case 'error':
-                      clearTimeout(chunkStallTimeout);
-                      chunkEs.close();
-                      chunkReject(new Error(streamData.error || 'Stream error'));
+                      clearTimeout(safetyTimeout);
+                      tickerEs.close();
+                      tickerReject(new Error(streamData.error || 'Stream error'));
                       break;
                     case 'close':
-                      clearTimeout(chunkStallTimeout);
-                      chunkEs.close();
-                      chunkResolve();
+                      clearTimeout(safetyTimeout);
+                      tickerEs.close();
+                      tickerResolve();
                       break;
                   }
                 } catch (parseErr) {
@@ -496,30 +473,35 @@ export default function OptionsFlowPage() {
                 }
               };
 
-              chunkEs.onerror = () => {
-                clearTimeout(chunkStallTimeout);
-                chunkEs.close();
-                chunkReject(new Error(`EventSource error on ALL scan chunk at offset ${scanOffset}`));
+              tickerEs.onerror = () => {
+                clearTimeout(safetyTimeout);
+                tickerEs.close();
+                tickerReject(new Error(`EventSource error on ticker at offset ${scanOffset}`));
               };
             });
 
-            scanOffset += CHUNK_SIZE;
+            // Scan done for this ticker — enrich its trades, then add to state
+            if (tickerTrades.length > 0) {
+              setStreamingStatus(`Enriching ${tickerTrades[0]?.underlying_ticker || ''}...`);
+              const enriched = await enrichTradeDataCombined(tickerTrades);
+              setData(prevData => {
+                const existingIds = new Set(
+                  prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                );
+                const newTrades = enriched.filter((t: OptionsFlowData) =>
+                  !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                );
+                return [...prevData, ...newTrades];
+              });
+            }
+
+            scanOffset += 1;
           }
 
-          // All chunks done – enrich accumulated trades
           setIsStreamComplete(true);
-          setStreamingStatus('Enriching vol/OI & fill style...');
-          setData(rawTrades => {
-            enrichTradeDataCombined(rawTrades, (partial) => {
-              setData(partial);
-            }).then(final => {
-              setData(final);
-              setLoading(false);
-              setStreamingStatus('');
-              console.log('[BROWSER] ALL scan enrichment complete');
-            });
-            return rawTrades;
-          });
+          setLoading(false);
+          setStreamingStatus('');
+          console.log('[BROWSER] ALL scan complete');
         } catch (allScanErr) {
           const msg = allScanErr instanceof Error ? allScanErr.message : 'ALL scan failed';
           console.error('[BROWSER] ALL scan error:', msg);
