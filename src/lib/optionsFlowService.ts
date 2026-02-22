@@ -3262,11 +3262,16 @@ export class OptionsFlowService {
       batches.push(trades.slice(i, i + BATCH_SIZE));
     }
 
-    console.log(`[ENRICH] PARALLEL ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+    console.log(`[ENRICH] SEQUENTIAL ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
 
-    // Process all batches in parallel
-    const enrichedBatches = await Promise.all(
-      batches.map(async (batch, batchIndex) => {
+    // Process batches sequentially to avoid fd exhaustion (TIME_WAIT sockets).
+    // Each batch still runs 50 trades in parallel internally, but we never fire
+    // all batches at once (which would create thousands of concurrent connections
+    // and exhaust the OS fd table before the next worker thread can initialize).
+    const enrichedBatchResults: ProcessedTrade[][] = [];
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const batchResult = await (async (batch, batchIndex) => {
         const enrichedTrades = await Promise.all(
           batch.map(async (trade) => {
             try {
@@ -3384,11 +3389,12 @@ export class OptionsFlowService {
         }
 
         return enrichedTrades;
-      })
-    );
+      })(batch, batchIndex);
+      enrichedBatchResults.push(batchResult);
+    }
 
-    const allEnriched = enrichedBatches.flat();
-    console.log(`[OK] PARALLEL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
+    const allEnriched = enrichedBatchResults.flat();
+    console.log(`[OK] SEQUENTIAL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched`);
 
     return allEnriched;
   }
