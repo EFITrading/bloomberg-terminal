@@ -62,7 +62,14 @@ class ParallelOptionsFlowProcessor {
     console.time('[EXEC] PARALLEL_EXECUTION');
     const executionStart = performance.now();
 
-    const results = await Promise.all(promises);
+    // Run workers in groups of 3 max to avoid OOM - all 8 at once kills the process
+    const MAX_CONCURRENT = 3;
+    const results = [];
+    for (let i = 0; i < promises.length; i += MAX_CONCURRENT) {
+      const group = promises.slice(i, i + MAX_CONCURRENT);
+      const groupResults = await Promise.all(group);
+      results.push(...groupResults);
+    }
 
     // Report how many workers completed
     if (onProgress) {

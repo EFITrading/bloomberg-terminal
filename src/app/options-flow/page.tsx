@@ -368,11 +368,10 @@ export default function OptionsFlowPage() {
   const [streamingStatus, setStreamingStatus] = useState<string>('');
   const [streamingProgress, setStreamingProgress] = useState<{ current: number, total: number } | null>(null);
   const [streamError, setStreamError] = useState<string>('');
-  const [retryCount, setRetryCount] = useState<number>(0);
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
 
   // Live options flow fetch
-  const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
+  const fetchOptionsFlowStreaming = async (tickerOverride?: string) => {
     setLoading(true);
     setStreamError('');
     setIsStreamComplete(false); // Reset from any previous scan
@@ -496,7 +495,6 @@ export default function OptionsFlowPage() {
               setLoading(false);
               setStreamingProgress(null);
               setStreamError('');
-              setRetryCount(0);
 
               // ACCUMULATE trades - don't replace, add new ones to existing
               if (completeTrades.length > 0) {
@@ -586,16 +584,9 @@ export default function OptionsFlowPage() {
         if (eventSource.readyState === 0) {
           console.error('[BROWSER] readyState=0 (CONNECTING) - server closed connection without sending complete event (timeout/crash)');
           eventSource.close();
-          if (currentRetry === 0) {
-            console.log('[BROWSER] Retrying once in 2s...');
-            setRetryCount(1);
-            setTimeout(() => { fetchOptionsFlowStreaming(1, tickerParam); }, 2000);
-          } else {
-            console.error('[BROWSER] Retry also failed - giving up');
-            setStreamError('Stream connection unavailable');
-            setStreamingStatus('');
-            setLoading(false);
-          }
+          setStreamError('Stream connection failed');
+          setStreamingStatus('');
+          setLoading(false);
           return;
         }
 
@@ -688,12 +679,9 @@ export default function OptionsFlowPage() {
   // useEffect removed - scan only on explicit user action
 
   const handleRefresh = (tickerOverride?: string) => {
-    // Reset error state and retry count
     setStreamError('');
-    setRetryCount(0);
     setIsStreamComplete(false);
-    // Always refresh with live streaming data
-    fetchOptionsFlowStreaming(0, tickerOverride);
+    fetchOptionsFlowStreaming(tickerOverride);
   };
 
   const handleClearData = () => {
