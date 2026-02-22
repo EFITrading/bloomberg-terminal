@@ -400,16 +400,128 @@ export default function OptionsFlowPage() {
     try {
       // Map scan categories to appropriate ticker parameter
       let tickerParam = tickerOverride || selectedTicker;
+      const isAllScan = tickerParam === 'ALL';
 
       if (tickerParam === 'MAG7') {
         tickerParam = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG';
       } else if (tickerParam === 'ETF') {
         tickerParam = 'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY';
-      } else if (tickerParam === 'ALL') {
-        tickerParam = 'ALL_EXCLUDE_ETF_MAG7'; // Special flag for backend
       }
-      // Otherwise use the ticker as-is for individual ticker searches
+      // ALL scan: handled below via chunked SSE loop (50 tickers/chunk ≈175s each < Vercel's 300s limit)
 
+      if (isAllScan) {
+        // Loop through 50-ticker chunks sequentially, accumulating trades, until isLastChunk
+        const CHUNK_SIZE = 50;
+        let scanOffset = 0;
+        let isLastChunk = false;
+        let totalSymbols = 0;
+
+        try {
+          while (!isLastChunk) {
+            const currentChunk = Math.floor(scanOffset / CHUNK_SIZE) + 1;
+            setStreamingStatus(`[ALL Scan] Connecting – chunk ${currentChunk} (tickers ${scanOffset + 1}–${scanOffset + CHUNK_SIZE})...`);
+
+            await new Promise<void>((chunkResolve, chunkReject) => {
+              const chunkUrl = `/api/stream-options-flow?ticker=ALL_EXCLUDE_ETF_MAG7&offset=${scanOffset}&limit=${CHUNK_SIZE}`;
+              const chunkEs = new EventSource(chunkUrl);
+
+              const chunkStallTimeout = setTimeout(() => {
+                chunkEs.close();
+                chunkReject(new Error(`ALL scan chunk at offset ${scanOffset} stalled after 5 minutes`));
+              }, 5 * 60 * 1000);
+
+              chunkEs.onmessage = (event) => {
+                try {
+                  const streamData = JSON.parse(event.data);
+                  switch (streamData.type) {
+                    case 'connected':
+                      setStreamingStatus(`[ALL Scan] Connected – chunk ${currentChunk}...`);
+                      setStreamError('');
+                      break;
+                    case 'status':
+                      setStreamingStatus(streamData.message);
+                      break;
+                    case 'ticker_complete': {
+                      const incoming: OptionsFlowData[] = streamData.trades || [];
+                      if (incoming.length > 0) {
+                        setData(prevData => {
+                          const existingIds = new Set(
+                            prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                          );
+                          const newTrades = incoming.filter((t: OptionsFlowData) =>
+                            !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                          );
+                          console.log(`[ALL-ACCUM] ${streamData.ticker}: +${newTrades.length} trades`);
+                          return [...prevData, ...newTrades];
+                        });
+                      }
+                      break;
+                    }
+                    case 'complete':
+                      clearTimeout(chunkStallTimeout);
+                      isLastChunk = streamData.isLastChunk === true;
+                      totalSymbols = streamData.totalSymbols || totalSymbols;
+                      setSummary(streamData.summary);
+                      if (streamData.market_info) setMarketInfo(streamData.market_info);
+                      setLastUpdate(new Date().toLocaleString());
+                      chunkEs.close();
+                      if (!isLastChunk) {
+                        const totalChunks = Math.ceil(totalSymbols / CHUNK_SIZE);
+                        setStreamingStatus(`Chunk ${currentChunk}/${totalChunks} done. Starting next batch...`);
+                      }
+                      chunkResolve();
+                      break;
+                    case 'error':
+                      clearTimeout(chunkStallTimeout);
+                      chunkEs.close();
+                      chunkReject(new Error(streamData.error || 'Stream error'));
+                      break;
+                    case 'close':
+                      clearTimeout(chunkStallTimeout);
+                      chunkEs.close();
+                      chunkResolve();
+                      break;
+                  }
+                } catch (parseErr) {
+                  console.error('[BROWSER] Failed to parse ALL-scan SSE message:', parseErr);
+                }
+              };
+
+              chunkEs.onerror = () => {
+                clearTimeout(chunkStallTimeout);
+                chunkEs.close();
+                chunkReject(new Error(`EventSource error on ALL scan chunk at offset ${scanOffset}`));
+              };
+            });
+
+            scanOffset += CHUNK_SIZE;
+          }
+
+          // All chunks done – enrich the accumulated trades in the browser
+          setIsStreamComplete(true);
+          setStreamingStatus('All tickers scanned. Enriching vol/OI & fill style...');
+          setData(rawTrades => {
+            enrichTradeDataCombined(rawTrades, (partial) => {
+              setData(partial);
+            }).then(final => {
+              setData(final);
+              setLoading(false);
+              setStreamingStatus('');
+              console.log('[BROWSER] ALL scan enrichment complete');
+            });
+            return rawTrades;
+          });
+        } catch (allScanErr) {
+          const msg = allScanErr instanceof Error ? allScanErr.message : 'ALL scan failed';
+          console.error('[BROWSER] ALL scan error:', msg);
+          setStreamError(msg);
+          setLoading(false);
+          setStreamingStatus('');
+        }
+        return; // Don't fall through to single-EventSource path
+      }
+
+      // Single-ticker / MAG7 / ETF scan ─────────────────────────────────────
       console.log(`[STREAM] Connecting to EventSource with ticker: ${tickerParam}`);
       console.log(`[BROWSER] Creating EventSource: /api/stream-options-flow?ticker=${tickerParam}`);
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);

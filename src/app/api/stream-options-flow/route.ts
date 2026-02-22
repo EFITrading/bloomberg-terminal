@@ -46,6 +46,9 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   let ticker = searchParams.get('ticker');
   const timeframe = (searchParams.get('timeframe') || '1D') as '1D' | '3D' | '1W';
+  // Chunked ALL scan: browser sends offset+limit to stay within Vercel's 300s limit
+  const chunkOffset = parseInt(searchParams.get('offset') || '0', 10);
+  const chunkLimit = parseInt(searchParams.get('limit') || '50', 10);
 
   console.log(`[ROUTE] ROUTE RECEIVED - Ticker: ${ticker} | Timeframe: ${timeframe} | URL: ${request.nextUrl.href}`);
 
@@ -171,6 +174,9 @@ export async function GET(request: NextRequest) {
         console.log('[INFO] Starting parallel flow scan...');
 
         let finalTrades: any[] = [];
+        // Chunked ALL scan metadata (set inside 1D branch if applicable)
+        let isLastChunk = true;
+        let totalSymbolsForChunk = 0;
 
         if (timeframe === '1D') {
           // Sequential per-ticker: scan → enrich → stream immediately for each ticker
@@ -182,10 +188,13 @@ export async function GET(request: NextRequest) {
             ? ticker.split(',').map((t: string) => t.trim().toUpperCase()).filter(Boolean)
             : [];
 
-          // Expand ALL_EXCLUDE_ETF_MAG7 into the full symbol list for sequential scan
+          // Chunked ALL scan: slice the symbol list to stay within Vercel's 300s limit
           if (tickersToScan.length === 1 && tickersToScan[0] === 'ALL_EXCLUDE_ETF_MAG7') {
-            tickersToScan = optionsFlowService.getTop1000Symbols();
-            sendData({ type: 'status', message: `[SERVER] ALL scan: expanding to ${tickersToScan.length} symbols...` });
+            const allSymbols = optionsFlowService.getTop1000Symbols();
+            totalSymbolsForChunk = allSymbols.length;
+            tickersToScan = allSymbols.slice(chunkOffset, chunkOffset + chunkLimit);
+            isLastChunk = chunkOffset + chunkLimit >= totalSymbolsForChunk;
+            sendData({ type: 'status', message: `[SERVER] ALL scan chunk: tickers ${chunkOffset + 1}-${chunkOffset + tickersToScan.length} of ${totalSymbolsForChunk}...` });
           }
 
           for (const t of tickersToScan) {
@@ -260,6 +269,11 @@ export async function GET(request: NextRequest) {
             data_date: new Date().toISOString().split('T')[0],
             market_open: true
           },
+          // Chunked ALL scan metadata for browser
+          isLastChunk: isLastChunk,
+          totalSymbols: totalSymbolsForChunk,
+          chunkOffset: chunkOffset,
+          chunkLimit: chunkLimit,
           timestamp: new Date().toISOString()
         });
 
