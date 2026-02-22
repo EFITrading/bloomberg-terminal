@@ -434,7 +434,6 @@ export default function OptionsFlowPage() {
             if (r.market_info) setMarketInfo(r.market_info);
           }
 
-          console.log(`[ALL SCAN] complete — ${scannedCount}/${totalSymbols} tickers scanned, ${allTrades.length} raw trades`);
           setLastUpdate(new Date().toLocaleString());
 
           // Enrich everything at once
@@ -447,7 +446,6 @@ export default function OptionsFlowPage() {
           setIsStreamComplete(true);
           setLoading(false);
           setStreamingStatus('');
-          console.log(`[ALL SCAN] Done — ${scannedCount} tickers, ${allTrades.length} trades`);
         } catch (allScanErr) {
           const msg = allScanErr instanceof Error ? allScanErr.message : 'ALL scan failed';
           console.error('[ALL SCAN] Error:', msg);
@@ -653,7 +651,7 @@ export default function OptionsFlowPage() {
           total_trades: 0,
           total_premium: 0,
           unique_symbols: 0,
-          trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0 },
+          trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0, 'MULTI-LEG': 0 },
           call_put_ratio: { calls: 0, puts: 0 },
           processing_time_ms: 0
         });
@@ -666,7 +664,7 @@ export default function OptionsFlowPage() {
         total_trades: 0,
         total_premium: 0,
         unique_symbols: 0,
-        trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0 },
+        trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0, 'MULTI-LEG': 0 },
         call_put_ratio: { calls: 0, puts: 0 },
         processing_time_ms: 0
       });
@@ -691,7 +689,7 @@ export default function OptionsFlowPage() {
       total_trades: 0,
       total_premium: 0,
       unique_symbols: 0,
-      trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0 },
+      trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0, 'MULTI-LEG': 0 },
       call_put_ratio: { calls: 0, puts: 0 },
       processing_time_ms: 0
     });
@@ -720,7 +718,7 @@ export default function OptionsFlowPage() {
           loading={loading}
           onRefresh={handleRefresh}
           onClearData={handleClearData}
-          onDataUpdate={setData}
+          onDataUpdate={(d) => setData(d as OptionsFlowData[])}
           selectedTicker={selectedTicker}
           onTickerChange={setSelectedTicker}
           streamingStatus={streamingStatus}
