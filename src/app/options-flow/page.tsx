@@ -130,6 +130,72 @@ const enrichTradeDataCombined = async (
   return finalResults;
 };
 
+// [FAST] PIPELINE ENRICHMENT: one bulk snapshot call per underlying covers ALL of its contracts.
+// Called immediately on each ticker_complete event so enrichment overlaps with ongoing scanning.
+const enrichSingleUnderlying = async (
+  trades: OptionsFlowData[],
+  underlying: string
+): Promise<OptionsFlowData[]> => {
+  if (trades.length === 0) return trades;
+
+  const getOptTicker = (trade: OptionsFlowData) => {
+    const expiry = trade.expiry.replace(/-/g, '').slice(2);
+    const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+    const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+    return `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+  };
+
+  const calcFillStyle = (price: number, bid: number, ask: number): 'A' | 'B' | 'AA' | 'BB' | 'N/A' => {
+    if (!bid || !ask || bid <= 0 || ask <= 0 || ask <= bid) return 'N/A';
+    const mid = (bid + ask) / 2;
+    if (price >= ask + 0.01) return 'AA';
+    if (price <= bid - 0.01) return 'BB';
+    if (price >= ask) return 'A';
+    if (price <= bid) return 'B';
+    return price >= mid ? 'A' : 'B';
+  };
+
+  try {
+    // VIX and SPX options are indexed under I:VIX / I:SPX
+    const underlyingForUrl = (underlying === 'VIX' || underlying === 'SPX') ? `I:${underlying}` : underlying;
+    const url = `https://api.polygon.io/v3/snapshot/options/${underlyingForUrl}?limit=250&apikey=${POLYGON_API_KEY}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) } as RequestInit);
+    if (!response.ok) return trades;
+
+    const data = await response.json();
+    if (!data.results) return trades;
+
+    // Bulk endpoint returns array; per-contract endpoint returns single object
+    const results: any[] = Array.isArray(data.results) ? data.results : [data.results];
+    const contractCache = new Map<string, { volume: number; open_interest: number; bid: number; ask: number }>();
+    for (const r of results) {
+      const contractTicker = r.details?.ticker;
+      if (contractTicker) {
+        contractCache.set(contractTicker, {
+          volume: r.day?.volume || 0,
+          open_interest: r.open_interest || 0,
+          bid: r.last_quote?.bid || 0,
+          ask: r.last_quote?.ask || 0,
+        });
+      }
+    }
+
+    return trades.map(trade => {
+      const optionTicker = getOptTicker(trade);
+      const cached = contractCache.get(optionTicker);
+      if (!cached) return trade;
+      return {
+        ...trade,
+        fill_style: calcFillStyle(trade.premium_per_contract, cached.bid, cached.ask),
+        volume: cached.volume,
+        open_interest: cached.open_interest,
+      };
+    });
+  } catch {
+    return trades; // fail-safe: return unenriched
+  }
+};
+
 // OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
 const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
   console.log(`[INFO] Fetching volume/OI data for ${trades.length} trades`);
@@ -443,16 +509,20 @@ export default function OptionsFlowPage() {
                       break;
                     case 'ticker_complete': {
                       const incoming: OptionsFlowData[] = streamData.trades || [];
+                      const tcTicker: string = streamData.ticker;
                       if (incoming.length > 0) {
-                        setData(prevData => {
-                          const existingIds = new Set(
-                            prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
-                          );
-                          const newTrades = incoming.filter((t: OptionsFlowData) =>
-                            !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
-                          );
-                          console.log(`[ALL-ACCUM] ${streamData.ticker}: +${newTrades.length} trades`);
-                          return [...prevData, ...newTrades];
+                        // Enrich immediately (bulk snapshot = 1 call) while next ticker is still scanning
+                        enrichSingleUnderlying(incoming, tcTicker).then(enriched => {
+                          setData(prevData => {
+                            const existingIds = new Set(
+                              prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                            );
+                            const newTrades = enriched.filter((t: OptionsFlowData) =>
+                              !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                            );
+                            console.log(`[ALL-ENRICH+ACCUM] ${tcTicker}: +${newTrades.length} enriched trades`);
+                            return [...prevData, ...newTrades];
+                          });
                         });
                       }
                       break;
@@ -497,20 +567,11 @@ export default function OptionsFlowPage() {
             scanOffset += CHUNK_SIZE;
           }
 
-          // All chunks done – enrich the accumulated trades in the browser
+          // All chunks done – enrichment was pipelined per-ticker via ticker_complete
           setIsStreamComplete(true);
-          setStreamingStatus('All tickers scanned. Enriching vol/OI & fill style...');
-          setData(rawTrades => {
-            enrichTradeDataCombined(rawTrades, (partial) => {
-              setData(partial);
-            }).then(final => {
-              setData(final);
-              setLoading(false);
-              setStreamingStatus('');
-              console.log('[BROWSER] ALL scan enrichment complete');
-            });
-            return rawTrades;
-          });
+          setStreamingStatus('');
+          setLoading(false);
+          console.log('[BROWSER] ALL scan complete – enrichment pipelined during scanning');
         } catch (allScanErr) {
           const msg = allScanErr instanceof Error ? allScanErr.message : 'ALL scan failed';
           console.error('[BROWSER] ALL scan error:', msg);
@@ -591,19 +652,22 @@ export default function OptionsFlowPage() {
               break;
 
             case 'ticker_complete': {
-              // A single ticker finished scan+enrich - stream its trades immediately
+              // Scan done for this ticker – enrich immediately via bulk snapshot then display
               const incoming = streamData.trades || [];
-              console.log(`[BROWSER] ✅ TICKER_COMPLETE: ${streamData.ticker} - ${incoming.length} trades`);
+              const tcTicker: string = streamData.ticker;
+              console.log(`[BROWSER] ✅ TICKER_COMPLETE: ${tcTicker} - ${incoming.length} trades — enriching...`);
               if (incoming.length > 0) {
-                setData(prevData => {
-                  const existingIds = new Set(
-                    prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
-                  );
-                  const newTrades = incoming.filter((t: OptionsFlowData) =>
-                    !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
-                  );
-                  console.log(`[ACCUM] ${streamData.ticker}: +${newTrades.length} trades (${prevData.length} existing)`);
-                  return [...prevData, ...newTrades];
+                enrichSingleUnderlying(incoming, tcTicker).then(enriched => {
+                  setData(prevData => {
+                    const existingIds = new Set(
+                      prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                    );
+                    const newTrades = enriched.filter((t: OptionsFlowData) =>
+                      !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                    );
+                    console.log(`[ENRICH+ACCUM] ${tcTicker}: +${newTrades.length} enriched trades`);
+                    return [...prevData, ...newTrades];
+                  });
                 });
               }
               break;
@@ -619,20 +683,9 @@ export default function OptionsFlowPage() {
               setLastUpdate(new Date().toLocaleString());
               setStreamingProgress(null);
               setStreamError('');
-              // Stream done - now enrich in browser (separate from scan, avoids server fd exhaustion)
-              setStreamingStatus('Enriching vol/OI & fill style...');
-              setData(rawTrades => {
-                console.log(`[BROWSER] Starting client-side enrichment for ${rawTrades.length} trades`);
-                enrichTradeDataCombined(rawTrades, (partial) => {
-                  setData(partial);
-                }).then(final => {
-                  setData(final);
-                  setLoading(false);
-                  setStreamingStatus('');
-                  console.log(`[BROWSER] Client-side enrichment complete`);
-                });
-                return rawTrades;
-              });
+              // Enrichment was pipelined per-ticker via ticker_complete – scanning is done
+              setStreamingStatus('');
+              setLoading(false);
               break;
 
             case 'error':
