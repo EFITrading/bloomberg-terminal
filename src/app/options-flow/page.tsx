@@ -15,7 +15,7 @@ const enrichTradeDataCombined = async (
 ): Promise<OptionsFlowData[]> => {
   if (trades.length === 0) return trades;
 
-  const BATCH_SIZE = 500; // Massive batch size for maximum throughput
+  const BATCH_SIZE = 25; // 25 concurrent requests - Chrome connection limit safe
   const BATCH_DELAY = 0; // Zero delay
   const REQUEST_DELAY = 0; // Zero stagger - full parallel blast
   const batches = [];
@@ -33,7 +33,7 @@ const enrichTradeDataCombined = async (
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
 
-    if (batchIndex % 20 === 0) { // Log every 20th batch instead of every 10th
+    if (batchIndex % 50 === 0) { // Log every 50th batch
       console.log(`[BATCH] Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex / batches.length) * 100)}%)`);
     }
 
