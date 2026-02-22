@@ -367,26 +367,24 @@ export default function OptionsFlowPage() {
       } else if (tickerParam === 'ETF') {
         tickerParam = 'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY';
       }
-      // ALL scan: 10 parallel SSEs × 10 tickers each = 100 tickers per round
+      // ALL scan: fire all SSEs simultaneously in one shot — no while loop
+      // 70 SSEs × 10 tickers = covers up to 700 symbols; extras beyond totalSymbols resolve instantly
       if (isAllScan) {
-        const BATCH = 10;        // tickers per SSE
-        const PARALLEL = 10;     // simultaneous SSEs per round
-        let scanOffset = 0;
-        let allDone = false;
+        const BATCH = 10;
+        const MAX_SSE = 70; // ceil(700/10) — covers any realistic symbol list
         let totalSymbols = 0;
         let scannedCount = 0;
 
-        // Opens one SSE and resolves with its trades + metadata (never rejects — failures resolve empty)
-        const openSSE = (offset: number): Promise<{ trades: OptionsFlowData[]; isLast: boolean; total: number; summary: any; market_info: any }> =>
+        // Opens one SSE, resolves with trades + metadata, never rejects
+        const openSSE = (offset: number): Promise<{ trades: OptionsFlowData[]; total: number; summary: any; market_info: any }> =>
           new Promise((resolve) => {
             const trades: OptionsFlowData[] = [];
-            let isLast = false;
             let total = 0;
             let summary: any = null;
             let market_info: any = null;
 
             const es = new EventSource(`/api/stream-options-flow?ticker=ALL_EXCLUDE_ETF_MAG7&offset=${offset}&limit=${BATCH}`);
-            const timeout = setTimeout(() => { es.close(); resolve({ trades, isLast, total, summary, market_info }); }, 5 * 60 * 1000);
+            const timeout = setTimeout(() => { es.close(); resolve({ trades, total, summary, market_info }); }, 5 * 60 * 1000);
 
             es.onmessage = (event) => {
               try {
@@ -401,73 +399,55 @@ export default function OptionsFlowPage() {
                   }
                   case 'complete':
                     clearTimeout(timeout);
-                    isLast = d.isLastChunk === true;
                     total = d.totalSymbols || 0;
                     summary = d.summary || null;
                     market_info = d.market_info || null;
                     es.close();
-                    resolve({ trades, isLast, total, summary, market_info });
+                    resolve({ trades, total, summary, market_info });
                     break;
                   case 'error':
                   case 'close':
                     clearTimeout(timeout);
                     es.close();
-                    resolve({ trades, isLast, total, summary, market_info });
+                    resolve({ trades, total, summary, market_info });
                     break;
                 }
               } catch { /* ignore parse errors */ }
             };
 
-            es.onerror = () => { clearTimeout(timeout); es.close(); resolve({ trades, isLast, total, summary, market_info }); };
+            es.onerror = () => { clearTimeout(timeout); es.close(); resolve({ trades, total, summary, market_info }); };
           });
 
         try {
-          while (!allDone) {
-            // Build offsets for this round — skip any beyond totalSymbols once we know it
-            const offsets: number[] = [];
-            for (let i = 0; i < PARALLEL; i++) {
-              const off = scanOffset + i * BATCH;
-              if (totalSymbols > 0 && off >= totalSymbols) break;
-              offsets.push(off);
-            }
-            if (offsets.length === 0) break;
+          setStreamingStatus(`[ALL Scan] Scanning all tickers simultaneously...`);
 
-            setStreamingStatus(`[ALL Scan] Scanning tickers ${scanOffset + 1}–${scanOffset + offsets.length * BATCH}${totalSymbols ? ' of ' + totalSymbols : ''}...`);
+          // Fire all 70 SSEs at once — one shot, no rounds
+          const offsets = Array.from({ length: MAX_SSE }, (_, i) => i * BATCH);
+          const results = await Promise.all(offsets.map(off => openSSE(off)));
 
-            // Fire all SSEs simultaneously
-            const results = await Promise.all(offsets.map(off => openSSE(off)));
+          // Collect everything
+          const allTrades: OptionsFlowData[] = [];
+          for (const r of results) {
+            allTrades.push(...r.trades);
+            if (r.total > 0) totalSymbols = r.total;
+            if (r.summary) setSummary(r.summary);
+            if (r.market_info) setMarketInfo(r.market_info);
+          }
 
-            // Collect trades + metadata from all SSEs in this round
-            const roundTrades: OptionsFlowData[] = [];
-            for (const r of results) {
-              roundTrades.push(...r.trades);
-              if (r.total > 0) totalSymbols = r.total;
-              if (r.isLast) allDone = true;
-              if (r.summary) setSummary(r.summary);
-              if (r.market_info) setMarketInfo(r.market_info);
-            }
+          console.log(`[ALL SCAN] complete — ${scannedCount}/${totalSymbols} tickers scanned, ${allTrades.length} raw trades`);
+          setLastUpdate(new Date().toLocaleString());
 
-            // Safety: if we've advanced past totalSymbols we're done
-            if (totalSymbols > 0 && scanOffset + offsets.length * BATCH >= totalSymbols) allDone = true;
-
-            // Enrich all trades from this round together, then append
-            if (roundTrades.length > 0) {
-              setStreamingStatus(`Enriching ${roundTrades.length} trades...`);
-              const enriched = await enrichTradeDataCombined(roundTrades);
-              setData(prevData => {
-                const existingIds = new Set(prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`));
-                return [...prevData, ...enriched.filter((t: OptionsFlowData) => !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`))];
-              });
-            }
-
-            setLastUpdate(new Date().toLocaleString());
-            scanOffset += PARALLEL * BATCH;
+          // Enrich everything at once
+          if (allTrades.length > 0) {
+            setStreamingStatus(`Enriching ${allTrades.length} trades...`);
+            const enriched = await enrichTradeDataCombined(allTrades);
+            setData(enriched);
           }
 
           setIsStreamComplete(true);
           setLoading(false);
           setStreamingStatus('');
-          console.log(`[ALL SCAN] Complete — ${scannedCount} tickers scanned`);
+          console.log(`[ALL SCAN] Done — ${scannedCount} tickers, ${allTrades.length} trades`);
         } catch (allScanErr) {
           const msg = allScanErr instanceof Error ? allScanErr.message : 'ALL scan failed';
           console.error('[ALL SCAN] Error:', msg);
