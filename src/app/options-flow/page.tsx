@@ -397,7 +397,7 @@ export default function OptionsFlowPage() {
       }
       // ALL scan: 5 tickers per SSE request — scan 5, enrich all 5 together, show, next 5
       if (isAllScan) {
-        const BATCH = 50;
+        const BATCH = 25;
         let scanOffset = 0;
         let isLastChunk = false;
         let totalSymbols = 0;
