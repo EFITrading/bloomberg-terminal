@@ -210,6 +210,10 @@ export async function GET(request: NextRequest) {
 
             finalTrades.push(...tickerTrades);
             sendData({ type: 'status', message: `[SERVER] ${t} done. Running total: ${finalTrades.length} trades.` });
+
+            // Wait 500ms between tickers - lets OS reclaim file descriptors from
+            // the previous worker's HTTP connections (prevents EMFILE on ticker 3+)
+            await new Promise(resolve => setTimeout(resolve, 500));
           }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
