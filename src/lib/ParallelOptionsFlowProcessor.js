@@ -4,7 +4,7 @@ const path = require('path');
 
 class ParallelOptionsFlowProcessor {
   constructor() {
-    this.numWorkers = Math.min(os.cpus().length * 4, 64); // Use 4x cores up to 64 workers for maximum I/O parallelization
+    this.numWorkers = 25; // I/O bound (network), not CPU bound — 25 parallel workers is safe
 
     // [PERF] PERFORMANCE: Initialize benchmarking system
     this.benchmarks = {
@@ -30,9 +30,9 @@ class ParallelOptionsFlowProcessor {
     // [PERF] PERFORMANCE: Time batch preparation
     console.time('[BATCH] BATCH_PREPARATION');
 
-    // OPTIMIZED: Distribute tickers evenly across ALL available workers
-    const actualWorkers = Math.min(this.numWorkers, tickers.length);
-    const optimalBatchSize = Math.ceil(tickers.length / actualWorkers);
+    // One worker per ticker for maximum parallelism (I/O bound)
+    const actualWorkers = Math.min(tickers.length, this.numWorkers);
+    const optimalBatchSize = 1; // One ticker per worker
     const batches = [];
 
     console.log(`[BATCH] OPTIMAL DISTRIBUTION: ${tickers.length} tickers / ${actualWorkers} workers = ${optimalBatchSize} tickers per worker`);
@@ -62,8 +62,8 @@ class ParallelOptionsFlowProcessor {
     console.time('[EXEC] PARALLEL_EXECUTION');
     const executionStart = performance.now();
 
-    // Run workers in groups of 3 max to avoid OOM - all 8 at once kills the process
-    const MAX_CONCURRENT = 3;
+    // Run all workers simultaneously - I/O bound so CPU count doesn't limit us
+    const MAX_CONCURRENT = promises.length;
     const results = [];
     for (let i = 0; i < promises.length; i += MAX_CONCURRENT) {
       const group = promises.slice(i, i + MAX_CONCURRENT);

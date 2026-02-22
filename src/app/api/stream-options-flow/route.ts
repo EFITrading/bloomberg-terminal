@@ -197,33 +197,58 @@ export async function GET(request: NextRequest) {
             sendData({ type: 'status', message: `[SERVER] ALL scan chunk: tickers ${chunkOffset + 1}-${chunkOffset + tickersToScan.length} of ${totalSymbolsForChunk}...` });
           }
 
-          for (const t of tickersToScan) {
-            if (!streamState.isActive) break;
+          if (tickersToScan.length > 1) {
+            // PARALLEL: scan all tickers simultaneously via parallel workers, then stream results per ticker
+            sendData({ type: 'status', message: `[SERVER] Scanning ${tickersToScan.length} tickers in parallel...` });
 
-            sendData({ type: 'status', message: `[SERVER] Scanning ${t}...` });
-
-            let tickerTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
-              t,
+            const allTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
+              tickersToScan.join(','),
               streamingCallback,
               { startTimestamp, endTimestamp, currentDate, isLive }
             );
 
-            sendData({ type: 'status', message: `[SERVER] ${t} scan done: ${tickerTrades.length} trades. Streaming raw trades to browser...` });
+            // Group classified/filtered trades by ticker and stream each ticker's results
+            const tradesByTicker = new Map<string, any[]>();
+            for (const trade of allTrades) {
+              const t = trade.underlying_ticker || trade.ticker;
+              if (!tradesByTicker.has(t)) tradesByTicker.set(t, []);
+              tradesByTicker.get(t)!.push(trade);
+            }
 
-            // Stream this ticker's trades immediately - client displays them right away
-            sendData({
-              type: 'ticker_complete',
-              ticker: t,
-              trades: tickerTrades,
-              count: tickerTrades.length,
-              timestamp: new Date().toISOString()
-            });
+            for (const [t, trades] of tradesByTicker) {
+              sendData({
+                type: 'ticker_complete',
+                ticker: t,
+                trades,
+                count: trades.length,
+                timestamp: new Date().toISOString()
+              });
+            }
 
-            finalTrades.push(...tickerTrades);
-            sendData({ type: 'status', message: `[SERVER] ${t} done. Running total: ${finalTrades.length} trades.` });
+            finalTrades = allTrades;
+          } else {
+            // Single ticker path
+            for (const t of tickersToScan) {
+              if (!streamState.isActive) break;
 
-            // Wait 50ms between tickers - enough for OS to reclaim file descriptors
-            await new Promise(resolve => setTimeout(resolve, 50));
+              sendData({ type: 'status', message: `[SERVER] Scanning ${t}...` });
+
+              const tickerTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
+                t,
+                streamingCallback,
+                { startTimestamp, endTimestamp, currentDate, isLive }
+              );
+
+              sendData({
+                type: 'ticker_complete',
+                ticker: t,
+                trades: tickerTrades,
+                count: tickerTrades.length,
+                timestamp: new Date().toISOString()
+              });
+
+              finalTrades.push(...tickerTrades);
+            }
           }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
