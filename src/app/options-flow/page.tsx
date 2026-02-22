@@ -397,7 +397,7 @@ export default function OptionsFlowPage() {
       }
       // ALL scan: 5 tickers per SSE request — scan 5, enrich all 5 together, show, next 5
       if (isAllScan) {
-        const BATCH = 25;
+        const BATCH = 10;
         let scanOffset = 0;
         let isLastChunk = false;
         let totalSymbols = 0;
@@ -440,6 +440,7 @@ export default function OptionsFlowPage() {
                       clearTimeout(safetyTimeout);
                       isLastChunk = streamData.isLastChunk === true;
                       totalSymbols = streamData.totalSymbols || totalSymbols;
+                      console.log(`[ALL SCAN] complete received: isLastChunk=${isLastChunk}, totalSymbols=${totalSymbols}, scannedCount=${scannedCount}, batchTrades=${batchTrades.length}`);
                       setSummary(streamData.summary);
                       if (streamData.market_info) setMarketInfo(streamData.market_info);
                       setLastUpdate(new Date().toLocaleString());
@@ -462,9 +463,10 @@ export default function OptionsFlowPage() {
                 }
               };
 
-              batchEs.onerror = () => {
+              batchEs.onerror = (e) => {
                 clearTimeout(safetyTimeout);
                 batchEs.close();
+                console.error(`[ALL SCAN] onerror fired at offset=${scanOffset}, scannedCount=${scannedCount}, batchTrades.length=${batchTrades.length}, isLastChunk=${isLastChunk}, readyState=${batchEs.readyState}, event=`, e);
                 batchReject(new Error(`EventSource error on batch at offset ${scanOffset}`));
               };
             });

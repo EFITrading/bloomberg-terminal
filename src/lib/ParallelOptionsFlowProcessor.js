@@ -4,7 +4,7 @@ const path = require('path');
 
 class ParallelOptionsFlowProcessor {
   constructor() {
-    this.numWorkers = 25; // I/O bound (network), not CPU bound — 25 parallel workers is safe
+    this.numWorkers = 10; // I/O bound (network), not CPU bound — 10 parallel workers is safe
 
     // [PERF] PERFORMANCE: Initialize benchmarking system
     this.benchmarks = {
