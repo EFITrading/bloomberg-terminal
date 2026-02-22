@@ -20,7 +20,8 @@ const enrichTradeDataCombined = async (
     const expiry = trade.expiry.replace(/-/g, '').slice(2);
     const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
     const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-    return `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+    const tickerSymbol = trade.underlying_ticker.replace(/\./g, '');
+    return `O:${tickerSymbol}${expiry}${optionType}${strikeFormatted}`;
   };
 
   // Step 1: Deduplicate - collect unique option tickers
