@@ -39,7 +39,7 @@ const enrichTradeDataCombined = async (
     batches.push(uniqueTickers.slice(i, i + BATCH_SIZE));
   }
 
-  console.log(`[ENRICH] ${trades.length} trades → ${uniqueTickers.length} unique contracts → ${batches.length} batches of ${BATCH_SIZE}`);
+
 
   // Step 2: Fetch unique contracts and cache results
   type ContractData = { volume: number; open_interest: number; bid: number; ask: number } | null;
@@ -49,10 +49,6 @@ const enrichTradeDataCombined = async (
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
-    if (batchIndex % 5 === 0) {
-      console.log(`[BATCH] Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex / batches.length) * 100)}%)`);
-    }
-
     await Promise.all(
       batch.map(async ([optionTicker, { underlying }]) => {
         try {
@@ -126,14 +122,12 @@ const enrichTradeDataCombined = async (
     return { ...trade, fill_style: fillStyle, volume: cached.volume, open_interest: cached.open_interest };
   });
 
-  console.log(`[OK] Enrichment complete: ${trades.length} trades from ${uniqueTickers.length} unique contracts (${successCount} fetched, ${failCount} failed)`);
+
   return finalResults;
 };
 
 // OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
 const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
-  console.log(`[INFO] Fetching volume/OI data for ${trades.length} trades`);
-
   // Group trades by underlying ticker to minimize API calls
   const tradesByUnderlying = trades.reduce((acc, trade) => {
     const underlying = trade.underlying_ticker;
@@ -149,8 +143,6 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
   // Process each underlying separately
   for (const [underlying, underlyingTrades] of Object.entries(tradesByUnderlying)) {
     try {
-      console.log(`[INFO] Fetching option chain for ${underlying} (${underlyingTrades.length} trades)`);
-
       // Get unique expiration dates
       const uniqueExpirations = [...new Set(underlyingTrades.map(t => t.expiry))];
 
@@ -178,8 +170,6 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
           }
         }
       }
-
-      console.log(`[OK] Total contracts loaded for ${underlying}: ${allContracts.size}`);
 
       if (allContracts.size === 0) {
         updatedTrades.push(...underlyingTrades.map(trade => ({
@@ -240,8 +230,6 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
 
 // FILL STYLE ENRICHMENT - Same as AlgoFlow
 const analyzeBidAskExecution = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
-  console.log(`[FILL] FILL STYLE ANALYSIS: Fetching quotes for ${trades.length} trades`);
-
   if (trades.length === 0) return trades;
 
   const tradesWithFillStyle: OptionsFlowData[] = [];
@@ -389,7 +377,7 @@ export default function OptionsFlowPage() {
     let connectionTimeout: NodeJS.Timeout | null = null;
 
     try {
-      console.log(` Fetching live streaming options flow data...`);
+
       // Keep existing trades and add new ones as they stream in
 
     } catch (dbError) {
@@ -407,31 +395,31 @@ export default function OptionsFlowPage() {
       } else if (tickerParam === 'ETF') {
         tickerParam = 'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY';
       }
-      // ALL scan: one ticker per SSE request — scan, enrich, show, next ticker
+      // ALL scan: 5 tickers per SSE request — scan 5, enrich all 5 together, show, next 5
       if (isAllScan) {
+        const BATCH = 5;
         let scanOffset = 0;
         let isLastChunk = false;
         let totalSymbols = 0;
+        let scannedCount = 0;
 
         try {
           while (!isLastChunk) {
-            // One ticker at a time — well within Vercel's 300s limit
-            const tickerNum = scanOffset + 1;
-            setStreamingStatus(`[ALL Scan] Scanning ticker ${tickerNum}${totalSymbols ? '/' + totalSymbols : ''}...`);
+            setStreamingStatus(`[ALL Scan] Scanning tickers ${scanOffset + 1}–${scanOffset + BATCH}${totalSymbols ? ' of ' + totalSymbols : ''}...`);
 
-            let tickerTrades: OptionsFlowData[] = [];
+            const batchTrades: OptionsFlowData[] = [];
 
-            await new Promise<void>((tickerResolve, tickerReject) => {
-              const tickerUrl = `/api/stream-options-flow?ticker=ALL_EXCLUDE_ETF_MAG7&offset=${scanOffset}&limit=1`;
-              const tickerEs = new EventSource(tickerUrl);
+            await new Promise<void>((batchResolve, batchReject) => {
+              const batchUrl = `/api/stream-options-flow?ticker=ALL_EXCLUDE_ETF_MAG7&offset=${scanOffset}&limit=${BATCH}`;
+              const batchEs = new EventSource(batchUrl);
 
-              // 5min hard safety — one ticker should never take this long
+              // 5min hard safety — 5 tickers should never take this long
               const safetyTimeout = setTimeout(() => {
-                tickerEs.close();
-                tickerReject(new Error(`Ticker at offset ${scanOffset} timed out after 5 minutes`));
+                batchEs.close();
+                batchReject(new Error(`Batch at offset ${scanOffset} timed out after 5 minutes`));
               }, 5 * 60 * 1000);
 
-              tickerEs.onmessage = (event) => {
+              batchEs.onmessage = (event) => {
                 try {
                   const streamData = JSON.parse(event.data);
                   switch (streamData.type) {
@@ -443,8 +431,9 @@ export default function OptionsFlowPage() {
                       break;
                     case 'ticker_complete': {
                       const incoming: OptionsFlowData[] = streamData.trades || [];
-                      tickerTrades = incoming;
-                      console.log(`[ALL-SCAN] ${streamData.ticker}: ${incoming.length} trades — enriching...`);
+                      batchTrades.push(...incoming);
+                      scannedCount++;
+                      console.log(`[ALL SCAN] ${scannedCount}${totalSymbols ? '/' + totalSymbols : ''} tickers scanned — ${streamData.ticker}: ${incoming.length} trades`);
                       break;
                     }
                     case 'complete':
@@ -454,36 +443,36 @@ export default function OptionsFlowPage() {
                       setSummary(streamData.summary);
                       if (streamData.market_info) setMarketInfo(streamData.market_info);
                       setLastUpdate(new Date().toLocaleString());
-                      tickerEs.close();
-                      tickerResolve();
+                      batchEs.close();
+                      batchResolve();
                       break;
                     case 'error':
                       clearTimeout(safetyTimeout);
-                      tickerEs.close();
-                      tickerReject(new Error(streamData.error || 'Stream error'));
+                      batchEs.close();
+                      batchReject(new Error(streamData.error || 'Stream error'));
                       break;
                     case 'close':
                       clearTimeout(safetyTimeout);
-                      tickerEs.close();
-                      tickerResolve();
+                      batchEs.close();
+                      batchResolve();
                       break;
                   }
                 } catch (parseErr) {
-                  console.error('[BROWSER] Failed to parse ALL-scan SSE message:', parseErr);
+                  console.error('[ALL SCAN] Failed to parse SSE message:', parseErr);
                 }
               };
 
-              tickerEs.onerror = () => {
+              batchEs.onerror = () => {
                 clearTimeout(safetyTimeout);
-                tickerEs.close();
-                tickerReject(new Error(`EventSource error on ticker at offset ${scanOffset}`));
+                batchEs.close();
+                batchReject(new Error(`EventSource error on batch at offset ${scanOffset}`));
               };
             });
 
-            // Scan done for this ticker — enrich its trades, then add to state
-            if (tickerTrades.length > 0) {
-              setStreamingStatus(`Enriching ${tickerTrades[0]?.underlying_ticker || ''}...`);
-              const enriched = await enrichTradeDataCombined(tickerTrades);
+            // Batch scan done — enrich all 5 tickers together, then add to state
+            if (batchTrades.length > 0) {
+              setStreamingStatus(`Enriching batch ${scanOffset / BATCH + 1}...`);
+              const enriched = await enrichTradeDataCombined(batchTrades);
               setData(prevData => {
                 const existingIds = new Set(
                   prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
@@ -495,16 +484,16 @@ export default function OptionsFlowPage() {
               });
             }
 
-            scanOffset += 1;
+            scanOffset += BATCH;
           }
 
           setIsStreamComplete(true);
           setLoading(false);
           setStreamingStatus('');
-          console.log('[BROWSER] ALL scan complete');
+          console.log(`[ALL SCAN] Complete — ${scannedCount} tickers scanned`);
         } catch (allScanErr) {
           const msg = allScanErr instanceof Error ? allScanErr.message : 'ALL scan failed';
-          console.error('[BROWSER] ALL scan error:', msg);
+          console.error('[ALL SCAN] Error:', msg);
           setStreamError(msg);
           setLoading(false);
           setStreamingStatus('');
@@ -513,21 +502,13 @@ export default function OptionsFlowPage() {
       }
 
       // Single-ticker / MAG7 / ETF scan ─────────────────────────────────────
-      console.log(`[STREAM] Connecting to EventSource with ticker: ${tickerParam}`);
-      console.log(`[BROWSER] Creating EventSource: /api/stream-options-flow?ticker=${tickerParam}`);
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
-      console.log(`[BROWSER] EventSource created - initial readyState: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
 
-      eventSource.onopen = () => {
-        console.log(`[BROWSER] ✅ EventSource OPENED - readyState: ${eventSource.readyState}`);
-      };
+      eventSource.onopen = () => {};
 
       // Timeout: if no 'complete' or 'error' within 5 min, something stalled
       const stallTimeout = setTimeout(() => {
-        console.error(`[BROWSER] ❌ STALL DETECTED: No completion after 5 minutes!`);
-        console.error(`[BROWSER] Current readyState: ${eventSource.readyState}`);
-        console.error(`[BROWSER] isStreamComplete: ${isStreamComplete}`);
-        console.error(`[BROWSER] Current loading state is stuck - closing stream`);
+        console.error('[STREAM] Stall detected — no completion after 5 minutes');
         eventSource.close();
         setStreamError('Scan timed out after 5 minutes');
         setStreamingStatus('');
@@ -537,41 +518,30 @@ export default function OptionsFlowPage() {
       eventSource.onmessage = (event) => {
         try {
           const streamData = JSON.parse(event.data);
-          console.log(`[BROWSER] 📨 Message received - type: "${streamData.type}"`);
 
           switch (streamData.type) {
             case 'connected':
-              console.log(`[BROWSER] ✅ CONNECTED - ${streamData.message}`);
               setStreamingStatus('Connected - scanning options flow...');
               setStreamError('');
               break;
 
             case 'status':
-              console.log(`[BROWSER] 📊 STATUS: ${streamData.message}`);
               setStreamingStatus(streamData.message);
               break;
 
             case 'trades':
-              // Accumulate trades progressively as they come in (show immediately, enrich later)
               if (streamData.trades && streamData.trades.length > 0) {
                 setData(prevData => {
-                  // Create a Set of existing trade identifiers to avoid duplicates
                   const existingTradeIds = new Set(
                     prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
                   );
-
-                  // Only add truly new trades
                   const newTrades = (streamData.trades as OptionsFlowData[]).filter((trade: OptionsFlowData) => {
                     const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
                     return !existingTradeIds.has(tradeId);
                   });
-
-                  console.log(` Stream Update: Adding ${newTrades.length} NEW trades (${streamData.trades.length} sent, ${prevData.length} existing)`);
-
                   return [...prevData, ...newTrades];
                 });
               }
-
               setStreamingStatus(streamData.status);
               if (streamData.progress) {
                 setStreamingProgress({
@@ -582,9 +552,7 @@ export default function OptionsFlowPage() {
               break;
 
             case 'ticker_complete': {
-              // A single ticker finished scan - stream its trades immediately
               const incoming = streamData.trades || [];
-              console.log(`[BROWSER] ✅ TICKER_COMPLETE: ${streamData.ticker} - ${incoming.length} trades`);
               if (incoming.length > 0) {
                 setData(prevData => {
                   const existingIds = new Set(
@@ -593,7 +561,6 @@ export default function OptionsFlowPage() {
                   const newTrades = incoming.filter((t: OptionsFlowData) =>
                     !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
                   );
-                  console.log(`[ACCUM] ${streamData.ticker}: +${newTrades.length} trades (${prevData.length} existing)`);
                   return [...prevData, ...newTrades];
                 });
               }
@@ -601,7 +568,6 @@ export default function OptionsFlowPage() {
             }
 
             case 'complete':
-              console.log(`[BROWSER] ✅ COMPLETE - all tickers done. Summary:`, streamData.summary);
               clearTimeout(stallTimeout);
               setIsStreamComplete(true);
               eventSource.close();
@@ -610,24 +576,21 @@ export default function OptionsFlowPage() {
               setLastUpdate(new Date().toLocaleString());
               setStreamingProgress(null);
               setStreamError('');
-              // Stream done - now enrich in browser
               setStreamingStatus('Enriching vol/OI & fill style...');
               setData(rawTrades => {
-                console.log(`[BROWSER] Starting client-side enrichment for ${rawTrades.length} trades`);
                 enrichTradeDataCombined(rawTrades, (partial) => {
                   setData(partial);
                 }).then(final => {
                   setData(final);
                   setLoading(false);
                   setStreamingStatus('');
-                  console.log(`[BROWSER] Client-side enrichment complete`);
                 });
                 return rawTrades;
               });
               break;
 
             case 'error':
-              console.error(`[BROWSER] ❌ ERROR event from server: ${streamData.error}`);
+              console.error(`[STREAM] Server error: ${streamData.error}`);
               clearTimeout(stallTimeout);
               setStreamError(streamData.error || 'Stream error occurred');
               setLoading(false);
@@ -635,52 +598,40 @@ export default function OptionsFlowPage() {
               break;
 
             case 'close':
-              console.log(`[BROWSER] 🔒 CLOSE event from server: ${streamData.message}`);
               clearTimeout(stallTimeout);
               setIsStreamComplete(true);
               eventSource.close();
               break;
 
             case 'heartbeat':
-              console.log(`[BROWSER] 💓 heartbeat received - still alive`);
               break;
 
             default:
-              console.warn(`[BROWSER] ⚠️ Unknown message type: "${streamData.type}"`, streamData);
+              console.warn(`[STREAM] Unknown message type: "${streamData.type}"`);
           }
         } catch (parseError) {
-          console.error('[BROWSER] ❌ Failed to parse message:', parseError);
-          console.error('[BROWSER] Raw event data:', event.data?.substring(0, 300));
+          console.error('[STREAM] Failed to parse message:', parseError);
         }
       };
 
       eventSource.onerror = (error) => {
-        console.error(`[BROWSER] ⚠️ onerror fired - readyState: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
-        console.error(`[BROWSER] isStreamComplete at time of error: ${isStreamComplete}`);
-        console.error(`[BROWSER] Error object:`, error);
-
-        // Clear the stall timeout
         clearTimeout(stallTimeout);
 
-        // Don't process errors if stream already completed successfully
         if (isStreamComplete) {
-          console.log('[BROWSER] Stream was already complete - this onerror is expected after close');
           eventSource.close();
           return;
         }
 
-        // readyState 2 = CLOSED: normal close after complete
         if (eventSource.readyState === 2) {
-          console.log('[BROWSER] readyState=2 (CLOSED) - stream closed normally');
           eventSource.close();
           setStreamingStatus('');
           setLoading(false);
           return;
         }
 
-        // readyState 0 = CONNECTING: failed to connect at all
+        console.error('[STREAM] onerror fired:', error);
+
         if (eventSource.readyState === 0) {
-          console.error('[BROWSER] readyState=0 (CONNECTING) - server closed connection without sending complete event (timeout/crash)');
           eventSource.close();
           setStreamError('Stream connection failed');
           setStreamingStatus('');
@@ -688,8 +639,6 @@ export default function OptionsFlowPage() {
           return;
         }
 
-        // readyState 1 = OPEN: server closed stream after sending data (normal)
-        console.log('[BROWSER] readyState=1 (OPEN) - server closed stream, treating as complete');
         eventSource.close();
         setStreamingStatus('');
         setLoading(false);
@@ -707,8 +656,6 @@ export default function OptionsFlowPage() {
     setLoading(true);
     setStreamError('');
     try {
-      console.log(`[INFO] Fetching live options flow data...`);
-
       // Map scan categories to appropriate ticker parameter
       let tickerParam = selectedTicker;
       if (selectedTicker === 'MAG7') {
@@ -741,8 +688,6 @@ export default function OptionsFlowPage() {
         }
         setLastUpdate(new Date().toLocaleString());
 
-        console.log(` Options Flow Update: ${trades.length} trades, ${result.summary.total_premium} total premium`);
-        console.log(` Market Status: ${result.market_info?.status} (${result.market_info?.data_date})`);
       } else {
         console.error('Failed to fetch options flow:', result.error);
         // Set empty data on error to prevent stale data display
@@ -796,8 +741,6 @@ export default function OptionsFlowPage() {
   };
 
   const handleDateChange = (newDate: string) => {
-    // For live data only, we ignore date changes and always fetch current data
-    console.log('Date change ignored - only showing live data');
     fetchOptionsFlowStreaming();
   };
 
