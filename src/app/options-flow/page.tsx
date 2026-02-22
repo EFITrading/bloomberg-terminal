@@ -33,46 +33,46 @@ const enrichTradeDataCombined = async (
   }
 
   const uniqueTickers = Array.from(uniqueTickerMap.entries());
-
-
+  const BATCH_SIZE = 100;
+  const batches = [];
+  for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
+    batches.push(uniqueTickers.slice(i, i + BATCH_SIZE));
+  }
 
   // Step 2: Fetch unique contracts and cache results
   type ContractData = { volume: number; open_interest: number; bid: number; ask: number } | null;
   const cache = new Map<string, ContractData>();
-  let successCount = 0;
-  let failCount = 0;
 
-  // Single batch — fire all unique contracts simultaneously
-  await Promise.all(
-    uniqueTickers.map(async ([optionTicker, { underlying }]) => {
-      try {
-        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
-        const response = await fetch(snapshotUrl, {
-          signal: AbortSignal.timeout(5000),
-        } as RequestInit);
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    await Promise.all(
+      batch.map(async ([optionTicker, { underlying }]) => {
+        try {
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+          const response = await fetch(snapshotUrl, {
+            signal: AbortSignal.timeout(5000),
+          } as RequestInit);
 
-        if (!response.ok) { failCount++; cache.set(optionTicker, null); return; }
+          if (!response.ok) { cache.set(optionTicker, null); return; }
 
-        const data = await response.json();
-        if (data.results) {
-          const r = data.results;
-          successCount++;
-          cache.set(optionTicker, {
-            volume: r.day?.volume || 0,
-            open_interest: r.open_interest || 0,
-            bid: r.last_quote?.bid || 0,
-            ask: r.last_quote?.ask || 0,
-          });
-        } else {
-          failCount++;
+          const data = await response.json();
+          if (data.results) {
+            const r = data.results;
+            cache.set(optionTicker, {
+              volume: r.day?.volume || 0,
+              open_interest: r.open_interest || 0,
+              bid: r.last_quote?.bid || 0,
+              ask: r.last_quote?.ask || 0,
+            });
+          } else {
+            cache.set(optionTicker, null);
+          }
+        } catch {
           cache.set(optionTicker, null);
         }
-      } catch {
-        failCount++;
-        cache.set(optionTicker, null);
-      }
-    })
-  );
+      })
+    );
+  }
 
   // Apply full cache to all trades
   const finalResults = trades.map((trade) => {
