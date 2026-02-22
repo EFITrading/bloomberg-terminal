@@ -33,7 +33,7 @@ const enrichTradeDataCombined = async (
   }
 
   const uniqueTickers = Array.from(uniqueTickerMap.entries());
-  const BATCH_SIZE = 100;
+  const BATCH_SIZE = 75;
   const batches = [];
   for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
     batches.push(uniqueTickers.slice(i, i + BATCH_SIZE));
