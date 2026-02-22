@@ -15,109 +15,119 @@ const enrichTradeDataCombined = async (
 ): Promise<OptionsFlowData[]> => {
   if (trades.length === 0) return trades;
 
-  const BATCH_SIZE = 25; // 25 concurrent requests - Chrome connection limit safe
-  const BATCH_DELAY = 0; // Zero delay
-  const REQUEST_DELAY = 0; // Zero stagger - full parallel blast
-  const batches = [];
+  // Build option ticker for a trade
+  const getOptionTicker = (trade: OptionsFlowData) => {
+    const expiry = trade.expiry.replace(/-/g, '').slice(2);
+    const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+    const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+    return `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+  };
 
-  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-    batches.push(trades.slice(i, i + BATCH_SIZE));
+  // Step 1: Deduplicate - collect unique option tickers
+  const uniqueTickerMap = new Map<string, { underlying: string }>();
+  for (const trade of trades) {
+    const optionTicker = getOptionTicker(trade);
+    if (!uniqueTickerMap.has(optionTicker)) {
+      uniqueTickerMap.set(optionTicker, { underlying: trade.underlying_ticker });
+    }
   }
 
-  console.log(`[ENRICH] COMBINED ENRICHMENT: ${trades.length} trades in ${batches.length} batches`);
+  const uniqueTickers = Array.from(uniqueTickerMap.entries());
+  const BATCH_SIZE = 75; // 75 concurrent requests is safe since far fewer unique contracts
+  const batches = [];
+  for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
+    batches.push(uniqueTickers.slice(i, i + BATCH_SIZE));
+  }
 
-  const allResults: OptionsFlowData[] = [];
+  console.log(`[ENRICH] ${trades.length} trades → ${uniqueTickers.length} unique contracts → ${batches.length} batches of ${BATCH_SIZE}`);
+
+  // Step 2: Fetch unique contracts and cache results
+  type ContractData = { volume: number; open_interest: number; bid: number; ask: number } | null;
+  const cache = new Map<string, ContractData>();
   let successCount = 0;
   let failCount = 0;
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
-
-    if (batchIndex % 50 === 0) { // Log every 50th batch
+    if (batchIndex % 5 === 0) {
       console.log(`[BATCH] Batch ${batchIndex + 1}/${batches.length} (${Math.round((batchIndex / batches.length) * 100)}%)`);
     }
 
-    const batchResults = await Promise.all(
-      batch.map(async (trade) => {
-        // No delay - maximum parallel execution
-
+    await Promise.all(
+      batch.map(async ([optionTicker, { underlying }]) => {
         try {
-          const expiry = trade.expiry.replace(/-/g, '').slice(2);
-          const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-          const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-          const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-
-          // Use snapshot endpoint - gets EVERYTHING in one call (quotes, greeks, Vol/OI)
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
-
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
           const response = await fetch(snapshotUrl, {
-            signal: AbortSignal.timeout(2000), // Faster timeout
-            keepalive: true,
-            priority: 'high' // Browser prioritization hint
+            signal: AbortSignal.timeout(5000),
           } as RequestInit);
 
-          if (!response.ok) {
-            failCount++;
-            return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-          }
+          if (!response.ok) { failCount++; cache.set(optionTicker, null); return; }
 
           const data = await response.json();
-
           if (data.results) {
-            const result = data.results;
-
-            // Extract Vol/OI
-            const volume = result.day?.volume || 0;
-            const openInterest = result.open_interest || 0;
-
+            const r = data.results;
             successCount++;
-
-            // Extract fill style from last quote
-            let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
-            if (result.last_quote) {
-              const bid = result.last_quote.bid;
-              const ask = result.last_quote.ask;
-              const fillPrice = trade.premium_per_contract;
-
-              if (bid && ask && fillPrice) {
-                const midpoint = (bid + ask) / 2;
-
-                if (fillPrice >= ask + 0.01) {
-                  fillStyle = 'AA';
-                } else if (fillPrice <= bid - 0.01) {
-                  fillStyle = 'BB';
-                } else if (fillPrice === ask) {
-                  fillStyle = 'A';
-                } else if (fillPrice === bid) {
-                  fillStyle = 'B';
-                } else if (fillPrice >= midpoint) {
-                  fillStyle = 'A';
-                } else {
-                  fillStyle = 'B';
-                }
-              }
-            }
-
-            return { ...trade, fill_style: fillStyle, volume, open_interest: openInterest };
+            cache.set(optionTicker, {
+              volume: r.day?.volume || 0,
+              open_interest: r.open_interest || 0,
+              bid: r.last_quote?.bid || 0,
+              ask: r.last_quote?.ask || 0,
+            });
+          } else {
+            failCount++;
+            cache.set(optionTicker, null);
           }
-
+        } catch {
           failCount++;
-          return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-        } catch (error) {
-          failCount++;
-          return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+          cache.set(optionTicker, null);
         }
       })
     );
 
-    allResults.push(...batchResults);
-    updateCallback([...allResults]);
-
-    // No delay - process at maximum speed
+    // Progressive update: apply cache so far to all trades after each batch
+    const partial = trades.map((trade) => {
+      const key = getOptionTicker(trade);
+      const cached = cache.get(key);
+      if (!cached) return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+      let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
+      const { bid, ask } = cached;
+      const fillPrice = trade.premium_per_contract;
+      if (bid && ask && fillPrice) {
+        const mid = (bid + ask) / 2;
+        if (fillPrice >= ask + 0.01) fillStyle = 'AA';
+        else if (fillPrice <= bid - 0.01) fillStyle = 'BB';
+        else if (fillPrice >= ask) fillStyle = 'A';
+        else if (fillPrice <= bid) fillStyle = 'B';
+        else if (fillPrice >= mid) fillStyle = 'A';
+        else fillStyle = 'B';
+      }
+      return { ...trade, fill_style: fillStyle, volume: cached.volume, open_interest: cached.open_interest };
+    });
+    updateCallback(partial);
   }
 
-  console.log(`[OK] Combined enrichment complete: ${allResults.length} trades (${successCount} success, ${failCount} failed)`);
-  return allResults;
+  // Step 3: Final apply of full cache to all trades
+  const finalResults = trades.map((trade) => {
+    const key = getOptionTicker(trade);
+    const cached = cache.get(key);
+    if (!cached) return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
+    let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
+    const { bid, ask } = cached;
+    const fillPrice = trade.premium_per_contract;
+    if (bid && ask && fillPrice) {
+      const mid = (bid + ask) / 2;
+      if (fillPrice >= ask + 0.01) fillStyle = 'AA';
+      else if (fillPrice <= bid - 0.01) fillStyle = 'BB';
+      else if (fillPrice >= ask) fillStyle = 'A';
+      else if (fillPrice <= bid) fillStyle = 'B';
+      else if (fillPrice >= mid) fillStyle = 'A';
+      else fillStyle = 'B';
+    }
+    return { ...trade, fill_style: fillStyle, volume: cached.volume, open_interest: cached.open_interest };
+  });
+
+  console.log(`[OK] Enrichment complete: ${trades.length} trades from ${uniqueTickers.length} unique contracts (${successCount} fetched, ${failCount} failed)`);
+  return finalResults;
 };
 
 // OLD SEPARATE FUNCTIONS - DEPRECATED (keeping for backwards compatibility)
