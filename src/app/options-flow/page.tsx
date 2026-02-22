@@ -33,11 +33,6 @@ const enrichTradeDataCombined = async (
   }
 
   const uniqueTickers = Array.from(uniqueTickerMap.entries());
-  const BATCH_SIZE = 75; // 75 concurrent requests is safe since far fewer unique contracts
-  const batches = [];
-  for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
-    batches.push(uniqueTickers.slice(i, i + BATCH_SIZE));
-  }
 
 
 
@@ -47,62 +42,39 @@ const enrichTradeDataCombined = async (
   let successCount = 0;
   let failCount = 0;
 
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-    const batch = batches[batchIndex];
-    await Promise.all(
-      batch.map(async ([optionTicker, { underlying }]) => {
-        try {
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
-          const response = await fetch(snapshotUrl, {
-            signal: AbortSignal.timeout(5000),
-          } as RequestInit);
+  // Single batch — fire all unique contracts simultaneously
+  await Promise.all(
+    uniqueTickers.map(async ([optionTicker, { underlying }]) => {
+      try {
+        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`;
+        const response = await fetch(snapshotUrl, {
+          signal: AbortSignal.timeout(5000),
+        } as RequestInit);
 
-          if (!response.ok) { failCount++; cache.set(optionTicker, null); return; }
+        if (!response.ok) { failCount++; cache.set(optionTicker, null); return; }
 
-          const data = await response.json();
-          if (data.results) {
-            const r = data.results;
-            successCount++;
-            cache.set(optionTicker, {
-              volume: r.day?.volume || 0,
-              open_interest: r.open_interest || 0,
-              bid: r.last_quote?.bid || 0,
-              ask: r.last_quote?.ask || 0,
-            });
-          } else {
-            failCount++;
-            cache.set(optionTicker, null);
-          }
-        } catch {
+        const data = await response.json();
+        if (data.results) {
+          const r = data.results;
+          successCount++;
+          cache.set(optionTicker, {
+            volume: r.day?.volume || 0,
+            open_interest: r.open_interest || 0,
+            bid: r.last_quote?.bid || 0,
+            ask: r.last_quote?.ask || 0,
+          });
+        } else {
           failCount++;
           cache.set(optionTicker, null);
         }
-      })
-    );
-
-    // Progressive update: apply cache so far to all trades after each batch
-    const partial = trades.map((trade) => {
-      const key = getOptionTicker(trade);
-      const cached = cache.get(key);
-      if (!cached) return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-      let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
-      const { bid, ask } = cached;
-      const fillPrice = trade.premium_per_contract;
-      if (bid && ask && fillPrice) {
-        const mid = (bid + ask) / 2;
-        if (fillPrice >= ask + 0.01) fillStyle = 'AA';
-        else if (fillPrice <= bid - 0.01) fillStyle = 'BB';
-        else if (fillPrice >= ask) fillStyle = 'A';
-        else if (fillPrice <= bid) fillStyle = 'B';
-        else if (fillPrice >= mid) fillStyle = 'A';
-        else fillStyle = 'B';
+      } catch {
+        failCount++;
+        cache.set(optionTicker, null);
       }
-      return { ...trade, fill_style: fillStyle, volume: cached.volume, open_interest: cached.open_interest };
-    });
-    updateCallback?.(partial);
-  }
+    })
+  );
 
-  // Step 3: Final apply of full cache to all trades
+  // Apply full cache to all trades
   const finalResults = trades.map((trade) => {
     const key = getOptionTicker(trade);
     const cached = cache.get(key);
@@ -121,7 +93,6 @@ const enrichTradeDataCombined = async (
     }
     return { ...trade, fill_style: fillStyle, volume: cached.volume, open_interest: cached.open_interest };
   });
-
 
   return finalResults;
 };
