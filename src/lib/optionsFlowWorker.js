@@ -1,6 +1,17 @@
 ﻿const { parentPort, workerData } = require('worker_threads');
 const https = require('https');
 
+// Persistent keepAlive agent: reuses TCP connections so we open at most maxSockets
+// connections total instead of one per API call. This prevents TIME_WAIT fd exhaustion
+// which caused EMFILE errors on tickers 3+ when hundreds of closed sockets stayed in
+// TIME_WAIT for 60s and consumed all OS file descriptors.
+const keepAliveAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 10,
+  maxFreeSockets: 10,
+  timeout: 30000,
+});
+
 // Simple worker that makes direct API calls to avoid module resolution issues
 if (parentPort) {
        try {
@@ -21,7 +32,7 @@ if (parentPort) {
               // Simple function to make Polygon API calls
               function makePolygonRequest(url) {
                      return new Promise((resolve, reject) => {
-                            https.get(url, (res) => {
+                            https.get(url, { agent: keepAliveAgent }, (res) => {
                                    // Check HTTP status code BEFORE parsing
                                    if (res.statusCode !== 200) {
                                           reject(new Error(`API returned status ${res.statusCode} for ${url.substring(0, 100)}`));
