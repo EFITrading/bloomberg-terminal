@@ -375,6 +375,7 @@ export default function OptionsFlowPage() {
   const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
     setLoading(true);
     setStreamError('');
+    setIsStreamComplete(false); // Reset from any previous scan
 
     let connectionTimeout: NodeJS.Timeout | null = null;
 
@@ -401,22 +402,41 @@ export default function OptionsFlowPage() {
       // Otherwise use the ticker as-is for individual ticker searches
 
       console.log(`[STREAM] Connecting to EventSource with ticker: ${tickerParam}`);
+      console.log(`[BROWSER] Creating EventSource: /api/stream-options-flow?ticker=${tickerParam}`);
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`);
+      console.log(`[BROWSER] EventSource created - initial readyState: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
+
+      eventSource.onopen = () => {
+        console.log(`[BROWSER] ✅ EventSource OPENED - readyState: ${eventSource.readyState}`);
+      };
+
+      // Timeout: if no 'complete' or 'error' within 5 min, something stalled
+      const stallTimeout = setTimeout(() => {
+        console.error(`[BROWSER] ❌ STALL DETECTED: No completion after 5 minutes!`);
+        console.error(`[BROWSER] Current readyState: ${eventSource.readyState}`);
+        console.error(`[BROWSER] isStreamComplete: ${isStreamComplete}`);
+        console.error(`[BROWSER] Current loading state is stuck - closing stream`);
+        eventSource.close();
+        setStreamError('Scan timed out after 5 minutes');
+        setStreamingStatus('');
+        setLoading(false);
+      }, 5 * 60 * 1000);
 
       eventSource.onmessage = (event) => {
         try {
           const streamData = JSON.parse(event.data);
+          console.log(`[BROWSER] 📨 Message received - type: "${streamData.type}"`);
 
           switch (streamData.type) {
             case 'connected':
-              console.log('[OK] Stream connected:', streamData.message);
+              console.log(`[BROWSER] ✅ CONNECTED - ${streamData.message}`);
               setStreamingStatus('Connected - scanning options flow...');
               setStreamError('');
               break;
 
             case 'status':
+              console.log(`[BROWSER] 📊 STATUS: ${streamData.message}`);
               setStreamingStatus(streamData.message);
-              console.log(` Stream Status: ${streamData.message}`);
               break;
 
             case 'trades':
@@ -450,16 +470,22 @@ export default function OptionsFlowPage() {
               break;
 
             case 'complete':
+              console.log(`[BROWSER] ✅ COMPLETE event received!`);
+              console.log(`[BROWSER] Summary:`, streamData.summary);
+              console.log(`[BROWSER] Trades in payload: ${streamData.trades?.length ?? 0}`);
+              console.log(`[BROWSER] Market info:`, streamData.market_info);
+              clearTimeout(stallTimeout);
+
               // SET COMPLETE FLAG FIRST to prevent error handler from firing
               setIsStreamComplete(true);
 
               // CLOSE STREAM to prevent errors
-              console.log(` Stream Complete: Total ${streamData.summary.total_trades} trades`);
               eventSource.close();
+              console.log(`[BROWSER] EventSource closed after complete`);
 
               // Extract trades from the complete event (backend sends them here!)
               const completeTrades = streamData.trades || [];
-              console.log(`[OK] COMPLETE EVENT: Received ${completeTrades.length} trades from backend`);
+              console.log(`[BROWSER] Processing ${completeTrades.length} trades from complete event`);
 
               // Update summary/market info
               setSummary(streamData.summary);
@@ -505,75 +531,76 @@ export default function OptionsFlowPage() {
               break;
 
             case 'error':
-              console.error('Stream error:', streamData.error);
+              console.error(`[BROWSER] ❌ ERROR event from server: ${streamData.error}`);
+              clearTimeout(stallTimeout);
               setStreamError(streamData.error || 'Stream error occurred');
               setLoading(false);
               eventSource.close();
               break;
 
             case 'close':
-              // Server is gracefully closing the connection
-              console.log(' Stream closed by server:', streamData.message);
+              console.log(`[BROWSER] 🔒 CLOSE event from server: ${streamData.message}`);
+              clearTimeout(stallTimeout);
               setIsStreamComplete(true);
               eventSource.close();
               break;
 
             case 'heartbeat':
-              // Keep-alive ping, no action needed (suppress logs to reduce noise)
+              console.log(`[BROWSER] 💓 heartbeat received - still alive`);
               break;
+
+            default:
+              console.warn(`[BROWSER] ⚠️ Unknown message type: "${streamData.type}"`, streamData);
           }
         } catch (parseError) {
-          console.error('Error parsing stream data:', parseError);
+          console.error('[BROWSER] ❌ Failed to parse message:', parseError);
+          console.error('[BROWSER] Raw event data:', event.data?.substring(0, 300));
         }
       };
 
       eventSource.onerror = (error) => {
-        // Clear connection timeout
-        if (connectionTimeout) {
-          clearTimeout(connectionTimeout);
-          connectionTimeout = null;
-        }
+        console.error(`[BROWSER] ⚠️ onerror fired - readyState: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
+        console.error(`[BROWSER] isStreamComplete at time of error: ${isStreamComplete}`);
+        console.error(`[BROWSER] Error object:`, error);
 
-        // Don't log or process errors if stream already completed successfully
+        // Clear the stall timeout
+        clearTimeout(stallTimeout);
+
+        // Don't process errors if stream already completed successfully
         if (isStreamComplete) {
+          console.log('[BROWSER] Stream was already complete - this onerror is expected after close');
           eventSource.close();
           return;
         }
 
-        // Check if this is just a normal close after completion
-        if (eventSource.readyState === 2) { // CLOSED state
-          console.log('[OK] Stream closed normally after completion');
+        // readyState 2 = CLOSED: normal close after complete
+        if (eventSource.readyState === 2) {
+          console.log('[BROWSER] readyState=2 (CLOSED) - stream closed normally');
           eventSource.close();
           setStreamingStatus('');
           setLoading(false);
           return;
         }
 
-        // Check if stream is connecting (readyState 0) - this is a real connection error
+        // readyState 0 = CONNECTING: failed to connect at all
         if (eventSource.readyState === 0) {
-          console.warn('[WARN] EventSource connection failed during initial connection');
+          console.error('[BROWSER] readyState=0 (CONNECTING) - server closed connection without sending complete event (timeout/crash)');
           eventSource.close();
-
-          // Only retry once on connection failure
           if (currentRetry === 0) {
-            console.log('[RETRY] Retrying connection once...');
+            console.log('[BROWSER] Retrying once in 2s...');
             setRetryCount(1);
-            setTimeout(() => {
-              fetchOptionsFlowStreaming(1);
-            }, 2000);
+            setTimeout(() => { fetchOptionsFlowStreaming(1, tickerParam); }, 2000);
           } else {
-            console.log('[FALLBACK] SSE failed twice, switching to direct fetch');
-            setStreamError('Stream connection unavailable, using fallback');
-            setStreamingStatus('Falling back to direct fetch...');
+            console.error('[BROWSER] Retry also failed - giving up');
+            setStreamError('Stream connection unavailable');
+            setStreamingStatus('');
             setLoading(false);
-            fetchOptionsFlow();
           }
           return;
         }
 
-        // For any other case (readyState 1 - OPEN), this is likely normal completion
-        // The browser fires onerror when the server closes the stream after sending 'complete'
-        console.log('[OK] Stream connection closed (data transfer complete)');
+        // readyState 1 = OPEN: server closed stream after sending data (normal)
+        console.log('[BROWSER] readyState=1 (OPEN) - server closed stream, treating as complete');
         eventSource.close();
         setStreamingStatus('');
         setLoading(false);

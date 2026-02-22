@@ -21,6 +21,13 @@ class ParallelOptionsFlowProcessor {
 
   // Process tickers in parallel using all CPU cores with detailed benchmarking
   async processTickersInParallel(tickers, optionsFlowService, onProgress, dateRange) {
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`[PROCESSOR] STARTING PARALLEL PROCESSING`);
+    console.log(`${'='.repeat(80)}`);
+    console.log(`[PROCESSOR] Total tickers: ${tickers.length}`);
+    console.log(`[PROCESSOR] Available workers: ${this.numWorkers}`);
+    console.log(`[PROCESSOR] Date range:`, dateRange);
+    
     // [PERF] PERFORMANCE: Start overall timing
     const overallStartTime = performance.now();
     console.time('[TOTAL] TOTAL_PARALLEL_PROCESSING');
@@ -57,12 +64,15 @@ class ParallelOptionsFlowProcessor {
 
     const workerCreationEnd = performance.now();
     console.timeEnd('[WORKERS] WORKER_CREATION_PHASE');
+    console.log(`[PROCESSOR] All ${batches.length} workers created, starting execution...`);
 
     // [PERF] PERFORMANCE: Time parallel execution phase
     console.time('[EXEC] PARALLEL_EXECUTION');
     const executionStart = performance.now();
-
+    
+    console.log(`[PROCESSOR] Waiting for ${promises.length} worker promises to complete...`);
     const results = await Promise.all(promises);
+    console.log(`[PROCESSOR] ✓ All workers completed!`);
 
     const executionEnd = performance.now();
     console.timeEnd('[EXEC] PARALLEL_EXECUTION');

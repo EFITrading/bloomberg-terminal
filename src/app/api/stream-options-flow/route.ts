@@ -260,9 +260,10 @@ export async function GET(request: NextRequest) {
         console.error('[ERROR] STREAMING ERROR:', errorMessage);
         console.error('Stack trace:', errorStack);
 
-        // Send detailed error information
-        if (streamState.isActive) {
-          sendData({
+        // Always try to send error event, even if streamState.isActive was cleared
+        // (e.g. a failed heartbeat enqueue sets isActive=false before we get here)
+        try {
+          const errorPayload = JSON.stringify({
             type: 'error',
             error: errorMessage,
             errorType: error instanceof Error ? error.name : 'UnknownError',
@@ -270,6 +271,9 @@ export async function GET(request: NextRequest) {
             retryable: !errorMessage.includes('API key') && !errorMessage.includes('403'),
             details: process.env.NODE_ENV === 'development' ? errorStack : undefined
           });
+          controller.enqueue(encoder.encode(`data: ${errorPayload}\n\n`));
+        } catch (sendErr) {
+          console.error('[ERROR] Could not send error event to client:', sendErr);
         }
       } finally {
         // Cleanup resources
@@ -279,13 +283,14 @@ export async function GET(request: NextRequest) {
           streamState.heartbeatInterval = null;
         }
 
-        // Send final close message
+        // Send final close message (always attempt, regardless of isActive)
         try {
-          sendData({
+          const closePayload = JSON.stringify({
             type: 'close',
             message: 'Stream connection closing',
             timestamp: new Date().toISOString()
           });
+          controller.enqueue(encoder.encode(`data: ${closePayload}\n\n`));
         } catch (closeError) {
           console.error('Error sending close message:', closeError);
         } finally {

@@ -353,6 +353,13 @@ export class OptionsFlowService {
     onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void,
     dateRange?: { startTimestamp: number; endTimestamp: number; currentDate: string; isLive: boolean }
   ): Promise<ProcessedTrade[]> {
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`[SERVICE] fetchLiveOptionsFlowUltraFast CALLED`);
+    console.log(`${'='.repeat(80)}`);
+    console.log(`[SERVICE] Input ticker: "${ticker}"`);
+    console.log(`[SERVICE] Has onProgress callback: ${!!onProgress}`);
+    console.log(`[SERVICE] Date range:`, dateRange);
+    
     let tickersToScan: string[];
 
     if (ticker && (ticker.toLowerCase() === 'all' || ticker === 'ALL_EXCLUDE_ETF_MAG7')) {
@@ -381,14 +388,17 @@ export class OptionsFlowService {
 
     try {
       // Use the parallel processor for real scanning
+      console.log(`[SERVICE] Creating ParallelOptionsFlowProcessor...`);
       console.log(`[PARALLEL] PARALLEL PROCESSING: Starting scan of ${tickersToScan.length} tickers`);
-
+      
+      const scanStartTime = Date.now();
       const allTrades = await parallelProcessor.processTickersInParallel(
         tickersToScan,
         this,
         onProgress,
         dateRange
       );
+      console.log(`[SERVICE] ✓ processTickersInParallel completed in ${Date.now() - scanStartTime}ms`);
 
       console.log(`[OK] SCAN COMPLETE: Found ${allTrades.length} total trades`);
 
@@ -397,24 +407,35 @@ export class OptionsFlowService {
 
       // CRITICAL: Classify all trades after collection to enable proper SWEEP/BLOCK/MINI detection
       console.log(`[CLASSIFY] CLASSIFYING TRADES: Analyzing ${allTrades.length} trades for sweep patterns...`);
+      const classifyStartTime = Date.now();
       const classifiedTrades = this.classifyAllTrades(allTrades);
-      console.log(`[OK] CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades`);
+      console.log(`[OK] CLASSIFICATION COMPLETE: Classified ${classifiedTrades.length} trades in ${Date.now() - classifyStartTime}ms`);
 
       // Apply institutional filters (premium, ITM, market hours, etc.)
       console.log(`[FILTER] FILTERING: Applying institutional criteria to ${classifiedTrades.length} trades...`);
+      const filterStartTime = Date.now();
       const filteredTrades = this.filterAndClassifyTrades(classifiedTrades, ticker);
-      console.log(`[OK] FILTERING COMPLETE: ${filteredTrades.length} trades passed filters`);
+      console.log(`[OK] FILTERING COMPLETE: ${filteredTrades.length} trades passed filters in ${Date.now() - filterStartTime}ms`);
 
       // Send filtered trades to frontend
       if (onProgress && filteredTrades.length > 0) {
+        console.log(`[SERVICE] Sending ${filteredTrades.length} filtered trades to frontend via onProgress callback`);
         onProgress(filteredTrades, `[OK] Classification complete - sending ${filteredTrades.length} trades`);
+      } else if (filteredTrades.length === 0) {
+        console.log(`[SERVICE] ⚠️ No trades passed filters - nothing to send`);
+      } else {
+        console.log(`[SERVICE] No onProgress callback - skipping frontend update`);
       }
 
+      console.log(`[SERVICE] fetchLiveOptionsFlowUltraFast RETURNING ${filteredTrades.length} trades`);
+      console.log(`${'='.repeat(80)}\n`);
       return filteredTrades;
 
     } catch (error) {
       console.error(`[ERROR] PARALLEL PROCESSING ERROR:`, error);
       console.error(`[ERROR] ERROR DETAILS:`, error instanceof Error ? error.message : String(error));
+      console.error(`[ERROR] STACK TRACE:`, error instanceof Error ? error.stack : 'No stack trace');
+      console.log(`${'='.repeat(80)}\n`);
       throw error;
     }
   }
@@ -3253,87 +3274,141 @@ export class OptionsFlowService {
 
   // [FAST] ULTRA-FAST PARALLEL ENRICHMENT - Enriches trades with Vol/OI + Fill Style using all CPU cores
   async enrichTradesWithVolOIParallel(trades: ProcessedTrade[]): Promise<ProcessedTrade[]> {
-    if (trades.length === 0) return trades;
+    console.log(`\\n${'='.repeat(80)}`);\n    console.log(`[ENRICH] enrichTradesWithVolOIParallel CALLED`);\n    console.log(`${'='.repeat(80)}`);\n    console.log(`[ENRICH] Input trades: ${trades.length}`);\n    \n    if (trades.length === 0) {\n      console.log(`[ENRICH] No trades to enrich - returning empty array`);\n      console.log(`${'='.repeat(80)}\\n`);\n      return trades;\n    }
 
-    const BATCH_SIZE = 50; // Process 50 trades per batch for quotes
+    const BATCH_SIZE = 50; // Process 50 trades per API call batch
     const batches = [];
 
     for (let i = 0; i < trades.length; i += BATCH_SIZE) {
       batches.push(trades.slice(i, i + BATCH_SIZE));
     }
 
-    console.log(`[ENRICH] FILL-STYLE ONLY: ${trades.length} trades in ${batches.length} batches`);
+    console.log(`[ENRICH] PARALLEL ENRICHMENT: ${trades.length} trades in ${batches.length} batches of ${BATCH_SIZE}`);\n    console.log(`[ENRICH] Starting parallel batch processing...`);\n    const enrichStartTime = Date.now();
 
-    // No snapshot calls. Only quote calls for fill style.
-    const enrichedBatches = await Promise.all(
+    // Process all batches in parallel
+    console.log(`[ENRICH] Awaiting Promise.all for ${batches.length} batches...`);\n    const enrichedBatches = await Promise.all(
       batches.map(async (batch, batchIndex) => {
-        const enrichedTrades = await Promise.all(
+        console.log(`[ENRICH] Starting batch ${batchIndex + 1}/${batches.length} (${batch.length} trades)`);\n        const batchStartTime = Date.now();\n        \n        const enrichedTrades = await Promise.all(
           batch.map(async (trade) => {
             try {
+              // Use the ticker from trade - already properly formatted (e.g., O:VIXW260128C00018000)
               const optionTicker = trade.ticker;
 
-              // STEP: Get HISTORICAL quote at trade timestamp for bid/ask
-              let bid: number | undefined;
-              let ask: number | undefined;
-              let fillStyle = 'N/A';
+              // STEP 1: Get snapshot for volume/OI (current is fine for these)
+              const snapshotUrl = (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX')
+                ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
+                : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`;
 
-              const tradeDate = new Date(trade.trade_timestamp);
-              const tradeTimestampNano = tradeDate.getTime() * 1000000; // ms → ns
+              const response = await fetch(snapshotUrl);
+              if (!response.ok) {
+                console.log(`[WARN] Snapshot API error: ${response.status} for ${optionTicker}`);
+                return trade;
+              }
 
-              try {
-                const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
-                const quoteResponse = await fetch(quoteUrl);
+              const data = await response.json();
 
-                if (quoteResponse.ok) {
-                  const quoteData = await quoteResponse.json();
-                  if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
-                    bid = quoteData.results[0].bid_price;
-                    ask = quoteData.results[0].ask_price;
+              if (data.status === 'OK' && data.results) {
+                // For VIX/SPX bulk snapshot, find the specific contract
+                let snapshot;
+                if (trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX') {
+                  snapshot = Array.isArray(data.results)
+                    ? data.results.find((r: any) => r.details?.ticker === optionTicker)
+                    : data.results;
+                } else {
+                  snapshot = data.results;
+                }
+
+                if (!snapshot) {
+                  console.log(`[WARN] No snapshot found for ${optionTicker}`);
+                  return trade;
+                }
+
+                // Extract Vol/OI from snapshot
+                const volume = snapshot.day?.volume || trade.volume;
+                const openInterest = snapshot.open_interest || trade.open_interest;
+
+                // STEP 2: Get HISTORICAL quote at trade timestamp for bid/ask
+                let bid: number | undefined;
+                let ask: number | undefined;
+                let fillStyle = 'N/A';
+
+                // Get trade timestamp (convert from ISO string to nanoseconds)
+                const tradeDate = new Date(trade.trade_timestamp);
+                const tradeTimestampNano = tradeDate.getTime() * 1000000; // Convert ms to nanoseconds
+
+                try {
+                  const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`;
+                  const quoteResponse = await fetch(quoteUrl);
+
+                  if (quoteResponse.ok) {
+                    const quoteData = await quoteResponse.json();
+
+                    if (quoteData.status === 'OK' && quoteData.results && quoteData.results.length > 0) {
+                      bid = quoteData.results[0].bid_price;
+                      ask = quoteData.results[0].ask_price;
+
+                      if (batchIndex === 0 && batch.indexOf(trade) === 0) {
+                        console.log(`\n[OK] Got historical quote for ${optionTicker}:`);
+                        console.log(`  Trade time: ${tradeDate.toISOString()}`);
+                        console.log(`  Quote time: ${new Date(quoteData.results[0].sip_timestamp / 1000000).toISOString()}`);
+                        console.log(`  Bid: $${bid}, Ask: $${ask}`);
+                      }
+                    } else {
+                      console.log(`[WARN] No historical quote found for ${optionTicker} at ${tradeDate.toISOString()}`);
+                    }
+                  }
+                } catch (quoteError) {
+                  console.log(`[WARN] Quote fetch error for ${optionTicker}:`, quoteError);
+                }
+
+                // Calculate Fill Style from historical bid/ask
+                const lastPrice = trade.premium_per_contract;
+
+                if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
+                  const midpoint = (bid + ask) / 2;
+                  const spread = ask - bid;
+                  const distanceFromMid = lastPrice - midpoint;
+
+                  if (distanceFromMid > spread * 0.25) fillStyle = 'A';
+                  else if (distanceFromMid > 0) fillStyle = 'AA';
+                  else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
+                  else if (distanceFromMid < 0) fillStyle = 'BB';
+
+                  if (batchIndex === 0 && batch.indexOf(trade) === 0) {
+                    console.log(`  Midpoint: $${midpoint.toFixed(4)}, Spread: $${spread.toFixed(4)}`);
+                    console.log(`  Trade Price: $${lastPrice.toFixed(4)}, Distance: $${distanceFromMid.toFixed(4)}`);
+                    console.log(`  [OK] Fill Style: ${fillStyle}`);
                   }
                 }
-              } catch (quoteError) {
-                // Ignore quote errors
+
+                return {
+                  ...trade,
+                  volume,
+                  open_interest: openInterest,
+                  vol_oi_ratio: (openInterest && openInterest > 0 && volume) ? volume / openInterest : undefined,
+                  fill_style: fillStyle,
+                  bid,
+                  ask,
+                  bid_ask_spread: bid && ask ? ask - bid : undefined
+                };
               }
 
-              // Calculate Fill Style
-              const lastPrice = trade.premium_per_contract;
-              if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
-                const midpoint = (bid + ask) / 2;
-                const spread = ask - bid;
-                const distanceFromMid = lastPrice - midpoint;
-
-                if (distanceFromMid > spread * 0.25) fillStyle = 'A';
-                else if (distanceFromMid > 0) fillStyle = 'AA';
-                else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
-                else if (distanceFromMid < 0) fillStyle = 'BB';
-              }
-
-              return {
-                ...trade,
-                // Vol/OI removed per request
-                fill_style: fillStyle,
-                bid,
-                ask,
-                bid_ask_spread: bid && ask ? ask - bid : undefined
-              };
+              return trade;
             } catch (error) {
               return trade;
             }
           })
         );
 
-        if (batchIndex % 10 === 0) {
-          console.log(`[BATCH] Fill-style batch ${batchIndex + 1}/${batches.length}`);
+        console.log(`[ENRICH] \u2713 Batch ${batchIndex + 1}/${batches.length} complete in ${Date.now() - batchStartTime}ms`);\n        if (batchIndex % 10 === 0) {
+          console.log(`[BATCH] Enrichment batch ${batchIndex + 1}/${batches.length} complete`);
         }
 
         return enrichedTrades;
       })
     );
-
-    const allEnriched = enrichedBatches.flat();
-    console.log(`[OK] FILL-STYLE ENRICHMENT COMPLETE: ${allEnriched.length} trades`);
-
-    return allEnriched;
+    
+    console.log(`[ENRICH] \u2713 All batches completed, flattening results...`);\n    const allEnriched = enrichedBatches.flat();\n    console.log(`[OK] PARALLEL ENRICHMENT COMPLETE: ${allEnriched.length} trades enriched in ${Date.now() - enrichStartTime}ms`);\n    console.log(`${'='.repeat(80)}\\n`);\n\n    return allEnriched;
   }
 
   // Enrich trades with historical Vol/OI data
