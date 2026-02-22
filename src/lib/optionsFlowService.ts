@@ -2574,7 +2574,7 @@ export class OptionsFlowService {
     return TOP_1800_SYMBOLS;
   }
 
-  private getTop1000Symbols(): string[] {
+  public getTop1000Symbols(): string[] {
     // ETFs to exclude
     const ETFS = ['SPY', 'QQQ', 'IWM', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG',
       'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC',

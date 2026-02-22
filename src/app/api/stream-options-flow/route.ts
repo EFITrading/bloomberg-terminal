@@ -178,9 +178,15 @@ export async function GET(request: NextRequest) {
           const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange();
           sendData({ type: 'status', message: `[SERVER] Date range set: ${currentDate}, isLive: ${isLive}. Starting sequential scan...` });
 
-          const tickersToScan = ticker
+          let tickersToScan: string[] = ticker
             ? ticker.split(',').map((t: string) => t.trim().toUpperCase()).filter(Boolean)
             : [];
+
+          // Expand ALL_EXCLUDE_ETF_MAG7 into the full symbol list for sequential scan
+          if (tickersToScan.length === 1 && tickersToScan[0] === 'ALL_EXCLUDE_ETF_MAG7') {
+            tickersToScan = optionsFlowService.getTop1000Symbols();
+            sendData({ type: 'status', message: `[SERVER] ALL scan: expanding to ${tickersToScan.length} symbols...` });
+          }
 
           for (const t of tickersToScan) {
             if (!streamState.isActive) break;
