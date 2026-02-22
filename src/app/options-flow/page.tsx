@@ -468,64 +468,37 @@ export default function OptionsFlowPage() {
               }
               break;
 
-            case 'complete':
-              console.log(`[BROWSER] ✅ COMPLETE event received!`);
-              console.log(`[BROWSER] Summary:`, streamData.summary);
-              console.log(`[BROWSER] Trades in payload: ${streamData.trades?.length ?? 0}`);
-              console.log(`[BROWSER] Market info:`, streamData.market_info);
-              clearTimeout(stallTimeout);
-
-              // SET COMPLETE FLAG FIRST to prevent error handler from firing
-              setIsStreamComplete(true);
-
-              // CLOSE STREAM to prevent errors
-              eventSource.close();
-              console.log(`[BROWSER] EventSource closed after complete`);
-
-              // Extract trades from the complete event (backend sends them here!)
-              const completeTrades = streamData.trades || [];
-              console.log(`[BROWSER] Processing ${completeTrades.length} trades from complete event`);
-
-              // Update summary/market info
-              setSummary(streamData.summary);
-              if (streamData.market_info) {
-                setMarketInfo(streamData.market_info);
+            case 'ticker_complete': {
+              // A single ticker finished scan+enrich - stream its trades immediately
+              const incoming = streamData.trades || [];
+              console.log(`[BROWSER] ✅ TICKER_COMPLETE: ${streamData.ticker} - ${incoming.length} trades`);
+              if (incoming.length > 0) {
+                setData(prevData => {
+                  const existingIds = new Set(
+                    prevData.map((t: OptionsFlowData) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                  );
+                  const newTrades = incoming.filter((t: OptionsFlowData) =>
+                    !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`)
+                  );
+                  console.log(`[ACCUM] ${streamData.ticker}: +${newTrades.length} trades (${prevData.length} existing)`);
+                  return [...prevData, ...newTrades];
+                });
               }
+              break;
+            }
+
+            case 'complete':
+              console.log(`[BROWSER] ✅ COMPLETE - all tickers done. Summary:`, streamData.summary);
+              clearTimeout(stallTimeout);
+              setIsStreamComplete(true);
+              eventSource.close();
+              setSummary(streamData.summary);
+              if (streamData.market_info) setMarketInfo(streamData.market_info);
               setLastUpdate(new Date().toLocaleString());
               setLoading(false);
               setStreamingProgress(null);
               setStreamError('');
-
-              // ACCUMULATE trades - don't replace, add new ones to existing
-              if (completeTrades.length > 0) {
-                setData(prevData => {
-                  // Create a Set of existing trade identifiers to avoid duplicates
-                  const existingTradeIds = new Set(
-                    prevData.map((trade: OptionsFlowData) => `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`)
-                  );
-
-                  // Only add truly new trades
-                  const newTrades = completeTrades.filter((trade: OptionsFlowData) => {
-                    const tradeId = `${trade.ticker}-${trade.trade_timestamp}-${trade.strike}`;
-                    return !existingTradeIds.has(tradeId);
-                  });
-
-                  console.log(`[ACCUM] ACCUMULATING: ${newTrades.length} new trades added to existing ${prevData.length} (${completeTrades.length} received)`);
-
-                  const updatedTrades = [...prevData, ...newTrades];
-                  console.log(`[OK] Total trades now: ${updatedTrades.length}`);
-
-                  // [OK] NO ENRICHMENT NEEDED - Backend sends fully enriched data with Vol/OI + Fill Style
-                  // Data comes pre-enriched from the API with snapshot data
-                  setStreamingStatus('');
-
-                  return updatedTrades;
-                });
-              } else {
-                console.log('[WARN] Complete event had no trades');
-                setStreamingStatus('');
-              }
-
+              setStreamingStatus('');
               break;
 
             case 'error':

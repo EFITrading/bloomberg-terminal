@@ -170,31 +170,47 @@ export async function GET(request: NextRequest) {
 
         console.log('[INFO] Starting parallel flow scan...');
 
-        let finalTrades: any[];
+        let finalTrades: any[] = [];
 
         if (timeframe === '1D') {
-          // Single day: Use existing fast path
+          // Sequential per-ticker: scan → enrich → stream immediately for each ticker
           const { getSmartDateRange } = require('../../../lib/optionsFlowService');
           const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange();
-          sendData({ type: 'status', message: `[SERVER] Date range set: ${currentDate}, isLive: ${isLive}. Launching workers...` });
+          sendData({ type: 'status', message: `[SERVER] Date range set: ${currentDate}, isLive: ${isLive}. Starting sequential scan...` });
 
-          const scanPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(
-            ticker || undefined,
-            streamingCallback,
-            { startTimestamp, endTimestamp, currentDate, isLive }
-          );
+          const tickersToScan = ticker
+            ? ticker.split(',').map((t: string) => t.trim().toUpperCase()).filter(Boolean)
+            : [];
 
-          // No timeout - let it complete naturally
-          finalTrades = await scanPromise;
+          for (const t of tickersToScan) {
+            if (!streamState.isActive) break;
 
-          console.log(`[OK] Scan complete: ${finalTrades.length} trades found`);
-          sendData({ type: 'status', message: `[SERVER] Scan complete: ${finalTrades.length} raw trades found. Starting enrichment...` });
+            sendData({ type: 'status', message: `[SERVER] Scanning ${t}...` });
 
-          // [OPT] ENRICH TRADES IN PARALLEL ON BACKEND
-          console.log(`[ENRICH] ENRICHING ${finalTrades.length} trades in parallel on backend...`);
-          finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
-          console.log(`[OK] ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
-          sendData({ type: 'status', message: `[SERVER] Enrichment complete: ${finalTrades.length} trades enriched. Building response...` });
+            let tickerTrades = await optionsFlowService.fetchLiveOptionsFlowUltraFast(
+              t,
+              streamingCallback,
+              { startTimestamp, endTimestamp, currentDate, isLive }
+            );
+
+            sendData({ type: 'status', message: `[SERVER] ${t} scan done: ${tickerTrades.length} trades. Enriching...` });
+
+            tickerTrades = await optionsFlowService.enrichTradesWithVolOIParallel(tickerTrades);
+
+            sendData({ type: 'status', message: `[SERVER] ${t} enriched: ${tickerTrades.length} trades. Streaming now...` });
+
+            // Stream this ticker's trades immediately - client displays them right away
+            sendData({
+              type: 'ticker_complete',
+              ticker: t,
+              trades: tickerTrades,
+              count: tickerTrades.length,
+              timestamp: new Date().toISOString()
+            });
+
+            finalTrades.push(...tickerTrades);
+            sendData({ type: 'status', message: `[SERVER] ${t} done. Running total: ${finalTrades.length} trades.` });
+          }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           console.log(`[MULTIDAY] Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
@@ -209,21 +225,7 @@ export async function GET(request: NextRequest) {
           console.log(`[OK] Multi-Day Scan Complete: ${finalTrades.length} trades found`);
         }
 
-        // DEBUG: Check if trades are enriched
-        if (finalTrades.length > 0) {
-          const sampleTrade = finalTrades[0];
-          console.log(`[DEBUG] Sample trade enrichment check:`, {
-            ticker: sampleTrade.ticker,
-            has_volume: 'volume' in sampleTrade,
-            volume: sampleTrade.volume,
-            has_open_interest: 'open_interest' in sampleTrade,
-            open_interest: sampleTrade.open_interest,
-            has_fill_style: 'fill_style' in sampleTrade,
-            fill_style: sampleTrade.fill_style
-          });
-        }
-
-        // Send final summary with ALL ENRICHED TRADES AT ONCE
+        // Send final summary only - trades were already streamed per ticker
         const summary = {
           total_trades: finalTrades.length,
           total_premium: finalTrades.reduce((sum: number, t: ProcessedTrade) => sum + t.total_premium, 0),
@@ -241,12 +243,10 @@ export async function GET(request: NextRequest) {
           processing_time_ms: 0
         };
 
-        // [SEND] SEND ALL TRADES IN ONE BATCH (already enriched by backend)
-        const payloadSize = JSON.stringify(finalTrades).length;
-        sendData({ type: 'status', message: `[SERVER] Sending complete payload: ${finalTrades.length} trades (~${Math.round(payloadSize / 1024)}KB)` });
+        // Complete event: just summary, trades already streamed per ticker
         sendData({
           type: 'complete',
-          trades: finalTrades,
+          trades: [],
           summary: summary,
           market_info: {
             status: 'LIVE',
