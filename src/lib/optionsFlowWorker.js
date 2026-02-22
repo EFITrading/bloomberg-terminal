@@ -218,10 +218,6 @@ if (parentPort) {
 
               // Process each ticker in the batch
               async function processBatch() {
-                     console.log(`[WORKER ${workerIndex}] ========== STARTING BATCH PROCESSING ==========`);
-                     console.log(`[WORKER ${workerIndex}] Batch size: ${batch.length} tickers`);
-                     console.log(`[WORKER ${workerIndex}] Tickers: ${batch.join(', ')}`);
-                     
                      let totalTradesStreamed = 0; // Track count instead of accumulating trades
 
                      // If dateRange was provided from API, use it directly instead of recalculating
@@ -233,13 +229,6 @@ if (parentPort) {
                                    date: dateRange.currentDate
                             } :
                             getSmartTimeRange();
-                     
-                     console.log(`[WORKER ${workerIndex}] Time range configured:`, {
-                            date: timeRange.date,
-                            isLive: timeRange.isLive,
-                            start: new Date(timeRange.startTime / 1000000).toISOString(),
-                            end: new Date(timeRange.endTime / 1000000).toISOString()
-                     });
 
                      console.log(` Worker ${workerIndex}: Using ${dateRange ? 'API-provided' : 'calculated'} date range: ${timeRange.date}`);
 
@@ -248,10 +237,8 @@ if (parentPort) {
                      console.log(`   - End: ${new Date(timeRange.endTime / 1000000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
 
                      for (const ticker of batch) {
-                            const tickerStartTime = Date.now();
                             try {
-                                   console.log(`[WORKER ${workerIndex}] ========== SCANNING ${ticker} ==========`);
-                                   console.log(`[WORKER ${workerIndex}] ${ticker}: Starting at ${new Date().toISOString()}`);
+                                   console.log(` Worker ${workerIndex}: Scanning ${ticker}...`);
 
                                    // Send progress update for each ticker being scanned
                                    parentPort.postMessage({
@@ -321,12 +308,9 @@ if (parentPort) {
                                           contractsResponse = await makePolygonRequest(contractsUrl);
                                    } else {
                                           // Regular stocks: Get price first, then contracts
-                                          console.log(`[WORKER ${workerIndex}] ${ticker}: Fetching current price...`);
                                           try {
                                                  const currentPriceUrl = `https://api.polygon.io/v2/last/trade/${ticker}?apikey=${apiKey}`;
-                                                 console.log(`[WORKER ${workerIndex}] ${ticker}: API call -> /v2/last/trade`);
                                                  let priceResponse = await makePolygonRequest(currentPriceUrl);
-                                                 console.log(`[WORKER ${workerIndex}] ${ticker}: Price response received`);
 
                                                  if (priceResponse.results?.p || priceResponse.results?.P) {
                                                         spotPrice = priceResponse.results.p || priceResponse.results.P;
@@ -344,27 +328,20 @@ if (parentPort) {
                                           }
 
                                           const today = new Date().toISOString().split('T')[0];
-                                          console.log(`[WORKER ${workerIndex}] ${ticker}: Fetching contracts...`);
                                           const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${today}&limit=1000&apikey=${apiKey}`;
-                                          console.log(`[WORKER ${workerIndex}] ${ticker}: API call -> /v3/reference/options/contracts`);
                                           contractsResponse = await makePolygonRequest(contractsUrl);
-                                          console.log(`[WORKER ${workerIndex}] ${ticker}: Contracts response received - ${contractsResponse.results?.length || 0} total contracts`);
                                    }
 
                                    // Skip ticker if we couldn't get a valid price
                                    if (!spotPrice || spotPrice <= 0) {
-                                          console.warn(`[WORKER ${workerIndex}] ${ticker}: ⚠️ SKIPPED - no valid price data`);
-                                          console.log(`[WORKER ${workerIndex}] ${ticker}: Completed in ${Date.now() - tickerStartTime}ms (skipped)`);
+                                          console.warn(` Worker ${workerIndex}: Skipping ${ticker} - no valid price data`);
                                           continue;
                                    }
 
                                    if (!contractsResponse.results || contractsResponse.results.length === 0) {
-                                          console.warn(`[WORKER ${workerIndex}] ${ticker}: ⚠️ SKIPPED - no contracts found`);
-                                          console.log(`[WORKER ${workerIndex}] ${ticker}: Completed in ${Date.now() - tickerStartTime}ms (no contracts)`);
+                                          console.warn(` Worker ${workerIndex}: No contracts found for ${ticker}`);
                                           continue;
                                    }
-                                   
-                                   console.log(`[WORKER ${workerIndex}] ${ticker}: ✓ Price: $${spotPrice.toFixed(2)}, Contracts: ${contractsResponse.results.length}`);
 
                                    // ===============================
                                    // PRE-FETCH HISTORICAL PRICE DATA ONCE
@@ -434,13 +411,7 @@ if (parentPort) {
                                           const filterDesc = ticker === 'SPX'
                                                  ? 'ATM to 1% OTM (ODTE + next day only)'
                                                  : '5% ITM + all OTM';
-                                          console.log(`[WORKER ${workerIndex}] ${ticker}: Filtered ${contractsResponse.results.length} → ${validContracts.length} contracts (${filterDesc})`);
-                                          
-                                          if (validContracts.length === 0) {
-                                                 console.log(`[WORKER ${workerIndex}] ${ticker}: ⚠️ No contracts passed filter - skipping`);
-                                                 console.log(`[WORKER ${workerIndex}] ${ticker}: Completed in ${Date.now() - tickerStartTime}ms (filtered out)`);
-                                                 continue;
-                                          }
+                                          console.log(` Worker ${workerIndex}: ${ticker} @ $${spotPrice} - ${contractsResponse.results.length} ΓåÆ ${validContracts.length} contracts after ${filterDesc} filter`);
 
                                           const contractsToScan = validContracts;
                                           const contractBatchSize = 50; // Process 50 contracts simultaneously with unlimited API
@@ -456,9 +427,8 @@ if (parentPort) {
                                           // Process each batch in parallel
                                           for (let batchIndex = 0; batchIndex < contractBatches.length; batchIndex++) {
                                                  const contractBatch = contractBatches[batchIndex];
-                                                 const batchStartTime = Date.now();
 
-                                                 console.log(`[WORKER ${workerIndex}] ${ticker}: Processing contract batch ${batchIndex + 1}/${contractBatches.length} (${contractBatch.length} contracts)`);
+                                                 console.log(` Worker ${workerIndex}: Processing batch ${batchIndex + 1}/${contractBatches.length} (${contractBatch.length} contracts)`);
 
                                                  // ===============================
                                                  // STEP 4 ΓÇö FETCH TRADES FOR EACH CONTRACT
@@ -489,9 +459,8 @@ if (parentPort) {
                                                  });
 
                                                  // Wait for entire batch to complete
-                                                 console.log(`[WORKER ${workerIndex}] ${ticker}: [WAIT] Waiting for ${contractBatch.length} API calls...`);
+                                                 console.log(` Worker ${workerIndex}: [WAIT] Waiting for ${contractBatch.length} contract API calls to complete...`);
                                                  const batchResults = await Promise.all(batchPromises);
-                                                 console.log(`[WORKER ${workerIndex}] ${ticker}: ✓ Batch ${batchIndex + 1} completed in ${Date.now() - batchStartTime}ms`);
 
                                                  // Add small delay between batches to prevent socket overload
                                                  if (batchIndex < contractBatches.length - 1) {
@@ -620,18 +589,23 @@ if (parentPort) {
                                                                // Filter out null trades
                                                                const validTrades = flattenedTrades.filter(trade => trade !== null);
 
-                                                               console.log(` Worker ${workerIndex}: [FILTERED] ${validTrades.length} valid trades (${contractTrades.length - validTrades.length} filtered out) for ${contract.ticker}`);
+                                                               console.log(` Worker ${workerIndex}: [FILTERED] ${validTrades.length} valid trades for ${contract.ticker}`);
 
-                                                               // STREAM trades immediately as they're found (don't wait till end)
+                                                               // STREAM trades in chunks of 500 to avoid IPC message size limit
+                                                               // A single contract can have 50k+ trades - one big postMessage crashes the worker
                                                                if (validTrades.length > 0) {
-                                                                      parentPort.postMessage({
-                                                                             type: 'trades_found',
-                                                                             trades: validTrades,
-                                                                             workerIndex: workerIndex,
-                                                                             ticker: ticker,
-                                                                             contract: contract.ticker,
-                                                                             success: true
-                                                                      });
+                                                                      const CHUNK_SIZE = 500;
+                                                                      for (let ci = 0; ci < validTrades.length; ci += CHUNK_SIZE) {
+                                                                             const chunk = validTrades.slice(ci, ci + CHUNK_SIZE);
+                                                                             parentPort.postMessage({
+                                                                                    type: 'trades_found',
+                                                                                    trades: chunk,
+                                                                                    workerIndex: workerIndex,
+                                                                                    ticker: ticker,
+                                                                                    contract: contract.ticker,
+                                                                                    success: true
+                                                                             });
+                                                                      }
                                                                       totalTradesStreamed += validTrades.length;
                                                                }
                                                         }
@@ -639,15 +613,9 @@ if (parentPort) {
                                           }
                                    }
                             } catch (error) {
-                                   console.error(`[WORKER ${workerIndex}] ${ticker}: ❌ ERROR:`, error.message);
-                                   console.error(`[WORKER ${workerIndex}] ${ticker}: Error stack:`, error.stack);
-                                   console.log(`[WORKER ${workerIndex}] ${ticker}: Failed after ${Date.now() - tickerStartTime}ms`);
-                            } finally {
-                                   console.log(`[WORKER ${workerIndex}] ${ticker}: ========== COMPLETED (${Date.now() - tickerStartTime}ms) ==========`);
+                                   console.error(` Worker ${workerIndex}: Error with ${ticker}:`, error.message);
                             }
                      }
-                     
-                     console.log(`[WORKER ${workerIndex}] ========== BATCH COMPLETE - ${totalTradesStreamed} trades streamed ==========`);
 
                      console.log(` Worker ${workerIndex}: [DONE] Completed batch - streamed ${totalTradesStreamed} total trades`);
 
