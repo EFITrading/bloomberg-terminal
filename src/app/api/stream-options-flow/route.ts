@@ -176,6 +176,7 @@ export async function GET(request: NextRequest) {
           // Single day: Use existing fast path
           const { getSmartDateRange } = require('../../../lib/optionsFlowService');
           const { startTimestamp, endTimestamp, currentDate, isLive } = await getSmartDateRange();
+          sendData({ type: 'status', message: `[SERVER] Date range set: ${currentDate}, isLive: ${isLive}. Launching workers...` });
 
           const scanPromise = optionsFlowService.fetchLiveOptionsFlowUltraFast(
             ticker || undefined,
@@ -187,11 +188,13 @@ export async function GET(request: NextRequest) {
           finalTrades = await scanPromise;
 
           console.log(`[OK] Scan complete: ${finalTrades.length} trades found`);
+          sendData({ type: 'status', message: `[SERVER] Scan complete: ${finalTrades.length} raw trades found. Starting enrichment...` });
 
-          // [OPT] ENRICH TRADES IN PARALLEL ON BACKEND - Fastest approach!
+          // [OPT] ENRICH TRADES IN PARALLEL ON BACKEND
           console.log(`[ENRICH] ENRICHING ${finalTrades.length} trades in parallel on backend...`);
           finalTrades = await optionsFlowService.enrichTradesWithVolOIParallel(finalTrades);
           console.log(`[OK] ENRICHMENT COMPLETE: ${finalTrades.length} trades enriched`);
+          sendData({ type: 'status', message: `[SERVER] Enrichment complete: ${finalTrades.length} trades enriched. Building response...` });
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)
           console.log(`[MULTIDAY] Multi-Day Scan: ${timeframe} for ${ticker || 'MARKET-WIDE'}`);
@@ -239,6 +242,8 @@ export async function GET(request: NextRequest) {
         };
 
         // [SEND] SEND ALL TRADES IN ONE BATCH (already enriched by backend)
+        const payloadSize = JSON.stringify(finalTrades).length;
+        sendData({ type: 'status', message: `[SERVER] Sending complete payload: ${finalTrades.length} trades (~${Math.round(payloadSize / 1024)}KB)` });
         sendData({
           type: 'complete',
           trades: finalTrades,
