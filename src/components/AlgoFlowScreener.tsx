@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, ReferenceLine, Tooltip, Legend } from 'recharts';
 import TradingViewChart from './trading/TradingViewChart';
@@ -469,108 +469,86 @@ interface AlgoFlowAnalysis {
 
 // BID/ASK EXECUTION ANALYSIS - Same logic as OptionsFlowTable intentions button
 // Lightning-fast analysis for massive datasets using pure statistical inference
-const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> => {
-  console.log(`⚡ REAL BID/ASK ANALYSIS: Fetching quotes for ${trades.length} trades`);
+const normalizeTickerForOptions = (ticker: string) => {
+  const specialCases: Record<string, string> = { 'BRK.B': 'BRK', 'BF.B': 'BF' };
+  return specialCases[ticker] || ticker;
+};
 
+const buildOptionTicker = (trade: any): string => {
+  const expiry = trade.expiry.replace(/-/g, '').slice(2);
+  const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+  const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+  return `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`;
+};
+
+async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let index = 0;
+  async function worker() {
+    while (index < tasks.length) {
+      const i = index++;
+      results[i] = await tasks[i]();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
+}
+
+const computeFillStyle = (fillPrice: number, bid: number, ask: number): string => {
+  const midpoint = (bid + ask) / 2;
+  if (fillPrice >= ask + 0.01) return 'AA';
+  if (fillPrice <= bid - 0.01) return 'BB';
+  if (fillPrice === ask) return 'A';
+  if (fillPrice === bid) return 'B';
+  return fillPrice >= midpoint ? 'A' : 'B';
+};
+
+const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> => {
   if (trades.length === 0) return trades;
 
-  const tradesWithFillStyle: any[] = [];
+  console.log(`⚡ BID/ASK ANALYSIS: fetching per-trade quotes at execution timestamp for ${trades.length} trades`);
 
-  // Process ALL trades - no sampling
-  const BATCH_SIZE = 20; // Larger batch size for efficiency
-  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-    const batch = trades.slice(i, i + BATCH_SIZE);
-
-    const batchPromises = batch.map(async (trade, index) => {
-      try {
-        // Create option ticker format
-        const expiry = trade.expiry.replace(/-/g, '').slice(2); // Convert 2025-10-10 to 251010
-        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-        const normalizeTickerForOptions = (ticker: string) => {
-          const specialCases: Record<string, string> = {
-            'BRK.B': 'BRK',
-            'BF.B': 'BF'
-          };
-          return specialCases[ticker] || ticker;
-        };
-        const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`;
-
-        // Use snapshot endpoint - same as Options Flow
-        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf`;
-
-        if (index === 0) {
-          console.log(`🔍 SNAPSHOT API REQUEST: ${optionTicker}`);
-        }
-
-        const response = await fetch(snapshotUrl);
-        const data = await response.json();
-
-        if (index === 0) {
-          console.log(`📊 SNAPSHOT API RESPONSE:`, data);
-        }
-
-        if (data.results && data.results.last_quote) {
-          const bid = data.results.last_quote.bid;
-          const ask = data.results.last_quote.ask;
-          const fillPrice = trade.premium_per_contract;
-
-          if (bid && ask && fillPrice) {
-            let fillStyle = 'N/A';
-            const midpoint = (bid + ask) / 2;
-
-            // Above Ask: Must be at least 1 cent above ask price
-            if (fillPrice >= ask + 0.01) {
-              fillStyle = 'AA';
-              // Below Bid: Must be at least 1 cent below bid price  
-            } else if (fillPrice <= bid - 0.01) {
-              fillStyle = 'BB';
-              // At Ask: Exactly at ask price
-            } else if (fillPrice === ask) {
-              fillStyle = 'A';
-              // At Bid: Exactly at bid price
-            } else if (fillPrice === bid) {
-              fillStyle = 'B';
-              // Between bid and ask: Use midpoint logic
-            } else if (fillPrice >= midpoint) {
-              fillStyle = 'A';
-            } else {
-              fillStyle = 'B';
-            }
-
-            if (index === 0) {
-              console.log(`✅ Fill style determined: ${fillStyle}`, { bid, ask, fillPrice, midpoint });
-            }
-
-            return { ...trade, fill_style: fillStyle };
-          }
-        }
-
-        if (index === 0) {
-          console.log(`⚠️ No quote data found`);
-        }
-
-        return { ...trade, fill_style: 'N/A' };
-      } catch (error) {
-        console.error(`Error analyzing trade ${trade.underlying_ticker}:`, error);
-        return { ...trade, fill_style: 'N/A' };
-      }
-    });
-
-    const batchResults = await Promise.all(batchPromises);
-    tradesWithFillStyle.push(...batchResults);
-
-    // Small delay between batches to avoid rate limiting
-    await new Promise(resolve => setTimeout(resolve, 100));
+  // Build deduplicated batch payload — unique by contract+second bucket
+  type QuoteKey = string;
+  const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>();
+  for (const trade of trades) {
+    const contract = buildOptionTicker(trade);
+    const tradeMs = typeof trade.trade_timestamp === 'number'
+      ? trade.trade_timestamp
+      : new Date(trade.trade_timestamp).getTime();
+    const timestampNs = tradeMs * 1_000_000;
+    const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`;
+    if (!uniqueQuotes.has(key)) uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs });
   }
 
-  console.log(`✅ Analysis complete. REAL trades with fill_style:`, tradesWithFillStyle.slice(0, 3).map(t => ({
-    ticker: t.underlying_ticker,
-    fill_style: t.fill_style,
-    premium: t.premium_per_contract
-  })));
+  // Single POST — server fans out all Polygon calls simultaneously
+  const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }));
+  const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>();
+  try {
+    const res = await fetch('/api/options-quotes-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trades: batchPayload }),
+    });
+    const data = await res.json();
+    for (const r of data.results as { id: string; bid: number | null; ask: number | null }[]) {
+      quoteResultMap.set(r.id, (r.bid && r.ask && r.bid > 0 && r.ask > 0) ? { bid: r.bid, ask: r.ask } : null);
+    }
+  } catch { /* all trades fall through to N/A */ }
 
-  return tradesWithFillStyle;
+  return trades.map((trade) => {
+    const contract = buildOptionTicker(trade);
+    const tradeMs = typeof trade.trade_timestamp === 'number'
+      ? trade.trade_timestamp
+      : new Date(trade.trade_timestamp).getTime();
+    const timestampNs = tradeMs * 1_000_000;
+    const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`;
+    const quote = quoteResultMap.get(key) ?? null;
+    if (quote) {
+      return { ...trade, fill_style: computeFillStyle(trade.premium_per_contract, quote.bid, quote.ask) };
+    }
+    return { ...trade, fill_style: 'N/A' };
+  });
 };
 const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => {
   console.log(`� Starting ULTRA-FAST parallel bid/ask analysis for ${trades.length} trades`);
@@ -763,6 +741,9 @@ export default function AlgoFlowScreener() {
   const [loading, setLoading] = useState(false);
   const [flowData, setFlowData] = useState<OptionsFlowData[]>([]);
   const [error, setError] = useState('');
+  // Ref to track accumulated trades synchronously across async SSE events
+  // (React state updates are async so the complete handler can't read flowData reliably)
+  const accumulatedTradesRef = useRef<OptionsFlowData[]>([]);
   const [streamStatus, setStreamStatus] = useState('');
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false);
   const [timeInterval, setTimeInterval] = useState<'5min' | '15min' | '30min' | '1hour'>('1hour');
@@ -1455,6 +1436,7 @@ export default function AlgoFlowScreener() {
     setStreamStatus('Connecting...');
     console.log(`🔄 CLEARING FLOW DATA - Timeframe: ${scanTimeframe}`);
     setFlowData([]);
+    accumulatedTradesRef.current = []; // Reset accumulated trades ref
     liveOICache.clear(); // Clear Live OI cache when starting new search
     setIsStreamComplete(false);
 
@@ -1464,70 +1446,63 @@ export default function AlgoFlowScreener() {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log(`📡 RECEIVED EVENT TYPE: ${data.type}`, data);
 
           switch (data.type) {
+            case 'connected':
+            case 'heartbeat':
+              break;
+
             case 'status':
               setStreamStatus(data.message);
               break;
 
+            // ─── PRIMARY TRADE DELIVERY PATH ───────────────────────────────
+            // Server streams trades as 'ticker_complete' events (one per ticker).
+            // We must handle this OR we lose all trades before 'complete' fires.
+            case 'ticker_complete':
+              if (data.trades?.length > 0) {
+                accumulatedTradesRef.current = [...accumulatedTradesRef.current, ...data.trades];
+                setFlowData(prev => [...prev, ...data.trades]);
+                setStreamStatus(`Received ${accumulatedTradesRef.current.length} trades (${data.ticker})...`);
+              }
+              break;
+
+            // ─── LEGACY PROGRESSIVE PATH (kept for other callers) ──────────
             case 'trades':
               if (data.trades?.length > 0 && !isStreamComplete) {
-                setFlowData(prev => {
-                  const newTrades = [...prev, ...data.trades];
-                  console.log(`🔄 ADDING ${data.trades.length} STREAMING TRADES (total: ${newTrades.length})`);
-                  return newTrades;
-                });
-              } else if (isStreamComplete) {
-                console.log(`⚠️ IGNORING ${data.trades?.length || 0} TRADES - STREAM ALREADY COMPLETE`);
+                accumulatedTradesRef.current = [...accumulatedTradesRef.current, ...data.trades];
+                setFlowData(prev => [...prev, ...data.trades]);
               }
               setStreamStatus(data.status || 'Processing trades...');
               break;
 
-            case 'complete':
+            case 'complete': {
               setStreamStatus('Scan complete');
-              setIsStreamComplete(true); // Set completion flag IMMEDIATELY
-              console.log('🔒 STREAM MARKED AS COMPLETE - NO MORE TRADES WILL BE ACCEPTED');
-              if (data.trades?.length > 0) {
-                // Fetch volume and open interest data for all trades
-                console.log(`🚀 STARTING VOLUME/OI FETCH FOR ${data.trades.length} TRADES`);
-                console.log('🔍 SAMPLE TRADE BEFORE VOL/OI:', data.trades[0]);
+              setIsStreamComplete(true);
+
+              // Server sends trades via ticker_complete events, so data.trades is [].
+              // Use accumulatedTradesRef which was built up by ticker_complete handlers.
+              const completeTrades: OptionsFlowData[] =
+                (data.trades?.length > 0 ? data.trades : accumulatedTradesRef.current);
+
+              if (completeTrades.length > 0) {
                 setStreamStatus('Fetching volume/OI data...');
-                fetchVolumeAndOpenInterest(data.trades)
+                fetchVolumeAndOpenInterest(completeTrades)
                   .then(tradesWithVolOI => {
-                    console.log('✅ VOL/OI FETCH COMPLETE!');
-                    console.log('🔍 SAMPLE TRADE AFTER VOL/OI:', tradesWithVolOI[0]);
-                    console.log(`📊 TRADES WITH VOLUME: ${tradesWithVolOI.filter(t => t.volume && t.volume > 0).length}`);
-                    console.log(`📊 TRADES WITH OI: ${tradesWithVolOI.filter(t => t.open_interest && t.open_interest > 0).length}`);
-                    // REPLACE all flowData with the volume/OI enriched trades
-                    console.log('🔄 REPLACING ALL FLOW DATA WITH VOL/OI DATA');
-                    console.log('🔍 FINAL ENRICHED TRADE SAMPLE:', tradesWithVolOI[0]);
                     setFlowData(tradesWithVolOI);
-                    liveOICache.clear(); // Clear cache when new data loaded
-
+                    accumulatedTradesRef.current = tradesWithVolOI;
+                    liveOICache.clear();
                     setIsStreamComplete(true);
-                    setStreamStatus('Complete with volume/OI data');
+                    setStreamStatus(`Complete — ${tradesWithVolOI.length} trades loaded`);
                     setLoading(false);
-
-                    // NOW run analysis with the enriched data
-                    console.log(`🎯 STARTING ANALYSIS WITH ENRICHED DATA`);
-                    console.log(`🔍 ENRICHED DATA SAMPLE FOR ANALYSIS:`, tradesWithVolOI[0] ? {
-                      ticker: tradesWithVolOI[0].ticker,
-                      volume: tradesWithVolOI[0].volume,
-                      open_interest: tradesWithVolOI[0].open_interest
-                    } : 'NO DATA');
-                    console.log(`🔍 ALL ENRICHED TICKERS:`, tradesWithVolOI.map(t => ({ ticker: t.ticker, vol: t.volume, oi: t.open_interest })));
-                    performAnalysis(tradesWithVolOI).catch(error => {
-                      console.error('❌ Error running analysis with enriched data:', error);
-                    });
+                    performAnalysis(tradesWithVolOI).catch(() => { });
                   })
-                  .catch(volError => {
-                    console.error('Error fetching volume/OI:', volError);
-                    // Fallback: use trades without vol/OI data
-                    setFlowData(data.trades);
-                    liveOICache.clear(); // Clear cache when new data loaded
+                  .catch(() => {
+                    setFlowData(completeTrades);
+                    liveOICache.clear();
                     setStreamStatus('Complete (volume/OI unavailable)');
                     setLoading(false);
+                    performAnalysis(completeTrades).catch(() => { });
                   });
               } else {
                 setError(`No options flow data found for ${tickerToSearch}`);
@@ -1535,6 +1510,7 @@ export default function AlgoFlowScreener() {
               }
               eventSource.close();
               break;
+            }
 
             case 'error':
               setError(data.error || 'Stream error occurred');
@@ -1710,8 +1686,8 @@ export default function AlgoFlowScreener() {
                 <h2 className="text-white text-5xl font-black tracking-wider">{analysis.ticker}</h2>
                 <div className="text-white text-3xl font-black">${analysis.currentPrice.toFixed(2)}</div>
                 <div className={`px-4 py-1 border-2 font-black text-sm tracking-widest ${analysis.flowTrend === 'BULLISH' ? 'border-green-500 text-green-500' :
-                    analysis.flowTrend === 'BEARISH' ? 'border-red-500 text-red-500' :
-                      'border-yellow-500 text-yellow-500'
+                  analysis.flowTrend === 'BEARISH' ? 'border-red-500 text-red-500' :
+                    'border-yellow-500 text-yellow-500'
                   }`}>
                   {analysis.flowTrend}
                 </div>
@@ -1837,8 +1813,8 @@ export default function AlgoFlowScreener() {
                   <button
                     onClick={() => setChartTimeframe('1D')}
                     className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '1D'
-                        ? 'bg-white text-black'
-                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      ? 'bg-white text-black'
+                      : 'bg-black text-white border border-white hover:bg-white hover:text-black'
                       }`}
                   >
                     1D
@@ -1846,8 +1822,8 @@ export default function AlgoFlowScreener() {
                   <button
                     onClick={() => setChartTimeframe('3D')}
                     className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '3D'
-                        ? 'bg-white text-black'
-                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      ? 'bg-white text-black'
+                      : 'bg-black text-white border border-white hover:bg-white hover:text-black'
                       }`}
                   >
                     3D
@@ -1855,8 +1831,8 @@ export default function AlgoFlowScreener() {
                   <button
                     onClick={() => setChartTimeframe('1W')}
                     className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartTimeframe === '1W'
-                        ? 'bg-white text-black'
-                        : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                      ? 'bg-white text-black'
+                      : 'bg-black text-white border border-white hover:bg-white hover:text-black'
                       }`}
                   >
                     1W
@@ -1865,8 +1841,8 @@ export default function AlgoFlowScreener() {
                   <button
                     onClick={() => setChartViewMode('detailed')}
                     className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'detailed'
-                        ? 'bg-cyan-400 text-black'
-                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      ? 'bg-cyan-400 text-black'
+                      : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
                       }`}
                   >
                     ALL
@@ -1874,8 +1850,8 @@ export default function AlgoFlowScreener() {
                   <button
                     onClick={() => setChartViewMode('simplified')}
                     className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'simplified'
-                        ? 'bg-cyan-400 text-black'
-                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      ? 'bg-cyan-400 text-black'
+                      : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
                       }`}
                   >
                     BULL/BEAR
@@ -1883,8 +1859,8 @@ export default function AlgoFlowScreener() {
                   <button
                     onClick={() => setChartViewMode('net')}
                     className={`px-4 py-1 font-black text-xs tracking-widest transition-all ${chartViewMode === 'net'
-                        ? 'bg-cyan-400 text-black'
-                        : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
+                      ? 'bg-cyan-400 text-black'
+                      : 'bg-black text-white border border-white hover:bg-cyan-400 hover:text-black'
                       }`}
                   >
                     NET
@@ -1893,8 +1869,8 @@ export default function AlgoFlowScreener() {
               </div>
             </div>
             <div className="p-4 bg-black">
-              <div className="h-[400px]">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="h-[400px]" style={{ minWidth: 0 }}>
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
                   <LineChart data={analysis.chartData}>
                     <XAxis
                       dataKey="timeLabel"
@@ -2272,8 +2248,8 @@ export default function AlgoFlowScreener() {
                                 key={pageNum}
                                 onClick={() => setCurrentPage(pageNum)}
                                 className={`px-3 py-1 text-xs font-black tracking-wider ${currentPage === pageNum
-                                    ? 'bg-cyan-400 text-black'
-                                    : 'bg-black text-white border border-white hover:bg-white hover:text-black'
+                                  ? 'bg-cyan-400 text-black'
+                                  : 'bg-black text-white border border-white hover:bg-white hover:text-black'
                                   }`}
                               >
                                 {pageNum}

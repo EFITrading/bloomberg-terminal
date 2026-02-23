@@ -8,6 +8,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 // Polygon API key
 const POLYGON_API_KEY = 'kjZ4aLJbqHsEhWGOjWMBthMvwDLKd4wf';
 
+// Concurrency limiter — prevents ERR_INSUFFICIENT_RESOURCES from too many parallel fetches
+async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let index = 0;
+  async function worker() {
+    while (index < tasks.length) {
+      const i = index++;
+      results[i] = await tasks[i]();
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 // [ENRICH] COMBINED ENRICHMENT - Vol/OI + Fill Style in ONE API call
 const enrichTradeDataCombined = async (
   trades: OptionsFlowData[],
@@ -75,24 +90,51 @@ const enrichTradeDataCombined = async (
     );
   }
 
-  // Apply full cache to all trades
-  const finalResults = trades.map((trade) => {
-    const key = getOptionTicker(trade);
-    const cached = cache.get(key);
-    if (!cached) return { ...trade, fill_style: 'N/A' as const, volume: 0, open_interest: 0 };
-    let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
-    const { bid, ask } = cached;
-    const fillPrice = trade.premium_per_contract;
-    if (bid && ask && fillPrice) {
-      const mid = (bid + ask) / 2;
-      if (fillPrice >= ask + 0.01) fillStyle = 'AA';
-      else if (fillPrice <= bid - 0.01) fillStyle = 'BB';
-      else if (fillPrice >= ask) fillStyle = 'A';
-      else if (fillPrice <= bid) fillStyle = 'B';
-      else if (fillPrice >= mid) fillStyle = 'A';
-      else fillStyle = 'B';
+  // Build deduplicated batch payload — unique by contract+second bucket
+  type QuoteKey = string; // `${contract}:${secondBucket}`
+  const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>();
+  for (const trade of trades) {
+    const contract = getOptionTicker(trade);
+    const timestampNs = new Date(trade.trade_timestamp).getTime() * 1_000_000;
+    const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`;
+    if (!uniqueQuotes.has(key)) uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs });
+  }
+
+  // Single POST — server fans out all Polygon calls simultaneously
+  const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }));
+  const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>();
+  try {
+    const res = await fetch('/api/options-quotes-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trades: batchPayload }),
+    });
+    const data = await res.json();
+    for (const r of data.results as { id: string; bid: number | null; ask: number | null }[]) {
+      quoteResultMap.set(r.id, (r.bid && r.ask && r.bid > 0 && r.ask > 0) ? { bid: r.bid, ask: r.ask } : null);
     }
-    return { ...trade, fill_style: fillStyle, volume: cached.volume, open_interest: cached.open_interest };
+  } catch { /* all trades fall through to N/A */ }
+
+  const finalResults = trades.map((trade) => {
+    const contract = getOptionTicker(trade);
+    const timestampNs = new Date(trade.trade_timestamp).getTime() * 1_000_000;
+    const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`;
+    const cached = cache.get(contract);
+    const volume = cached?.volume ?? 0;
+    const open_interest = cached?.open_interest ?? 0;
+    const quote = quoteResultMap.get(key) ?? null;
+    if (quote) {
+      const fill = trade.premium_per_contract;
+      const mid = (quote.bid + quote.ask) / 2;
+      let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
+      if (fill >= quote.ask + 0.01) fillStyle = 'AA';
+      else if (fill <= quote.bid - 0.01) fillStyle = 'BB';
+      else if (fill === quote.ask) fillStyle = 'A';
+      else if (fill === quote.bid) fillStyle = 'B';
+      else fillStyle = fill >= mid ? 'A' : 'B';
+      return { ...trade, fill_style: fillStyle, volume, open_interest };
+    }
+    return { ...trade, fill_style: 'N/A' as const, volume, open_interest };
   });
 
   return finalResults;
@@ -200,66 +242,59 @@ const fetchVolumeAndOpenInterest = async (trades: OptionsFlowData[]): Promise<Op
   return updatedTrades;
 };
 
-// FILL STYLE ENRICHMENT - Same as AlgoFlow
+// FILL STYLE ENRICHMENT - per-trade historical bid/ask at execution timestamp
 const analyzeBidAskExecution = async (trades: OptionsFlowData[]): Promise<OptionsFlowData[]> => {
   if (trades.length === 0) return trades;
 
-  const tradesWithFillStyle: OptionsFlowData[] = [];
-  const BATCH_SIZE = 20;
+  const getOptionTicker = (trade: OptionsFlowData) => {
+    const expiry = trade.expiry.replace(/-/g, '').slice(2);
+    const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
+    const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
+    return `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
+  };
 
-  for (let i = 0; i < trades.length; i += BATCH_SIZE) {
-    const batch = trades.slice(i, i + BATCH_SIZE);
-
-    const batchPromises = batch.map(async (trade) => {
-      try {
-        const expiry = trade.expiry.replace(/-/g, '').slice(2);
-        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0');
-        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P';
-        const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`;
-
-        const tradeTime = new Date(trade.trade_timestamp);
-        const checkTimestamp = tradeTime.getTime() * 1000000;
-
-        const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${POLYGON_API_KEY}`;
-
-        const response = await fetch(quotesUrl);
-        const data = await response.json();
-
-        if (data.results && data.results.length > 0) {
-          const quote = data.results[0];
-          const bid = quote.bid_price;
-          const ask = quote.ask_price;
-          const fillPrice = trade.premium_per_contract;
-
-          if (bid && ask && fillPrice) {
-            let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
-            const midpoint = (bid + ask) / 2;
-
-            if (fillPrice > ask) {
-              fillStyle = 'AA';
-            } else if (fillPrice < bid) {
-              fillStyle = 'BB';
-            } else if (fillPrice >= midpoint) {
-              fillStyle = 'A';
-            } else {
-              fillStyle = 'B';
-            }
-
-            return { ...trade, fill_style: fillStyle };
-          }
-        }
-
-        return { ...trade, fill_style: 'N/A' as const };
-      } catch (error) {
-        return { ...trade, fill_style: 'N/A' as const };
-      }
-    });
-
-    const batchResults = await Promise.all(batchPromises);
-    tradesWithFillStyle.push(...batchResults);
+  // Deduplicate by contract+second bucket, then single POST to batch endpoint
+  type QuoteKey = string;
+  const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>();
+  for (const trade of trades) {
+    const contract = getOptionTicker(trade);
+    const timestampNs = new Date(trade.trade_timestamp).getTime() * 1_000_000;
+    const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`;
+    if (!uniqueQuotes.has(key)) uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs });
   }
 
-  return tradesWithFillStyle;
+  const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>();
+  try {
+    const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }));
+    const res = await fetch('/api/options-quotes-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trades: batchPayload }),
+    });
+    const data = await res.json();
+    for (const r of data.results as { id: string; bid: number | null; ask: number | null }[]) {
+      quoteResultMap.set(r.id, (r.bid && r.ask && r.bid > 0 && r.ask > 0) ? { bid: r.bid, ask: r.ask } : null);
+    }
+  } catch { /* fall through to N/A */ }
+
+  return trades.map((trade) => {
+    const contract = getOptionTicker(trade);
+    const timestampNs = new Date(trade.trade_timestamp).getTime() * 1_000_000;
+    const key: QuoteKey = `${contract}:${Math.floor(timestampNs / 1_000_000_000)}`;
+    const quote = quoteResultMap.get(key) ?? null;
+    if (quote) {
+      const fill = trade.premium_per_contract;
+      const mid = (quote.bid + quote.ask) / 2;
+      let fillStyle: 'A' | 'B' | 'AA' | 'BB' | 'N/A' = 'N/A';
+      if (fill >= quote.ask + 0.01) fillStyle = 'AA';
+      else if (fill <= quote.bid - 0.01) fillStyle = 'BB';
+      else if (fill === quote.ask) fillStyle = 'A';
+      else if (fill === quote.bid) fillStyle = 'B';
+      else fillStyle = fill >= mid ? 'A' : 'B';
+      return { ...trade, fill_style: fillStyle };
+    }
+    return { ...trade, fill_style: 'N/A' as const };
+  });
 };
 
 interface OptionsFlowData {

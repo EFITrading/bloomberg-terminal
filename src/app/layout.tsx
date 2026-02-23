@@ -26,7 +26,7 @@ export default function RootLayout({
     children: React.ReactNode
 }>) {
     return (
-        <html lang="en" style={{ overflowX: 'hidden', width: '100%' }}>
+        <html lang="en" data-scroll-behavior="smooth" style={{ overflowX: 'hidden', width: '100%' }}>
             <body className={`${inter.variable} antialiased`} style={{ overflowX: 'hidden', width: '100%', position: 'relative' }}>
                 <ClientSessionProvider>
                     <MarketRegimeProvider>

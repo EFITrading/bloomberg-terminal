@@ -262,6 +262,24 @@ export async function GET(request: NextRequest) {
           // No timeout - let it complete naturally
           finalTrades = await scanPromise;
           console.log(`[OK] Multi-Day Scan Complete: ${finalTrades.length} trades found`);
+
+          // Stream all trades to the client grouped by ticker (same pattern as 1D scan)
+          // Without this the client's accumulatedTradesRef stays empty and the table shows nothing
+          const tradesByTicker = new Map<string, any[]>();
+          for (const trade of finalTrades) {
+            const t = (trade as any).underlying_ticker || (trade as any).ticker;
+            if (!tradesByTicker.has(t)) tradesByTicker.set(t, []);
+            tradesByTicker.get(t)!.push(trade);
+          }
+          for (const [t, trades] of tradesByTicker) {
+            sendData({
+              type: 'ticker_complete',
+              ticker: t,
+              trades,
+              count: trades.length,
+              timestamp: new Date().toISOString()
+            });
+          }
         }
 
         // Send final summary only - trades were already streamed per ticker

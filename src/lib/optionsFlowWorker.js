@@ -6,10 +6,10 @@ const https = require('https');
 // which caused EMFILE errors on tickers 3+ when hundreds of closed sockets stayed in
 // TIME_WAIT for 60s and consumed all OS file descriptors.
 const keepAliveAgent = new https.Agent({
-  keepAlive: true,
-  maxSockets: 10,
-  maxFreeSockets: 10,
-  timeout: 30000,
+       keepAlive: true,
+       maxSockets: 10,
+       maxFreeSockets: 10,
+       timeout: 30000,
 });
 
 // Simple worker that makes direct API calls to avoid module resolution issues

@@ -425,183 +425,60 @@ export class OptionsFlowService {
     timeframe: '3D' | '1W' = '3D',
     onProgress?: (trades: ProcessedTrade[], status: string, progress?: any) => void
   ): Promise<ProcessedTrade[]> {
-    console.log(`[MULTI-DAY] Multi-Day Scan: ${ticker || 'MARKET-WIDE'} - ${timeframe}`);
-
-    // Step 1: Calculate trading days
     const numDays = timeframe === '3D' ? 3 : 5;
     const tradingDays = this.getLastNTradingDays(numDays);
-    console.log(`[NOTE] Trading days: ${tradingDays.join(', ')}`);
 
-    // Step 2: Fetch Day 1 (most recent) using existing fast path
-    const day1Date = tradingDays[tradingDays.length - 1];
-    console.log(`[DAY] Day 1 (${day1Date}): Using snapshot endpoint`);
-    onProgress?.([], `Fetching most recent day (${day1Date})...`);
+    onProgress?.([], `[MULTIDAY] Launching ${numDays} parallel worker scans simultaneously (${tradingDays.join(', ')})...`);
 
-    const dateRange = await getSmartDateRange();
-    const day1Trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress, dateRange);
+    // Build a market-hours date range for any given trading date.
+    // Use EST offsets (UTC-5 in winter, UTC-4 in summer).
+    // 9:30 AM ET = 14:30 UTC (winter) / 13:30 UTC (summer)
+    // 4:00 PM ET = 21:00 UTC (winter) / 20:00 UTC (summer)
+    const buildDateRange = (date: string) => {
+      const [y, m, d] = date.split('-').map(Number);
+      // Determine if date falls in DST (2nd Sun Mar – 1st Sun Nov)
+      const testDate = new Date(y, m - 1, d, 12, 0, 0);
+      const jan = new Date(y, 0, 1);
+      const jul = new Date(y, 6, 1);
+      const isDST = testDate.getTimezoneOffset() < Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+      const openHourUTC = isDST ? 13 : 14; // 9:30 AM ET
+      const closeHourUTC = isDST ? 20 : 21; // 4:00 PM ET
+      const marketOpen = new Date(Date.UTC(y, m - 1, d, openHourUTC, 30, 0));
+      const marketClose = new Date(Date.UTC(y, m - 1, d, closeHourUTC, 0, 0));
+      return {
+        currentDate: date,
+        isLive: false,
+        startTimestamp: marketOpen.getTime(),
+        endTimestamp: marketClose.getTime()
+      };
+    };
 
-    // Add trading_date to Day 1 trades
-    day1Trades.forEach(trade => {
-      trade.trading_date = day1Date;
-    });
+    // Use smart date range for the most recent day (handles live market properly),
+    // and a fixed historical range for all older days.
+    const mostRecentDay = tradingDays[tradingDays.length - 1];
+    const smartRange = await getSmartDateRange();
 
-    console.log(`[OK] Day 1 complete: ${day1Trades.length} trades`);
+    // Fire all days simultaneously — each day gets its own parallel worker pool
+    const dayResults = await Promise.all(
+      tradingDays.map(async (date) => {
+        const dateRange = date === mostRecentDay ? smartRange : buildDateRange(date);
+        onProgress?.([], `[Day ${date}] Starting parallel worker scan...`);
+        const trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress, dateRange);
+        // Tag every trade with the trading date for chart grouping
+        trades.forEach(t => { (t as any).trading_date = date; });
+        onProgress?.([], `[Day ${date}] ${trades.length} trades found`);
+        return trades;
+      })
+    );
 
-    // Step 3: Extract unique contracts from Day 1
-    const uniqueContracts = [...new Set(day1Trades.map(t => t.ticker))];
-    console.log(`[INFO] Found ${uniqueContracts.length} unique contracts to fetch historically`);
+    const allTrades = dayResults.flat();
+    onProgress?.([], `[MULTIDAY] All ${numDays} days complete: ${allTrades.length} trades. Classifying...`);
 
-    if (uniqueContracts.length === 0) {
-      console.log(`[WARN] No contracts found on Day 1, returning empty result`);
-      return day1Trades;
-    }
-
-    // Step 4: Fetch historical days (Days 2+) in parallel
-    const historicalDays = tradingDays.slice(0, -1);
-    const historicalTrades: ProcessedTrade[] = [];
-
-    // Fetch historical spot prices for all dates at once
-    const historicalSpotPrices = new Map<string, number>();
-    for (const date of historicalDays) {
-      try {
-        const spotUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${date}/${date}?adjusted=true&sort=asc&apiKey=${this.polygonApiKey}`;
-        const spotResponse = await fetch(spotUrl);
-        if (spotResponse.ok) {
-          const spotData = await spotResponse.json();
-          if (spotData.results && spotData.results.length > 0) {
-            const spotPrice = spotData.results[0].c; // Close price
-            historicalSpotPrices.set(date, spotPrice);
-            console.log(`  [PRICE] ${ticker} spot on ${date}: $${spotPrice}`);
-          }
-        }
-      } catch (error) {
-        console.error(`  [ERROR] Failed to fetch spot price for ${ticker} on ${date}`);
-      }
-    }
-
-    for (const date of historicalDays) {
-      console.log(`[DAY] Fetching historical: ${date}`);
-      onProgress?.([], `Fetching historical data for ${date}...`);
-
-      const historicalSpot = historicalSpotPrices.get(date) || 0;
-
-      // Convert date to timestamps in nanoseconds for Polygon API
-      // Market hours: 9:30 AM - 4:00 PM ET
-      const [year, month, day] = date.split('-').map(Number);
-      const marketOpen = new Date(Date.UTC(year, month - 1, day, 14, 30, 0)); // 9:30 AM ET = 14:30 UTC
-      const marketClose = new Date(Date.UTC(year, month - 1, day, 21, 0, 0));  // 4:00 PM ET = 21:00 UTC
-      const startTimeNanos = marketOpen.getTime() * 1000000; // Convert ms to nanoseconds
-      const endTimeNanos = marketClose.getTime() * 1000000;
-
-      // Fetch all contracts in parallel for this date
-      const contractTrades = await Promise.all(
-        uniqueContracts.map(async (contract) => {
-          try {
-            const url = `https://api.polygon.io/v3/trades/${contract}?timestamp.gte=${startTimeNanos}&timestamp.lte=${endTimeNanos}&limit=50000&apiKey=${this.polygonApiKey}`;
-            const response = await fetch(url);
-            if (!response.ok) return [];
-
-            const data = await response.json();
-            if (!data.results || data.results.length === 0) return [];
-
-            // Transform historical trades to ProcessedTrade format
-            const transformedTrades = data.results.map((trade: any) => {
-              // Parse contract ticker to extract details
-              // Format: O:CAT260109C00600000
-              const parts = contract.match(/O:([A-Z]+)(\d{6})([CP])(\d{8})/);
-              if (!parts) return null;
-
-              const [, underlyingTicker, expiryStr, callPut, strikeStr] = parts;
-              const expiry = `20${expiryStr.slice(0, 2)}-${expiryStr.slice(2, 4)}-${expiryStr.slice(4, 6)}`;
-              const strike = parseInt(strikeStr) / 1000;
-              const type = callPut === 'C' ? 'call' : 'put';
-
-              // Calculate moneyness and days to expiry (placeholder)
-              const expiryDate = new Date(expiry);
-              const tradeDate = new Date(date);
-              const daysToExpiry = Math.ceil((expiryDate.getTime() - tradeDate.getTime()) / (1000 * 60 * 60 * 24));
-
-              // Calculate moneyness with historical spot price
-              let moneyness: 'ATM' | 'ITM' | 'OTM' = 'ATM';
-              if (historicalSpot > 0) {
-                const percentDiff = Math.abs(strike - historicalSpot) / historicalSpot;
-                if (percentDiff < 0.01) {
-                  moneyness = 'ATM';
-                } else if (type === 'call') {
-                  moneyness = historicalSpot > strike ? 'ITM' : 'OTM';
-                } else {
-                  moneyness = historicalSpot < strike ? 'ITM' : 'OTM';
-                }
-              }
-
-              return {
-                ticker: contract,
-                underlying_ticker: underlyingTicker,
-                strike,
-                expiry,
-                type: type as 'call' | 'put',
-                trade_size: trade.size || 0,
-                premium_per_contract: trade.price || 0,
-                total_premium: (trade.price || 0) * (trade.size || 0) * 100,
-                spot_price: historicalSpot, // Historical spot price
-                exchange: trade.exchange || 0,
-                exchange_name: this.getExchangeName(trade.exchange),
-                sip_timestamp: trade.sip_timestamp,
-                conditions: trade.conditions || [],
-                trade_timestamp: new Date(trade.sip_timestamp / 1000000),
-                trading_date: date, // CRITICAL: Add trading date
-                moneyness: moneyness,
-                days_to_expiry: daysToExpiry
-              } as ProcessedTrade;
-            }).filter(Boolean) as ProcessedTrade[];
-
-            return transformedTrades;
-
-          } catch (error) {
-            console.error(`  [ERROR] Error fetching ${contract} on ${date}:`, error);
-            return [];
-          }
-        })
-      );
-
-      // Flatten and add to historical trades
-      const dayTrades = contractTrades.flat();
-      historicalTrades.push(...dayTrades);
-      console.log(`[DONE] ${date}: ${dayTrades.length} total trades`);
-    }
-
-    // Step 5: Combine all days
-    const allTrades = [...historicalTrades, ...day1Trades];
-    console.log(`[MULTI] Combined: ${allTrades.length} trades across ${tradingDays.length} days`);
-
-    // Step 6: Enrich ALL trades with Vol/OI
-    // - Day 1: Use snapshot endpoint (current data)
-    // - Historical: Use daily aggregates for volume + snapshot for current OI
-    onProgress?.([], `Enriching ${allTrades.length} trades with Vol/OI data...`);
-    console.log(`[ENRICH] ENRICHING ${allTrades.length} trades (including historical)...`);
-    const enrichedTrades = await this.enrichTradesWithHistoricalVolOI(allTrades);
-    console.log(`[OK] ENRICHMENT COMPLETE: ${enrichedTrades.length} trades enriched`);
-
-    // Step 7: Classify trades (SWEEP/BLOCK/MINI detection)
-    onProgress?.([], `Classifying trades for SWEEP/BLOCK/MINI patterns...`);
-    console.log(`[CLASSIFY] CLASSIFYING TRADES: Analyzing ${enrichedTrades.length} trades...`);
-    const classifiedTrades = this.classifyAllTrades(enrichedTrades);
-    console.log(`[OK] CLASSIFICATION COMPLETE: ${classifiedTrades.length} trades classified`);
-
-    // Step 8: Filter by institutional criteria
-    onProgress?.([], `Applying institutional filters...`);
-    console.log(`[FILTER] FILTERING: Applying institutional criteria...`);
+    // Classify (sweep/block/mini detection across all days) and filter
+    const classifiedTrades = this.classifyAllTrades(allTrades);
     const filteredTrades = this.filterAndClassifyTrades(classifiedTrades, ticker);
-    console.log(`[OK] FILTERING COMPLETE: ${filteredTrades.length} trades passed filters`);
 
-    // Final summary
-    console.log(`\n[MULTI] MULTI-DAY SCAN COMPLETE:`);
-    console.log(`   [NOTE] Dates Scanned: ${tradingDays.join(', ')}`);
-    console.log(`   [NOTE] Total Trading Days: ${tradingDays.length}`);
-    console.log(`   [NOTE] Day 1 (${day1Date}): ${day1Trades.length} trades (snapshot)`);
-    console.log(`   [NOTE] Historical Days: ${historicalTrades.length} trades`);
-    console.log(`   [OK] Final Result: ${filteredTrades.length} trades after filtering\n`);
-
+    onProgress?.([], `[OK] Filtered: ${filteredTrades.length} trades passed all criteria`);
     return filteredTrades;
   }
 
@@ -2650,16 +2527,14 @@ export class OptionsFlowService {
                 const openInterest = result.open_interest || 0;
                 const volOIRatio = openInterest > 0 ? volume / openInterest : 0;
 
-                const bid = result.last_quote?.bid || 0;
-                const ask = result.last_quote?.ask || 0;
+                // Fetch bid/ask at exact trade execution time for accurate fill_style
+                const tradeTimestampNs = (trade as any).sip_timestamp || (new Date((trade as any).trade_timestamp).getTime() * 1_000_000);
+                const historicalQuote = await this.fetchHistoricalBidAsk(optionTicker, tradeTimestampNs);
+                const bid = historicalQuote?.bid || result.last_quote?.bid || 0;
+                const ask = historicalQuote?.ask || result.last_quote?.ask || 0;
                 const bidAskSpread = ask - bid;
 
-                const fillStyle = this.detectFillStyle(
-                  trade.premium_per_contract,
-                  bid,
-                  ask,
-                  bidAskSpread
-                );
+                const fillStyle = this.detectFillStyle(trade.premium_per_contract, bid, ask);
 
                 return {
                   ...trade,
@@ -2750,8 +2625,8 @@ export class OptionsFlowService {
           });
         }
 
-        // Enrich all trades for this ticker
-        return tickerTrades.map(trade => {
+        // Enrich all trades for this ticker — per-trade historical bid/ask for fill_style accuracy
+        return Promise.all(tickerTrades.map(async (trade) => {
           const enrichment = enrichmentMap.get(trade.ticker);
           if (!enrichment) return trade;
 
@@ -2760,16 +2635,14 @@ export class OptionsFlowService {
           const openInterest = enrichment.open_interest || 0;
           const volOIRatio = openInterest > 0 ? volume / openInterest : 0;
 
-          const bid = enrichment.bid ? enrichment.bid / 100 : 0;
-          const ask = enrichment.ask ? enrichment.ask / 100 : 0;
+          // Fetch bid/ask at exact trade execution time
+          const tradeTimestampNs = trade.sip_timestamp || (new Date(trade.trade_timestamp as any).getTime() * 1_000_000);
+          const historicalQuote = await this.fetchHistoricalBidAsk(trade.ticker, tradeTimestampNs);
+          const bid = historicalQuote?.bid || (enrichment.bid ? enrichment.bid / 100 : 0);
+          const ask = historicalQuote?.ask || (enrichment.ask ? enrichment.ask / 100 : 0);
           const bidAskSpread = ask - bid;
 
-          const fillStyle = this.detectFillStyle(
-            trade.premium_per_contract,
-            bid,
-            ask,
-            bidAskSpread
-          );
+          const fillStyle = this.detectFillStyle(trade.premium_per_contract, bid, ask);
 
           const classification = this.classifyTradeByVolOI(
             trade.total_premium,
@@ -2796,7 +2669,7 @@ export class OptionsFlowService {
             current_price: enrichment.current_price ? enrichment.current_price / 100 : trade.premium_per_contract,
             classification
           };
-        });
+        }));
 
       } catch (error) {
         console.error(`[ERROR] Enrichment error for ${ticker}:`, error);
@@ -2907,16 +2780,13 @@ export class OptionsFlowService {
             const openInterest = enrichment?.open_interest || 0;
             const volOIRatio = openInterest > 0 ? volume / openInterest : 0;
 
-            const bid = enrichment?.bid ? enrichment.bid / 100 : 0;
-            const ask = enrichment?.ask ? enrichment.ask / 100 : 0;
+            // Fetch bid/ask at exact trade execution time for accurate fill_style
+            const historicalQuote = await this.fetchHistoricalBidAsk(contract.ticker, trade.sip_timestamp);
+            const bid = historicalQuote?.bid || (enrichment?.bid ? enrichment.bid / 100 : 0);
+            const ask = historicalQuote?.ask || (enrichment?.ask ? enrichment.ask / 100 : 0);
             const bidAskSpread = ask - bid;
 
-            const fillStyle = this.detectFillStyle(
-              trade.price / 100,
-              bid,
-              ask,
-              bidAskSpread
-            );
+            const fillStyle = this.detectFillStyle(trade.price / 100, bid, ask);
 
             const classification = this.classifyTradeByVolOI(premium, volOIRatio, volume, openInterest);
 
@@ -3019,22 +2889,31 @@ export class OptionsFlowService {
   }
 
   // Helper: Detect fill style from bid/ask analysis
-  private detectFillStyle(price: number, bid: number, ask: number, spread: number): string {
-    if (bid === 0 || ask === 0) return 'UNKNOWN';
+  private detectFillStyle(price: number, bid: number, ask: number): string {
+    if (bid <= 0 || ask <= 0) return 'N/A';
+    const mid = (bid + ask) / 2;
+    if (price >= ask + 0.01) return 'AA'; // Above ask — aggressive buyer
+    if (price <= bid - 0.01) return 'BB'; // Below bid — aggressive seller
+    if (price === ask) return 'A';
+    if (price === bid) return 'B';
+    return price >= mid ? 'A' : 'B';
+  }
 
-    const midpoint = (bid + ask) / 2;
-    const distanceFromMid = Math.abs(price - midpoint);
-    const percentFromMid = distanceFromMid / midpoint;
-
-    if (price >= ask) return 'ASK+'; // Above ask (aggressive buy)
-    if (price <= bid) return 'BID-'; // Below bid (aggressive sell)
-    if (price === ask) return 'ASK'; // At ask
-    if (price === bid) return 'BID'; // At bid
-    if (Math.abs(price - ask) < 0.01) return 'ASK'; // Near ask
-    if (Math.abs(price - bid) < 0.01) return 'BID'; // Near bid
-    if (percentFromMid < 0.1) return 'MID'; // Within 10% of midpoint
-
-    return price > midpoint ? 'ASK' : 'BID';
+  private async fetchHistoricalBidAsk(optionTicker: string, timestampNs: number): Promise<{ bid: number; ask: number } | null> {
+    try {
+      const url = `https://api.polygon.io/v3/quotes/${encodeURIComponent(optionTicker)}?timestamp.lte=${timestampNs}&order=desc&limit=1&apikey=${this.polygonApiKey}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        const bid: number = data.results[0].bid_price;
+        const ask: number = data.results[0].ask_price;
+        if (bid > 0 && ask > 0) return { bid, ask };
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // Helper: Classify trade by Vol/OI ratio
@@ -3348,21 +3227,8 @@ export class OptionsFlowService {
                 // Calculate Fill Style from historical bid/ask
                 const lastPrice = trade.premium_per_contract;
 
-                if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
-                  const midpoint = (bid + ask) / 2;
-                  const spread = ask - bid;
-                  const distanceFromMid = lastPrice - midpoint;
-
-                  if (distanceFromMid > spread * 0.25) fillStyle = 'A';
-                  else if (distanceFromMid > 0) fillStyle = 'AA';
-                  else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
-                  else if (distanceFromMid < 0) fillStyle = 'BB';
-
-                  if (batchIndex === 0 && batch.indexOf(trade) === 0) {
-                    console.log(`  Midpoint: $${midpoint.toFixed(4)}, Spread: $${spread.toFixed(4)}`);
-                    console.log(`  Trade Price: $${lastPrice.toFixed(4)}, Distance: $${distanceFromMid.toFixed(4)}`);
-                    console.log(`  [OK] Fill Style: ${fillStyle}`);
-                  }
+                if (bid && ask && bid > 0 && ask > 0) {
+                  fillStyle = this.detectFillStyle(lastPrice, bid, ask);
                 }
 
                 return {
@@ -3500,15 +3366,8 @@ export class OptionsFlowService {
                 // Calculate Fill Style from historical bid/ask
                 const lastPrice = trade.premium_per_contract;
 
-                if (bid && ask && bid > 0 && ask > 0 && ask > bid) {
-                  const midpoint = (bid + ask) / 2;
-                  const spread = ask - bid;
-                  const distanceFromMid = lastPrice - midpoint;
-
-                  if (distanceFromMid > spread * 0.25) fillStyle = 'A';
-                  else if (distanceFromMid > 0) fillStyle = 'AA';
-                  else if (distanceFromMid < -spread * 0.25) fillStyle = 'B';
-                  else if (distanceFromMid < 0) fillStyle = 'BB';
+                if (bid && ask && bid > 0 && ask > 0) {
+                  fillStyle = this.detectFillStyle(lastPrice, bid, ask);
                 }
 
                 return {
