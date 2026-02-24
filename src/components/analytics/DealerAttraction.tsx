@@ -3887,26 +3887,42 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
   const updateLiveOI = async () => {
     // Use whatever ticker is typed in the search bar
     const tickerToScan = (tickerInput.trim() || selectedTicker).toUpperCase();
-    console.log('🚀 Starting Live OI scan for', tickerToScan);
+
     setLiveOILoading(true);
     setLiveOIProgress(0);
 
     const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerToScan}`);
     let allTrades: any[] = [];
+    let scanComplete = false;
 
     eventSource.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
 
-        if (data.type === 'complete' && data.trades?.length > 0) {
-          console.log(`📊 Received ${data.trades.length} trades`);
-          allTrades = data.trades;
+        // Accumulate trades from ticker_complete events (API streams trades here, not in 'complete')
+        if (data.type === 'ticker_complete' && data.trades?.length > 0) {
+          allTrades.push(...data.trades);
+          return;
+        }
+
+        if (data.type === 'complete') {
+          // If API still populates complete.trades (legacy), use them; otherwise use accumulated
+          if (data.trades?.length > 0) allTrades = data.trades;
+          if (allTrades.length === 0) {
+            console.warn('⚠️ No trades received from stream');
+            eventSource.close();
+            setLiveOILoading(false);
+            setLiveOIProgress(0);
+            return;
+          }
+
+          scanComplete = true;
           eventSource.close();
           setLiveOIProgress(20); // 20% - trades received
 
           // Step 1: Fetch volume and OI data for all trades using Polygon API
           const uniqueExpirations = [...new Set(allTrades.map(t => t.expiry))];
-          console.log(`📅 Fetching data for ${uniqueExpirations.length} expirations`);
+
 
           const allContracts = new Map();
 
@@ -3931,7 +3947,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                       });
                     }
                   });
-                  console.log(`  ✅ Found ${chainData.results.length} contracts for ${expiryParam}`);
+
                 }
               }
 
@@ -3942,7 +3958,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             }
           }
 
-          console.log(`📊 Total contracts fetched: ${allContracts.size}`);
+
           setLiveOIProgress(60); // 60% - contracts fetched
 
           // Step 2: Enrich trades with volume/OI
@@ -3958,9 +3974,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           setLiveOIProgress(70); // 70% - trades enriched
 
           // Step 3: Detect fill styles using REAL bid/ask analysis (exact AlgoFlowScreener logic)
-          console.log(`🚀 Running bid/ask analysis for ${enrichedTrades.length} trades`);
+
           const BATCH_SIZE = 20;
-          const tradesWithFillStyle = [];
+          const tradesWithFillStyle: any[] = [];
 
           const normalizeTickerForOptions = (ticker: string) => {
             const specialCases: Record<string, string> = {
@@ -4028,12 +4044,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
 
-          console.log(`✅ Analyzed ${tradesWithFillStyle.length} trades with REAL bid/ask fill_style`);
+
           setLiveOIProgress(80); // 80% - fill styles calculated
 
           // Store trades data for Flow Map
           setFlowTradesData(tradesWithFillStyle);
-          console.log(`💰 Storing ${tradesWithFillStyle.length} trades for Flow Map calculation`);
+
 
           // Step 4: Calculate Live OI for each unique contract
           const liveOIMap = new Map<string, number>();
@@ -4092,7 +4108,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             liveOI = Math.max(0, liveOI);
             liveOIMap.set(contractKey, liveOI);
 
-            console.log(`📊 ${contractKey}: OI ${originalOI} → Live OI ${liveOI}`);
+
           });
 
           setLiveOIData(liveOIMap);
@@ -4113,7 +4129,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             await fetchOptionsData(liveOIMap, tradesWithFillStyle);
           } else {
             // Base data exists, just trigger recalculation
-            console.log(`🔄 Live OI scan complete - ${liveOIMap.size} contracts updated. Triggering recalculation...`);
+
             setLiveOILoading(false);
             setLiveOIProgress(100);
             // Force a recalculation by calling fetchOptionsData with the live data
@@ -4128,8 +4144,15 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
     };
 
     eventSource.onerror = (error) => {
+      if (scanComplete) {
+        // Stream closed normally after completion — not a real error
+        eventSource.close();
+        return;
+      }
       console.error('❌ EventSource error:', error);
       eventSource.close();
+      setLiveOILoading(false);
+      setLiveOIProgress(0);
     };
   };
 
@@ -4147,13 +4170,23 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       let allTrades: any[] = [];
 
       await new Promise<void>((resolve) => {
+        let odtrioScanComplete = false;
+
         eventSource.onmessage = async (event) => {
           try {
             const data = JSON.parse(event.data);
 
-            if (data.type === 'complete' && data.trades?.length > 0) {
-              allTrades = data.trades;
-              totalTrades += data.trades.length;
+            // Accumulate trades from ticker_complete events (API streams trades here, not in 'complete')
+            if (data.type === 'ticker_complete' && data.trades?.length > 0) {
+              allTrades.push(...data.trades);
+              return;
+            }
+
+            if (data.type === 'complete') {
+              // If API still populates complete.trades (legacy), use them; otherwise use accumulated
+              if (data.trades?.length > 0) allTrades = data.trades;
+              totalTrades += allTrades.length;
+              odtrioScanComplete = true;
               eventSource.close();
               resolve();
             }
@@ -4165,6 +4198,12 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         };
 
         eventSource.onerror = (error) => {
+          if (odtrioScanComplete) {
+            // Stream closed normally after completion — not a real error
+            eventSource.close();
+            resolve();
+            return;
+          }
           console.error(`❌ ${ticker} EventSource error:`, error);
           eventSource.close();
           resolve();
@@ -4398,7 +4437,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
     for (const ticker of tickers) {
       try {
-        console.log(`🔍 Scanning ${ticker}...`);
+
 
         // Check cache first (5 minute expiry)
         const now = Date.now();
@@ -4469,13 +4508,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             continue;
           }
 
-          console.log(`📅 ${ticker} Selected expiration: ${odteExpiry}`);
+
 
           // STEP 2: Now fetch filtered data for that specific expiration
           const minStrike = currentPrice * 0.99;
           const maxStrike = currentPrice * 1.02;
 
-          console.log(`📏 ${ticker} Fetching strike range: $${minStrike.toFixed(2)} - $${maxStrike.toFixed(2)} (Price: $${currentPrice.toFixed(2)})`);
+
 
           const odteResponse = await fetch(`/api/spx-fix?ticker=SPX&expiration=${odteExpiry}&minStrike=${minStrike}&maxStrike=${maxStrike}`);
           const result = await odteResponse.json();
@@ -4489,7 +4528,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             continue;
           }
 
-          console.log(`✅ ${ticker} Using expiration: ${odteExpiry}, Price: $${currentPrice.toFixed(2)}`);
+
 
           // Process filtered data (already filtered by API)
           const expData = result.data[odteExpiry];
@@ -4498,7 +4537,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           const totalCallContracts = Object.keys(expData.calls || {}).length;
           const totalPutContracts = Object.keys(expData.puts || {}).length;
 
-          console.log(`📊 ${ticker} Filtered contracts from API: ${totalCallContracts} calls + ${totalPutContracts} puts = ${totalCallContracts + totalPutContracts}`);
+
 
           // Process calls
           let callsWithGamma = 0;
@@ -4600,9 +4639,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           const netGEX = totalCallGEX + totalPutGEX;
 
           console.timeEnd(`${ticker} total fetch time`);
-          console.log(`📊 ${ticker} Summary:`);
+
           console.log(`   Current Price: $${currentPrice.toFixed(2)}`);
-          console.log(`   Strikes: ${dataArray.length}`);
+
           console.log(`   Net GEX: ${netGEX.toLocaleString()} ${netGEX > 0 ? '(Bullish)' : netGEX < 0 ? '(Bearish)' : '(Neutral)'}`);
 
           setOdtrioData(prev => ({
@@ -4616,7 +4655,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             }
           }));
 
-          console.log(`✅ ${ticker} complete\n`);
+
           continue;
         }
 
@@ -4676,7 +4715,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           continue;
         }
 
-        console.log(`📅 ${ticker} Selected expiration: ${odteExpiry}`);
+
 
         // Define strike range based on ticker (for QQQ/SPY)
         let minStrikePercent = 0.95;  // Default for QQQ
@@ -4693,7 +4732,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         const minStrike = currentPrice * minStrikePercent;
         const maxStrike = currentPrice * maxStrikePercent;
 
-        console.log(`📏 ${ticker} Strike range: $${minStrike.toFixed(2)} - $${maxStrike.toFixed(2)} (${((1 - minStrikePercent) * 100).toFixed(0)}% ITM to ${((maxStrikePercent - 1) * 100).toFixed(0)}% OTM)`);
+
 
         // Calculate GEX for ODTE
         const expData = result.data[odteExpiry];
@@ -4702,7 +4741,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
         const totalCallContracts = Object.keys(expData.calls || {}).length;
         const totalPutContracts = Object.keys(expData.puts || {}).length;
 
-        console.log(`📊 ${ticker} Total available contracts: ${totalCallContracts} calls + ${totalPutContracts} puts = ${totalCallContracts + totalPutContracts}`);
+
 
         // Calculate time-related variables for dealer formula
         const expirationDate = new Date(odteExpiry);
@@ -4816,9 +4855,9 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
         const netGEX = totalCallGEX + totalPutGEX;
 
-        console.log(`📊 ${ticker} Summary:`);
+
         console.log(`   Current Price: $${currentPrice.toFixed(2)}`);
-        console.log(`   Strikes Scanned: ${dataArray.length} (${callsScanned} calls + ${putsScanned} puts)`);
+
         console.log(`   Net GEX: ${netGEX.toLocaleString()} ${netGEX > 0 ? '(Bullish)' : netGEX < 0 ? '(Bearish)' : '(Neutral)'}`);
 
         setOdtrioData(prev => ({
@@ -4832,7 +4871,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
           }
         }));
 
-        console.log(`✅ ${ticker} complete\n`);
+
 
       } catch (error) {
         console.error(`❌ ${ticker} Error:`, error);
@@ -4980,7 +5019,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       // DEBUG: Log what we received from SPX API for Nov 10
       if (selectedTicker === 'SPX' && optionsResult.data['2025-11-10']) {
         const nov10Data = optionsResult.data['2025-11-10'];
-        console.log(`🔍 DEALER ATTRACTION RECEIVED NOV 10 DATA:`);
+
         console.log(`  Calls: ${Object.keys(nov10Data.calls || {}).length}`);
         console.log(`  Puts: ${Object.keys(nov10Data.puts || {}).length}`);
         console.log(`  6700 PUT from API: ${nov10Data.puts?.['6700']?.open_interest || 'NOT FOUND'}`);
@@ -5057,13 +5096,13 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
             flowPremiumByStrike[expiry][strike].callPremium += totalCost;
             flowPremiumByStrike[expiry][strike].callContracts += contracts;
             if (totalCost > 0) {
-              console.log(`💰 Call: ${strike} ${expiry} = $${totalCost.toFixed(0)} (${contracts} contracts @ $${premiumPerContract.toFixed(2)})`);
+
             }
           } else {
             flowPremiumByStrike[expiry][strike].putPremium += totalCost;
             flowPremiumByStrike[expiry][strike].putContracts += contracts;
             if (totalCost > 0) {
-              console.log(`💰 Put: ${strike} ${expiry} = $${totalCost.toFixed(0)} (${contracts} contracts @ $${premiumPerContract.toFixed(2)})`);
+
             }
           }
         }
@@ -5072,11 +5111,11 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
       // DEBUG: Show sample of premiums by expiration
       Object.keys(flowPremiumByStrike).slice(0, 2).forEach(exp => {
         const strikes = Object.keys(flowPremiumByStrike[exp]).slice(0, 3);
-        console.log(`  📅 ${exp}: ${strikes.length} strikes with flow`);
+
         strikes.forEach(strike => {
           const data = flowPremiumByStrike[exp][parseFloat(strike)];
           if (data.callPremium > 0 || data.putPremium > 0) {
-            console.log(`    Strike ${strike}: Calls $${data.callPremium.toFixed(0)}, Puts $${data.putPremium.toFixed(0)}`);
+
           }
         });
       });
@@ -5241,7 +5280,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
             // Log high OI puts for Nov 10
             if (expDate === '2025-11-10' && oi > 100) {
-              console.log(`🎯 NOV 10 HIGH OI PUT: Strike ${strikeNum} = OI ${oi}`);
+
             }
 
             if (oi > 0) {
@@ -5415,13 +5454,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
           // DEBUG: Log flow data for first few strikes
           if (relevantStrikes.indexOf(strike) < 3 && (flowData.call !== 0 || flowData.put !== 0)) {
-            console.log(`🔍 FLOW DATA for Strike ${strike} ${exp}:`, {
-              call: flowData.call,
-              put: flowData.put,
-              callVolume: flowData.callVolume,
-              putVolume: flowData.putVolume,
-              flowNet: flowData.call - flowData.put
-            });
+
           }
 
           row[exp] = {
@@ -5446,7 +5479,7 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
       // If this was triggered by Live OI, hide that loading state too
       if (liveOIMapOverride) {
-        console.log(`✅ Live OI recalculation complete`);
+
         setLiveOILoading(false);
         setLiveOIProgress(100);
       }
@@ -5742,8 +5775,8 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
 
         // Paginate to get all contracts
         while (nextUrl && allContracts.length < 5000) {
-          const response = await fetch(nextUrl);
-          const data = await response.json();
+          const response: Response = await fetch(nextUrl);
+          const data: any = await response.json();
 
           if (data.status !== 'OK') break;
           if (data.results) allContracts.push(...data.results);
@@ -7916,217 +7949,6 @@ const DealerAttraction: React.FC<DealerAttractionProps> = ({ onClose }) => {
                                                     <path d="M 35 0 Q 15 20 15 60 L 15 140" stroke="url(#redGrad-${row.strike})" strokeWidth="4" strokeDasharray="10,5" fill="none" opacity="0.8" style={{ filter: 'drop-shadow(0 0 8px #ff1744)' }} />
                                                   </svg>
                                                 )}
-
-                                                {/* Connected L-shaped pipe from current price to golden zone */}
-                                                {!isMobile && isCurrentPriceRow && goldenRowIndex !== -1 && (() => {
-                                                  // Ticker-specific row height multipliers for precise alignment
-                                                  const rowHeightMultiplier = tricoTicker === 'SPX' ? 39 :
-                                                    tricoTicker === 'SPY' ? 33 :
-                                                      tricoTicker === 'QQQ' ? 38 : 37;
-
-                                                  return (
-                                                    <svg style={{
-                                                      position: 'absolute',
-                                                      left: `${mobileStrikeWidth + 30}px`,
-                                                      top: '50%',
-                                                      width: `${mobileExpWidth * 2 - 50 + 15}px`,
-                                                      height: `${Math.abs(goldenRowIndex - currentPriceRowIndex) * rowHeightMultiplier + 20}px`,
-                                                      pointerEvents: 'none',
-                                                      zIndex: 102,
-                                                      overflow: 'visible',
-                                                      transform: goldenRowIndex > currentPriceRowIndex ? 'translateY(17px)' : `translateY(calc(-100% - 17px))`
-                                                    }}>
-                                                      <defs>
-                                                        {/* Vertical glossy shine */}
-                                                        <linearGradient id={`pipeShine-${row.strike}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                                                          <stop offset="0%" style={{ stopColor: '#fff', stopOpacity: 0 }} />
-                                                          <stop offset="15%" style={{ stopColor: '#fff', stopOpacity: 0.6 }} />
-                                                          <stop offset="30%" style={{ stopColor: '#fff', stopOpacity: 0 }} />
-                                                        </linearGradient>
-                                                        {/* 4D glow filter */}
-                                                        <filter id={`pipeGlow-${row.strike}`} x="-50%" y="-50%" width="200%" height="200%">
-                                                          <feGaussianBlur stdDeviation="2" result="coloredBlur" />
-                                                          <feFlood floodColor="#00ff00" floodOpacity="0.5" />
-                                                          <feComposite in2="coloredBlur" operator="in" />
-                                                          <feMerge>
-                                                            <feMergeNode />
-                                                            <feMergeNode in="SourceGraphic" />
-                                                          </feMerge>
-                                                        </filter>
-                                                      </defs>
-
-                                                      {(() => {
-                                                        const direction = goldenRowIndex > currentPriceRowIndex ? 'down' : 'up';
-                                                        const verticalHeight = Math.abs(goldenRowIndex - currentPriceRowIndex) * rowHeightMultiplier;
-                                                        const horizontalWidth = mobileExpWidth * 2 - 50;
-                                                        const pipeColor = direction === 'down' ? '#ff0000' : '#00ff00'; // Red if golden zone below, green if above
-                                                        const ropeColor = direction === 'down' ? '#ff0000' : '#00ff00'; // Match pipe color
-                                                        const ropeDuration = isTurboMode ? '0.5s' : '1s'; // Faster in turbo mode
-
-                                                        // Create L-shaped path
-                                                        const pathData = direction === 'down'
-                                                          ? `M 8 0 L 8 ${verticalHeight - 8} Q 8 ${verticalHeight} 16 ${verticalHeight} L ${horizontalWidth + 15} ${verticalHeight}`
-                                                          : `M 8 ${verticalHeight + 20} L 8 20 Q 8 12 16 12 L ${horizontalWidth + 15} 12`;
-
-                                                        const yPos = direction === 'down' ? verticalHeight : 12;
-
-                                                        return (
-                                                          <>
-                                                            {/* Shadow layers for L-shape */}
-                                                            <path d={pathData} fill="none" stroke="#2d1f00" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" style={{ filter: 'blur(4px)' }} />
-                                                            <path d={pathData} fill="none" stroke="#5a3e00" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" opacity="0.3" style={{ filter: 'blur(2px)' }} />
-
-                                                            {/* Main L-shaped pipe body */}
-                                                            <path d={pathData} fill="none" stroke="#000000" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `url(#pipeGlow-${row.strike})` }} />
-                                                            <path d={pathData} fill="none" stroke={pipeColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `url(#pipeGlow-${row.strike})` }} />
-
-                                                            {/* Glossy highlight on vertical section */}
-                                                            <line x1="6" y1="0" x2="6" y2={verticalHeight - 8} stroke="url(#pipeShine-${row.strike})" strokeWidth="2" opacity="0.7" />
-
-                                                            {/* Glossy highlight on horizontal section */}
-                                                            <line x1="16" y1={yPos - 1} x2={horizontalWidth + 15} y2={yPos - 1} stroke="url(#pipeShine-${row.strike})" strokeWidth="2" opacity="0.7" />
-
-                                                            {/* Two-tone spinning rope inside pipe - Blue layer */}
-                                                            <g>
-                                                              {/* Vertical blue rope */}
-                                                              <path
-                                                                d={direction === 'down'
-                                                                  ? `M 8 0 L 8 ${verticalHeight - 8}`
-                                                                  : `M 8 20 L 8 ${verticalHeight + 20}`
-                                                                }
-                                                                stroke="#00bfff"
-                                                                strokeWidth="5"
-                                                                strokeLinecap="round"
-                                                                strokeDasharray="15 15"
-                                                                opacity="0.9"
-                                                                style={{ filter: 'drop-shadow(0 0 8px #00bfff)' }}
-                                                              >
-                                                                <animate
-                                                                  attributeName="stroke-dashoffset"
-                                                                  from="0"
-                                                                  to="30"
-                                                                  dur={ropeDuration}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                              </path>
-
-                                                              {/* Horizontal blue rope */}
-                                                              <path
-                                                                d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
-                                                                stroke="#00bfff"
-                                                                strokeWidth="5"
-                                                                strokeLinecap="round"
-                                                                strokeDasharray="15 15"
-                                                                opacity="0.9"
-                                                                style={{ filter: 'drop-shadow(0 0 8px #00bfff)' }}
-                                                              >
-                                                                <animate
-                                                                  attributeName="stroke-dashoffset"
-                                                                  from="30"
-                                                                  to="0"
-                                                                  dur={ropeDuration}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                              </path>
-                                                            </g>
-
-                                                            {/* Two-tone spinning rope inside pipe - Gold layer */}
-                                                            <g>
-                                                              {/* Vertical gold rope */}
-                                                              <path
-                                                                d={direction === 'down'
-                                                                  ? `M 8 0 L 8 ${verticalHeight - 8}`
-                                                                  : `M 8 20 L 8 ${verticalHeight + 20}`
-                                                                }
-                                                                stroke="#ffd700"
-                                                                strokeWidth="5"
-                                                                strokeLinecap="round"
-                                                                strokeDasharray="15 15"
-                                                                opacity="0.9"
-                                                                style={{ filter: 'drop-shadow(0 0 8px #ffd700)' }}
-                                                              >
-                                                                <animate
-                                                                  attributeName="stroke-dashoffset"
-                                                                  from="15"
-                                                                  to="45"
-                                                                  dur={ropeDuration}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                              </path>
-
-                                                              {/* Horizontal gold rope */}
-                                                              <path
-                                                                d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
-                                                                stroke="#ffd700"
-                                                                strokeWidth="5"
-                                                                strokeLinecap="round"
-                                                                strokeDasharray="15 15"
-                                                                opacity="0.9"
-                                                                style={{ filter: 'drop-shadow(0 0 8px #ffd700)' }}
-                                                              >
-                                                                <animate
-                                                                  attributeName="stroke-dashoffset"
-                                                                  from="45"
-                                                                  to="15"
-                                                                  dur={ropeDuration}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                              </path>
-                                                            </g>
-
-                                                            {/* NEW: Green/Red rope layer based on direction */}
-                                                            <g>
-                                                              {/* Vertical green/red rope */}
-                                                              <path
-                                                                d={direction === 'down'
-                                                                  ? `M 8 0 L 8 ${verticalHeight - 8}`
-                                                                  : `M 8 20 L 8 ${verticalHeight + 20}`
-                                                                }
-                                                                stroke={ropeColor}
-                                                                strokeWidth="4"
-                                                                strokeLinecap="round"
-                                                                strokeDasharray="10 20"
-                                                                opacity="0.8"
-                                                                style={{ filter: `drop-shadow(0 0 12px ${ropeColor})` }}
-                                                              >
-                                                                <animate
-                                                                  attributeName="stroke-dashoffset"
-                                                                  from="0"
-                                                                  to="30"
-                                                                  dur={ropeDuration}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                              </path>
-
-                                                              {/* Horizontal green/red rope */}
-                                                              <path
-                                                                d={`M 16 ${yPos} L ${horizontalWidth + 15} ${yPos}`}
-                                                                stroke={ropeColor}
-                                                                strokeWidth="4"
-                                                                strokeLinecap="round"
-                                                                strokeDasharray="10 20"
-                                                                opacity="0.8"
-                                                                style={{ filter: `drop-shadow(0 0 12px ${ropeColor})` }}
-                                                              >
-                                                                <animate
-                                                                  attributeName="stroke-dashoffset"
-                                                                  from="30"
-                                                                  to="0"
-                                                                  dur={ropeDuration}
-                                                                  repeatCount="indefinite"
-                                                                />
-                                                              </path>
-                                                            </g>
-
-                                                            {/* End caps */}
-                                                            <ellipse cx="8" cy={direction === 'down' ? "0" : `${verticalHeight + 20}`} rx="5" ry="4" fill="#000000" stroke={pipeColor} strokeWidth="1.5" opacity="0.9" />
-                                                            <ellipse cx={horizontalWidth + 15} cy={yPos} rx="5" ry="4" fill="#000000" stroke={pipeColor} strokeWidth="1.5" opacity="0.9" />
-                                                          </>
-                                                        );
-                                                      })()}
-                                                    </svg>
-                                                  );
-                                                })()}
 
                                                 {/* Horizontal rope at golden zone + Spinning pulley wheel */}
                                                 {!isMobile && isGoldenZone && (() => {

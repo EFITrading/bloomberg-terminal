@@ -1,15 +1,8 @@
 // Industry Analysis Service for Market Regimes
 
-// Helper function to calculate trading days (excluding weekends)
-function calculateTradingDays(targetTradingDays: number): number {
-  // Approximate: 5 trading days per 7 calendar days
-  // Add 40% buffer to account for weekends and ensure we get enough data
-  const calendarDays = Math.ceil(targetTradingDays * 1.4);
-  return Math.max(calendarDays, targetTradingDays + 4); // Ensure minimum buffer
-}
-
-// US Market holidays for 2025 (add more years as needed)
-const US_MARKET_HOLIDAYS_2025 = [
+// US Market holidays (NYSE observed)
+const US_MARKET_HOLIDAYS = new Set([
+  // 2025
   '2025-01-01', // New Year's Day
   '2025-01-20', // MLK Day
   '2025-02-17', // Presidents Day
@@ -20,17 +13,40 @@ const US_MARKET_HOLIDAYS_2025 = [
   '2025-09-01', // Labor Day
   '2025-11-27', // Thanksgiving
   '2025-12-25', // Christmas
-];
+  // 2026
+  '2026-01-01', // New Year's Day
+  '2026-01-19', // MLK Day
+  '2026-02-16', // Presidents Day
+  '2026-04-03', // Good Friday
+  '2026-05-25', // Memorial Day
+  '2026-06-19', // Juneteenth
+  '2026-07-03', // Independence Day (observed, Jul 4 is Saturday)
+  '2026-09-07', // Labor Day
+  '2026-11-26', // Thanksgiving
+  '2026-12-25', // Christmas
+]);
 
 function isMarketOpen(date: Date): boolean {
   const day = date.getDay();
-  // 0 = Sunday, 6 = Saturday
   if (day === 0 || day === 6) return false;
-
   const dateStr = date.toISOString().split('T')[0];
-  if (US_MARKET_HOLIDAYS_2025.includes(dateStr)) return false;
+  return !US_MARKET_HOLIDAYS.has(dateStr);
+}
 
-  return true;
+// Returns calendar days to go back from today to capture targetTradingDays of market data.
+// Adds 2 extra trading days of buffer so today's bar not yet available doesn't cause shortfalls.
+function calculateTradingDays(targetTradingDays: number): number {
+  const needed = targetTradingDays + 2; // +2 buffer: today may be mid-session, plus 1 holiday safety
+  const today = new Date();
+  let found = 0;
+  let calDays = 0;
+  while (found < needed && calDays < 365) {
+    calDays++;
+    const d = new Date(today);
+    d.setDate(today.getDate() - calDays);
+    if (isMarketOpen(d)) found++;
+  }
+  return calDays;
 }
 
 export interface IndustryETF {
@@ -345,12 +361,14 @@ export class IndustryAnalysisService {
             dataMap.set(symbol, data);
           }
           return dataMap;
+        } else {
+          console.warn(`[IndustryAnalysis] Bulk endpoint returned success=false:`, bulkResult.error || bulkResult);
         }
+      } else {
+        console.warn(`[IndustryAnalysis] Bulk endpoint HTTP ${response.status}, falling back to individual requests`);
       }
-
-      console.log(` Bulk endpoint failed, falling back to individual requests`);
     } catch (error) {
-      console.log(` Bulk endpoint error, falling back to individual requests:`, error);
+      console.warn(`[IndustryAnalysis] Bulk endpoint error:`, error, `— falling back to individual requests`);
     }
 
     // Fallback to individual requests if bulk fails
@@ -394,8 +412,6 @@ export class IndustryAnalysisService {
     if (uncachedSymbols.length === 0) {
       return dataMap;
     }
-
-    console.log(` Fetching ${uncachedSymbols.length} uncached symbols in batches...`);
 
     // Create batches
     const batches: string[][] = [];
@@ -676,10 +692,11 @@ export class IndustryAnalysisService {
   // Analyze industry performance for a specific timeframe using bulk data
   static async analyzeTimeframe(days: number, timeframeName: string): Promise<TimeframeAnalysis> {
     // No timeout - let analysis complete naturally
+
     try {
       return await this.performTimeframeAnalysis(days, timeframeName);
     } catch (error) {
-      console.error(` ${timeframeName} analysis failed:`, error);
+      console.error(`[IndustryAnalysis] ${timeframeName} analysis failed:`, error);
       // Return empty analysis instead of hanging
       return {
         timeframe: timeframeName,
@@ -797,6 +814,7 @@ export class IndustryAnalysisService {
 
     const spyData = historicalDataMap.get('SPY');
 
+
     if (!spyData) {
       console.error('Failed to fetch SPY data');
       return {
@@ -910,6 +928,7 @@ export class IndustryAnalysisService {
 
     // Sort by relative performance
     industries.sort((a, b) => b.relativePerformance - a.relativePerformance);
+
 
     return {
       timeframe: timeframeName,
